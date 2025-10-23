@@ -143,7 +143,8 @@ Thumbs.db
 
 # Project specific
 logs/
-data/
+/data/
+!/*/data/
 frontend/node_modules/
 config/local_*.json
 *.pid
