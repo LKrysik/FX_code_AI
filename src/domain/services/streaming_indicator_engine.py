@@ -3541,8 +3541,16 @@ class StreamingIndicatorEngine:
         return float(timestamp)
 
     def _get_price_series_for_window(self, indicator: StreamingIndicator, t1: float, t2: float):
-        """Return list of (ts, price) within [now - t1, now - t2] inclusive.
-        Uses validated time window semantics.
+        """
+        Return list of (ts, price) for TWPA calculation.
+
+        CRITICAL: TWPA requires one transaction BEFORE the window to calculate
+        the duration of the first price in the window.
+
+        Returns:
+            - window: List of (timestamp, price) tuples including one point before start_ts
+            - start_ts: Window start timestamp
+            - end_ts: Window end timestamp
         """
         # ✅ PHASE 1 FIX: Validate time window semantics
         t1, t2 = self._validate_time_window_semantics(t1, t2, indicator.metadata.get("type", "UNKNOWN"))
@@ -3556,10 +3564,21 @@ class StreamingIndicatorEngine:
             start_ts = current_time - float(t1)
             end_ts = current_time - float(t2)
             return [], start_ts, end_ts
+
         # Determine reference 'now' as last seen timestamp in series
         now_ts = self._normalize_timestamp(series[-1].get("timestamp") or time.time())
         start_ts = now_ts - float(t1)
         end_ts = now_ts - float(t2)
+
+        # ✅ TWPA FIX: Find the last transaction BEFORE the window
+        pre_window_point = None
+        for s in series:
+            ts = self._normalize_timestamp(s.get("timestamp"))
+            if s.get("timestamp") is not None and ts < start_ts:
+                # Keep updating to get the LAST point before window
+                pre_window_point = (ts, float(s.get("price", 0.0)))
+
+        # Get all points WITHIN the window [start_ts, end_ts]
         window = [
             (
                 self._normalize_timestamp(s.get("timestamp")),
@@ -3569,7 +3588,18 @@ class StreamingIndicatorEngine:
             if s.get("timestamp") is not None
             and start_ts <= self._normalize_timestamp(s["timestamp"]) <= end_ts
         ]
-        # Ensure ascending by timestamp
+
+        # ✅ TWPA FIX: ALWAYS include the pre-window point at the beginning
+        # This is REQUIRED by TWPA algorithm to calculate duration of first price
+        if pre_window_point:
+            window.insert(0, pre_window_point)
+        elif not window:
+            # Edge case: No points in window, but we need the last known price before window
+            # TWPA will use this price for the entire window duration
+            if pre_window_point:
+                window = [pre_window_point]
+
+        # Ensure ascending by timestamp (should already be sorted, but ensure it)
         window.sort(key=lambda x: x[0])
         return window, start_ts, end_ts
 
@@ -3695,21 +3725,21 @@ class StreamingIndicatorEngine:
         return value
 
     def _calculate_windowed_price_aggregates(self, indicator: StreamingIndicator, typ: str, params: dict) -> Optional[float]:
+        """
+        Calculate simple windowed price aggregates.
+
+        Supports: FIRST_PRICE, LAST_PRICE, MAX_PRICE, MIN_PRICE
+        Note: TWPA is now handled by algorithm registry (see _calculate_twpa)
+        """
         t1 = float(params.get("t1", 60))
         t2 = float(params.get("t2", 0))
         window, start_ts, end_ts = self._get_price_series_for_window(indicator, t1, t2)
         if not window:
             return None
-        
-        # TWPA should use algorithm registry - this is legacy path
-        if typ == "TWPA":
-            self.logger.warning("streaming_indicator_engine.twpa_legacy_path", {
-                "symbol": indicator.symbol,
-                "message": "TWPA should use algorithm registry instead"
-            })
-            return self._calc_twpa(window, start_ts, end_ts)
-        
+
+        # Extract prices from window (ignore timestamps)
         vals = [p for _, p in window]
+
         if typ == "FIRST_PRICE":
             return vals[0]
         if typ == "LAST_PRICE":
@@ -3718,80 +3748,16 @@ class StreamingIndicatorEngine:
             return max(vals)
         if typ == "MIN_PRICE":
             return min(vals)
+
+        # Unknown type
+        self.logger.warning("streaming_indicator_engine.unknown_windowed_aggregate", {
+            "typ": typ,
+            "symbol": indicator.symbol
+        })
         return None
 
-    def _calculate_twpa_ratio(self, indicator: StreamingIndicator, params: dict) -> Optional[float]:
-        """
-        Calculate TWPA Ratio: TWPA(t1,t2) / TWPA(t3,t4)
-        
-        NEW METHOD: Supports the TWPA_RATIO algorithm for comparing price trends.
-        """
-        try:
-            # Extract parameters
-            t1 = float(params.get("t1", 300.0))   # First window start
-            t2 = float(params.get("t2", 60.0))    # First window end  
-            t3 = float(params.get("t3", 1800.0))  # Second window start
-            t4 = float(params.get("t4", 300.0))   # Second window end
-            min_denominator = float(params.get("min_denominator", 0.001))
-            
-            # Get both time windows
-            window1, start1, end1 = self._get_price_series_for_window(indicator, t1, t2)
-            window2, start2, end2 = self._get_price_series_for_window(indicator, t3, t4)
-            
-            if not window1 or not window2:
-                self.logger.debug("streaming_indicator_engine.twpa_ratio_insufficient_data", {
-                    "symbol": indicator.symbol,
-                    "window1_size": len(window1) if window1 else 0,
-                    "window2_size": len(window2) if window2 else 0
-                })
-                return None
-            
-            # Calculate both TWPA values
-            self.logger.warning("streaming_indicator_engine.deprecated_twpa_ratio_method", {
-                "symbol": indicator.symbol,
-                "message": "Legacy method deprecated - use algorithm registry instead"
-            })
-            return None
-            
-            if twpa1 is None or twpa2 is None:
-                self.logger.debug("streaming_indicator_engine.twpa_ratio_calculation_failed", {
-                    "symbol": indicator.symbol,
-                    "twpa1": twpa1,
-                    "twpa2": twpa2
-                })
-                return None
-            
-            # Avoid division by zero
-            if abs(twpa2) < min_denominator:
-                self.logger.debug("streaming_indicator_engine.twpa_ratio_division_by_zero", {
-                    "symbol": indicator.symbol,
-                    "twpa2": twpa2,
-                    "min_denominator": min_denominator
-                })
-                return None
-            
-            ratio = twpa1 / twpa2
-            
-            self.logger.debug("streaming_indicator_engine.twpa_ratio_calculated", {
-                "symbol": indicator.symbol,
-                "twpa1": twpa1,
-                "twpa2": twpa2,
-                "ratio": ratio,
-                "windows": {
-                    "w1": f"t1={t1}, t2={t2}",
-                    "w2": f"t3={t3}, t4={t4}"
-                }
-            })
-            
-            return ratio
-            
-        except Exception as e:
-            self.logger.error("streaming_indicator_engine.twpa_ratio_error", {
-                "symbol": indicator.symbol,
-                "error": str(e),
-                "error_type": type(e).__name__
-            })
-            return None
+    # REMOVED: _calculate_twpa_ratio() - deprecated legacy method
+    # TWPA_RATIO is now handled by TWPARatioAlgorithm in algorithm registry
 
     def _calculate_velocity(self, indicator: StreamingIndicator, params: dict) -> Optional[float]:
         current = params.get("current_window", {})
@@ -4839,15 +4805,29 @@ class StreamingIndicatorEngine:
             ]
         }
     
-    # ✅ UPDATED CALCULATION FUNCTIONS - Delegating to shared helpers
+    # ✅ UPDATED CALCULATION FUNCTIONS - Using algorithm registry
     def _calculate_twpa(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """Calculate TWPA via shared windowed price aggregate helper."""
+        """
+        Calculate TWPA using algorithm registry.
+
+        Uses TWPAAlgorithm from algorithm registry for consistent calculation.
+        """
+        from .indicators.twpa import twpa_algorithm
+        from .indicators.base_algorithm import IndicatorParameters
+
         metadata = indicator.metadata or {}
-        params = {
-            "t1": float(metadata.get("t1", calculation_params.get("t1", 300.0))),
-            "t2": float(metadata.get("t2", calculation_params.get("t2", 0.0))),
-        }
-        return self._calculate_windowed_price_aggregates(indicator, "TWPA", params)
+        t1 = float(metadata.get("t1", calculation_params.get("t1", 300.0)))
+        t2 = float(metadata.get("t2", calculation_params.get("t2", 0.0)))
+
+        # Get data window with pre-window point (required by TWPA)
+        window, start_ts, end_ts = self._get_price_series_for_window(indicator, t1, t2)
+
+        if not window:
+            return None
+
+        # Use algorithm registry for calculation (single source of truth)
+        params = IndicatorParameters({"t1": t1, "t2": t2})
+        return twpa_algorithm.calculate(window, start_ts, end_ts, params)
         
     def _calculate_vwap(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
         """Calculate VWAP via shared windowed deal aggregate helper."""

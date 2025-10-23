@@ -568,61 +568,59 @@ class IndicatorCalculator:
                              t2: float = 0.0) -> Optional[float]:
         """
         Unified Time-Weighted Price Average calculation.
-        
-        Consolidates TWPA logic from all three indicator engines.
-        
+
+        This method delegates to TWPAAlgorithm for consistent calculation across all engines.
+
         Args:
             data_points: List of MarketDataPoint objects sorted by timestamp
             current_timestamp: Current time reference
             t1: Time window start (seconds back from current)
             t2: Time window end (seconds back from current, default 0)
-            
+
         Returns:
             TWPA value or None if insufficient data
         """
-        if not data_points or len(data_points) < 2:
+        if not data_points:
             return None
-            
+
+        # Import TWPAAlgorithm
+        try:
+            from ..services.indicators.twpa import twpa_algorithm
+        except ImportError:
+            # Fallback if import fails (shouldn't happen in production)
+            return None
+
         # Define time window
         window_start = current_timestamp - t1
         window_end = current_timestamp - t2
-        
-        # Filter points within window
-        relevant_points = [
-            point for point in data_points
+
+        # Find the last transaction BEFORE the window (REQUIRED by TWPA)
+        pre_window_point = None
+        for point in data_points:
+            if point.timestamp < window_start:
+                pre_window_point = (point.timestamp, point.price)
+            else:
+                break  # Points are sorted, so we can stop
+
+        # Get all points WITHIN the window
+        window_points = [
+            (point.timestamp, point.price)
+            for point in data_points
             if window_start <= point.timestamp <= window_end
         ]
-        
-        if len(relevant_points) < 2:
+
+        # ALWAYS include pre-window point if it exists
+        if pre_window_point:
+            window_points.insert(0, pre_window_point)
+        elif not window_points and pre_window_point:
+            # No points in window, but we have a point before
+            window_points = [pre_window_point]
+
+        if not window_points:
             return None
-            
-        # Sort by timestamp to ensure proper ordering
-        relevant_points.sort(key=lambda x: x.timestamp)
-        
-        # Calculate time-weighted average
-        total_weighted_price = 0.0
-        total_time = 0.0
-        
-        for i in range(len(relevant_points) - 1):
-            current_point = relevant_points[i]
-            next_point = relevant_points[i + 1]
-            
-            # Time duration for this price level
-            time_duration = next_point.timestamp - current_point.timestamp
-            
-            # Weight the price by time duration
-            weighted_price = current_point.price * time_duration
-            total_weighted_price += weighted_price
-            total_time += time_duration
-            
-        # Include the last point weighted to window end
-        last_point = relevant_points[-1]
-        final_duration = window_end - last_point.timestamp
-        if final_duration > 0:
-            total_weighted_price += last_point.price * final_duration
-            total_time += final_duration
-            
-        return total_weighted_price / total_time if total_time > 0 else None
+
+        # Delegate to TWPAAlgorithm for calculation (single source of truth)
+        return twpa_algorithm._compute_twpa(window_points, window_start, window_end)
 
     @staticmethod
     def calculate_vwap_unified(data_points: List[MarketDataPoint],
