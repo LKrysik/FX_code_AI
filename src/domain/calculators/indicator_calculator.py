@@ -537,23 +537,6 @@ class IndicatorCalculator:
             return IndicatorCalculator.calculate_windowed_aggregate(
                 data_points, current_timestamp, indicator_type, t1, t2
             )
-        elif indicator_type == "TWPA_RATIO":
-            t3 = float(parameters.get('t3', 1800.0))
-            t4 = float(parameters.get('t4', 300.0))
-            min_denominator = float(parameters.get('min_denominator', 0.001))
-
-            numerator = IndicatorCalculator.calculate_twpa_unified(
-                data_points, current_timestamp, t1, t2
-            )
-            denominator = IndicatorCalculator.calculate_twpa_unified(
-                data_points, current_timestamp, t3, t4
-            )
-
-            if numerator is None or denominator is None:
-                return None
-            if abs(denominator) < min_denominator:
-                return None
-            return numerator / denominator
         else:
             # For legacy indicators, convert to simple price/timestamp lists
             prices = [point.price for point in data_points]

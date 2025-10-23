@@ -14,7 +14,6 @@ import json
 from ..interfaces.indicator_engine import IIndicatorEngine, EngineMode
 from ..calculators.indicator_calculator import IndicatorCalculator
 from ..services.streaming_indicator_engine import IndicatorType
-from ..services.indicators.algorithm_registry import IndicatorAlgorithmRegistry
 from ..types.indicator_types import MarketDataPoint, IndicatorValue
 from ..utils import TimeAxisGenerator, TimeAxisBounds
 from src.core.logger import get_logger
@@ -43,7 +42,6 @@ class OfflineIndicatorEngine(IIndicatorEngine):
         self._indicators: Dict[str, Dict[str, Any]] = {}
         self._calculated_values: Dict[str, List[IndicatorValue]] = {}
         self._data_cache: Dict[str, List[MarketDataPoint]] = {}
-        self._algorithm_registry = IndicatorAlgorithmRegistry()
     
     @property
     def mode(self) -> EngineMode:
@@ -275,39 +273,6 @@ class OfflineIndicatorEngine(IIndicatorEngine):
             return timestamp / 1000.0
         return timestamp
 
-    def _resolve_refresh_interval(self, indicator_type: str, params: Dict[str, Any]) -> float:
-        """
-        Determine refresh cadence for offline calculations using the shared algorithm registry.
-        """
-        interval: Optional[float] = None
-
-        try:
-            interval = self._algorithm_registry.calculate_refresh_interval(indicator_type, params)
-        except Exception as exc:
-            self.logger.warning(
-                "offline_indicator_engine.refresh_interval_algorithm_failed",
-                {"indicator_type": indicator_type, "error": str(exc)},
-            )
-
-        if interval is None:
-            for key in ("refresh_interval_seconds", "refresh_interval_override", "r"):
-                value = params.get(key)
-                if value is None:
-                    continue
-                try:
-                    interval = float(value)
-                    break
-                except (TypeError, ValueError):
-                    self.logger.warning(
-                        "offline_indicator_engine.refresh_interval_invalid_override",
-                        {"indicator_type": indicator_type, "param": key, "value": value},
-                    )
-
-        if interval is None:
-            interval = 1.0
-
-        return max(0.1, float(interval))
-
     def _calculate_indicator_series(
         self,
         symbol: str,
@@ -328,8 +293,12 @@ class OfflineIndicatorEngine(IIndicatorEngine):
         end_ts = sorted_points[-1].timestamp
 
         params_copy = dict(params or {})
-        refresh_interval = self._resolve_refresh_interval(indicator_type.value, params_copy)
-        params_copy["refresh_interval_seconds"] = refresh_interval
+        refresh_interval = float(
+            params_copy.get("refresh_interval_seconds")
+            or params_copy.get("refresh_interval_override")
+            or 1.0
+        )
+
         bounds = TimeAxisBounds(start=start_ts, end=end_ts, interval=refresh_interval)
         time_axis = list(TimeAxisGenerator.generate(bounds))
 
@@ -358,7 +327,6 @@ class OfflineIndicatorEngine(IIndicatorEngine):
                     metadata={
                         "timeframe": timeframe,
                         "params": dict(params_copy),
-                        "refresh_interval_seconds": refresh_interval,
                     },
                 )
             )
