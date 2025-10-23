@@ -1,0 +1,1 @@
+"""Shared indicator algorithm modules."""

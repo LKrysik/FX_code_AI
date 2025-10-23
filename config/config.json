@@ -1,0 +1,120 @@
+{
+  "_comment": "MAIN CONFIGURATION FILE - Single Source of Truth for the entire application",
+  "_note": "This file is loaded by config_loader.py and mapped to AppSettings. Do NOT create additional config files.",
+  "version": "4.0",
+  "exchanges": {
+    "mexc": {
+      "enabled": true,
+      "ws_url": "wss://wbs.mexc.com/ws",
+      "futures_ws_url": "wss://contract.mexc.com/edge",
+      "ping_interval_s": 15,
+      "max_reconnect_attempts": 10,
+      "api_key": "${MEXC_API_KEY}",
+      "api_secret": "${MEXC_API_SECRET}",
+      "testnet": false,
+      "futures_api_url": "https://contract.mexc.com",
+      "max_leverage": 3,
+      "default_leverage": 2,
+      "max_connections": 3,
+      "max_subscriptions_per_connection": 25
+    },
+    "bybit": {
+      "enabled": false,
+      "ws_url": "wss://stream.bybit.com/v5/public/spot",
+      "futures_ws_url": "wss://stream.bybit.com/v5/public/linear",
+      "ping_interval_s": 20,
+      "max_reconnect_attempts": 10,
+      "api_key": "${BYBIT_API_KEY}",
+      "api_secret": "${BYBIT_API_SECRET}",
+      "testnet": false,
+      "futures_api_url": "https://api.bybit.com",
+      "max_leverage": 3,
+      "default_leverage": 2,
+      "max_connections": 5,
+      "max_subscriptions_per_connection": 30
+    }
+  },
+  "notifications": {
+    "telegram_main": {
+      "type": "telegram",
+      "enabled": true,
+      "name": "Main Telegram Alerts",
+      "bot_token": "8075549610:AAEa4ip2m_Wk4vWAGtOe6od7POl6NsKtkjE",
+      "chat_id": "1813980275"
+    },
+    "email_alerts": {
+      "type": "email",
+      "enabled": false,
+      "name": "Email Alerts",
+      "smtp_server": "${SMTP_SERVER}",
+      "smtp_port": 587,
+      "username": "${EMAIL_USERNAME}",
+      "password": "${EMAIL_PASSWORD}",
+      "from_email": "${FROM_EMAIL}",
+      "to_emails": ["${TO_EMAIL}"]
+    }
+  },
+  "logging": {
+    "level": "INFO",
+    "format": "json",
+    "file": "logs/crypto_monitor.jsonl",
+    "max_file_size_mb": 50,
+    "backup_count": 7
+  },
+  "data_collection": {
+    "enabled": true,
+    "output_directory": "data/{symbol}/data_{timestamp}",
+    "buffer_size": 100,
+    "flush_interval_s": 5,
+    "compression": true,
+    "retention_days": 30
+  },
+  "trading": {
+    "enabled": true,
+    "mode": "collect",
+    "default_symbols": [
+      "AEVO_USDT", "AIBOT_USDT", "AIOT_USDT", "ALU_USDT", "ARIA_USDT", 
+      "BLOCK_USDT", "BLUM_USDT", "BOSS_USDT", "BTR_USDT", "CAMP_USDT", 
+      "CLIPPY_USDT", "CSKY_USDT", "CYC_USDT", "DONKEY_USDT", "DORA_USDT", 
+      "DUPE_USDT", "FARTBOY_USDT", "GAIA_USDT", "HEI_USDT", "HOME_USDT", 
+      "IKA_USDT", "LIVE_USDT", "MAT_USDT", "MORI_USDT", "PLAY_USDT", 
+      "RWA_USDT", "SERAPH_USDT", "SLAY_USDT", "SPARK_USDT", "STARTUP_USDT", 
+      "TAKE_USDT", "UNITE_USDT", "W_USDT", "WAI_USDT", "X_USDT", 
+      "XAI_USDT", "XCH_USDT", "XCX_USDT", "XNY_USDT"
+    ],
+    "use_filtered_signals": true,
+    "paper_trading": {
+      "initial_balance_usdt": 10000,
+      "track_fees": true,
+      "maker_fee_pct": 0.02,
+      "taker_fee_pct": 0.06,
+      "slippage_pct": 0.1
+    },
+    "performance_tracking": {
+      "enabled": true,
+      "auto_optimization": false,
+      "report_frequency": "hourly",
+      "min_trades_for_optimization": 20
+    }
+  },
+  "backtest": {
+    "enabled": true,
+    "data_directory": "data",
+    "results_directory": "backtest_results",
+    "time_scale_factor": 10,
+    "parallel_processing": true,
+    "max_workers": 4
+  },
+  "performance_monitoring": {
+    "latency_threshold_ms": 100,
+    "cleanup_interval_seconds": 300,
+    "session_ttl_hours": 24,
+    "max_latency_measurements": 1000
+  },
+  "websocket": {
+    "progress_update_interval_seconds": 1.0,
+    "max_broadcast_queue_size": 5000,
+    "batch_flush_interval_seconds": 0.1,
+    "max_batch_size": 50
+  }
+}

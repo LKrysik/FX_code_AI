@@ -1,0 +1,2 @@
+Zawsze testuj wprowadzone zmiany. Uruchamiaj testy i kod bez pytania się. Masz zgodę na samodzielne uruchamianie kodu i testów. 
+Jeżeli test zakończy się błędem to poprawiaj kod a po porawie testuj jeszcze raz. 
