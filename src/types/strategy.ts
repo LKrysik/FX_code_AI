@@ -1,0 +1,149 @@
+// 5-Section Strategy Types for user_feedback.md implementation
+
+export interface Condition {
+  id: string;
+  indicatorId: string;
+  operator: '>' | '<' | '>=' | '<=';
+  value: number;
+}
+
+export interface OrderConfig {
+  priceIndicatorId?: string;
+  timeoutSeconds?: number; // SPRINT_GOAL_04: Z1 timeout functionality
+  stopLoss?: {
+    enabled: boolean;
+    indicatorId?: string;
+    offsetPercent: number;
+    calculationMode?: 'ABSOLUTE' | 'RELATIVE_TO_ENTRY'; // For SHORT positions
+    riskScaling?: { // SPRINT_GOAL_04: Risk scaling for SL
+      enabled: boolean;
+      riskIndicatorId?: string;
+      lowRiskThreshold: number;
+      lowRiskScale: number;
+      highRiskThreshold: number;
+      highRiskScale: number;
+    };
+  };
+  takeProfit?: {
+    enabled: boolean;
+    indicatorId?: string;
+    offsetPercent: number;
+    calculationMode?: 'ABSOLUTE' | 'RELATIVE_TO_ENTRY'; // For SHORT positions
+    riskScaling?: { // SPRINT_GOAL_04: Risk scaling for TP
+      enabled: boolean;
+      riskIndicatorId?: string;
+      lowRiskThreshold: number;
+      lowRiskScale: number;
+      highRiskThreshold: number;
+      highRiskScale: number;
+    };
+  };
+  positionSize: {
+    type: 'fixed' | 'percentage';
+    value: number;
+    riskScaling?: { // SPRINT_GOAL_04: Risk scaling for position size
+      enabled: boolean;
+      riskIndicatorId?: string;
+      lowRiskThreshold: number;
+      lowRiskScale: number;
+      highRiskThreshold: number;
+      highRiskScale: number;
+    };
+  };
+  riskAdjustment?: {
+    enabled: boolean;
+    indicatorId: string;
+    minRiskPercent: number;
+    maxRiskPercent: number;
+    scalingPoints: Array<{
+      riskValue: number;
+      positionSizePercent: number;
+    }>;
+  };
+}
+
+export interface CloseOrderConfig {
+  priceIndicatorId?: string;
+  riskAdjustedPricing?: { // SPRINT_GOAL_04: Risk-adjusted close pricing for ZE1
+    enabled: boolean;
+    riskIndicatorId?: string;
+    lowRiskThreshold: number;
+    lowRiskAdjustment: number;
+    highRiskThreshold: number;
+    highRiskAdjustment: number;
+  };
+  riskAdjustment?: {
+    enabled: boolean;
+    indicatorId: string;
+    minRiskPercent: number;
+    maxRiskPercent: number;
+    scalingPoints: Array<{
+      riskValue: number;
+      priceAdjustmentPercent: number;
+    }>;
+  };
+}
+
+export interface CancellationConfig {
+  timeoutSeconds: number;
+  conditions: Condition[];
+  cooldownMinutes: number; // SPRINT_GOAL_04: O1 cooldown functionality
+}
+
+export interface EmergencyConfig {
+  conditions: Condition[];
+  cooldownMinutes: number;
+  actions: {
+    cancelPending: boolean;
+    closePosition: boolean;
+    logEvent: boolean;
+  };
+}
+
+export interface Strategy5Section {
+  id?: string;
+  name: string;
+  s1_signal: {
+    conditions: Condition[];
+  };
+  z1_entry: {
+    conditions: Condition[];
+  } & OrderConfig;
+  o1_cancel: CancellationConfig;
+  ze1_close: {
+    conditions: Condition[];
+  } & CloseOrderConfig;
+  emergency_exit: EmergencyConfig;
+  // SPRINT_GOAL_04: Section 4 (ZE1) is now optional
+  ze1_enabled?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+// Legacy alias for backward compatibility
+export interface Strategy4Section extends Strategy5Section {}
+
+export interface IndicatorVariant {
+  id: string;
+  name: string;
+  baseType: string;
+  parameters: Record<string, any>;
+  type: 'general' | 'risk' | 'stop_loss_price' | 'take_profit_price' | 'order_price' | 'close_price';
+  description: string;
+  isActive: boolean;
+  lastValue?: number;
+  lastUpdate?: string;
+}
+
+export interface StrategyValidationResult {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+  sectionErrors: {
+    s1?: string[];
+    z1?: string[];
+    o1?: string[];
+    ze1?: string[];
+    emergency?: string[];
+  };
+}

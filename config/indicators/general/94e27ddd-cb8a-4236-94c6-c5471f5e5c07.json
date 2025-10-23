@@ -1,0 +1,19 @@
+{
+  "id": "94e27ddd-cb8a-4236-94c6-c5471f5e5c07",
+  "name": "TWPA Ratio Test Refactoring",
+  "base_indicator_type": "TWPA_RATIO",
+  "variant_type": "general",
+  "description": "Test TWPA Ratio after architectural unification",
+  "parameters": {
+    "t1": 300.0,
+    "t2": 60.0,
+    "t3": 1800.0,
+    "t4": 300.0,
+    "r": 30.0,
+    "min_denominator": 0.001
+  },
+  "is_system": false,
+  "created_by": "api_user",
+  "created_at": 1761166433.3916674,
+  "updated_at": 1761166433.3916676
+}
