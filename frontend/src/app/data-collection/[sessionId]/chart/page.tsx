@@ -552,11 +552,14 @@ export default function ChartPage() {
     
         // Format data for Recharts
         const formattedData = data.map((point, index) => {
+          // Convert Unix timestamp (seconds) to JavaScript timestamp (milliseconds)
+          const timestampMs = point.timestamp * 1000;
+
           const formattedPoint: any = {
             index,
-            timestamp: point.timestamp,
-            timeStr: new Date(point.timestamp).toLocaleTimeString(),
-            dateTimeStr: new Date(point.timestamp).toLocaleString(),
+            timestamp: timestampMs,
+            timeStr: new Date(timestampMs).toLocaleTimeString(),
+            dateTimeStr: new Date(timestampMs).toLocaleString(),
             price: point.price,
             volume: point.volume || 0,
             highestBid: point.bid_prices ? Math.max(...point.bid_prices) : null,
@@ -583,7 +586,8 @@ export default function ChartPage() {
             // DEBUG: Show timestamp mapping for first few points
             if (index < 3) {
               console.log(`[DEBUG] Point ${index} timestamp mapping for ${field}:`);
-              console.log(`  - Chart timestamp: ${point.timestamp} (${new Date(point.timestamp).toISOString()})`);
+              console.log(`  - Chart timestamp (original): ${point.timestamp} seconds`);
+              console.log(`  - Chart timestamp (converted): ${timestampMs} ms (${new Date(timestampMs).toISOString()})`);
               console.log(`  - Normalized key: ${historyKey}`);
               console.log(`  - Available history keys sample:`, Object.keys(historyMap).slice(0, 10));
               console.log(`  - History value for key ${historyKey}:`, historyMap[historyKey]);
@@ -637,9 +641,10 @@ export default function ChartPage() {
         if (formattedData.length > 0) {
           console.log('Sample processed point:', formattedData[0]);
           console.log('[DEBUG] Chart data timestamps (first 3):', data.slice(0, 3).map(p => ({
-            original: p.timestamp,
+            original_seconds: p.timestamp,
+            converted_ms: p.timestamp * 1000,
             normalized: normalizeTimestampKey(p.timestamp),
-            date: new Date(p.timestamp).toISOString()
+            date: new Date(p.timestamp * 1000).toISOString()
           })));
         }
         
