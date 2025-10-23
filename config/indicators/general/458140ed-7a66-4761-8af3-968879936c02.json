@@ -1,0 +1,19 @@
+{
+  "id": "458140ed-7a66-4761-8af3-968879936c02",
+  "name": "TWPA Ratio Custom222",
+  "base_indicator_type": "TWPA_RATIO",
+  "variant_type": "general",
+  "description": "Custom variant of TWPA Ratio",
+  "parameters": {
+    "t1": 300.0,
+    "t2": 60.0,
+    "t3": 1800.0,
+    "t4": 300.0,
+    "r": 2.0,
+    "min_denominator": 0.02
+  },
+  "is_system": false,
+  "created_by": "api_user",
+  "created_at": 1761243771.4940808,
+  "updated_at": 1761243771.4940808
+}
