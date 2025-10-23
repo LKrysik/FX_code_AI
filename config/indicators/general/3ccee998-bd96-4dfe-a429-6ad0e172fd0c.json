@@ -1,0 +1,16 @@
+{
+  "id": "3ccee998-bd96-4dfe-a429-6ad0e172fd0c",
+  "name": "TWPA Custom Test",
+  "base_indicator_type": "TWPA",
+  "variant_type": "general",
+  "description": "Custom TWPA variant to verify existing functionality still works",
+  "parameters": {
+    "t1": 600.0,
+    "t2": 0.0,
+    "refresh_interval_seconds": 30.0
+  },
+  "is_system": false,
+  "created_by": "api_user",
+  "created_at": 1761164179.304954,
+  "updated_at": 1761164179.3049543
+}
