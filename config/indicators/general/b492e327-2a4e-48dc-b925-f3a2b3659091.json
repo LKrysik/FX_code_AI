@@ -1,0 +1,16 @@
+{
+  "id": "b492e327-2a4e-48dc-b925-f3a2b3659091",
+  "name": "Time Weighted Price Average Custom 300",
+  "base_indicator_type": "TWPA",
+  "variant_type": "general",
+  "description": "Custom variant of Time Weighted Price Average",
+  "parameters": {
+    "t1": 300.0,
+    "t2": 222.0,
+    "refresh_interval_seconds": 1.0
+  },
+  "is_system": false,
+  "created_by": "api_user",
+  "created_at": 1761243749.3662007,
+  "updated_at": 1761243749.366201
+}
