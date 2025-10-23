@@ -155,14 +155,42 @@ class TWPAAlgorithm(IndicatorAlgorithm):
         """
         Compute the time-weighted average price over the inclusive window [start_ts, end_ts].
 
+        CRITICAL REQUIREMENT: window_points MUST include one transaction before start_ts.
+        This is required to calculate the duration of the first price in the window.
+
+        Algorithm:
+        1. For each price point, calculate how long that price was valid in the window
+        2. Weight each price by its duration
+        3. Return weighted average
+
+        Example:
+            Data: [(50, 1.00), (110, 2.00), (130, 3.00)]
+            Window: [100, 120]
+
+            Point 50 (before window):
+                - Valid from max(50, 100) = 100 to min(110, 120) = 110
+                - Duration: 10s, Price: 1.00
+
+            Point 110 (in window):
+                - Valid from max(110, 100) = 110 to 120 (end)
+                - Duration: 10s, Price: 2.00
+
+            TWPA = (1.00*10 + 2.00*10) / 20 = 1.50
+
         Parameters
         ----------
         window_points:
             Iterable of (timestamp, price) tuples sorted in ascending timestamp order.
+            MUST include at least one point before start_ts (if such point exists).
         start_ts:
             Inclusive start of the evaluation range (epoch seconds).
         end_ts:
             Inclusive end of the evaluation range (epoch seconds).
+
+        Returns
+        -------
+        float or None:
+            Time-weighted average price, or None if insufficient data.
         """
         if not window_points:
             return None
@@ -171,15 +199,22 @@ class TWPAAlgorithm(IndicatorAlgorithm):
         total_weight = 0.0
 
         for idx, (timestamp, price) in enumerate(window_points):
+            # Clip timestamp to window start (handles pre-window point)
             ts_i = max(timestamp, start_ts)
+
+            # Determine when this price stops being valid
             if idx == len(window_points) - 1:
+                # Last point: valid until end of window
                 ts_next = end_ts
             else:
+                # Middle point: valid until next price or end of window
                 ts_next = min(window_points[idx + 1][0], end_ts)
 
+            # Skip if this point doesn't contribute to the window
             if ts_next <= ts_i:
                 continue
 
+            # Calculate time-weighted contribution
             duration = ts_next - ts_i
             total_weight += duration
             weighted_sum += price * duration
