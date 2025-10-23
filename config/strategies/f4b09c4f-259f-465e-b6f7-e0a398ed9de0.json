@@ -1,0 +1,37 @@
+{
+  "id": "f4b09c4f-259f-465e-b6f7-e0a398ed9de0",
+  "strategy_name": "hviuhyvujhvjlh",
+  "enabled": true,
+  "s1_signal": {
+    "conditions": []
+  },
+  "z1_entry": {
+    "conditions": [],
+    "positionSize": {
+      "type": "percentage",
+      "value": 1
+    },
+    "timeoutSeconds": 0
+  },
+  "o1_cancel": {
+    "timeoutSeconds": 300,
+    "conditions": [],
+    "cooldownMinutes": 5
+  },
+  "ze1_close": {
+    "conditions": []
+  },
+  "emergency_exit": {
+    "conditions": [],
+    "cooldownMinutes": 60,
+    "actions": {
+      "cancelPending": true,
+      "closePosition": true,
+      "logEvent": true
+    }
+  },
+  "created_at": "2025-10-04T21:34:43.535334",
+  "updated_at": "2025-10-04T21:34:43.535335",
+  "created_by": "admin_user",
+  "version": "1.0"
+}

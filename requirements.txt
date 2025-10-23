@@ -1,0 +1,17 @@
+asyncio
+aiohttp
+aiofiles
+websockets
+pandas
+pydantic
+pydantic-settings
+python-dotenv
+plotly
+protobuf
+dash
+psutil
+fastapi
+uvicorn
+PyYAML
+PyJWT
+redis

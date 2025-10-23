@@ -1,0 +1,171 @@
+import json
+import logging
+import os
+import sys
+from logging.handlers import RotatingFileHandler
+from datetime import datetime, timezone
+from typing import Dict, Any, Union, TYPE_CHECKING
+from pathlib import Path
+from decimal import Decimal
+
+if TYPE_CHECKING:
+    from .config import LoggingConfig
+    from ..infrastructure.config.settings import LoggingSettings
+
+
+# --- Custom JSON Formatter ---
+
+class CustomJsonEncoder(json.JSONEncoder):
+    """Custom JSON encoder to handle non-serializable types like Decimal and Enum."""
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return str(obj)
+        if hasattr(obj, 'name') and hasattr(obj, 'value'): # Check for Enum-like objects
+            return obj.name # Return the name of the enum member
+        if isinstance(obj, type): # Handle class types if they end up here
+            return obj.__name__
+        return super().default(obj)
+
+
+class JsonFormatter(logging.Formatter):
+    """Formats log records into a JSON string."""
+
+    def _sanitize_dict(self, d: dict) -> dict:
+        """Recursively sanitize dictionary keys and values."""
+        sanitized = {}
+        for k, v in d.items():
+            # Ensure key is a string
+            str_key = str(k)
+            if isinstance(v, dict):
+                sanitized[str_key] = self._sanitize_dict(v)
+            elif isinstance(v, (list, tuple)):
+                sanitized[str_key] = [self._sanitize_dict(item) if isinstance(item, dict) else item for item in v]
+            else:
+                sanitized[str_key] = v
+        return sanitized
+
+    def format(self, record: logging.LogRecord) -> str:
+        if isinstance(record.msg, dict):
+            message_dict = self._sanitize_dict(record.msg)
+        else:
+            message_dict = {"message": record.getMessage()}
+
+        log_object = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "level": record.levelname,
+            "module": record.module,
+            "funcName": record.funcName,
+            "lineno": record.lineno,
+            **message_dict,
+        }
+        
+        return json.dumps(log_object, cls=CustomJsonEncoder)
+
+
+class StructuredLogger:
+    def __init__(self, name: str, config: Any, filename: str = None):
+        self.logger = logging.getLogger(name)
+        self.logger.setLevel(getattr(logging, config.level.upper(), logging.INFO))
+        self.logger.propagate = False
+
+        # Always setup handlers for this logger instance
+        # Unified config extraction with defaults
+        console_enabled = getattr(config, 'console_enabled', True)
+        file_enabled = getattr(config, 'file_enabled', bool(getattr(config, 'file', None)))
+        structured_logging = getattr(config, 'structured_logging', True)
+        max_file_size_mb = getattr(config, 'max_file_size_mb', 100)
+        backup_count = getattr(config, 'backup_count', 5)
+
+        # Determine log file path
+        if filename:
+            # Explicit filename provided
+            log_dir = getattr(config, 'log_dir', 'logs')
+            log_file = str(Path(log_dir) / filename)
+        elif hasattr(config, 'file') and config.file:
+            # Legacy: direct file path
+            log_file = config.file
+        elif file_enabled:
+            # New: computed from log_dir
+            log_dir = getattr(config, 'log_dir', 'logs')
+            log_file = str(Path(log_dir) / f"{name}.jsonl")
+        else:
+            log_file = None
+
+        # Setup handlers
+        self._setup_console_handler(console_enabled, structured_logging)
+        self._setup_file_handler(file_enabled, log_file, max_file_size_mb, backup_count, structured_logging)
+    
+    def _setup_console_handler(self, enabled: bool, structured: bool):
+        """Setup console handler with appropriate formatter."""
+        if not enabled:
+            return
+        
+        handler = logging.StreamHandler(sys.stdout)
+        formatter = JsonFormatter() if structured else logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        handler.setFormatter(formatter)
+        self.logger.addHandler(handler)
+    
+    def _setup_file_handler(self, enabled: bool, log_file: str, max_size_mb: int, backup_count: int, structured: bool):
+        """Setup file handler with appropriate formatter."""
+        if not enabled or not log_file:
+            return
+
+        # Ensure log directory exists
+        log_dir = os.path.dirname(log_file)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+
+        try:
+            handler = RotatingFileHandler(
+                log_file,
+                maxBytes=max_size_mb * 1024 * 1024,
+                backupCount=backup_count,
+                encoding='utf-8'
+            )
+        except Exception as e:
+            # In a real system, this error should be logged to a fallback or stderr
+            # For now, we'll just let it fail silently if file handler can't be created
+            return
+
+        formatter = JsonFormatter() if structured else logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        handler.setFormatter(formatter)
+        self.logger.addHandler(handler)
+
+    def _log(self, level: int, event_type: str, data: Dict[str, Any]):
+        """Helper to log structured data."""
+        payload = {"event_type": event_type, "data": data}
+        self.logger.log(level, payload)
+
+    def info(self, event_type: str, data: Dict[str, Any] = None):
+        self._log(logging.INFO, event_type, data or {})
+
+    def warning(self, event_type: str, data: Dict[str, Any] = None):
+        self._log(logging.WARNING, event_type, data or {})
+
+    def error(self, event_type: str, data: Dict[str, Any], exc_info=False):
+        payload = {"event_type": event_type, "data": data}
+        self.logger.error(payload, exc_info=exc_info)
+
+    def debug(self, event_type: str, data: Dict[str, Any] = None):
+        self._log(logging.DEBUG, event_type, data or {})
+
+
+def get_logger(name: str) -> StructuredLogger:
+    """
+    Get a structured logger instance for the given name.
+
+    This is a convenience function that creates a StructuredLogger
+    with default settings from the working directory configuration.
+    """
+    from ..infrastructure.config.config_loader import get_settings_from_working_directory
+    try:
+        settings = get_settings_from_working_directory()
+        return StructuredLogger(name, settings.logging)
+    except Exception:
+        # Fallback to basic logging if config loading fails
+        import logging
+        return logging.getLogger(name)

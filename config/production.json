@@ -1,0 +1,109 @@
+{
+  "environment": "production",
+  "version": "1.0.0",
+  "logging": {
+    "level": "INFO",
+    "format": "json",
+    "handlers": [
+      {
+        "type": "file",
+        "filename": "/var/log/indicator-variants/app.log",
+        "max_bytes": 104857600,
+        "backup_count": 10
+      },
+      {
+        "type": "syslog",
+        "address": "/dev/log",
+        "facility": "local0"
+      }
+    ]
+  },
+  "database": {
+    "type": "postgresql",
+    "host": "localhost",
+    "port": 5432,
+    "database": "indicator_variants_prod",
+    "username": "${DB_USERNAME}",
+    "password": "${DB_PASSWORD}",
+    "connection_pool": {
+      "min_connections": 5,
+      "max_connections": 20,
+      "connection_timeout": 30
+    }
+  },
+  "redis": {
+    "host": "localhost",
+    "port": 6379,
+    "db": 0,
+    "password": "${REDIS_PASSWORD}",
+    "connection_pool": {
+      "max_connections": 50,
+      "decode_responses": true
+    },
+    "cache_config": {
+      "max_cache_size": 10000,
+      "high_water_mark": 8000,
+      "ttl_seconds": 60,
+      "bucket_size": 60
+    }
+  },
+  "api": {
+    "host": "0.0.0.0",
+    "port": 8000,
+    "workers": 4,
+    "timeout": 30,
+    "cors_origins": ["https://app.indicatorvariants.com"],
+    "rate_limiting": {
+      "requests_per_minute": 1000,
+      "burst_limit": 100
+    }
+  },
+  "security": {
+    "jwt_secret": "${JWT_SECRET}",
+    "jwt_algorithm": "HS256",
+    "jwt_expiration_hours": 24,
+    "password_min_length": 12,
+    "bcrypt_rounds": 12,
+    "ssl_cert_path": "/etc/ssl/certs/indicator-variants.crt",
+    "ssl_key_path": "/etc/ssl/private/indicator-variants.key"
+  },
+  "monitoring": {
+    "enabled": true,
+    "prometheus_port": 9090,
+    "metrics_prefix": "indicator_variants",
+    "health_check_interval": 30,
+    "alerting": {
+      "email_enabled": true,
+      "email_smtp": "smtp.gmail.com",
+      "email_port": 587,
+      "email_username": "${ALERT_EMAIL_USER}",
+      "email_password": "${ALERT_EMAIL_PASS}",
+      "alert_recipients": ["ops@indicatorvariants.com"]
+    }
+  },
+  "performance": {
+    "memory_limit_mb": 500,
+    "cpu_limit_percent": 80,
+    "max_concurrent_requests": 100,
+    "request_timeout_seconds": 30,
+    "circuit_breaker": {
+      "failure_threshold": 5,
+      "recovery_timeout": 60,
+      "success_threshold": 3,
+      "timeout_seconds": 5.0
+    }
+  },
+  "features": {
+    "cache_warming": true,
+    "prefetching": true,
+    "memory_leak_detection": true,
+    "load_testing": false,
+    "debug_mode": false
+  },
+  "external_services": {
+    "market_data_provider": "production_api",
+    "backup_storage": "s3://indicator-variants-backups",
+    "log_aggregation": "elasticsearch",
+    "metrics_storage": "influxdb"
+  }
+}

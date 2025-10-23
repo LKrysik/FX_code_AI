@@ -1,0 +1,141 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Trading Strategy (5-Section Format)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["strategy_name", "s1_signal", "z1_entry", "ze1_close", "o1_cancel", "emergency_exit"],
+  "properties": {
+    "strategy_name": {"type": "string", "minLength": 1},
+    "enabled": {"type": "boolean", "default": true},
+    "id": {"type": "string"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "s1_signal": {
+      "type": "object",
+      "required": ["conditions"],
+      "properties": {
+        "conditions": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/condition"},
+          "minItems": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "z1_entry": {
+      "type": "object",
+      "required": ["conditions", "positionSize"],
+      "properties": {
+        "conditions": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/condition"},
+          "minItems": 0
+        },
+        "priceIndicatorId": {"type": "string"},
+        "stopLoss": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "indicatorId": {"type": "string"},
+            "offsetPercent": {"type": "number", "minimum": 0, "maximum": 100}
+          },
+          "additionalProperties": false
+        },
+        "takeProfit": {
+          "type": "object",
+          "required": ["enabled"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "indicatorId": {"type": "string"},
+            "offsetPercent": {"type": "number", "minimum": 0, "maximum": 1000}
+          },
+          "additionalProperties": false
+        },
+        "positionSize": {
+          "type": "object",
+          "required": ["type", "value"],
+          "properties": {
+            "type": {"enum": ["fixed", "percentage"]},
+            "value": {"type": "number", "minimum": 0}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "ze1_close": {
+      "type": "object",
+      "required": ["conditions"],
+      "properties": {
+        "conditions": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/condition"},
+          "minItems": 0
+        },
+        "closeOrderPriceIndicatorId": {"type": "string"},
+        "riskAdjustedPricing": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "scalingFactor": {"type": "number", "minimum": 0.1, "maximum": 2.0, "default": 1.0},
+            "minAdjustment": {"type": "number", "minimum": -50, "maximum": 0, "default": -10},
+            "maxAdjustment": {"type": "number", "minimum": 0, "maximum": 50, "default": 10}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "o1_cancel": {
+      "type": "object",
+      "required": ["timeoutSeconds", "conditions"],
+      "properties": {
+        "timeoutSeconds": {"type": "integer", "minimum": 0},
+        "conditions": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/condition"},
+          "minItems": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "emergency_exit": {
+      "type": "object",
+      "required": ["conditions", "cooldownMinutes", "actions"],
+      "properties": {
+        "conditions": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/condition"},
+          "minItems": 0
+        },
+        "cooldownMinutes": {"type": "integer", "minimum": 0, "maximum": 1440},
+        "actions": {
+          "type": "object",
+          "required": ["cancelPending", "closePosition", "logEvent"],
+          "properties": {
+            "cancelPending": {"type": "boolean"},
+            "closePosition": {"type": "boolean"},
+            "logEvent": {"type": "boolean"}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "global_limits": {"type": "object"}
+  },
+  "definitions": {
+    "condition": {
+      "type": "object",
+      "required": ["id", "indicatorId", "operator", "value"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "indicatorId": {"type": "string", "minLength": 1},
+        "operator": {"enum": [">", "<", ">=", "<="]},
+        "value": {"type": "number"}
+      },
+      "additionalProperties": false
+    }
+  }
+}
+

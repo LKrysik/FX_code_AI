@@ -1,0 +1,29 @@
+{
+  "id": "d360ad53-aa8f-46d8-8fa2-0b8add532d05",
+  "strategy_name": "Test Strategy",
+  "enabled": true,
+  "s1_signal": {
+    "conditions": []
+  },
+  "z1_entry": {
+    "conditions": [],
+    "positionSize": {
+      "type": "percentage",
+      "value": 10
+    }
+  },
+  "o1_cancel": {
+    "conditions": [],
+    "timeoutSeconds": 30
+  },
+  "ze1_close": {
+    "conditions": []
+  },
+  "emergency_exit": {
+    "conditions": []
+  },
+  "created_at": "2025-10-04T21:33:43.054586",
+  "updated_at": "2025-10-04T21:33:43.054606",
+  "created_by": null,
+  "version": "1.0"
+}
