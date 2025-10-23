@@ -170,7 +170,7 @@ class TimeDrivenSchedule:
 
     indicator_key: str
     interval: float
-    cache_bucket: float
+    cache_bucket: int
     next_run: float
     indicator_type: str
     calculation_function: Optional[Callable] = None  # NEW: Direct reference to calculation function
@@ -421,8 +421,7 @@ class StreamingIndicatorEngine:
 
         self._time_driven_indicators: Dict[str, TimeDrivenSchedule] = {}
         self._time_scheduler_task: Optional[asyncio.Task] = None
-        self._scheduler_min_interval = 0.1  # Smallest supported cadence (seconds)
-        self._scheduler_sleep_floor = self._scheduler_min_interval
+        self._scheduler_sleep_floor = 0.25
 
         # ✅ PHASE 1 FIX: Circuit breaker for indicator calculations
         self._circuit_breaker_state = {
@@ -596,94 +595,6 @@ class StreamingIndicatorEngine:
         
         return self._cache_bucket_size
 
-    def _resolve_refresh_interval(self, indicator: StreamingIndicator) -> float:
-        """
-        Determine refresh cadence for an indicator using algorithm registry with safe fallbacks.
-        """
-        params = indicator.metadata or {}
-        indicator_type = (params.get("type") or indicator.indicator.split("_")[0]).upper()
-        interval: Optional[float] = None
-
-        algorithm = self._algorithm_registry.get_algorithm(indicator_type)
-        if algorithm:
-            try:
-                from .indicators.base_algorithm import IndicatorParameters
-
-                wrapped_params = IndicatorParameters(params)
-                interval = algorithm.calculate_refresh_interval(wrapped_params)
-            except Exception as exc:
-                self.logger.warning("streaming_indicator_engine.refresh_interval_algorithm_failed", {
-                    "indicator_type": indicator_type,
-                    "indicator_key": indicator.indicator,
-                    "error": str(exc)
-                })
-
-        if interval is None:
-            for key in ("refresh_interval_seconds", "refresh_interval_override", "r"):
-                value = params.get(key)
-                if value is None:
-                    continue
-                try:
-                    interval = float(value)
-                    break
-                except (TypeError, ValueError):
-                    self.logger.warning("streaming_indicator_engine.refresh_interval_invalid_override", {
-                        "indicator_type": indicator_type,
-                        "indicator_key": indicator.indicator,
-                        "param": key,
-                        "value": value
-                    })
-
-        if interval is None:
-            interval = 1.0
-
-        interval = max(self._scheduler_min_interval, float(interval))
-        indicator.metadata["refresh_interval_seconds"] = interval
-        indicator.metadata["time_driven_enabled"] = True
-        return interval
-
-    def _get_latest_price_for_indicator(self, indicator: StreamingIndicator) -> Optional[float]:
-        """Return the newest known price for a streaming indicator."""
-        metadata_price = indicator.metadata.get("last_tick_price")
-        if metadata_price is not None:
-            try:
-                return float(metadata_price)
-            except (TypeError, ValueError):
-                pass
-
-        price_key = f"{indicator.symbol}_{indicator.timeframe}"
-        buffer = self._price_data.get(price_key)
-        if buffer:
-            last_entry = buffer[-1]
-            price = last_entry.get("price")
-            if price is not None:
-                try:
-                    return float(price)
-                except (TypeError, ValueError):
-                    return None
-        return None
-
-    def _get_latest_timestamp_for_indicator(self, indicator: StreamingIndicator, default: float) -> float:
-        """Return the newest known timestamp for a streaming indicator."""
-        metadata_ts = indicator.metadata.get("last_tick_timestamp")
-        if metadata_ts is not None:
-            try:
-                return float(metadata_ts)
-            except (TypeError, ValueError):
-                pass
-
-        price_key = f"{indicator.symbol}_{indicator.timeframe}"
-        buffer = self._price_data.get(price_key)
-        if buffer:
-            last_entry = buffer[-1]
-            ts = last_entry.get("timestamp")
-            if ts is not None:
-                try:
-                    return float(ts)
-                except (TypeError, ValueError):
-                    return default
-        return default
-
     def _get_cache_key(self, indicator_type: str, symbol: str, timeframe: str, params: Dict[str, Any]) -> str:
         """✅ PHASE 1 FIX: Generate cache key with timestamp bucket for time-sensitive indicators"""
         bucket_size = self._resolve_cache_bucket(indicator_type, params)
@@ -833,7 +744,7 @@ class StreamingIndicatorEngine:
         try:
             while True:
                 if not self._time_driven_indicators:
-                    await asyncio.sleep(self._scheduler_min_interval)
+                    await asyncio.sleep(1.0)
                     continue
 
                 now = time.time()
@@ -853,14 +764,13 @@ class StreamingIndicatorEngine:
                 if due_keys:
                     for key in due_keys:
                         await self._recalculate_time_driven_indicator(key)
-                    await asyncio.sleep(self._scheduler_min_interval)
+                    await asyncio.sleep(self._scheduler_sleep_floor)
                     continue
 
-                if next_due is None:
-                    await asyncio.sleep(self._scheduler_min_interval)
-                else:
-                    sleep_for = max(self._scheduler_min_interval, next_due - now)
-                    await asyncio.sleep(min(sleep_for, 5.0))
+                sleep_for = 1.0
+                if next_due is not None:
+                    sleep_for = max(self._scheduler_sleep_floor, next_due - now)
+                await asyncio.sleep(min(sleep_for, 5.0))
         except asyncio.CancelledError:
             self.logger.debug("streaming_indicator_engine.time_scheduler_cancelled")
         except Exception as exc:
@@ -868,64 +778,51 @@ class StreamingIndicatorEngine:
                 "error": str(exc)
             })
 
-
     async def _recalculate_time_driven_indicator(self, indicator_key: str) -> None:
-        """Recalculate time-driven indicators using unified logic regardless of tick cadence."""
+        """
+        Recalculate time-driven indicators based on schedule.
+        
+        ENHANCED: Now supports all algorithms through calculation_function or legacy methods.
+        """
         schedule = self._time_driven_indicators.get(indicator_key)
         indicator = self._indicators.get(indicator_key)
         if not schedule or not indicator:
             self._time_driven_indicators.pop(indicator_key, None)
             return
 
-        now = time.time()
         value: Optional[float] = None
-        calculation_method = "algorithm_function"
-
+        calculation_method = "unknown"
+        
         try:
+            # Use algorithm registry - REQUIRED, no fallbacks
             if schedule.calculation_function:
                 value = schedule.calculation_function(self, indicator, indicator.metadata or {})
+                calculation_method = "algorithm_function"
+                
                 self.logger.debug("streaming_indicator_engine.algorithm_calculation_used", {
                     "indicator_key": indicator_key,
                     "indicator_type": schedule.indicator_type,
                     "value": value
                 })
             else:
-                calculation_method = "engine_fallback"
-        except Exception as exc:
-            calculation_method = "engine_fallback"
+                self.logger.error("streaming_indicator_engine.no_calculation_function", {
+                    "indicator_key": indicator_key,
+                    "indicator_type": schedule.indicator_type,
+                    "message": "Algorithm must be registered with calculation function"
+                })
+                return
+        
+        except Exception as e:
             self.logger.error("streaming_indicator_engine.calculation_error", {
                 "indicator_key": indicator_key,
                 "indicator_type": schedule.indicator_type,
-                "calculation_method": "algorithm_function",
-                "error": str(exc)
+                "calculation_method": calculation_method,
+                "error": str(e)
             })
-            value = None
+            return
 
-        if value is None:
-            try:
-                last_price = self._get_latest_price_for_indicator(indicator)
-                if last_price is None:
-                    last_price = 0.0
-                last_timestamp = self._get_latest_timestamp_for_indicator(indicator, now)
-                value = await self._calculate_with_circuit_breaker(
-                    indicator_key,
-                    indicator,
-                    last_price,
-                    last_timestamp,
-                )
-            except Exception as exc:
-                self.logger.error("streaming_indicator_engine.calculation_error", {
-                    "indicator_key": indicator_key,
-                    "indicator_type": schedule.indicator_type,
-                    "calculation_method": "engine_fallback",
-                    "error": str(exc)
-                })
-                value = None
-
-        # Advance schedule even when calculation fails to avoid busy loops
-        schedule.next_run += schedule.interval
-        while schedule.next_run <= now:
-            schedule.next_run += schedule.interval
+        now = time.time()
+        schedule.next_run = now + schedule.interval
 
         if value is None:
             self.logger.debug("streaming_indicator_engine.calculation_returned_none", {
@@ -936,18 +833,9 @@ class StreamingIndicatorEngine:
 
         indicator.current_value = value
         indicator.timestamp = now
-        indicator.series.append(IndicatorValue(timestamp=now, value=value, metadata={"source": "time_scheduler"}))
+        indicator.series.append(IndicatorValue(timestamp=now, value=value))
         indicator.metadata["data_points"] = indicator.metadata.get("data_points", 0) + 1
         indicator.metadata["last_calculation"] = now
-        indicator.metadata["last_calculation_method"] = calculation_method
-
-        persistence_metadata = {
-            "timeframe": indicator.timeframe,
-            "type": indicator.metadata.get("type"),
-            "refresh_interval_seconds": indicator.metadata.get("refresh_interval_seconds"),
-            "calculation_method": calculation_method
-        }
-        self.store_calculated_value(indicator_key, value, now, persistence_metadata)
 
         try:
             await self.event_bus.publish(
@@ -966,7 +854,6 @@ class StreamingIndicatorEngine:
                 "indicator_key": indicator_key,
                 "error": str(exc),
             })
-
 
     def _enforce_cache_limits(self) -> None:
         """✅ PHASE 2 FIX: Enforce cache size limits using LRU eviction"""
@@ -1314,64 +1201,115 @@ class StreamingIndicatorEngine:
         elif indicator_key in self._incremental_indicators:
             self._incremental_indicators.pop(indicator_key, None)
 
-        # ✅ NEW: Universal time-driven registration for all indicators
-        self._register_time_driven_indicator(indicator_key, indicator)
+        # ✅ NEW: Universal time-driven registration for all algorithms
+        if self._should_register_for_time_driven_scheduling(indicator_type, indicator):
+            self._register_time_driven_indicator(indicator_key, indicator)
+        elif indicator_type == "TWPA":  # Legacy fallback
+            self._register_time_driven_indicator(indicator_key, indicator)
 
         self._performance_metrics["indicators_count"] = len(self._indicators)
 
+    def _should_register_for_time_driven_scheduling(self, indicator_type: str, indicator: StreamingIndicator) -> bool:
+        """
+        Determine if indicator should use time-driven scheduling.
+        
+        NEW: Check algorithm registry for refresh interval requirements.
+        """
+        algorithm = self._algorithm_registry.get_algorithm(indicator_type)
+        if not algorithm:
+            self.logger.warning("streaming_indicator_engine.no_algorithm_found", {
+                "indicator_type": indicator_type
+            })
+            return False
+        
+        # Check if algorithm has custom refresh interval logic or override
+        params = indicator.metadata or {}
+        try:
+            from .indicators.base_algorithm import IndicatorParameters
+            wrapped_params = IndicatorParameters(params)
+            
+            # If algorithm has override or custom logic, use time-driven scheduling
+            override = wrapped_params.get_refresh_override()
+            if override:
+                return True
+            
+            # Check if algorithm has different default interval than 1.0s
+            default_interval = algorithm.get_default_refresh_interval()
+            if default_interval != 1.0:
+                return True
+            
+            return False
+        except Exception as e:
+            self.logger.warning("streaming_indicator_engine.time_driven_check_failed", {
+                "indicator_type": indicator_type,
+                "error": str(e)
+            })
+            return False
 
     def _register_time_driven_indicator(self, indicator_key: str, indicator: StreamingIndicator) -> None:
         """
-        Register or update a schedule for indicators that require time-driven refreshes.
+        Register a schedule for indicators that require time-driven refreshes.
+        
+        ENHANCED: Now supports all algorithms through the registry system.
         """
         params = indicator.metadata or {}
         indicator_type = (params.get("type") or "").upper()
-
-        interval = self._resolve_refresh_interval(indicator)
-        algorithm_instance = self._algorithm_registry.get_algorithm(indicator_type)
+        
+        # ✅ NEW: Try algorithm registry first
+        interval = None
         calculation_function = None
-
-        if algorithm_instance:
-            try:
-                calculation_function = algorithm_instance._create_engine_hook()
-            except Exception as exc:
-                self.logger.warning("streaming_indicator_engine.algorithm_hook_failed", {
-                    "indicator_type": indicator_type,
-                    "error": str(exc)
-                })
-
-        cache_bucket = max(self._scheduler_min_interval, float(interval))
-        now = time.time()
-        next_run = now + interval
-
-        schedule = self._time_driven_indicators.get(indicator_key)
-        if schedule:
-            schedule.interval = interval
-            schedule.cache_bucket = cache_bucket
-            schedule.calculation_function = calculation_function
-            schedule.algorithm_instance = algorithm_instance
-            schedule.next_run = min(schedule.next_run, next_run)
-            self.logger.debug("streaming_indicator_engine.time_schedule_updated", {
-                "indicator_key": indicator_key,
-                "interval": interval,
-                "cache_bucket": cache_bucket
+        algorithm_instance = None
+        
+        if self._algorithm_registry:
+            algorithm = self._algorithm_registry.get_algorithm(indicator_type)
+            if algorithm:
+                try:
+                    from .indicators.base_algorithm import IndicatorParameters
+                    wrapped_params = IndicatorParameters(params)
+                    interval = algorithm.calculate_refresh_interval(wrapped_params)
+                    calculation_function = algorithm._create_engine_hook()
+                    algorithm_instance = algorithm
+                    
+                    self.logger.debug("streaming_indicator_engine.algorithm_refresh_calculated", {
+                        "indicator_type": indicator_type,
+                        "interval": interval,
+                        "algorithm_name": algorithm.get_name()
+                    })
+                except Exception as e:
+                    self.logger.warning("streaming_indicator_engine.algorithm_refresh_failed", {
+                        "indicator_type": indicator_type,
+                        "error": str(e)
+                    })
+        
+        # All algorithms MUST be registered - no fallbacks
+        if interval is None:
+            self.logger.error("streaming_indicator_engine.no_algorithm_registered", {
+                "indicator_type": indicator_type,
+                "message": "Algorithm must be registered in registry"
             })
-        else:
-            schedule = TimeDrivenSchedule(
-                indicator_key=indicator_key,
-                interval=interval,
-                cache_bucket=cache_bucket,
-                next_run=now,
-                indicator_type=indicator.metadata.get("type", ""),
-                calculation_function=calculation_function,
-                algorithm_instance=algorithm_instance
-            )
-            self._time_driven_indicators[indicator_key] = schedule
-            self.logger.debug("streaming_indicator_engine.time_schedule_registered", {
-                "indicator_key": indicator_key,
-                "interval": interval,
-                "cache_bucket": cache_bucket
-            })
+            return
+        
+        # Calculate cache bucket using algorithm
+        cache_bucket = max(1, int(round(interval)))
+        
+        # Create enhanced schedule
+        schedule = TimeDrivenSchedule(
+            indicator_key=indicator_key,
+            interval=interval,
+            cache_bucket=cache_bucket,
+            next_run=time.time() + interval,
+            indicator_type=indicator.metadata.get("type", ""),
+            calculation_function=calculation_function,  # NEW: Store calculation function
+            algorithm_instance=algorithm_instance       # NEW: Store algorithm reference
+        )
+        self._time_driven_indicators[indicator_key] = schedule
+        indicator.metadata["refresh_interval_seconds"] = interval
+        self.logger.debug("streaming_indicator_engine.time_schedule_registered", {
+            "indicator_key": indicator_key,
+            "interval": interval,
+            "cache_bucket": cache_bucket,
+        })
+
 
 
     def list_indicators(self) -> List[Dict[str, Any]]:
@@ -2050,20 +1988,6 @@ class StreamingIndicatorEngine:
                 continue
 
             indicator = self._indicators[indicator_key]
-            meta = indicator.metadata or {}
-            if indicator.metadata is None:
-                indicator.metadata = meta
-            if price is not None:
-                try:
-                    meta['last_tick_price'] = float(price)
-                except (TypeError, ValueError):
-                    meta['last_tick_price'] = price
-            if timestamp is not None:
-                meta['last_tick_timestamp'] = timestamp
-
-            if meta.get('time_driven_enabled'):
-                meta['last_tick_received_at'] = time.time()
-                continue
 
             try:
                 # ✅ PHASE 1 FIX: Calculate with circuit breaker protection

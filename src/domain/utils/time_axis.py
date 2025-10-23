@@ -41,24 +41,22 @@ class TimeAxisGenerator:
     @staticmethod
     def align_start(start: float, interval: float) -> float:
         """
-        Align the start timestamp to the nearest lower-or-equal interval boundary.
+        Align the start timestamp to the next interval boundary.
         """
         if interval <= 0:
             raise ValueError("interval must be positive")
         remainder = math.fmod(start, interval)
-        if remainder < 0:
-            remainder += interval
         if math.isclose(remainder, 0.0, abs_tol=1e-9):
             return start
-        return start - remainder
+        return start + (interval - remainder)
 
     @staticmethod
     def generate(bounds: TimeAxisBounds) -> Iterator[float]:
         """
         Generate timestamps within the provided bounds (inclusive).
 
-        The first timestamp is aligned to the interval boundary less than or
-        equal to ``bounds.start``.  The last timestamp will not exceed
+        The first timestamp is aligned to the interval boundary equal to or
+        greater than ``bounds.start``.  The last timestamp will not exceed
         ``bounds.end``.
         """
         aligned_start = TimeAxisGenerator.align_start(bounds.start, bounds.interval)

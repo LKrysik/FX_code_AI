@@ -27,8 +27,7 @@ from src.domain.services.indicator_persistence_service import IndicatorPersisten
 from src.domain.services.offline_indicator_engine import OfflineIndicatorEngine
 from src.domain.calculators.indicator_calculator import IndicatorCalculator
 from src.domain.services.streaming_indicator_engine import IndicatorType
-from src.domain.types.indicator_types import IndicatorValue, MarketDataPoint
-from src.domain.utils.time_axis import TimeAxisBounds, TimeAxisGenerator
+from src.domain.types.indicator_types import IndicatorValue
 
 # Create router
 router = APIRouter(prefix="/api/indicators", tags=["indicators"])
@@ -138,10 +137,10 @@ def _compute_indicator_series(
     symbol: str,
     variant,
     override_parameters: Dict[str, Any],
-    algorithm_registry=None,
-    offline_engine: Optional[OfflineIndicatorEngine] = None,
+    algorithm_registry=None
 ) -> List[IndicatorValue]:
     price_rows = _load_session_price_data(session_id, symbol)
+
     base_params = dict(variant.parameters or {})
     provided_params = dict(override_parameters or {})
     combined_params = {**base_params, **provided_params}
@@ -155,8 +154,6 @@ def _compute_indicator_series(
             detail=f"Invalid period value '{raw_period}' for variant '{variant.id}'"
         )
 
-    combined_params["period"] = period
-
     indicator_type_str = str(variant.base_indicator_type or variant.name or "").upper()
     try:
         indicator_enum = IndicatorType[indicator_type_str]
@@ -166,83 +163,42 @@ def _compute_indicator_series(
             detail=f"Unsupported indicator type '{indicator_type_str}' for variant '{variant.id}'"
         ) from exc
 
-    if offline_engine is None:
-        _, offline_engine = _ensure_support_services()
-
-    market_points: List[MarketDataPoint] = []
-    for row in price_rows:
-        try:
-            timestamp = float(row["timestamp"])
-            price = float(row["price"])
-            volume = float(row.get("volume", 0.0))
-        except (TypeError, ValueError, KeyError) as exc:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid price row encountered: {row}"
-            ) from exc
-
-        market_points.append(
-            MarketDataPoint(
-                timestamp=offline_engine._normalize_timestamp(timestamp),
-                symbol=symbol,
-                price=price,
-                volume=volume,
-            )
-        )
-
-    if not market_points:
-        raise HTTPException(
-            status_code=422,
-            detail=f"No market data available for session '{session_id}', symbol '{symbol}'"
-        )
-
-    market_points.sort(key=lambda point: point.timestamp)
-    start_ts = market_points[0].timestamp
-    end_ts = market_points[-1].timestamp
-
-    refresh_interval = offline_engine._resolve_refresh_interval(indicator_type_str, combined_params)
-    combined_params["refresh_interval_seconds"] = refresh_interval
-
-    bounds = TimeAxisBounds(start=start_ts, end=end_ts, interval=refresh_interval)
-    time_axis = list(TimeAxisGenerator.generate(bounds))
+    values = IndicatorCalculator.calculate_indicator(
+        indicator_enum,
+        price_rows,
+        period,
+        algorithm_registry=algorithm_registry,
+        **combined_params
+    )
 
     series: List[IndicatorValue] = []
-    active_points: List[MarketDataPoint] = []
-    point_index = 0
-
-    for target_ts in time_axis:
-        while point_index < len(market_points) and market_points[point_index].timestamp <= target_ts:
-            active_points.append(market_points[point_index])
-            point_index += 1
-
-        value = IndicatorCalculator.calculate_indicator_unified(
-            indicator_type_str,
-            active_points,
-            target_ts,
-            combined_params,
-        )
-
-        if value is None or (isinstance(value, float) and math.isnan(value)):
-            value = None
+    for row, value in zip(price_rows, values):
+        if value is None:
+            continue
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isnan(numeric_value):
+            continue
 
         series.append(
             IndicatorValue(
-                timestamp=target_ts,
+                timestamp=row["timestamp"],
                 symbol=symbol,
                 indicator_id=indicator_id,
-                value=value,
+                value=numeric_value,
                 metadata={
                     "session_id": session_id,
                     "variant_id": variant.id,
                     "variant_type": variant.variant_type,
-                    "parameters": dict(combined_params),
-                    "period": period,
-                    "refresh_interval_seconds": refresh_interval,
-                },
+                    "parameters": combined_params,
+                    "period": period
+                }
             )
         )
 
-    if not series or not any(value.value is not None for value in series):
+    if not series:
         raise HTTPException(
             status_code=422,
             detail=f"Indicator '{variant.id}' produced no calculable values for session '{session_id}'"
@@ -719,7 +675,7 @@ async def add_indicator_for_session(
                 detail=f"Failed to add indicator '{variant_id}' for session '{session_id}' and symbol '{symbol}'"
             )
 
-        persistence_service, offline_engine = _ensure_support_services()
+        persistence_service, _ = _ensure_support_services()
         try:
             series = _compute_indicator_series(
                 indicator_id=indicator_id,
@@ -727,8 +683,7 @@ async def add_indicator_for_session(
                 symbol=symbol,
                 variant=variant,
                 override_parameters=parameters,
-                algorithm_registry=engine._algorithm_registry,
-                offline_engine=offline_engine,
+                algorithm_registry=engine._algorithm_registry
             )
         except HTTPException:
             # bubble up structured error (e.g. malformed data)
