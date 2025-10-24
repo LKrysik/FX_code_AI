@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.domain.calculators.indicator_calculator import IndicatorCalculator
-from src.domain.services.streaming_indicator_engine import StreamingIndicatorEngine, StreamingIndicator
+from src.domain.services.streaming_indicator_engine import StreamingIndicatorEngine, StreamingIndicator, IndicatorType
 from src.domain.types.indicator_types import MarketDataPoint
 
 
@@ -147,3 +147,65 @@ def test_indicator_calculator_deterministic_results():
     second = IndicatorCalculator.calculate_indicator_unified("TWPA", market_points, timestamp, context)
 
     assert first == pytest.approx(second, rel=1e-12)
+
+
+def test_twpa_registers_in_time_driven_scheduler():
+    """
+    CRITICAL TEST: Verify TWPA is registered in time-driven scheduler.
+
+    This test ensures that the engine's decision logic correctly identifies
+    TWPA as time-driven and registers it in _time_driven_indicators.
+    """
+    event_bus = AsyncMock()
+    logger = MagicMock()
+    engine = StreamingIndicatorEngine(event_bus, logger)
+
+    # Add TWPA indicator
+    parameters = {"t1": 60.0, "t2": 0.0}
+    indicator_key = engine.add_indicator(
+        symbol="BTCUSDT",
+        indicator_type=IndicatorType.TWPA,
+        timeframe="1m",
+        parameters=parameters
+    )
+
+    # Verify TWPA is registered in time-driven scheduler
+    assert indicator_key in engine._time_driven_indicators, \
+        "TWPA must be registered in time-driven scheduler"
+
+    # Verify schedule properties
+    schedule = engine._time_driven_indicators[indicator_key]
+    assert schedule.indicator_type == "TWPA", \
+        f"Expected indicator_type='TWPA', got '{schedule.indicator_type}'"
+    assert schedule.interval > 0, \
+        f"Expected positive interval, got {schedule.interval}"
+    assert schedule.indicator_key == indicator_key, \
+        f"Expected indicator_key='{indicator_key}', got '{schedule.indicator_key}'"
+
+
+def test_twpa_ratio_registers_in_time_driven_scheduler():
+    """
+    Verify TWPA_RATIO is also registered in time-driven scheduler.
+
+    Since TWPA_RATIO uses TWPA internally, it must also be time-driven.
+    """
+    event_bus = AsyncMock()
+    logger = MagicMock()
+    engine = StreamingIndicatorEngine(event_bus, logger)
+
+    # Add TWPA_RATIO indicator
+    parameters = {"t1": 300.0, "t2": 60.0, "t3": 1800.0, "t4": 300.0}
+    indicator_key = engine.add_indicator(
+        symbol="BTCUSDT",
+        indicator_type=IndicatorType.TWPA_RATIO,
+        timeframe="1m",
+        parameters=parameters
+    )
+
+    # Verify TWPA_RATIO is registered in time-driven scheduler
+    assert indicator_key in engine._time_driven_indicators, \
+        "TWPA_RATIO must be registered in time-driven scheduler"
+
+    schedule = engine._time_driven_indicators[indicator_key]
+    assert schedule.indicator_type == "TWPA_RATIO"
+    assert schedule.interval > 0

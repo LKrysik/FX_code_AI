@@ -1201,10 +1201,8 @@ class StreamingIndicatorEngine:
         elif indicator_key in self._incremental_indicators:
             self._incremental_indicators.pop(indicator_key, None)
 
-        # ✅ NEW: Universal time-driven registration for all algorithms
+        # ✅ CLEAN: Universal time-driven registration using is_time_driven()
         if self._should_register_for_time_driven_scheduling(indicator_type, indicator):
-            self._register_time_driven_indicator(indicator_key, indicator)
-        elif indicator_type == "TWPA":  # Legacy fallback
             self._register_time_driven_indicator(indicator_key, indicator)
 
         self._performance_metrics["indicators_count"] = len(self._indicators)
@@ -1212,8 +1210,9 @@ class StreamingIndicatorEngine:
     def _should_register_for_time_driven_scheduling(self, indicator_type: str, indicator: StreamingIndicator) -> bool:
         """
         Determine if indicator should use time-driven scheduling.
-        
-        NEW: Check algorithm registry for refresh interval requirements.
+
+        Uses algorithm's is_time_driven() method to determine scheduling mode.
+        Clean architecture: algorithm declares its own scheduling requirements.
         """
         algorithm = self._algorithm_registry.get_algorithm(indicator_type)
         if not algorithm:
@@ -1221,24 +1220,18 @@ class StreamingIndicatorEngine:
                 "indicator_type": indicator_type
             })
             return False
-        
-        # Check if algorithm has custom refresh interval logic or override
-        params = indicator.metadata or {}
+
         try:
-            from .indicators.base_algorithm import IndicatorParameters
-            wrapped_params = IndicatorParameters(params)
-            
-            # If algorithm has override or custom logic, use time-driven scheduling
-            override = wrapped_params.get_refresh_override()
-            if override:
-                return True
-            
-            # Check if algorithm has different default interval than 1.0s
-            default_interval = algorithm.get_default_refresh_interval()
-            if default_interval != 1.0:
-                return True
-            
-            return False
+            # ✅ CLEAN: Algorithm declares its nature
+            is_time_driven = algorithm.is_time_driven()
+
+            self.logger.debug("streaming_indicator_engine.time_driven_check", {
+                "indicator_type": indicator_type,
+                "is_time_driven": is_time_driven
+            })
+
+            return is_time_driven
+
         except Exception as e:
             self.logger.warning("streaming_indicator_engine.time_driven_check_failed", {
                 "indicator_type": indicator_type,
