@@ -147,7 +147,6 @@ logs/
 !/*/data/
 frontend/node_modules/
 node_modules/
-package-lock.json
 config/local_*.json
 *.pid
 /node-v22.19.0-win-x64
@@ -159,3 +158,4 @@ test_results_*.json
 # Next.js build artifacts
 .next/
 out/
+tsconfig.tsbuildinfo
