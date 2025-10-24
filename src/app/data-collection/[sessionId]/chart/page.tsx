@@ -49,23 +49,6 @@ import {
 } from '@mui/icons-material';
 import { apiService } from '@/services/api';
 import UPlotChart, { UPlotSeries, UPlotDataPoint } from '@/components/UPlotChart';
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip as RechartsTooltip,
-  Legend,
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  ComposedChart,
-  Brush,
-  ReferenceLine,
-  Area,
-  AreaChart,
-} from 'recharts';
 
 interface ChartDataPoint {
   timestamp: number;
@@ -277,7 +260,6 @@ export default function ChartPage() {
     severity: 'info'
   });
   const [indicatorStatuses, setIndicatorStatuses] = useState<Record<string, IndicatorStatusState>>({});
-  const [useUPlot, setUseUPlot] = useState(true); // Toggle between uPlot and Recharts
 
   useEffect(() => {
     loadSessionData();
@@ -1196,33 +1178,9 @@ export default function ChartPage() {
     console.log('Current priceDomain:', priceDomain);
   }, [priceDomain]);
 
-  // Formatting functions
-  const formatXAxisTick = (timestamp: number) => {
-    const date = new Date(timestamp);
-    if (timeInterval === 'raw' || timeInterval === '10s' || timeInterval === '30s') {
-      return date.toLocaleTimeString();
-    } else {
-      return date.toLocaleString().split(',')[1]?.trim() || date.toLocaleTimeString();
-    }
-  };
-
-  const formatTooltipLabel = (timestamp: number) => {
-    return new Date(timestamp).toLocaleString();
-  };
-
   const resetZoom = () => {
     setZoomDomain(null);
     setBrushDomain(null);
-  };
-
-  const handleBrushChange = (domain: any) => {
-    if (domain && domain.startIndex !== undefined && domain.endIndex !== undefined) {
-      const start = processedData[domain.startIndex]?.timestamp;
-      const end = processedData[domain.endIndex]?.timestamp;
-      if (start && end) {
-        setZoomDomain([start, end]);
-      }
-    }
   };
 
   const aggregateData = (data: ChartDataPoint[], interval: string): ChartDataPoint[] => {
@@ -1377,15 +1335,6 @@ export default function ChartPage() {
                 Refresh
               </Button>
             </Tooltip>
-            <Tooltip title={useUPlot ? "Switch to Recharts (Legacy)" : "Switch to uPlot (High Performance)"}>
-              <Button
-                onClick={() => setUseUPlot(!useUPlot)}
-                variant={useUPlot ? "contained" : "outlined"}
-                color={useUPlot ? "success" : "primary"}
-              >
-                {useUPlot ? "🚀 uPlot" : "📊 Recharts"}
-              </Button>
-            </Tooltip>
           </ButtonGroup>
         </Toolbar>
       </AppBar>
@@ -1451,9 +1400,6 @@ export default function ChartPage() {
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 Interval: {timeIntervals.find(i => i.value === timeInterval)?.label}
-              </Typography>
-              <Typography variant="body2" color={useUPlot ? "success.main" : "text.secondary"} sx={{ fontWeight: useUPlot ? 'bold' : 'normal' }}>
-                Engine: {useUPlot ? '🚀 uPlot (Canvas)' : '📊 Recharts (SVG)'}
               </Typography>
             </CardContent>
           </Card>
@@ -1677,216 +1623,23 @@ export default function ChartPage() {
                 Price Chart with Volume {enabledMainIndicators.length > 0 && `and ${enabledMainIndicators.map(i => i.name).join(', ')}`}
               </Typography>
               <Box sx={{ height: 'calc(100% - 60px)' }}>
-                {useUPlot ? (
-                  /* uPlot high-performance chart */
-                  (() => {
-                    const { data: mainData, series: mainSeries } = prepareUPlotMainChartData();
-                    return (
-                      <UPlotChart
-                        data={mainData}
-                        series={mainSeries}
-                        height={640}
-                        priceRange={priceDomain as [number, number]}
-                        onZoom={(min, max) => setZoomDomain([min, max])}
-                        showLegend={true}
-                        showTooltip={true}
-                      />
-                    );
-                  })()
-                ) : (
-                  /* Legacy Recharts */
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart
-                      data={processedData}
-                      margin={{ top: 5, right: 80, left: 20, bottom: 100 }}
-                    >
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis 
-                      dataKey="timestamp"
-                      type="number"
-                      scale="time"
-                      domain={zoomDomain || ['dataMin', 'dataMax']}
-                      tickFormatter={formatXAxisTick}
+                {(() => {
+                  const { data: mainData, series: mainSeries } = prepareUPlotMainChartData();
+                  return (
+                    <UPlotChart
+                      data={mainData}
+                      series={mainSeries}
+                      height={640}
+                      priceRange={priceDomain as [number, number]}
+                      onZoom={(min, max) => setZoomDomain([min, max])}
+                      showLegend={true}
+                      showTooltip={true}
                     />
-                    {/* Left Y-axis for Price */}
-                    <YAxis 
-                      yAxisId="price" 
-                      orientation="left"
-                      domain={[(dataMin: number) => {
-                        console.log('YAxis dataMin callback:', dataMin);
-                        return priceDomain[0];
-                      }, (dataMax: number) => {
-                        console.log('YAxis dataMax callback:', dataMax);
-                        return priceDomain[1];
-                      }]}
-                      allowDataOverflow={false}
-                      includeHidden={false}
-                      scale="linear"
-                      type="number"
-                      tickCount={8}
-                      tickFormatter={(value) => value.toFixed(6)}
-                      label={{ value: 'Price', angle: -90, position: 'insideLeft' }}
-                    />
-                    {/* Right Y-axis for Volume */}
-                    <YAxis 
-                      yAxisId="volume" 
-                      orientation="right"
-                      domain={['dataMin', 'dataMax']}
-                      label={{ value: 'Volume', angle: 90, position: 'insideRight' }}
-                    />
-                    <RechartsTooltip 
-                      labelFormatter={formatTooltipLabel}
-                      formatter={(value: any, name: string) => [
-                        typeof value === 'number' ? 
-                          (name === 'Volume' ? value.toFixed(2) : value.toFixed(6)) : value,
-                        name
-                      ]}
-                    />
-                    <Legend />
-                    
-                    {/* Price representation - line for raw data, OHLC lines for intervals */}
-                    {timeInterval === 'raw' ? (
-                      <Line 
-                        yAxisId="price"
-                        type="monotone" 
-                        dataKey="price" 
-                        stroke="#1976d2" 
-                        strokeWidth={2} 
-                        dot={false} 
-                        name="Price"
-                        connectNulls={false}
-                      />
-                    ) : (
-                      // For intervals, show OHLC as multiple lines
-                      <>
-                        {/* High price line */}
-                        <Line 
-                          yAxisId="price"
-                          type="monotone" 
-                          dataKey="high" 
-                          stroke="#4caf50" 
-                          strokeWidth={1} 
-                          dot={false} 
-                          name="High"
-                          connectNulls={false}
-                        />
-                        {/* Low price line */}
-                        <Line 
-                          yAxisId="price"
-                          type="monotone" 
-                          dataKey="low" 
-                          stroke="#f44336" 
-                          strokeWidth={1} 
-                          dot={false} 
-                          name="Low"
-                          connectNulls={false}
-                        />
-                        {/* Close price line (main) */}
-                        <Line 
-                          yAxisId="price"
-                          type="monotone" 
-                          dataKey="close" 
-                          stroke="#1976d2" 
-                          strokeWidth={3} 
-                          dot={false} 
-                          name="Close"
-                          connectNulls={false}
-                        />
-                        {/* Open price line (dashed) */}
-                        <Line 
-                          yAxisId="price"
-                          type="monotone" 
-                          dataKey="open" 
-                          stroke="#ff9800" 
-                          strokeWidth={2} 
-                          strokeDasharray="5 5"
-                          dot={false} 
-                          name="Open"
-                          connectNulls={false}
-                        />
-                      </>
-                    )}
-                    
-                    {/* Volume - line for raw data, bars for intervals */}
-                    {timeInterval === 'raw' ? (
-                      <Line 
-                        yAxisId="volume"
-                        type="monotone" 
-                        dataKey="volume" 
-                        stroke="#9c27b0" 
-                        strokeWidth={1}
-                        strokeOpacity={0.7}
-                        dot={false} 
-                        name="Volume"
-                        connectNulls={false}
-                      />
-                    ) : (
-                      <Bar 
-                        yAxisId="volume"
-                        dataKey="volume" 
-                        fill="#9c27b0" 
-                        fillOpacity={0.3}
-                        name="Volume"
-                      />
-                    )}
-                    
-                    {/* Bid/Ask Lines */}
-                    {processedData.some(d => d.highestBid !== null) && (
-                      <Line 
-                        yAxisId="price"
-                        type="monotone" 
-                        dataKey="highestBid" 
-                        stroke="#4caf50" 
-                        strokeWidth={1} 
-                        dot={false} 
-                        name="Highest Bid"
-                        connectNulls={false}
-                      />
-                    )}
-                    
-                    {processedData.some(d => d.lowestAsk !== null) && (
-                      <Line 
-                        yAxisId="price"
-                        type="monotone" 
-                        dataKey="lowestAsk" 
-                        stroke="#f44336" 
-                        strokeWidth={1} 
-                        dot={false} 
-                        name="Lowest Ask"
-                        connectNulls={false}
-                      />
-                    )}
-                    
-                    {/* Main Scale Indicators */}
-                    {enabledMainIndicators.map(indicator => (
-                      <Line
-                        key={indicator.field}
-                        yAxisId="price"
-                        type="monotone"
-                        dataKey={indicator.field}
-                        stroke={indicator.color}
-                        strokeWidth={1}
-                        strokeDasharray="5 5"
-                        dot={false}
-                        name={indicator.name}
-                        connectNulls
-                      />
-                    ))}
-                    
-                    {/* Brush for zoom/pan */}
-                    <Brush
-                      dataKey="timestamp"
-                      height={60}
-                      stroke="#8884d8"
-                      onChange={handleBrushChange}
-                      tickFormatter={formatXAxisTick}
-                    />
-                  </ComposedChart>
-                </ResponsiveContainer>
-                )}
+                  );
+                })()}
               </Box>
               <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                💡 Use the brush at the bottom to zoom and pan. Volume shows as {timeInterval === 'raw' ? 'line' : 'bars'} for {timeInterval === 'raw' ? 'raw data' : 'time intervals'}.
+                💡 High-performance canvas rendering with uPlot. Drag to zoom, scroll to pan.
               </Typography>
             </Paper>
           </Grid>
@@ -1905,72 +1658,25 @@ export default function ChartPage() {
               </Typography>
               <Box sx={{ height: 'calc(100% - 60px)' }}>
                 {enabledSecondaryIndicators.length > 0 ? (
-                  useUPlot ? (
-                    /* uPlot high-performance secondary chart */
-                    (() => {
-                      const { data: secData, series: secSeries } = prepareUPlotSecondaryChartData();
-                      return (
-                        <UPlotChart
-                          data={secData}
-                          series={secSeries}
-                          height={340}
-                          onZoom={(min, max) => setZoomDomain([min, max])}
-                          showLegend={true}
-                          showTooltip={true}
-                        />
-                      );
-                    })()
-                  ) : (
-                    /* Legacy Recharts */
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart
-                        data={processedData}
-                        margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis
-                          dataKey="timestamp"
-                          type="number"
-                          scale="time"
-                          domain={zoomDomain || ['dataMin', 'dataMax']}
-                          tickFormatter={formatXAxisTick}
-                        />
-                        <YAxis
-                          domain={['dataMin', 'dataMax']}
-                          allowDataOverflow={false}
-                          scale="linear"
-                          type="number"
-                          label={{ value: 'Indicator Values', angle: -90, position: 'insideLeft' }}
-                        />
-                        <RechartsTooltip
-                          labelFormatter={formatTooltipLabel}
-                          formatter={(value: any, name: string) => [
-                            typeof value === 'number' ? value.toFixed(4) : value,
-                            name
-                          ]}
-                        />
-                        <Legend />
-                        {enabledSecondaryIndicators.map(indicator => (
-                        <Line
-                          key={indicator.field}
-                          type="monotone"
-                          dataKey={indicator.field}
-                          stroke={indicator.color}
-                          strokeWidth={2}
-                          dot={false}
-                          name={indicator.name}
-                          connectNulls
-                        />
-                        ))}
-                      </LineChart>
-                    </ResponsiveContainer>
-                  )
+                  (() => {
+                    const { data: secData, series: secSeries } = prepareUPlotSecondaryChartData();
+                    return (
+                      <UPlotChart
+                        data={secData}
+                        series={secSeries}
+                        height={340}
+                        onZoom={(min, max) => setZoomDomain([min, max])}
+                        showLegend={true}
+                        showTooltip={true}
+                      />
+                    );
+                  })()
                 ) : (
-                  <Box 
-                    sx={{ 
-                      height: '100%', 
-                      display: 'flex', 
-                      alignItems: 'center', 
+                  <Box
+                    sx={{
+                      height: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
                       justifyContent: 'center',
                       border: '2px dashed #ccc',
                       borderRadius: 1,
