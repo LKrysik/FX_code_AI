@@ -48,6 +48,7 @@ import {
   Palette as PaletteIcon,
 } from '@mui/icons-material';
 import { apiService } from '@/services/api';
+import UPlotChart, { UPlotSeries, UPlotDataPoint } from '@/components/UPlotChart';
 import {
   LineChart,
   Line,
@@ -140,6 +141,107 @@ const normalizeTimestampKey = (value: number | string): string => {
   return numeric.toFixed(6);
 };
 
+/**
+ * Largest-Triangle-Three-Buckets (LTTB) downsampling algorithm
+ * Reduces data points while preserving visual shape of the time series
+ *
+ * Reference: https://github.com/sveinn-steinarsson/flot-downsample
+ *
+ * @param data - Array of data points to downsample
+ * @param threshold - Target number of data points (must be >= 2)
+ * @param xAccessor - Function to extract x value (timestamp) from data point
+ * @param yAccessor - Function to extract y value (price) from data point
+ * @returns Downsampled array preserving visual characteristics
+ */
+const downsampleLTTB = (
+  data: any[],
+  threshold: number,
+  xAccessor: (d: any) => number = (d) => d.timestamp,
+  yAccessor: (d: any) => number = (d) => d.price || 0
+): any[] => {
+  // Early return if no downsampling needed
+  if (threshold >= data.length || threshold <= 2) {
+    console.log('[LTTB] No downsampling needed:', data.length, 'points, threshold:', threshold);
+    return data;
+  }
+
+  console.log('[LTTB] Downsampling from', data.length, 'to', threshold, 'points');
+
+  const sampled: any[] = [];
+
+  // Bucket 0: Always keep first point
+  sampled.push(data[0]);
+
+  // Bucket size (excluding first and last points)
+  const bucketSize = (data.length - 2) / (threshold - 2);
+
+  let sampledIndex = 0;
+
+  // Process middle buckets
+  for (let i = 0; i < threshold - 2; i++) {
+    // Calculate average point for next bucket (used for triangle calculation)
+    let avgX = 0;
+    let avgY = 0;
+
+    const avgRangeStart = Math.floor((i + 1) * bucketSize) + 1;
+    const avgRangeEnd = Math.min(
+      Math.floor((i + 2) * bucketSize) + 1,
+      data.length
+    );
+    const avgRangeLength = avgRangeEnd - avgRangeStart;
+
+    // Calculate average of points in next bucket
+    for (let j = avgRangeStart; j < avgRangeEnd; j++) {
+      const point = data[j];
+      avgX += xAccessor(point);
+      avgY += yAccessor(point);
+    }
+    avgX /= avgRangeLength;
+    avgY /= avgRangeLength;
+
+    // Current bucket range
+    const rangeOffs = Math.floor(i * bucketSize) + 1;
+    const rangeTo = Math.floor((i + 1) * bucketSize) + 1;
+
+    // Point A: Last selected point
+    const pointA = sampled[sampledIndex];
+    const pointAX = xAccessor(pointA);
+    const pointAY = yAccessor(pointA);
+
+    // Find point in current bucket that forms largest triangle
+    let maxArea = -1;
+    let maxAreaPoint: any = null;
+
+    for (let j = rangeOffs; j < rangeTo; j++) {
+      const point = data[j];
+      const pointX = xAccessor(point);
+      const pointY = yAccessor(point);
+
+      // Calculate triangle area using cross product formula
+      // Area = 0.5 * |det([[x1, y1, 1], [x2, y2, 1], [x3, y3, 1]])|
+      const area = Math.abs(
+        (pointAX - avgX) * (pointY - pointAY) -
+        (pointAX - pointX) * (avgY - pointAY)
+      ) * 0.5;
+
+      if (area > maxArea) {
+        maxArea = area;
+        maxAreaPoint = point;
+      }
+    }
+
+    // Add point with largest triangle area
+    sampled.push(maxAreaPoint);
+    sampledIndex++;
+  }
+
+  // Last bucket: Always keep last point
+  sampled.push(data[data.length - 1]);
+
+  console.log('[LTTB] Downsampling complete:', sampled.length, 'points selected');
+  return sampled;
+};
+
 // Helper function to check if indicator exists for given variant
 const findExistingIndicatorForVariant = (existingIndicators: Record<string, any>, variantId: string): string | null => {
   for (const [indicatorId, indicator] of Object.entries(existingIndicators)) {
@@ -175,6 +277,7 @@ export default function ChartPage() {
     severity: 'info'
   });
   const [indicatorStatuses, setIndicatorStatuses] = useState<Record<string, IndicatorStatusState>>({});
+  const [useUPlot, setUseUPlot] = useState(true); // Toggle between uPlot and Recharts
 
   useEffect(() => {
     loadSessionData();
@@ -633,7 +736,30 @@ export default function ChartPage() {
         console.log('  Middle:', formattedData[Math.floor(formattedData.length / 2)]);
         console.log('  Last:', formattedData[formattedData.length - 1]);
 
-        setProcessedData(formattedData);
+        // ============================================================================
+        // PERFORMANCE FIX: Apply LTTB downsampling for large datasets
+        // ============================================================================
+        // Problem: Recharts (SVG-based) struggles with >2000 points
+        // Solution: Use LTTB algorithm to reduce to ~1000 points while preserving
+        //           visual shape of both price and indicator data
+        // ============================================================================
+
+        const DOWNSAMPLE_THRESHOLD = 1000;
+        const finalData = formattedData.length > DOWNSAMPLE_THRESHOLD
+          ? downsampleLTTB(
+              formattedData,
+              DOWNSAMPLE_THRESHOLD,
+              (d) => d.timestamp,
+              (d) => d.price || 0
+            )
+          : formattedData;
+
+        console.log('[CHART DATA] Final data points:', finalData.length,
+                    formattedData.length > DOWNSAMPLE_THRESHOLD
+                      ? `(downsampled from ${formattedData.length})`
+                      : '(no downsampling)');
+
+        setProcessedData(finalData);
 
         // Reset zoom when data changes
         setZoomDomain(null);
@@ -955,6 +1081,75 @@ export default function ChartPage() {
   const enabledMainIndicators = indicators.filter(i => i.enabled && i.scale === 'main');
   const enabledSecondaryIndicators = indicators.filter(i => i.enabled && i.scale === 'secondary');
 
+  // Prepare uPlot data and series
+  const prepareUPlotMainChartData = (): {
+    data: UPlotDataPoint[];
+    series: UPlotSeries[];
+  } => {
+    // Convert processedData to uPlot format
+    const data: UPlotDataPoint[] = processedData.map(point => ({
+      timestamp: point.timestamp,
+      price: point.price,
+      volume: point.volume || 0,
+      ...Object.fromEntries(
+        enabledMainIndicators.map(ind => [ind.field, point[ind.field]])
+      ),
+    }));
+
+    // Build series configuration
+    const series: UPlotSeries[] = [
+      {
+        label: 'price',
+        stroke: '#1976d2',
+        width: 2,
+        scale: 'price',
+        value: (self, rawValue) => rawValue?.toFixed(6) || 'null',
+      },
+      {
+        label: 'volume',
+        stroke: '#9c27b0',
+        width: 1,
+        scale: 'volume',
+        dash: [5, 5],
+        value: (self, rawValue) => rawValue?.toFixed(2) || 'null',
+      },
+      ...enabledMainIndicators.map(ind => ({
+        label: ind.field,
+        stroke: ind.color,
+        width: 1,
+        dash: [5, 5],
+        scale: 'price' as const,
+        value: (self: any, rawValue: number) => rawValue?.toFixed(6) || 'null',
+      })),
+    ];
+
+    return { data, series };
+  };
+
+  const prepareUPlotSecondaryChartData = (): {
+    data: UPlotDataPoint[];
+    series: UPlotSeries[];
+  } => {
+    // Convert processedData to uPlot format
+    const data: UPlotDataPoint[] = processedData.map(point => ({
+      timestamp: point.timestamp,
+      ...Object.fromEntries(
+        enabledSecondaryIndicators.map(ind => [ind.field, point[ind.field]])
+      ),
+    }));
+
+    // Build series configuration
+    const series: UPlotSeries[] = enabledSecondaryIndicators.map(ind => ({
+      label: ind.field,
+      stroke: ind.color,
+      width: 2,
+      scale: 'secondary',
+      value: (self: any, rawValue: number) => rawValue?.toFixed(4) || 'null',
+    }));
+
+    return { data, series };
+  };
+
   // Calculate price domain for better scaling
   const priceDomain = useMemo(() => {
     if (processedData.length === 0) {
@@ -1182,6 +1377,15 @@ export default function ChartPage() {
                 Refresh
               </Button>
             </Tooltip>
+            <Tooltip title={useUPlot ? "Switch to Recharts (Legacy)" : "Switch to uPlot (High Performance)"}>
+              <Button
+                onClick={() => setUseUPlot(!useUPlot)}
+                variant={useUPlot ? "contained" : "outlined"}
+                color={useUPlot ? "success" : "primary"}
+              >
+                {useUPlot ? "🚀 uPlot" : "📊 Recharts"}
+              </Button>
+            </Tooltip>
           </ButtonGroup>
         </Toolbar>
       </AppBar>
@@ -1247,6 +1451,9 @@ export default function ChartPage() {
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 Interval: {timeIntervals.find(i => i.value === timeInterval)?.label}
+              </Typography>
+              <Typography variant="body2" color={useUPlot ? "success.main" : "text.secondary"} sx={{ fontWeight: useUPlot ? 'bold' : 'normal' }}>
+                Engine: {useUPlot ? '🚀 uPlot (Canvas)' : '📊 Recharts (SVG)'}
               </Typography>
             </CardContent>
           </Card>
@@ -1470,11 +1677,29 @@ export default function ChartPage() {
                 Price Chart with Volume {enabledMainIndicators.length > 0 && `and ${enabledMainIndicators.map(i => i.name).join(', ')}`}
               </Typography>
               <Box sx={{ height: 'calc(100% - 60px)' }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart
-                    data={processedData}
-                    margin={{ top: 5, right: 80, left: 20, bottom: 100 }}
-                  >
+                {useUPlot ? (
+                  /* uPlot high-performance chart */
+                  (() => {
+                    const { data: mainData, series: mainSeries } = prepareUPlotMainChartData();
+                    return (
+                      <UPlotChart
+                        data={mainData}
+                        series={mainSeries}
+                        height={640}
+                        priceRange={priceDomain as [number, number]}
+                        onZoom={(min, max) => setZoomDomain([min, max])}
+                        showLegend={true}
+                        showTooltip={true}
+                      />
+                    );
+                  })()
+                ) : (
+                  /* Legacy Recharts */
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart
+                      data={processedData}
+                      margin={{ top: 5, right: 80, left: 20, bottom: 100 }}
+                    >
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis 
                       dataKey="timestamp"
@@ -1658,6 +1883,7 @@ export default function ChartPage() {
                     />
                   </ComposedChart>
                 </ResponsiveContainer>
+                )}
               </Box>
               <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
                 💡 Use the brush at the bottom to zoom and pan. Volume shows as {timeInterval === 'raw' ? 'line' : 'bars'} for {timeInterval === 'raw' ? 'raw data' : 'time intervals'}.
@@ -1679,48 +1905,66 @@ export default function ChartPage() {
               </Typography>
               <Box sx={{ height: 'calc(100% - 60px)' }}>
                 {enabledSecondaryIndicators.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart 
-                      data={processedData}
-                      margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis 
-                        dataKey="timestamp"
-                        type="number"
-                        scale="time"
-                        domain={zoomDomain || ['dataMin', 'dataMax']}
-                        tickFormatter={formatXAxisTick}
-                      />
-                      <YAxis 
-                        domain={['dataMin', 'dataMax']}
-                        allowDataOverflow={false}
-                        scale="linear"
-                        type="number"
-                        label={{ value: 'Indicator Values', angle: -90, position: 'insideLeft' }}
-                      />
-                      <RechartsTooltip 
-                        labelFormatter={formatTooltipLabel}
-                        formatter={(value: any, name: string) => [
-                          typeof value === 'number' ? value.toFixed(4) : value,
-                          name
-                        ]}
-                      />
-                      <Legend />
-                      {enabledSecondaryIndicators.map(indicator => (
-                      <Line
-                        key={indicator.field}
-                        type="monotone"
-                        dataKey={indicator.field}
-                        stroke={indicator.color}
-                        strokeWidth={2}
-                        dot={false}
-                        name={indicator.name}
-                        connectNulls
-                      />
-                      ))}
-                    </LineChart>
-                  </ResponsiveContainer>
+                  useUPlot ? (
+                    /* uPlot high-performance secondary chart */
+                    (() => {
+                      const { data: secData, series: secSeries } = prepareUPlotSecondaryChartData();
+                      return (
+                        <UPlotChart
+                          data={secData}
+                          series={secSeries}
+                          height={340}
+                          onZoom={(min, max) => setZoomDomain([min, max])}
+                          showLegend={true}
+                          showTooltip={true}
+                        />
+                      );
+                    })()
+                  ) : (
+                    /* Legacy Recharts */
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart
+                        data={processedData}
+                        margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis
+                          dataKey="timestamp"
+                          type="number"
+                          scale="time"
+                          domain={zoomDomain || ['dataMin', 'dataMax']}
+                          tickFormatter={formatXAxisTick}
+                        />
+                        <YAxis
+                          domain={['dataMin', 'dataMax']}
+                          allowDataOverflow={false}
+                          scale="linear"
+                          type="number"
+                          label={{ value: 'Indicator Values', angle: -90, position: 'insideLeft' }}
+                        />
+                        <RechartsTooltip
+                          labelFormatter={formatTooltipLabel}
+                          formatter={(value: any, name: string) => [
+                            typeof value === 'number' ? value.toFixed(4) : value,
+                            name
+                          ]}
+                        />
+                        <Legend />
+                        {enabledSecondaryIndicators.map(indicator => (
+                        <Line
+                          key={indicator.field}
+                          type="monotone"
+                          dataKey={indicator.field}
+                          stroke={indicator.color}
+                          strokeWidth={2}
+                          dot={false}
+                          name={indicator.name}
+                          connectNulls
+                        />
+                        ))}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )
                 ) : (
                   <Box 
                     sx={{ 
