@@ -123,26 +123,41 @@ class TWPARatioAlgorithm(MultiWindowIndicatorAlgorithm):
     def calculate_refresh_interval(self, params: IndicatorParameters) -> float:
         """
         Calculate refresh interval based on window parameters.
-        
+
         For ratio calculations, use the more frequent of the two TWPA intervals.
         """
         override = params.get_refresh_override()
         if override:
-            return max(self.get_min_refresh_interval(), 
+            return max(self.get_min_refresh_interval(),
                       min(self.get_max_refresh_interval(), float(override)))
-        
+
         # Calculate recommended intervals for both windows
         t1 = params.get_float("t1", 300.0)
         t2 = params.get_float("t2", 60.0)
         t3 = params.get_float("t3", 1800.0)
         t4 = params.get_float("t4", 300.0)
-        
+
         interval1 = twpa_algorithm.calculate_refresh_interval(IndicatorParameters({"t1": t1, "t2": t2}))
         interval2 = twpa_algorithm.calculate_refresh_interval(IndicatorParameters({"t1": t3, "t2": t4}))
-        
+
         # Use the more frequent interval (shorter time)
         return min(interval1, interval2)
-    
+
+    def is_time_driven(self) -> bool:
+        """
+        TWPA_RATIO MUST be time-driven.
+
+        TWPA_RATIO calculates the ratio between two TWPA values, and since TWPA
+        is time-driven, TWPA_RATIO must also be time-driven to maintain consistency.
+
+        Both component TWPAs require regular recalculation on wall-clock schedule,
+        therefore the ratio must be recalculated on the same schedule.
+
+        Returns:
+            Always True - TWPA_RATIO requires time-driven scheduling
+        """
+        return True
+
     def calculate_multi_window(self, 
                               windows: List[Tuple[Sequence[Tuple[float, float]], float, float]], 
                               params: IndicatorParameters) -> Optional[float]:
