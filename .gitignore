@@ -153,3 +153,7 @@ config/local_*.json
 # Test results
 test_results_*.json
 /frontend/.next
+
+# Next.js build artifacts
+.next/
+out/
