@@ -1059,15 +1059,21 @@ export default function ChartPage() {
     }
   };
 
-  // Computed values for enabled indicators
-  const enabledMainIndicators = indicators.filter(i => i.enabled && i.scale === 'main');
-  const enabledSecondaryIndicators = indicators.filter(i => i.enabled && i.scale === 'secondary');
+  // Computed values for enabled indicators (memoized to prevent unnecessary re-renders)
+  const enabledMainIndicators = useMemo(
+    () => indicators.filter(i => i.enabled && i.scale === 'main'),
+    [indicators]
+  );
+  const enabledSecondaryIndicators = useMemo(
+    () => indicators.filter(i => i.enabled && i.scale === 'secondary'),
+    [indicators]
+  );
 
-  // Prepare uPlot data and series
-  const prepareUPlotMainChartData = (): {
+  // Prepare uPlot data and series (memoized to prevent unnecessary re-renders)
+  const mainChartData = useMemo<{
     data: UPlotDataPoint[];
     series: UPlotSeries[];
-  } => {
+  }>(() => {
     // Convert processedData to uPlot format
     const data: UPlotDataPoint[] = processedData.map(point => ({
       timestamp: point.timestamp,
@@ -1106,12 +1112,12 @@ export default function ChartPage() {
     ];
 
     return { data, series };
-  };
+  }, [processedData, enabledMainIndicators]);
 
-  const prepareUPlotSecondaryChartData = (): {
+  const secondaryChartData = useMemo<{
     data: UPlotDataPoint[];
     series: UPlotSeries[];
-  } => {
+  }>(() => {
     // Convert processedData to uPlot format
     const data: UPlotDataPoint[] = processedData.map(point => ({
       timestamp: point.timestamp,
@@ -1130,7 +1136,7 @@ export default function ChartPage() {
     }));
 
     return { data, series };
-  };
+  }, [processedData, enabledSecondaryIndicators]);
 
   // Calculate price domain for better scaling
   const priceDomain = useMemo(() => {
@@ -1623,20 +1629,15 @@ export default function ChartPage() {
                 Price Chart with Volume {enabledMainIndicators.length > 0 && `and ${enabledMainIndicators.map(i => i.name).join(', ')}`}
               </Typography>
               <Box sx={{ height: 'calc(100% - 60px)' }}>
-                {(() => {
-                  const { data: mainData, series: mainSeries } = prepareUPlotMainChartData();
-                  return (
-                    <UPlotChart
-                      data={mainData}
-                      series={mainSeries}
-                      height={640}
-                      priceRange={priceDomain as [number, number]}
-                      onZoom={(min, max) => setZoomDomain([min, max])}
-                      showLegend={true}
-                      showTooltip={true}
-                    />
-                  );
-                })()}
+                <UPlotChart
+                  data={mainChartData.data}
+                  series={mainChartData.series}
+                  height={640}
+                  priceRange={priceDomain as [number, number]}
+                  onZoom={(min, max) => setZoomDomain([min, max])}
+                  showLegend={true}
+                  showTooltip={true}
+                />
               </Box>
               <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
                 💡 High-performance canvas rendering with uPlot. Drag to zoom, scroll to pan.
@@ -1658,19 +1659,14 @@ export default function ChartPage() {
               </Typography>
               <Box sx={{ height: 'calc(100% - 60px)' }}>
                 {enabledSecondaryIndicators.length > 0 ? (
-                  (() => {
-                    const { data: secData, series: secSeries } = prepareUPlotSecondaryChartData();
-                    return (
-                      <UPlotChart
-                        data={secData}
-                        series={secSeries}
-                        height={340}
-                        onZoom={(min, max) => setZoomDomain([min, max])}
-                        showLegend={true}
-                        showTooltip={true}
-                      />
-                    );
-                  })()
+                  <UPlotChart
+                    data={secondaryChartData.data}
+                    series={secondaryChartData.series}
+                    height={340}
+                    onZoom={(min, max) => setZoomDomain([min, max])}
+                    showLegend={true}
+                    showTooltip={true}
+                  />
                 ) : (
                   <Box
                     sx={{
