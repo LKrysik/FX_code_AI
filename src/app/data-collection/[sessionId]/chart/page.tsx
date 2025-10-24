@@ -140,6 +140,107 @@ const normalizeTimestampKey = (value: number | string): string => {
   return numeric.toFixed(6);
 };
 
+/**
+ * Largest-Triangle-Three-Buckets (LTTB) downsampling algorithm
+ * Reduces data points while preserving visual shape of the time series
+ *
+ * Reference: https://github.com/sveinn-steinarsson/flot-downsample
+ *
+ * @param data - Array of data points to downsample
+ * @param threshold - Target number of data points (must be >= 2)
+ * @param xAccessor - Function to extract x value (timestamp) from data point
+ * @param yAccessor - Function to extract y value (price) from data point
+ * @returns Downsampled array preserving visual characteristics
+ */
+const downsampleLTTB = (
+  data: any[],
+  threshold: number,
+  xAccessor: (d: any) => number = (d) => d.timestamp,
+  yAccessor: (d: any) => number = (d) => d.price || 0
+): any[] => {
+  // Early return if no downsampling needed
+  if (threshold >= data.length || threshold <= 2) {
+    console.log('[LTTB] No downsampling needed:', data.length, 'points, threshold:', threshold);
+    return data;
+  }
+
+  console.log('[LTTB] Downsampling from', data.length, 'to', threshold, 'points');
+
+  const sampled: any[] = [];
+
+  // Bucket 0: Always keep first point
+  sampled.push(data[0]);
+
+  // Bucket size (excluding first and last points)
+  const bucketSize = (data.length - 2) / (threshold - 2);
+
+  let sampledIndex = 0;
+
+  // Process middle buckets
+  for (let i = 0; i < threshold - 2; i++) {
+    // Calculate average point for next bucket (used for triangle calculation)
+    let avgX = 0;
+    let avgY = 0;
+
+    const avgRangeStart = Math.floor((i + 1) * bucketSize) + 1;
+    const avgRangeEnd = Math.min(
+      Math.floor((i + 2) * bucketSize) + 1,
+      data.length
+    );
+    const avgRangeLength = avgRangeEnd - avgRangeStart;
+
+    // Calculate average of points in next bucket
+    for (let j = avgRangeStart; j < avgRangeEnd; j++) {
+      const point = data[j];
+      avgX += xAccessor(point);
+      avgY += yAccessor(point);
+    }
+    avgX /= avgRangeLength;
+    avgY /= avgRangeLength;
+
+    // Current bucket range
+    const rangeOffs = Math.floor(i * bucketSize) + 1;
+    const rangeTo = Math.floor((i + 1) * bucketSize) + 1;
+
+    // Point A: Last selected point
+    const pointA = sampled[sampledIndex];
+    const pointAX = xAccessor(pointA);
+    const pointAY = yAccessor(pointA);
+
+    // Find point in current bucket that forms largest triangle
+    let maxArea = -1;
+    let maxAreaPoint: any = null;
+
+    for (let j = rangeOffs; j < rangeTo; j++) {
+      const point = data[j];
+      const pointX = xAccessor(point);
+      const pointY = yAccessor(point);
+
+      // Calculate triangle area using cross product formula
+      // Area = 0.5 * |det([[x1, y1, 1], [x2, y2, 1], [x3, y3, 1]])|
+      const area = Math.abs(
+        (pointAX - avgX) * (pointY - pointAY) -
+        (pointAX - pointX) * (avgY - pointAY)
+      ) * 0.5;
+
+      if (area > maxArea) {
+        maxArea = area;
+        maxAreaPoint = point;
+      }
+    }
+
+    // Add point with largest triangle area
+    sampled.push(maxAreaPoint);
+    sampledIndex++;
+  }
+
+  // Last bucket: Always keep last point
+  sampled.push(data[data.length - 1]);
+
+  console.log('[LTTB] Downsampling complete:', sampled.length, 'points selected');
+  return sampled;
+};
+
 // Helper function to check if indicator exists for given variant
 const findExistingIndicatorForVariant = (existingIndicators: Record<string, any>, variantId: string): string | null => {
   for (const [indicatorId, indicator] of Object.entries(existingIndicators)) {
@@ -633,7 +734,30 @@ export default function ChartPage() {
         console.log('  Middle:', formattedData[Math.floor(formattedData.length / 2)]);
         console.log('  Last:', formattedData[formattedData.length - 1]);
 
-        setProcessedData(formattedData);
+        // ============================================================================
+        // PERFORMANCE FIX: Apply LTTB downsampling for large datasets
+        // ============================================================================
+        // Problem: Recharts (SVG-based) struggles with >2000 points
+        // Solution: Use LTTB algorithm to reduce to ~1000 points while preserving
+        //           visual shape of both price and indicator data
+        // ============================================================================
+
+        const DOWNSAMPLE_THRESHOLD = 1000;
+        const finalData = formattedData.length > DOWNSAMPLE_THRESHOLD
+          ? downsampleLTTB(
+              formattedData,
+              DOWNSAMPLE_THRESHOLD,
+              (d) => d.timestamp,
+              (d) => d.price || 0
+            )
+          : formattedData;
+
+        console.log('[CHART DATA] Final data points:', finalData.length,
+                    formattedData.length > DOWNSAMPLE_THRESHOLD
+                      ? `(downsampled from ${formattedData.length})`
+                      : '(no downsampling)');
+
+        setProcessedData(finalData);
 
         // Reset zoom when data changes
         setZoomDomain(null);
