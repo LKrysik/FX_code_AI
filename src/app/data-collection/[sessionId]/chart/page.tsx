@@ -481,10 +481,10 @@ export default function ChartPage() {
     let indicatorValues: any = {};
         const enabledIndicators = indicators.filter(ind => ind.enabled);
         // Filter out indicators with temporary IDs to prevent duplicate requests
-        const validEnabledIndicators = enabledIndicators.filter(ind => 
+        const validEnabledIndicators = enabledIndicators.filter(ind =>
           ind.field && !ind.field.startsWith('temp_') && !ind.id.startsWith('temp_')
         );
-        
+
         if (validEnabledIndicators.length > 0) {
           try {
             // Use new unified API
@@ -502,10 +502,10 @@ export default function ChartPage() {
             }
           }
         }
-    
+
         // Load histories for each indicator in parallel for better performance
         const indicatorHistories: { [field: string]: Record<string, any> } = {};
-        
+
         const historyPromises = validEnabledIndicators.map(async (indicator) => {
           try {
             // Use indicator.field (session indicator ID) for API call - backend requires full session ID
@@ -513,138 +513,128 @@ export default function ChartPage() {
             console.log(`[DEBUG] Loading history from endpoint: ${apiEndpoint}`);
             const historyResponse = await apiService.get(apiEndpoint);
             const history = historyResponse.data?.history || [];
-            
+
             console.log(`[DEBUG] Loaded history for ${indicator.field} (variant: ${indicator.variantId}):`, history.length, 'points');
-            console.log(`[DEBUG] Sample history points for ${indicator.field}:`, history.slice(0, 3));
-            
+
             if (history.length === 0) {
               console.warn(`[WARNING] No history data received for indicator ${indicator.field}`);
             }
-            
+
             const historyMap: Record<string, any> = {};
             for (const hist of history) {
               const key = normalizeTimestampKey(hist.timestamp);
               historyMap[key] = hist.value;
-              
-              // DEBUG: Log first few timestamp conversions
-              if (Object.keys(historyMap).length <= 5) {
-                console.log(`[DEBUG] API timestamp conversion: ${hist.timestamp} -> normalized: ${key} (value: ${hist.value})`);
-              }
             }
-            
-            console.log(`[DEBUG] History map keys for ${indicator.field}:`, Object.keys(historyMap).slice(0, 5));
+
+            console.log(`[DEBUG] History map for ${indicator.field}:`, Object.keys(historyMap).length, 'keys');
             return { field: indicator.field, historyMap };
           } catch (error) {
-            console.error(`Failed to load history for indicator ${indicator.field} (variant: ${indicator.variantId}) from endpoint:`, 
-              `/api/indicators/sessions/${sessionId}/symbols/${selectedSymbol}/indicators/${indicator.field}/history`, 
-              'Error:', error);
+            console.error(`Failed to load history for indicator ${indicator.field}:`, error);
             return { field: indicator.field, historyMap: {} };
           }
         });
-        
+
         // Wait for all history requests to complete
         const historyResults = await Promise.all(historyPromises);
-        
+
         // Populate indicatorHistories object
         historyResults.forEach(({ field, historyMap }) => {
           indicatorHistories[field] = historyMap;
         });
-    
-        // Format data for Recharts
-        const formattedData = data.map((point, index) => {
+
+        // ============================================================================
+        // CRITICAL FIX: Create UNIFIED TIME AXIS for both price and indicator data
+        // ============================================================================
+        // Problem: Price data has irregular timestamps (e.g., every 11s, 15s, 54s)
+        //          Indicator data has regular timestamps (e.g., every 1s)
+        // Solution: Merge all timestamps into single sorted array, then populate
+        //           price values (with forward-fill) and indicator values (exact match)
+        // ============================================================================
+
+        console.log('[UNIFIED AXIS] Building unified time axis...');
+
+        // Step 1: Collect all unique timestamps from both sources
+        const allTimestamps = new Set<number>();
+
+        // Add price timestamps (irregular)
+        data.forEach(p => allTimestamps.add(p.timestamp));
+        console.log('[UNIFIED AXIS] Price data timestamps:', data.length);
+
+        // Add indicator timestamps (regular, e.g., every 1s)
+        validEnabledIndicators.forEach(indicator => {
+          const historyMap = indicatorHistories[indicator.field] || {};
+          Object.keys(historyMap).forEach(ts => {
+            const timestamp = parseFloat(ts);
+            if (!isNaN(timestamp)) {
+              allTimestamps.add(timestamp);
+            }
+          });
+        });
+        console.log('[UNIFIED AXIS] Total unique timestamps:', allTimestamps.size);
+
+        // Step 2: Sort timestamps chronologically
+        const sortedTimestamps = Array.from(allTimestamps).sort((a, b) => a - b);
+
+        // Step 3: Create lookup maps for efficient access
+        const priceMap = new Map<number, any>();
+        data.forEach(p => priceMap.set(p.timestamp, p));
+
+        // Step 4: Build unified dataset with forward-fill for price data
+        let lastKnownPrice: any = null;
+
+        const formattedData = sortedTimestamps.map((timestamp, index) => {
+          const pricePoint = priceMap.get(timestamp);
+
+          // Update last known values when we have actual price data
+          if (pricePoint) {
+            lastKnownPrice = pricePoint;
+          }
+
+          // Use actual price point or forward-fill from last known
+          const sourcePoint = pricePoint || lastKnownPrice;
+
           const formattedPoint: any = {
             index,
-            timestamp: point.timestamp,
-            timeStr: new Date(point.timestamp).toLocaleTimeString(),
-            dateTimeStr: new Date(point.timestamp).toLocaleString(),
-            price: point.price,
-            volume: point.volume || 0,
-            highestBid: point.bid_prices ? Math.max(...point.bid_prices) : null,
-            lowestAsk: point.ask_prices ? Math.min(...point.ask_prices) : null,
-            // Add OHLC data for intervals
-            open: point.open || point.price,
-            high: point.high || point.price,
-            low: point.low || point.price,
-            close: point.close || point.price,
+            timestamp,
+            timeStr: new Date(timestamp).toLocaleTimeString(),
+            dateTimeStr: new Date(timestamp).toLocaleString(),
+            // Price data: use actual if available, otherwise forward-fill
+            price: sourcePoint?.price || null,
+            volume: pricePoint?.volume || 0, // Only show volume for actual data points
+            highestBid: sourcePoint?.bid_prices ? Math.max(...sourcePoint.bid_prices) : null,
+            lowestAsk: sourcePoint?.ask_prices ? Math.min(...sourcePoint.ask_prices) : null,
+            // OHLC data
+            open: sourcePoint?.open || sourcePoint?.price || null,
+            high: sourcePoint?.high || sourcePoint?.price || null,
+            low: sourcePoint?.low || sourcePoint?.price || null,
+            close: sourcePoint?.close || sourcePoint?.price || null,
           };
-    
-          // Add only enabled indicators with valid IDs
-          const enabledIndicators = indicators.filter(ind => ind.enabled);
-          const validEnabledIndicators = enabledIndicators.filter(ind => 
-            ind.field && !ind.field.startsWith('temp_') && !ind.id.startsWith('temp_')
-          );
+
+          // Add indicator values - EXACT MATCH (no approximation needed!)
           validEnabledIndicators.forEach(indicator => {
-            const field = indicator.field;
-            
-            // ALWAYS prefer historical data from backend over chart point data
-            const historyMap = indicatorHistories[field] || {};
-            const historyKey = normalizeTimestampKey(point.timestamp);
-            
-            // DEBUG: Show timestamp mapping for first few points
-            if (index < 3) {
-              console.log(`[DEBUG] Point ${index} timestamp mapping for ${field}:`);
-              console.log(`  - Chart timestamp: ${point.timestamp} (${new Date(point.timestamp).toISOString()})`);
-              console.log(`  - Normalized key: ${historyKey}`);
-              console.log(`  - Available history keys sample:`, Object.keys(historyMap).slice(0, 10));
-              console.log(`  - History value for key ${historyKey}:`, historyMap[historyKey]);
-            }
-            
-            // Try exact match first
-            if (historyMap[historyKey] !== undefined) {
-              formattedPoint[field] = historyMap[historyKey];
-              if (index < 3) console.log(`[DEBUG] Using exact match for ${field}:`, historyMap[historyKey]);
-            } 
-            // Try alternative key format
-            else if (historyMap[String(point.timestamp)] !== undefined) {
-              formattedPoint[field] = historyMap[String(point.timestamp)];
-              if (index < 3) console.log(`[DEBUG] Using alt format for ${field}:`, historyMap[String(point.timestamp)]);
-            } 
-            // Try approximate matching with tolerance (±1000ms for timestamp precision differences)
-            else {
-              let foundValue = null;
-              const tolerance = 1000; // 1 second tolerance
-              const chartTime = Number(historyKey);
-              
-              for (const [timeKey, value] of Object.entries(historyMap)) {
-                const histTime = Number(timeKey);
-                if (Math.abs(chartTime - histTime) <= tolerance) {
-                  foundValue = value;
-                  if (index < 3) console.log(`[DEBUG] Found approximate match for ${field}: chart=${chartTime}, hist=${histTime}, diff=${Math.abs(chartTime - histTime)}ms, value=${value}`);
-                  break;
-                }
-              }
-              
-              if (foundValue !== null) {
-                formattedPoint[field] = foundValue;
-              }
-              // Fallback to chart data if available
-              else if (point[field] !== undefined && point[field] !== null) {
-                formattedPoint[field] = point[field];
-                if (index < 3) console.log(`[DEBUG] Using chart data fallback for ${field}:`, point[field]);
-              } 
-              // Last resort: null
-              else {
-                formattedPoint[field] = null;
-                if (index < 3) console.log(`[DEBUG] No data found for ${field}, setting null. Chart time: ${chartTime}`);
-              }
+            const historyMap = indicatorHistories[indicator.field] || {};
+            const key = normalizeTimestampKey(timestamp);
+
+            // Exact match - indicator timestamps are already in our unified axis
+            formattedPoint[indicator.field] = historyMap[key] !== undefined ? historyMap[key] : null;
+
+            // Debug first few points
+            if (index < 3 && historyMap[key] !== undefined) {
+              console.log(`[UNIFIED AXIS] ${indicator.field} @ ${timestamp}: ${historyMap[key]}`);
             }
           });
 
           return formattedPoint;
         });
-    
-        console.log('Processed data:', formattedData.length, 'points');
-        if (formattedData.length > 0) {
-          console.log('Sample processed point:', formattedData[0]);
-          console.log('[DEBUG] Chart data timestamps (first 3):', data.slice(0, 3).map(p => ({
-            original: p.timestamp,
-            normalized: normalizeTimestampKey(p.timestamp),
-            date: new Date(p.timestamp).toISOString()
-          })));
-        }
-        
+
+        console.log('[UNIFIED AXIS] Processed data:', formattedData.length, 'points');
+        console.log('[UNIFIED AXIS] Sample points:');
+        console.log('  First:', formattedData[0]);
+        console.log('  Middle:', formattedData[Math.floor(formattedData.length / 2)]);
+        console.log('  Last:', formattedData[formattedData.length - 1]);
+
         setProcessedData(formattedData);
-        
+
         // Reset zoom when data changes
         setZoomDomain(null);
         setBrushDomain(null);
