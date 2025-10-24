@@ -254,29 +254,42 @@ class IndicatorPersistenceService:
             })
             return False
 
-    def save_single_value(self, session_id: str, symbol: str, variant_id: str, 
+    def save_single_value(self, session_id: str, symbol: str, variant_id: str,
                          indicator_value: IndicatorValue, variant_type: str = "general") -> bool:
         """
         Save single indicator value to CSV with append mode.
-        
+
         Used for real-time streaming indicator values.
-        
+
         Args:
             session_id: Session identifier
             symbol: Trading symbol
             variant_id: Indicator variant ID
             indicator_value: IndicatorValue object to save
             variant_type: Indicator variant type (general, risk, price, etc.)
-            
+
         Returns:
             bool: True if saved successfully, False otherwise
         """
         try:
+            # ✅ PERFORMANCE OPTIMIZATION: Skip saving None values
+            # None values are ignored during CSV read (line 578-579, 402-403)
+            # Skipping them saves significant I/O operations (file lock, fsync, write)
+            if indicator_value.value is None:
+                self.logger.debug("indicator_persistence_service.skipped_none_value", {
+                    "session_id": session_id,
+                    "symbol": symbol,
+                    "variant_id": variant_id,
+                    "timestamp": indicator_value.timestamp,
+                    "reason": "None values are skipped to avoid unnecessary I/O"
+                })
+                return True  # Return success - operation completed (skip is intentional)
+
             csv_file_path = self._get_csv_file_path(session_id, symbol, variant_type, variant_id)
-            
+
             # Convert indicator value to CSV row
             row = self._indicator_value_to_csv_row(indicator_value)
-            
+
             # Use atomic append operation
             success = self._atomic_csv_write(
                 csv_file_path=csv_file_path,
@@ -284,7 +297,7 @@ class IndicatorPersistenceService:
                 data_rows=[row],
                 header=["timestamp", "value"]
             )
-            
+
             if success:
                 self.logger.debug("indicator_persistence_service.single_value_saved", {
                     "session_id": session_id,
@@ -293,9 +306,9 @@ class IndicatorPersistenceService:
                     "file_path": str(csv_file_path),
                     "timestamp": indicator_value.timestamp
                 })
-            
+
             return success
-                
+
         except Exception as e:
             self.logger.error("indicator_persistence_service.save_single_value_failed", {
                 "session_id": session_id,
