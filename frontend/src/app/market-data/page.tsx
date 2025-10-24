@@ -392,7 +392,7 @@ export default function MarketDataPage() {
                 <TableCell>
                   {indicator.timestamp ? (
                     <Typography variant="caption">
-                      {new Date(Number(indicator.timestamp) * 1000).toLocaleTimeString()}
+                      {new Date(indicator.timestamp).toLocaleTimeString()}
                     </Typography>
                   ) : (
                     <Typography variant="caption" color="text.secondary">

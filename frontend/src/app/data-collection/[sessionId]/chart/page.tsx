@@ -48,23 +48,7 @@ import {
   Palette as PaletteIcon,
 } from '@mui/icons-material';
 import { apiService } from '@/services/api';
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip as RechartsTooltip,
-  Legend,
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  ComposedChart,
-  Brush,
-  ReferenceLine,
-  Area,
-  AreaChart,
-} from 'recharts';
+import UPlotChart, { UPlotSeries, UPlotDataPoint } from '@/components/UPlotChart';
 
 interface ChartDataPoint {
   timestamp: number;
@@ -138,6 +122,107 @@ const normalizeTimestampKey = (value: number | string): string => {
   }
   // Already in seconds format (matches indicators)
   return numeric.toFixed(6);
+};
+
+/**
+ * Largest-Triangle-Three-Buckets (LTTB) downsampling algorithm
+ * Reduces data points while preserving visual shape of the time series
+ *
+ * Reference: https://github.com/sveinn-steinarsson/flot-downsample
+ *
+ * @param data - Array of data points to downsample
+ * @param threshold - Target number of data points (must be >= 2)
+ * @param xAccessor - Function to extract x value (timestamp) from data point
+ * @param yAccessor - Function to extract y value (price) from data point
+ * @returns Downsampled array preserving visual characteristics
+ */
+const downsampleLTTB = (
+  data: any[],
+  threshold: number,
+  xAccessor: (d: any) => number = (d) => d.timestamp,
+  yAccessor: (d: any) => number = (d) => d.price || 0
+): any[] => {
+  // Early return if no downsampling needed
+  if (threshold >= data.length || threshold <= 2) {
+    console.log('[LTTB] No downsampling needed:', data.length, 'points, threshold:', threshold);
+    return data;
+  }
+
+  console.log('[LTTB] Downsampling from', data.length, 'to', threshold, 'points');
+
+  const sampled: any[] = [];
+
+  // Bucket 0: Always keep first point
+  sampled.push(data[0]);
+
+  // Bucket size (excluding first and last points)
+  const bucketSize = (data.length - 2) / (threshold - 2);
+
+  let sampledIndex = 0;
+
+  // Process middle buckets
+  for (let i = 0; i < threshold - 2; i++) {
+    // Calculate average point for next bucket (used for triangle calculation)
+    let avgX = 0;
+    let avgY = 0;
+
+    const avgRangeStart = Math.floor((i + 1) * bucketSize) + 1;
+    const avgRangeEnd = Math.min(
+      Math.floor((i + 2) * bucketSize) + 1,
+      data.length
+    );
+    const avgRangeLength = avgRangeEnd - avgRangeStart;
+
+    // Calculate average of points in next bucket
+    for (let j = avgRangeStart; j < avgRangeEnd; j++) {
+      const point = data[j];
+      avgX += xAccessor(point);
+      avgY += yAccessor(point);
+    }
+    avgX /= avgRangeLength;
+    avgY /= avgRangeLength;
+
+    // Current bucket range
+    const rangeOffs = Math.floor(i * bucketSize) + 1;
+    const rangeTo = Math.floor((i + 1) * bucketSize) + 1;
+
+    // Point A: Last selected point
+    const pointA = sampled[sampledIndex];
+    const pointAX = xAccessor(pointA);
+    const pointAY = yAccessor(pointA);
+
+    // Find point in current bucket that forms largest triangle
+    let maxArea = -1;
+    let maxAreaPoint: any = null;
+
+    for (let j = rangeOffs; j < rangeTo; j++) {
+      const point = data[j];
+      const pointX = xAccessor(point);
+      const pointY = yAccessor(point);
+
+      // Calculate triangle area using cross product formula
+      // Area = 0.5 * |det([[x1, y1, 1], [x2, y2, 1], [x3, y3, 1]])|
+      const area = Math.abs(
+        (pointAX - avgX) * (pointY - pointAY) -
+        (pointAX - pointX) * (avgY - pointAY)
+      ) * 0.5;
+
+      if (area > maxArea) {
+        maxArea = area;
+        maxAreaPoint = point;
+      }
+    }
+
+    // Add point with largest triangle area
+    sampled.push(maxAreaPoint);
+    sampledIndex++;
+  }
+
+  // Last bucket: Always keep last point
+  sampled.push(data[data.length - 1]);
+
+  console.log('[LTTB] Downsampling complete:', sampled.length, 'points selected');
+  return sampled;
 };
 
 // Helper function to check if indicator exists for given variant
@@ -481,10 +566,10 @@ export default function ChartPage() {
     let indicatorValues: any = {};
         const enabledIndicators = indicators.filter(ind => ind.enabled);
         // Filter out indicators with temporary IDs to prevent duplicate requests
-        const validEnabledIndicators = enabledIndicators.filter(ind => 
+        const validEnabledIndicators = enabledIndicators.filter(ind =>
           ind.field && !ind.field.startsWith('temp_') && !ind.id.startsWith('temp_')
         );
-        
+
         if (validEnabledIndicators.length > 0) {
           try {
             // Use new unified API
@@ -502,10 +587,10 @@ export default function ChartPage() {
             }
           }
         }
-    
+
         // Load histories for each indicator in parallel for better performance
         const indicatorHistories: { [field: string]: Record<string, any> } = {};
-        
+
         const historyPromises = validEnabledIndicators.map(async (indicator) => {
           try {
             // Use indicator.field (session indicator ID) for API call - backend requires full session ID
@@ -513,143 +598,151 @@ export default function ChartPage() {
             console.log(`[DEBUG] Loading history from endpoint: ${apiEndpoint}`);
             const historyResponse = await apiService.get(apiEndpoint);
             const history = historyResponse.data?.history || [];
-            
+
             console.log(`[DEBUG] Loaded history for ${indicator.field} (variant: ${indicator.variantId}):`, history.length, 'points');
-            console.log(`[DEBUG] Sample history points for ${indicator.field}:`, history.slice(0, 3));
-            
+
             if (history.length === 0) {
               console.warn(`[WARNING] No history data received for indicator ${indicator.field}`);
             }
-            
+
             const historyMap: Record<string, any> = {};
             for (const hist of history) {
               const key = normalizeTimestampKey(hist.timestamp);
               historyMap[key] = hist.value;
-              
-              // DEBUG: Log first few timestamp conversions
-              if (Object.keys(historyMap).length <= 5) {
-                console.log(`[DEBUG] API timestamp conversion: ${hist.timestamp} -> normalized: ${key} (value: ${hist.value})`);
-              }
             }
-            
-            console.log(`[DEBUG] History map keys for ${indicator.field}:`, Object.keys(historyMap).slice(0, 5));
+
+            console.log(`[DEBUG] History map for ${indicator.field}:`, Object.keys(historyMap).length, 'keys');
             return { field: indicator.field, historyMap };
           } catch (error) {
-            console.error(`Failed to load history for indicator ${indicator.field} (variant: ${indicator.variantId}) from endpoint:`, 
-              `/api/indicators/sessions/${sessionId}/symbols/${selectedSymbol}/indicators/${indicator.field}/history`, 
-              'Error:', error);
+            console.error(`Failed to load history for indicator ${indicator.field}:`, error);
             return { field: indicator.field, historyMap: {} };
           }
         });
-        
+
         // Wait for all history requests to complete
         const historyResults = await Promise.all(historyPromises);
-        
+
         // Populate indicatorHistories object
         historyResults.forEach(({ field, historyMap }) => {
           indicatorHistories[field] = historyMap;
         });
-    
-        // Format data for Recharts
-        const formattedData = data.map((point, index) => {
-          // Convert Unix timestamp (seconds) to JavaScript timestamp (milliseconds)
-          const timestampMs = point.timestamp * 1000;
+
+        // ============================================================================
+        // CRITICAL FIX: Create UNIFIED TIME AXIS for both price and indicator data
+        // ============================================================================
+        // Problem: Price data has irregular timestamps (e.g., every 11s, 15s, 54s)
+        //          Indicator data has regular timestamps (e.g., every 1s)
+        // Solution: Merge all timestamps into single sorted array, then populate
+        //           price values (with forward-fill) and indicator values (exact match)
+        // ============================================================================
+
+        console.log('[UNIFIED AXIS] Building unified time axis...');
+
+        // Step 1: Collect all unique timestamps from both sources
+        const allTimestamps = new Set<number>();
+
+        // Add price timestamps (irregular)
+        data.forEach(p => allTimestamps.add(p.timestamp));
+        console.log('[UNIFIED AXIS] Price data timestamps:', data.length);
+
+        // Add indicator timestamps (regular, e.g., every 1s)
+        validEnabledIndicators.forEach(indicator => {
+          const historyMap = indicatorHistories[indicator.field] || {};
+          Object.keys(historyMap).forEach(ts => {
+            const timestamp = parseFloat(ts);
+            if (!isNaN(timestamp)) {
+              allTimestamps.add(timestamp);
+            }
+          });
+        });
+        console.log('[UNIFIED AXIS] Total unique timestamps:', allTimestamps.size);
+
+        // Step 2: Sort timestamps chronologically
+        const sortedTimestamps = Array.from(allTimestamps).sort((a, b) => a - b);
+
+        // Step 3: Create lookup maps for efficient access
+        const priceMap = new Map<number, any>();
+        data.forEach(p => priceMap.set(p.timestamp, p));
+
+        // Step 4: Build unified dataset with forward-fill for price data
+        let lastKnownPrice: any = null;
+
+        const formattedData = sortedTimestamps.map((timestamp, index) => {
+          const pricePoint = priceMap.get(timestamp);
+
+          // Update last known values when we have actual price data
+          if (pricePoint) {
+            lastKnownPrice = pricePoint;
+          }
+
+          // Use actual price point or forward-fill from last known
+          const sourcePoint = pricePoint || lastKnownPrice;
 
           const formattedPoint: any = {
             index,
-            timestamp: timestampMs,
-            timeStr: new Date(timestampMs).toLocaleTimeString(),
-            dateTimeStr: new Date(timestampMs).toLocaleString(),
-            price: point.price,
-            volume: point.volume || 0,
-            highestBid: point.bid_prices ? Math.max(...point.bid_prices) : null,
-            lowestAsk: point.ask_prices ? Math.min(...point.ask_prices) : null,
-            // Add OHLC data for intervals
-            open: point.open || point.price,
-            high: point.high || point.price,
-            low: point.low || point.price,
-            close: point.close || point.price,
+            timestamp,
+            timeStr: new Date(timestamp * 1000).toLocaleTimeString(),
+            dateTimeStr: new Date(timestamp * 1000).toLocaleString(),
+            // Price data: use actual if available, otherwise forward-fill
+            price: sourcePoint?.price || null,
+            volume: pricePoint?.volume || 0, // Only show volume for actual data points
+            highestBid: sourcePoint?.bid_prices ? Math.max(...sourcePoint.bid_prices) : null,
+            lowestAsk: sourcePoint?.ask_prices ? Math.min(...sourcePoint.ask_prices) : null,
+            // OHLC data
+            open: sourcePoint?.open || sourcePoint?.price || null,
+            high: sourcePoint?.high || sourcePoint?.price || null,
+            low: sourcePoint?.low || sourcePoint?.price || null,
+            close: sourcePoint?.close || sourcePoint?.price || null,
           };
-    
-          // Add only enabled indicators with valid IDs
-          const enabledIndicators = indicators.filter(ind => ind.enabled);
-          const validEnabledIndicators = enabledIndicators.filter(ind => 
-            ind.field && !ind.field.startsWith('temp_') && !ind.id.startsWith('temp_')
-          );
+
+          // Add indicator values - EXACT MATCH (no approximation needed!)
           validEnabledIndicators.forEach(indicator => {
-            const field = indicator.field;
-            
-            // ALWAYS prefer historical data from backend over chart point data
-            const historyMap = indicatorHistories[field] || {};
-            const historyKey = normalizeTimestampKey(point.timestamp);
-            
-            // DEBUG: Show timestamp mapping for first few points
-            if (index < 3) {
-              console.log(`[DEBUG] Point ${index} timestamp mapping for ${field}:`);
-              console.log(`  - Chart timestamp (original): ${point.timestamp} seconds`);
-              console.log(`  - Chart timestamp (converted): ${timestampMs} ms (${new Date(timestampMs).toISOString()})`);
-              console.log(`  - Normalized key: ${historyKey}`);
-              console.log(`  - Available history keys sample:`, Object.keys(historyMap).slice(0, 10));
-              console.log(`  - History value for key ${historyKey}:`, historyMap[historyKey]);
-            }
-            
-            // Try exact match first
-            if (historyMap[historyKey] !== undefined) {
-              formattedPoint[field] = historyMap[historyKey];
-              if (index < 3) console.log(`[DEBUG] Using exact match for ${field}:`, historyMap[historyKey]);
-            } 
-            // Try alternative key format
-            else if (historyMap[String(point.timestamp)] !== undefined) {
-              formattedPoint[field] = historyMap[String(point.timestamp)];
-              if (index < 3) console.log(`[DEBUG] Using alt format for ${field}:`, historyMap[String(point.timestamp)]);
-            } 
-            // Try approximate matching with tolerance (±1000ms for timestamp precision differences)
-            else {
-              let foundValue = null;
-              const tolerance = 1000; // 1 second tolerance
-              const chartTime = Number(historyKey);
-              
-              for (const [timeKey, value] of Object.entries(historyMap)) {
-                const histTime = Number(timeKey);
-                if (Math.abs(chartTime - histTime) <= tolerance) {
-                  foundValue = value;
-                  if (index < 3) console.log(`[DEBUG] Found approximate match for ${field}: chart=${chartTime}, hist=${histTime}, diff=${Math.abs(chartTime - histTime)}ms, value=${value}`);
-                  break;
-                }
-              }
-              
-              if (foundValue !== null) {
-                formattedPoint[field] = foundValue;
-              }
-              // Fallback to chart data if available
-              else if (point[field] !== undefined && point[field] !== null) {
-                formattedPoint[field] = point[field];
-                if (index < 3) console.log(`[DEBUG] Using chart data fallback for ${field}:`, point[field]);
-              } 
-              // Last resort: null
-              else {
-                formattedPoint[field] = null;
-                if (index < 3) console.log(`[DEBUG] No data found for ${field}, setting null. Chart time: ${chartTime}`);
-              }
+            const historyMap = indicatorHistories[indicator.field] || {};
+            const key = normalizeTimestampKey(timestamp);
+
+            // Exact match - indicator timestamps are already in our unified axis
+            formattedPoint[indicator.field] = historyMap[key] !== undefined ? historyMap[key] : null;
+
+            // Debug first few points
+            if (index < 3 && historyMap[key] !== undefined) {
+              console.log(`[UNIFIED AXIS] ${indicator.field} @ ${timestamp}: ${historyMap[key]}`);
             }
           });
 
           return formattedPoint;
         });
-    
-        console.log('Processed data:', formattedData.length, 'points');
-        if (formattedData.length > 0) {
-          console.log('Sample processed point:', formattedData[0]);
-          console.log('[DEBUG] Chart data timestamps (first 3):', data.slice(0, 3).map(p => ({
-            original_seconds: p.timestamp,
-            converted_ms: p.timestamp * 1000,
-            normalized: normalizeTimestampKey(p.timestamp),
-            date: new Date(p.timestamp * 1000).toISOString()
-          })));
-        }
-        
-        setProcessedData(formattedData);
-        
+
+        console.log('[UNIFIED AXIS] Processed data:', formattedData.length, 'points');
+        console.log('[UNIFIED AXIS] Sample points:');
+        console.log('  First:', formattedData[0]);
+        console.log('  Middle:', formattedData[Math.floor(formattedData.length / 2)]);
+        console.log('  Last:', formattedData[formattedData.length - 1]);
+
+        // ============================================================================
+        // PERFORMANCE FIX: Apply LTTB downsampling for large datasets
+        // ============================================================================
+        // Problem: Recharts (SVG-based) struggles with >2000 points
+        // Solution: Use LTTB algorithm to reduce to ~1000 points while preserving
+        //           visual shape of both price and indicator data
+        // ============================================================================
+
+        const DOWNSAMPLE_THRESHOLD = 1000;
+        const finalData = formattedData.length > DOWNSAMPLE_THRESHOLD
+          ? downsampleLTTB(
+              formattedData,
+              DOWNSAMPLE_THRESHOLD,
+              (d) => d.timestamp,
+              (d) => d.price || 0
+            )
+          : formattedData;
+
+        console.log('[CHART DATA] Final data points:', finalData.length,
+                    formattedData.length > DOWNSAMPLE_THRESHOLD
+                      ? `(downsampled from ${formattedData.length})`
+                      : '(no downsampling)');
+
+        setProcessedData(finalData);
+
         // Reset zoom when data changes
         setZoomDomain(null);
         setBrushDomain(null);
@@ -970,6 +1063,75 @@ export default function ChartPage() {
   const enabledMainIndicators = indicators.filter(i => i.enabled && i.scale === 'main');
   const enabledSecondaryIndicators = indicators.filter(i => i.enabled && i.scale === 'secondary');
 
+  // Prepare uPlot data and series
+  const prepareUPlotMainChartData = (): {
+    data: UPlotDataPoint[];
+    series: UPlotSeries[];
+  } => {
+    // Convert processedData to uPlot format
+    const data: UPlotDataPoint[] = processedData.map(point => ({
+      timestamp: point.timestamp,
+      price: point.price,
+      volume: point.volume || 0,
+      ...Object.fromEntries(
+        enabledMainIndicators.map(ind => [ind.field, point[ind.field]])
+      ),
+    }));
+
+    // Build series configuration
+    const series: UPlotSeries[] = [
+      {
+        label: 'price',
+        stroke: '#1976d2',
+        width: 2,
+        scale: 'price',
+        value: (self, rawValue) => rawValue?.toFixed(6) || 'null',
+      },
+      {
+        label: 'volume',
+        stroke: '#9c27b0',
+        width: 1,
+        scale: 'volume',
+        dash: [5, 5],
+        value: (self, rawValue) => rawValue?.toFixed(2) || 'null',
+      },
+      ...enabledMainIndicators.map(ind => ({
+        label: ind.field,
+        stroke: ind.color,
+        width: 1,
+        dash: [5, 5],
+        scale: 'price' as const,
+        value: (self: any, rawValue: number) => rawValue?.toFixed(6) || 'null',
+      })),
+    ];
+
+    return { data, series };
+  };
+
+  const prepareUPlotSecondaryChartData = (): {
+    data: UPlotDataPoint[];
+    series: UPlotSeries[];
+  } => {
+    // Convert processedData to uPlot format
+    const data: UPlotDataPoint[] = processedData.map(point => ({
+      timestamp: point.timestamp,
+      ...Object.fromEntries(
+        enabledSecondaryIndicators.map(ind => [ind.field, point[ind.field]])
+      ),
+    }));
+
+    // Build series configuration
+    const series: UPlotSeries[] = enabledSecondaryIndicators.map(ind => ({
+      label: ind.field,
+      stroke: ind.color,
+      width: 2,
+      scale: 'secondary',
+      value: (self: any, rawValue: number) => rawValue?.toFixed(4) || 'null',
+    }));
+
+    return { data, series };
+  };
+
   // Calculate price domain for better scaling
   const priceDomain = useMemo(() => {
     if (processedData.length === 0) {
@@ -1016,33 +1178,9 @@ export default function ChartPage() {
     console.log('Current priceDomain:', priceDomain);
   }, [priceDomain]);
 
-  // Formatting functions
-  const formatXAxisTick = (timestamp: number) => {
-    const date = new Date(timestamp * 1000);
-    if (timeInterval === 'raw' || timeInterval === '10s' || timeInterval === '30s') {
-      return date.toLocaleTimeString();
-    } else {
-      return date.toLocaleString().split(',')[1]?.trim() || date.toLocaleTimeString();
-    }
-  };
-
-  const formatTooltipLabel = (timestamp: number) => {
-    return new Date(timestamp * 1000).toLocaleString();
-  };
-
   const resetZoom = () => {
     setZoomDomain(null);
     setBrushDomain(null);
-  };
-
-  const handleBrushChange = (domain: any) => {
-    if (domain && domain.startIndex !== undefined && domain.endIndex !== undefined) {
-      const start = processedData[domain.startIndex]?.timestamp;
-      const end = processedData[domain.endIndex]?.timestamp;
-      if (start && end) {
-        setZoomDomain([start, end]);
-      }
-    }
   };
 
   const aggregateData = (data: ChartDataPoint[], interval: string): ChartDataPoint[] => {
@@ -1485,197 +1623,23 @@ export default function ChartPage() {
                 Price Chart with Volume {enabledMainIndicators.length > 0 && `and ${enabledMainIndicators.map(i => i.name).join(', ')}`}
               </Typography>
               <Box sx={{ height: 'calc(100% - 60px)' }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart
-                    data={processedData}
-                    margin={{ top: 5, right: 80, left: 20, bottom: 100 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis 
-                      dataKey="timestamp"
-                      type="number"
-                      scale="time"
-                      domain={zoomDomain || ['dataMin', 'dataMax']}
-                      tickFormatter={formatXAxisTick}
+                {(() => {
+                  const { data: mainData, series: mainSeries } = prepareUPlotMainChartData();
+                  return (
+                    <UPlotChart
+                      data={mainData}
+                      series={mainSeries}
+                      height={640}
+                      priceRange={priceDomain as [number, number]}
+                      onZoom={(min, max) => setZoomDomain([min, max])}
+                      showLegend={true}
+                      showTooltip={true}
                     />
-                    {/* Left Y-axis for Price */}
-                    <YAxis 
-                      yAxisId="price" 
-                      orientation="left"
-                      domain={[(dataMin: number) => {
-                        console.log('YAxis dataMin callback:', dataMin);
-                        return priceDomain[0];
-                      }, (dataMax: number) => {
-                        console.log('YAxis dataMax callback:', dataMax);
-                        return priceDomain[1];
-                      }]}
-                      allowDataOverflow={false}
-                      includeHidden={false}
-                      scale="linear"
-                      type="number"
-                      tickCount={8}
-                      tickFormatter={(value) => value.toFixed(6)}
-                      label={{ value: 'Price', angle: -90, position: 'insideLeft' }}
-                    />
-                    {/* Right Y-axis for Volume */}
-                    <YAxis 
-                      yAxisId="volume" 
-                      orientation="right"
-                      domain={['dataMin', 'dataMax']}
-                      label={{ value: 'Volume', angle: 90, position: 'insideRight' }}
-                    />
-                    <RechartsTooltip 
-                      labelFormatter={formatTooltipLabel}
-                      formatter={(value: any, name: string) => [
-                        typeof value === 'number' ? 
-                          (name === 'Volume' ? value.toFixed(2) : value.toFixed(6)) : value,
-                        name
-                      ]}
-                    />
-                    <Legend />
-                    
-                    {/* Price representation - line for raw data, OHLC lines for intervals */}
-                    {timeInterval === 'raw' ? (
-                      <Line 
-                        yAxisId="price"
-                        type="monotone" 
-                        dataKey="price" 
-                        stroke="#1976d2" 
-                        strokeWidth={2} 
-                        dot={false} 
-                        name="Price"
-                        connectNulls={false}
-                      />
-                    ) : (
-                      // For intervals, show OHLC as multiple lines
-                      <>
-                        {/* High price line */}
-                        <Line 
-                          yAxisId="price"
-                          type="monotone" 
-                          dataKey="high" 
-                          stroke="#4caf50" 
-                          strokeWidth={1} 
-                          dot={false} 
-                          name="High"
-                          connectNulls={false}
-                        />
-                        {/* Low price line */}
-                        <Line 
-                          yAxisId="price"
-                          type="monotone" 
-                          dataKey="low" 
-                          stroke="#f44336" 
-                          strokeWidth={1} 
-                          dot={false} 
-                          name="Low"
-                          connectNulls={false}
-                        />
-                        {/* Close price line (main) */}
-                        <Line 
-                          yAxisId="price"
-                          type="monotone" 
-                          dataKey="close" 
-                          stroke="#1976d2" 
-                          strokeWidth={3} 
-                          dot={false} 
-                          name="Close"
-                          connectNulls={false}
-                        />
-                        {/* Open price line (dashed) */}
-                        <Line 
-                          yAxisId="price"
-                          type="monotone" 
-                          dataKey="open" 
-                          stroke="#ff9800" 
-                          strokeWidth={2} 
-                          strokeDasharray="5 5"
-                          dot={false} 
-                          name="Open"
-                          connectNulls={false}
-                        />
-                      </>
-                    )}
-                    
-                    {/* Volume - line for raw data, bars for intervals */}
-                    {timeInterval === 'raw' ? (
-                      <Line 
-                        yAxisId="volume"
-                        type="monotone" 
-                        dataKey="volume" 
-                        stroke="#9c27b0" 
-                        strokeWidth={1}
-                        strokeOpacity={0.7}
-                        dot={false} 
-                        name="Volume"
-                        connectNulls={false}
-                      />
-                    ) : (
-                      <Bar 
-                        yAxisId="volume"
-                        dataKey="volume" 
-                        fill="#9c27b0" 
-                        fillOpacity={0.3}
-                        name="Volume"
-                      />
-                    )}
-                    
-                    {/* Bid/Ask Lines */}
-                    {processedData.some(d => d.highestBid !== null) && (
-                      <Line 
-                        yAxisId="price"
-                        type="monotone" 
-                        dataKey="highestBid" 
-                        stroke="#4caf50" 
-                        strokeWidth={1} 
-                        dot={false} 
-                        name="Highest Bid"
-                        connectNulls={false}
-                      />
-                    )}
-                    
-                    {processedData.some(d => d.lowestAsk !== null) && (
-                      <Line 
-                        yAxisId="price"
-                        type="monotone" 
-                        dataKey="lowestAsk" 
-                        stroke="#f44336" 
-                        strokeWidth={1} 
-                        dot={false} 
-                        name="Lowest Ask"
-                        connectNulls={false}
-                      />
-                    )}
-                    
-                    {/* Main Scale Indicators */}
-                    {enabledMainIndicators.map(indicator => (
-                      <Line
-                        key={indicator.field}
-                        yAxisId="price"
-                        type="monotone"
-                        dataKey={indicator.field}
-                        stroke={indicator.color}
-                        strokeWidth={1}
-                        strokeDasharray="5 5"
-                        dot={false}
-                        name={indicator.name}
-                        connectNulls
-                      />
-                    ))}
-                    
-                    {/* Brush for zoom/pan */}
-                    <Brush
-                      dataKey="timestamp"
-                      height={60}
-                      stroke="#8884d8"
-                      onChange={handleBrushChange}
-                      tickFormatter={formatXAxisTick}
-                    />
-                  </ComposedChart>
-                </ResponsiveContainer>
+                  );
+                })()}
               </Box>
               <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                💡 Use the brush at the bottom to zoom and pan. Volume shows as {timeInterval === 'raw' ? 'line' : 'bars'} for {timeInterval === 'raw' ? 'raw data' : 'time intervals'}.
+                💡 High-performance canvas rendering with uPlot. Drag to zoom, scroll to pan.
               </Typography>
             </Paper>
           </Grid>
@@ -1694,54 +1658,25 @@ export default function ChartPage() {
               </Typography>
               <Box sx={{ height: 'calc(100% - 60px)' }}>
                 {enabledSecondaryIndicators.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart 
-                      data={processedData}
-                      margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis 
-                        dataKey="timestamp"
-                        type="number"
-                        scale="time"
-                        domain={zoomDomain || ['dataMin', 'dataMax']}
-                        tickFormatter={formatXAxisTick}
+                  (() => {
+                    const { data: secData, series: secSeries } = prepareUPlotSecondaryChartData();
+                    return (
+                      <UPlotChart
+                        data={secData}
+                        series={secSeries}
+                        height={340}
+                        onZoom={(min, max) => setZoomDomain([min, max])}
+                        showLegend={true}
+                        showTooltip={true}
                       />
-                      <YAxis 
-                        domain={['dataMin', 'dataMax']}
-                        allowDataOverflow={false}
-                        scale="linear"
-                        type="number"
-                        label={{ value: 'Indicator Values', angle: -90, position: 'insideLeft' }}
-                      />
-                      <RechartsTooltip 
-                        labelFormatter={formatTooltipLabel}
-                        formatter={(value: any, name: string) => [
-                          typeof value === 'number' ? value.toFixed(4) : value,
-                          name
-                        ]}
-                      />
-                      <Legend />
-                      {enabledSecondaryIndicators.map(indicator => (
-                      <Line
-                        key={indicator.field}
-                        type="monotone"
-                        dataKey={indicator.field}
-                        stroke={indicator.color}
-                        strokeWidth={2}
-                        dot={false}
-                        name={indicator.name}
-                        connectNulls
-                      />
-                      ))}
-                    </LineChart>
-                  </ResponsiveContainer>
+                    );
+                  })()
                 ) : (
-                  <Box 
-                    sx={{ 
-                      height: '100%', 
-                      display: 'flex', 
-                      alignItems: 'center', 
+                  <Box
+                    sx={{
+                      height: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
                       justifyContent: 'center',
                       border: '2px dashed #ccc',
                       borderRadius: 1,
