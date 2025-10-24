@@ -8,39 +8,11 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { Node, Edge } from 'reactflow';
-
-export interface GraphNodeData {
-  id: string;
-  node_type: string;
-  label: string;
-  [key: string]: any;
-}
-
-export interface GraphEdgeData {
-  id: string;
-  source: string;
-  target: string;
-  sourceHandle?: string;
-  targetHandle?: string;
-}
-
-export interface StrategyBlueprint {
-  id?: string;
-  name: string;
-  version: string;
-  description?: string;
-  graph: {
-    name: string;
-    version: string;
-    description?: string;
-    nodes: GraphNodeData[];
-    edges: GraphEdgeData[];
-  };
-  tags?: string[];
-  is_template?: boolean;
-  created_at?: string;
-  updated_at?: string;
-}
+import type {
+  StrategyBlueprint,
+  GraphNodeData,
+  GraphEdgeData,
+} from '@/services/strategyBuilderApi';
 
 export interface ValidationResult {
   isValid: boolean;
@@ -500,28 +472,47 @@ export const useGraphStore = create<GraphState & GraphActions>()(
 
       exportGraph: () => {
         const { nodes, edges, blueprint, draftName } = get();
-        return {
+
+        const normalizedNodes: GraphNodeData[] = nodes.map(node => {
+          const nodeData = (node.data ?? {}) as Record<string, any>;
+          return {
+            id: node.id,
+            node_type: nodeData.node_type ?? 'unknown',
+            label: nodeData.label ?? nodeData.name ?? node.id,
+            position: node.position,
+            ...nodeData,
+          };
+        });
+
+        const normalizedEdges: GraphEdgeData[] = edges.map(edge => ({
+          id: edge.id,
+          source: edge.source,
+          target: edge.target,
+          sourceHandle: edge.sourceHandle ?? undefined,
+          targetHandle: edge.targetHandle ?? undefined,
+        }));
+
+        const exportedBlueprint: StrategyBlueprint = {
+          ...(blueprint ?? {}),
+          id: blueprint?.id,
           name: draftName,
-          version: "1.0.0",
+          version: blueprint?.version ?? '1.0.0',
+          description: blueprint?.description,
+          tags: blueprint?.tags,
+          is_template: blueprint?.is_template,
+          created_at: blueprint?.created_at,
+          updated_at: blueprint?.updated_at,
           graph: {
+            ...(blueprint?.graph ?? {}),
             name: draftName,
-            version: "1.0.0",
-            nodes: nodes.map(node => ({
-              id: node.id,
-              node_type: node.data.node_type,
-              position: node.position,
-              ...node.data
-            })),
-            edges: edges.map(edge => ({
-              id: edge.id,
-              source: edge.source,
-              target: edge.target,
-              sourceHandle: edge.sourceHandle,
-              targetHandle: edge.targetHandle
-            }))
+            version: blueprint?.graph?.version ?? '1.0.0',
+            description: blueprint?.graph?.description,
+            nodes: normalizedNodes,
+            edges: normalizedEdges,
           },
-          ...blueprint
         };
+
+        return exportedBlueprint;
       },
 
       importGraph: (blueprint: StrategyBlueprint) => {

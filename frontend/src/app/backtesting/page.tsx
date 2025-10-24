@@ -50,7 +50,7 @@ import {
   PieChart as PieChartIcon,
 } from '@mui/icons-material';
 import { apiService } from '@/services/api';
-import { strategyBuilderApi, StrategyBlueprint } from '@/services/strategyBuilderApi';
+import { strategyBuilderApi, StrategyBlueprintSummary } from '@/services/strategyBuilderApi';
 import { SystemStatusIndicator } from '@/components/common/SystemStatusIndicator';
 import {
   getSessionStatusColor,
@@ -102,10 +102,10 @@ export default function BacktestingPage() {
   const [sessions, setSessions] = useState<BacktestSession[]>([]);
   const [selectedSession, setSelectedSession] = useState<BacktestResult | null>(null);
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
-  const [availableStrategies, setAvailableStrategies] = useState<StrategyBlueprint[]>([]);
+  const [availableStrategies, setAvailableStrategies] = useState<StrategyBlueprintSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [snackbar, setSnackbar] = useState<{open: boolean, message: string, severity: 'success' | 'error' | 'info'}>({
+  const [snackbar, setSnackbar] = useState<{open: boolean, message: string, severity: 'success' | 'error' | 'info' | 'warning'}>({
     open: false,
     message: '',
     severity: 'info'
@@ -862,7 +862,7 @@ export default function BacktestingPage() {
                           {strategy.name} (v{strategy.version})
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          {strategy.description || 'No description'} | {strategy.graph.nodes.length} nodes, {strategy.graph.edges.length} edges
+                          {strategy.description || 'No description'} | {strategy.node_count} nodes, {strategy.edge_count} edges
                         </Typography>
                       </Box>
                     </MenuItem>

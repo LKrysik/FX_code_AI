@@ -40,7 +40,7 @@ import {
   type SignalType,
   type CategoryType,
   type ErrorType
-} from './statusUtils.tsx';
+} from './statusUtils';
 
 describe('Overall Status Utilities', () => {
   describe('getOverallStatusColor', () => {

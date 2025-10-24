@@ -44,18 +44,8 @@ import {
 } from '@mui/icons-material';
 import { apiService } from '@/services/api';
 import { SystemStatusIndicator } from '@/components/common/SystemStatusIndicator';
-import { getCategoryStatusColor, type CategoryType } from '@/utils/statusUtils.tsx';
-
-interface Indicator {
-  key: string;
-  symbol: string;
-  indicator: string;
-  period: number;
-  timeframe: string;
-  value?: number;
-  timestamp?: string;
-  scope?: string;
-}
+import { getCategoryStatusColor, type CategoryType } from '@/utils/statusUtils';
+import type { Indicator } from '@/types/api';
 
 interface IndicatorType {
   name: string;
@@ -95,7 +85,7 @@ export default function MarketDataPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingIndicator, setEditingIndicator] = useState<Indicator | null>(null);
   const [activeTab, setActiveTab] = useState(0);
-  const [snackbar, setSnackbar] = useState<{open: boolean, message: string, severity: 'success' | 'error' | 'info'}>({
+  const [snackbar, setSnackbar] = useState<{open: boolean, message: string, severity: 'success' | 'error' | 'info' | 'warning'}>({
     open: false,
     message: '',
     severity: 'info'
@@ -159,7 +149,7 @@ export default function MarketDataPage() {
     setFormData({
       symbol: indicator.symbol,
       indicator: indicator.indicator,
-      period: indicator.period,
+      period: indicator.period ?? 20,
       timeframe: indicator.timeframe || '1m',
       scope: indicator.scope || 'default'
     });

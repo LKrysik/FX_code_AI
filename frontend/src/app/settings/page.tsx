@@ -106,7 +106,7 @@ export default function SettingsPage() {
   });
 
   const [loading, setLoading] = useState(false);
-  const [snackbar, setSnackbar] = useState<{open: boolean, message: string, severity: 'success' | 'error' | 'info'}>({
+  const [snackbar, setSnackbar] = useState<{open: boolean, message: string, severity: 'success' | 'error' | 'info' | 'warning'}>({
     open: false,
     message: '',
     severity: 'info'
@@ -441,16 +441,16 @@ export default function SettingsPage() {
                 </Typography>
 
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  <Alert severity="success" variant="outlined" size="small">
+                  <Alert severity="success" variant="outlined">
                     <Typography variant="body2">✅ Trade executions</Typography>
                   </Alert>
-                  <Alert severity="error" variant="outlined" size="small">
+                  <Alert severity="error" variant="outlined">
                     <Typography variant="body2">❌ System errors</Typography>
                   </Alert>
-                  <Alert severity="warning" variant="outlined" size="small">
+                  <Alert severity="warning" variant="outlined">
                     <Typography variant="body2">⚠️ Risk warnings</Typography>
                   </Alert>
-                  <Alert severity="info" variant="outlined" size="small">
+                  <Alert severity="info" variant="outlined">
                     <Typography variant="body2">ℹ️ Session status changes</Typography>
                   </Alert>
                 </Box>

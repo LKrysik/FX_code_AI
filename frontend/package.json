@@ -24,6 +24,7 @@
     "reactflow": "^11.10.1",
     "axios": "^1.6.2",
     "socket.io-client": "^4.7.4",
+    "uplot": "^1.6.32",
     "recharts": "^2.8.0",
     "uuid": "^9.0.1",
     "lodash": "^4.17.21",
@@ -32,7 +33,7 @@
   },
   "devDependencies": {
     "@types/react": "^18.2.45",
-    "@types/react-dom": "^18.2.2.18",
+    "@types/react-dom": "^18.2.18",
     "@types/node": "^20.10.5",
     "@types/uuid": "^9.0.7",
     "@types/lodash": "^4.14.202",
