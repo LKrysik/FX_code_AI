@@ -139,7 +139,38 @@ def _compute_indicator_series(
     override_parameters: Dict[str, Any],
     algorithm_registry=None
 ) -> List[IndicatorValue]:
+    """
+    Compute indicator series for historical session data.
+
+    CRITICAL FIX: Uses OfflineIndicatorEngine to generate indicator values at
+    fixed time intervals (refresh_interval_seconds) instead of using raw price
+    timestamps. This ensures TWPA and other time-driven indicators are calculated
+    at regular intervals (e.g., every 1 second) as specified in USER_REC_14.
+
+    OLD BEHAVIOR (INCORRECT):
+        - Used IndicatorCalculator.calculate_indicator()
+        - Calculated indicator for EVERY price timestamp
+        - If prices arrived irregularly (e.g., 15s gap, 54s gap), indicators also irregular
+
+    NEW BEHAVIOR (CORRECT):
+        - Uses OfflineIndicatorEngine._calculate_indicator_series()
+        - Generates regular time axis using TimeAxisGenerator
+        - Calculates indicator at fixed intervals (default 1.0 second)
+        - Respects refresh_interval_seconds parameter
+    """
     price_rows = _load_session_price_data(session_id, symbol)
+
+    # Convert price_rows to MarketDataPoint objects
+    from src.domain.types.indicator_types import MarketDataPoint
+    market_data_points = [
+        MarketDataPoint(
+            timestamp=row["timestamp"],
+            price=row["price"],
+            volume=row.get("volume", 0.0),
+            symbol=symbol
+        )
+        for row in price_rows
+    ]
 
     base_params = dict(variant.parameters or {})
     provided_params = dict(override_parameters or {})
@@ -163,40 +194,33 @@ def _compute_indicator_series(
             detail=f"Unsupported indicator type '{indicator_type_str}' for variant '{variant.id}'"
         ) from exc
 
-    values = IndicatorCalculator.calculate_indicator(
-        indicator_enum,
-        price_rows,
-        period,
-        algorithm_registry=algorithm_registry,
-        **combined_params
+    # CRITICAL FIX: Use OfflineIndicatorEngine instead of IndicatorCalculator
+    # This ensures time-driven indicators (TWPA, etc.) are calculated at fixed intervals
+    _, offline_engine = _ensure_support_services()
+
+    # Ensure refresh_interval_seconds is in parameters (default 1.0 second)
+    if "refresh_interval_seconds" not in combined_params:
+        combined_params["refresh_interval_seconds"] = 1.0
+
+    series = offline_engine._calculate_indicator_series(
+        symbol=symbol,
+        indicator_type=indicator_enum,
+        timeframe="1m",  # timeframe used for display only
+        period=period,
+        params=combined_params,
+        data_points=market_data_points
     )
 
-    series: List[IndicatorValue] = []
-    for row, value in zip(price_rows, values):
-        if value is None:
-            continue
-        try:
-            numeric_value = float(value)
-        except (TypeError, ValueError):
-            continue
-        if math.isnan(numeric_value):
-            continue
-
-        series.append(
-            IndicatorValue(
-                timestamp=row["timestamp"],
-                symbol=symbol,
-                indicator_id=indicator_id,
-                value=numeric_value,
-                metadata={
-                    "session_id": session_id,
-                    "variant_id": variant.id,
-                    "variant_type": variant.variant_type,
-                    "parameters": combined_params,
-                    "period": period
-                }
-            )
-        )
+    # Update indicator_id and metadata for each value
+    for value in series:
+        value.indicator_id = indicator_id
+        value.metadata = {
+            "session_id": session_id,
+            "variant_id": variant.id,
+            "variant_type": variant.variant_type,
+            "parameters": combined_params,
+            "period": period
+        }
 
     if not series:
         raise HTTPException(
