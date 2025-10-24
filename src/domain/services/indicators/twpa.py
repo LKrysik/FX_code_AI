@@ -129,7 +129,7 @@ class TWPAAlgorithm(IndicatorAlgorithm):
     def calculate_cache_bucket_seconds(self, t1: float, t2: float, refresh_interval: float) -> int:
         """
         Select cache bucket granularity for TWPA.
-        
+
         Ensures buckets never exceed the refresh cadence so the scheduler
         can observe fresh values on each recompute.
         """
@@ -141,7 +141,25 @@ class TWPAAlgorithm(IndicatorAlgorithm):
 
         # Cap cache buckets to 60 seconds
         return min(candidate, 60)
-    
+
+    def is_time_driven(self) -> bool:
+        """
+        TWPA MUST be time-driven.
+
+        TWPA calculates time-weighted price averages over sliding time windows.
+        It MUST be recalculated on a regular schedule (e.g., every second) to provide
+        continuous time-series data, independent of whether new market data arrives.
+
+        Example:
+            If refresh_interval=1s, TWPA should be calculated at:
+            t=0s, t=1s, t=2s, t=3s, ...
+            even if market data only arrives at t=0s, t=5s, t=10s
+
+        Returns:
+            Always True - TWPA requires time-driven scheduling
+        """
+        return True
+
     def calculate(self, 
                  data: Sequence[Tuple[float, float]], 
                  start_ts: float, 
