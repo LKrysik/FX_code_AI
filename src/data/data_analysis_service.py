@@ -481,7 +481,7 @@ class DataAnalysisService:
             metadata["end_timestamp"] = max_ts
             metadata["end_time"] = self._timestamp_to_iso(max_ts)
             if min_ts is not None:
-                metadata["duration_seconds"] = max(0.0, (max_ts - min_ts) / 1000)
+                metadata["duration_seconds"] = max(0.0, max_ts - min_ts)
 
         try:
             stats = session_dir.stat()
@@ -683,7 +683,7 @@ class DataAnalysisService:
 
         # Calculate gaps between points
         gaps = []
-        expected_interval = 1000  # 1 second in milliseconds
+        expected_interval = 1.0  # 1 second in seconds (timestamps are in seconds)
 
         for i in range(1, len(timestamps)):
             gap = timestamps[i] - timestamps[i-1]
@@ -816,7 +816,7 @@ class DataAnalysisService:
                 continue  # Skip invalid timestamps
 
             gap_duration = current_time - previous_time
-            expected_duration = 1000  # 1 second in milliseconds
+            expected_duration = 1.0  # 1 second in seconds (timestamps are in seconds)
 
             # Check if gap exceeds minimum threshold
             if gap_duration > expected_duration * 2:
@@ -824,9 +824,9 @@ class DataAnalysisService:
 
                 # Determine severity
                 severity = 'minor'
-                if gap_duration >= 300000:  # 5 minutes
+                if gap_duration >= 300:  # 5 minutes (in seconds)
                     severity = 'critical'
-                elif gap_duration >= 30000:  # 30 seconds
+                elif gap_duration >= 30:  # 30 seconds
                     severity = 'moderate'
 
                 gap_info = GapInfo(
