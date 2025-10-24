@@ -291,3 +291,24 @@ class TestTWPACalculateMethod:
         expected = 1.50
         assert result is not None
         assert result == pytest.approx(expected, rel=1e-9)
+
+
+class TestTWPATimeDriven:
+    """Test time-driven scheduling semantics for TWPA."""
+
+    def test_twpa_is_time_driven(self):
+        """
+        CRITICAL TEST: Verify TWPA declares itself as time-driven.
+
+        TWPA must return True from is_time_driven() to ensure it's registered
+        in the time-driven scheduler and recalculated on wall-clock schedule.
+        """
+        assert twpa_algorithm.is_time_driven() is True, \
+            "TWPA MUST be time-driven to ensure regular recalculation"
+
+    def test_twpa_ratio_is_time_driven(self):
+        """Verify TWPA_RATIO is also time-driven."""
+        from src.domain.services.indicators.twpa_ratio import twpa_ratio_algorithm
+
+        assert twpa_ratio_algorithm.is_time_driven() is True, \
+            "TWPA_RATIO MUST be time-driven since it uses TWPA"

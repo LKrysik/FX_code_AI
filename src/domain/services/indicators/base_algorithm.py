@@ -106,16 +106,42 @@ class IndicatorAlgorithm(ABC):
     def calculate_refresh_interval(self, params: IndicatorParameters) -> float:
         """
         Calculate appropriate refresh interval for this algorithm instance.
-        
+
         Base implementation uses override or default, but algorithms can
         implement custom logic based on their parameters.
         """
         override = params.get_refresh_override()
         if override:
-            return max(self.get_min_refresh_interval(), 
+            return max(self.get_min_refresh_interval(),
                       min(self.get_max_refresh_interval(), float(override)))
         return self.get_default_refresh_interval()
-    
+
+    def is_time_driven(self) -> bool:
+        """
+        Determine if this indicator requires time-driven scheduling.
+
+        Time-driven indicators are recalculated on a regular wall-clock schedule,
+        independent of whether new market data arrives. These indicators typically:
+        - Use time windows (t1, t2 parameters)
+        - Calculate time-weighted metrics (e.g., TWPA, VTWPA)
+        - Need consistent sampling intervals
+
+        Event-driven indicators are recalculated only when new market data arrives.
+        These indicators typically:
+        - Use fixed periods (e.g., SMA, RSI, MACD)
+        - Don't depend on wall-clock time
+        - Process discrete data points
+
+        Examples:
+            Time-driven: TWPA, TWPA_RATIO, VTWPA, VELOCITY, TW_MIDPRICE
+            Event-driven: SMA, EMA, RSI, MACD, BOLLINGER_BANDS
+
+        Returns:
+            True if indicator requires time-based scheduling
+            False if indicator should recalculate on data arrival (default)
+        """
+        return False  # Safe default: event-driven
+
     def get_registry_metadata(self) -> Dict[str, Any]:
         """Return complete metadata for engine registration."""
         return {
