@@ -66,11 +66,11 @@ class TWPAAlgorithm(IndicatorAlgorithm):
                 "t1",
                 "float",
                 300.0,
-                10.0,
+                1.0,
                 86400.0,
                 None,
                 True,
-                "Start time window in seconds ago (e.g., 300 = 5 minutes ago)",
+                "Start time window in seconds ago (e.g., 300 = 5 minutes ago). Minimum 1 second.",
             ),
             VariantParameter(
                 "t2",
