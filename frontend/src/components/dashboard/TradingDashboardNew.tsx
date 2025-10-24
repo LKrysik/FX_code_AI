@@ -238,10 +238,12 @@ export function TradingDashboardNew() {
 
       onSignals: (data: any) => {
         incrementMessagesReceived();
-        const signal = {
+        const signalType: ActiveSignal['signalType'] =
+          data.type === 'pump_detection' ? 'pump' : 'dump';
+        const signal: ActiveSignal = {
           id: data.id || `signal_${Date.now()}`,
           symbol: data.symbol || 'UNKNOWN',
-          signalType: data.type === 'pump_detection' ? 'pump' : 'dump',
+          signalType,
           magnitude: data.magnitude || data.value || 0,
           confidence: data.confidence || 50,
           timestamp: data.timestamp || new Date().toISOString(),

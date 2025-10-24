@@ -45,7 +45,12 @@ export interface Indicator {
   symbol: string;
   indicator: string;
   timeframe: string;
-  data_points: number;
+  data_points?: number;
+  period?: number;
+  scope?: string;
+  value?: number;
+  timestamp?: string;
+  metadata?: Record<string, any>;
 }
 
 export interface IndicatorValue {

@@ -135,6 +135,12 @@ export interface TradingState {
   setWalletError: (error: string | null) => void;
   setPerformanceError: (error: string | null) => void;
   setStrategiesError: (error: string | null) => void;
+  fetchWalletBalance: () => Promise<WalletBalance | null>;
+  fetchTradingPerformance: () => Promise<TradingPerformance | null>;
+  fetchStrategies: () => Promise<Strategy[]>;
+  fetchExecutionStatus: () => Promise<any>;
+  startSession: (sessionData: any) => Promise<any>;
+  stopSession: (sessionId?: string) => Promise<void>;
   reset: () => void;
 }
 

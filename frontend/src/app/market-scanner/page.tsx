@@ -39,7 +39,7 @@ import {
   Refresh as RefreshIcon,
   PlayArrow as PlayIcon,
   Stop as StopIcon,
-  Flash as FlashIcon,
+  FlashOn as FlashIcon,
   TrendingUp as TrendingUpIcon,
   TrendingDown as TrendingDownIcon,
   Notifications as NotificationsIcon,
@@ -97,7 +97,7 @@ export default function MarketScannerPage() {
     refreshInterval: 30,
     alertsEnabled: true
   });
-  const [snackbar, setSnackbar] = useState<{open: boolean, message: string, severity: 'success' | 'error' | 'info'}>({
+  const [snackbar, setSnackbar] = useState<{open: boolean, message: string, severity: 'success' | 'error' | 'info' | 'warning'}>({
     open: false,
     message: '',
     severity: 'info'
@@ -354,7 +354,7 @@ export default function MarketScannerPage() {
                   <Select
                     value={settings.refreshInterval}
                     label="Refresh Interval"
-                    onChange={(e) => setSettings(prev => ({ ...prev, refreshInterval: parseInt(e.target.value) }))}
+                    onChange={(e) => setSettings(prev => ({ ...prev, refreshInterval: parseInt(String(e.target.value), 10) }))}
                   >
                     <MenuItem value={10}>10 seconds</MenuItem>
                     <MenuItem value={30}>30 seconds</MenuItem>

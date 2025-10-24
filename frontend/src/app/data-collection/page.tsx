@@ -60,7 +60,7 @@ import {
   getSessionStatusColor,
   getSessionStatusIcon,
   type SessionStatusType
-} from '@/utils/statusUtils.tsx';
+} from '@/utils/statusUtils';
 
 interface DataCollectionSession {
   session_id: string;
@@ -112,7 +112,7 @@ export default function DataCollectionPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [availableSymbols, setAvailableSymbols] = useState<string[]>([]);
   const [symbolsError, setSymbolsError] = useState<string | null>(null);
-  const [snackbar, setSnackbar] = useState<{open: boolean, message: string, severity: 'success' | 'error' | 'info'}>({
+  const [snackbar, setSnackbar] = useState<{open: boolean, message: string, severity: 'success' | 'error' | 'info' | 'warning'}>({
     open: false,
     message: '',
     severity: 'info'

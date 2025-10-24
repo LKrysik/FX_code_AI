@@ -1,4 +1,4 @@
-import { Theme } from '@mui/material/styles';
+import type { Theme } from '@mui/material/styles';
 
 // Status color utilities for consistent theming
 export const getStatusColor = (status: string, theme: Theme) => {

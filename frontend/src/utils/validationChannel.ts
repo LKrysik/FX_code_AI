@@ -368,9 +368,9 @@ class ValidationChannel {
    */
   cleanup(): void {
     // Clear all timeouts
-    for (const timeout of this.requestTimeouts.values()) {
+    this.requestTimeouts.forEach(timeout => {
       clearTimeout(timeout);
-    }
+    });
 
     // Clear all maps
     this.pendingRequests.clear();

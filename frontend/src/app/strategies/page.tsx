@@ -40,7 +40,7 @@ import {
   PlayArrow as PlayIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
-  Flash as FlashIcon,
+  FlashOn as FlashIcon,
   TrendingUp as TrendingUpIcon,
   Security as SecurityIcon,
   Speed as SpeedIcon,
@@ -55,6 +55,8 @@ import {
 import { StrategyBuilder5Section } from '@/components/strategy/StrategyBuilder5Section';
 import { apiService } from '@/services/api';
 import { SystemStatusIndicator } from '@/components/common/SystemStatusIndicator';
+import type { Strategy } from '@/types/api';
+import type { Strategy5Section, IndicatorVariant, StrategyValidationResult } from '@/types/strategy';
 
 interface StrategyTemplate {
   id: string;
@@ -187,15 +189,7 @@ const strategyTemplates: StrategyTemplate[] = [
   }
 ];
 
-interface UserStrategy {
-  id: string;
-  strategy_name: string;
-  enabled: bool;
-  created_at: string;
-  updated_at: string;
-  valid: boolean;
-  validation_errors?: string[];
-}
+import type { Strategy } from '@/types/api';
 
 export default function StrategiesPage() {
   const [activeTab, setActiveTab] = useState(0);
@@ -205,7 +199,8 @@ export default function StrategiesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [customConfig, setCustomConfig] = useState<any>({});
   const [loading, setLoading] = useState(true);
-  const [snackbar, setSnackbar] = useState<{open: boolean, message: string, severity: 'success' | 'error' | 'info'}>({
+  const [indicatorVariants] = useState<IndicatorVariant[]>([]);
+  const [snackbar, setSnackbar] = useState<{open: boolean, message: string, severity: 'success' | 'error' | 'info' | 'warning'}>({
     open: false,
     message: '',
     severity: 'info'

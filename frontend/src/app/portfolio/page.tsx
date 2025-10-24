@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useVisibilityAwareInterval } from '@/hooks/useVisibilityAwareInterval';
 import {
   Box,
@@ -40,6 +40,7 @@ import {
   ShowChart as ChartIcon,
 } from '@mui/icons-material';
 import { apiService } from '@/services/api';
+import type { Order } from '@/types/api';
 
 interface PortfolioBalance {
   total_usd_estimate: number;
@@ -78,31 +79,42 @@ export default function PortfolioPage() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
-  const [snackbar, setSnackbar] = useState<{open: boolean, message: string, severity: 'success' | 'error' | 'info'}>({
+  const [snackbar, setSnackbar] = useState<{open: boolean, message: string, severity: 'success' | 'error' | 'info' | 'warning'}>({
     open: false,
     message: '',
     severity: 'info'
   });
 
-  useEffect(() => {
-    loadPortfolioData();
-  }, []);
-
-  // Auto-refresh every 30 seconds; pause when tab hidden
-  useVisibilityAwareInterval(loadPortfolioData, 30000);
-
-  const loadPortfolioData = async () => {
+  const loadPortfolioData = useCallback(async () => {
     setLoading(true);
     try {
       const [balanceData, perfData, tradesData] = await Promise.all([
         apiService.getWalletBalance(),
         apiService.getTradingPerformance(),
-        apiService.getAllOrders() // This might need to be adjusted based on actual API
+        apiService.getOrders()
       ]);
 
       setBalance(balanceData);
       setPerformance(perfData);
-      setTrades(tradesData?.orders || []);
+
+      const resolvedOrders: Order[] = Array.isArray((tradesData as any)?.orders)
+        ? (tradesData as any).orders
+        : Array.isArray(tradesData)
+          ? (tradesData as Order[])
+          : [];
+
+      const normalizedTrades: Trade[] = resolvedOrders.map(order => ({
+        trade_id: (order as any).trade_id ?? order.order_id ?? `${order.symbol}-${order.timestamp}`,
+        symbol: order.symbol,
+        side: order.side,
+        quantity: order.quantity,
+        price: order.price,
+        total_pnl: (order as any).total_pnl ?? order.pnl ?? 0,
+        timestamp: order.timestamp,
+        status: order.status,
+      }));
+
+      setTrades(normalizedTrades);
     } catch (error) {
       setSnackbar({
         open: true,
@@ -112,7 +124,14 @@ export default function PortfolioPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadPortfolioData();
+  }, [loadPortfolioData]);
+
+  // Auto-refresh every 30 seconds; pause when tab hidden
+  useVisibilityAwareInterval(loadPortfolioData, 30000);
 
   const getTotalValue = () => {
     if (!balance) return 0;
@@ -277,7 +296,7 @@ export default function PortfolioPage() {
                           </TableCell>
                           <TableCell align="right">{amounts.free.toFixed(6)}</TableCell>
                           <TableCell align="right">{amounts.locked.toFixed(6)}</TableCell>
-                          <TableCell align="right" fontWeight="bold">{total.toFixed(6)}</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 'bold' }}>{total.toFixed(6)}</TableCell>
                           <TableCell align="right">${usdValue.toFixed(2)}</TableCell>
                           <TableCell align="right">
                             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>

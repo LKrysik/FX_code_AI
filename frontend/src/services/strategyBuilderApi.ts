@@ -32,6 +32,19 @@ export interface StrategyBlueprint {
   updated_at?: string;
 }
 
+export interface StrategyBlueprintSummary {
+  id: string;
+  name: string;
+  version: string;
+  description?: string;
+  created_at: string;
+  updated_at: string;
+  tags: string[];
+  is_template: boolean;
+  node_count: number;
+  edge_count: number;
+}
+
 export interface GraphNodeData {
   id: string;
   node_type: string;
@@ -55,18 +68,7 @@ export interface ValidationResult {
 }
 
 export interface BlueprintListResponse {
-  blueprints: Array<{
-    id: string;
-    name: string;
-    version: string;
-    description?: string;
-    created_at: string;
-    updated_at: string;
-    tags: string[];
-    is_template: boolean;
-    node_count: number;
-    edge_count: number;
-  }>;
+  blueprints: StrategyBlueprintSummary[];
   total_count: number;
   skip: number;
   limit: number;

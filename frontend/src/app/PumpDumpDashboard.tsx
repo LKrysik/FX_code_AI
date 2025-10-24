@@ -67,7 +67,7 @@ import {
   getSignalStatusColor,
   getSignalStatusText,
   type SignalType
-} from '@/utils/statusUtils.tsx';
+} from '@/utils/statusUtils';
 
 interface MarketData {
   symbol: string;
@@ -184,10 +184,12 @@ const DashboardContent = React.memo(function DashboardContent() {
       },
       onSignals: (data) => {
         // Update active signals in real-time using store
-        const newSignal = {
+        const signalType: ActiveSignal['signalType'] =
+          data.type === 'pump_detection' ? 'pump' : 'dump';
+        const newSignal: ActiveSignal = {
           id: data.id || `signal_${Date.now()}`,
           symbol: data.symbol || 'UNKNOWN',
-          signalType: data.type === 'pump_detection' ? 'pump' : 'dump',
+          signalType,
           magnitude: data.magnitude || data.value || 0,
           confidence: data.confidence || 50,
           timestamp: data.timestamp || new Date().toISOString(),
@@ -677,7 +679,7 @@ const DashboardContent = React.memo(function DashboardContent() {
           <Button
             variant="outlined"
             startIcon={<RefreshIcon />}
-            onClick={loadDashboardData}
+            onClick={() => loadDashboardData()}
             disabled={dashboardLoading}
           >
             Refresh
