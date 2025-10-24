@@ -1,0 +1,16 @@
+{
+  "id": "38a6c440-8b98-4df2-8b7b-060caa774155",
+  "name": "Second",
+  "base_indicator_type": "TWPA",
+  "variant_type": "general",
+  "description": "Second",
+  "parameters": {
+    "t1": 1.0,
+    "t2": 0.0,
+    "refresh_interval_seconds": 1.0
+  },
+  "is_system": false,
+  "created_by": "api_user",
+  "created_at": 1761302800.4877687,
+  "updated_at": 1761302800.4877687
+}
