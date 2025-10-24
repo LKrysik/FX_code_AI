@@ -1018,7 +1018,7 @@ export default function ChartPage() {
 
   // Formatting functions
   const formatXAxisTick = (timestamp: number) => {
-    const date = new Date(timestamp);
+    const date = new Date(timestamp * 1000);
     if (timeInterval === 'raw' || timeInterval === '10s' || timeInterval === '30s') {
       return date.toLocaleTimeString();
     } else {
@@ -1027,7 +1027,7 @@ export default function ChartPage() {
   };
 
   const formatTooltipLabel = (timestamp: number) => {
-    return new Date(timestamp).toLocaleString();
+    return new Date(timestamp * 1000).toLocaleString();
   };
 
   const resetZoom = () => {
@@ -1048,14 +1048,14 @@ export default function ChartPage() {
   const aggregateData = (data: ChartDataPoint[], interval: string): ChartDataPoint[] => {
     if (interval === 'raw') return data;
 
-    const intervalMs = getIntervalMs(interval);
+    const intervalSeconds = getIntervalSeconds(interval);
     const aggregated: ChartDataPoint[] = [];
-    
+
     let currentBucket: ChartDataPoint[] = [];
-    let bucketStart = Math.floor(data[0]?.timestamp / intervalMs) * intervalMs;
+    let bucketStart = Math.floor(data[0]?.timestamp / intervalSeconds) * intervalSeconds;
 
     data.forEach(point => {
-      const pointBucket = Math.floor(point.timestamp / intervalMs) * intervalMs;
+      const pointBucket = Math.floor(point.timestamp / intervalSeconds) * intervalSeconds;
       
       if (pointBucket === bucketStart) {
         currentBucket.push(point);
@@ -1075,15 +1075,15 @@ export default function ChartPage() {
     return aggregated;
   };
 
-  const getIntervalMs = (interval: string): number => {
+  const getIntervalSeconds = (interval: string): number => {
     switch (interval) {
-      case '10s': return 10000;
-      case '30s': return 30000;
-      case '1m': return 60000;
-      case '5m': return 300000;
-      case '15m': return 900000;
-      case '1h': return 3600000;
-      default: return 1000;
+      case '10s': return 10;
+      case '30s': return 30;
+      case '1m': return 60;
+      case '5m': return 300;
+      case '15m': return 900;
+      case '1h': return 3600;
+      default: return 1;
     }
   };
 
