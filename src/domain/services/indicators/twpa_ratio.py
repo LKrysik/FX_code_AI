@@ -5,7 +5,12 @@ Calculates ratio between two TWPA values: TWPA(t1,t2) / TWPA(t3,t4)
 """
 
 from typing import List, Optional, Sequence, Tuple
-from .base_algorithm import MultiWindowIndicatorAlgorithm, IndicatorParameters
+from .base_algorithm import (
+    MultiWindowIndicatorAlgorithm,
+    IndicatorParameters,
+    DataWindow,
+    WindowSpec
+)
 from .twpa import twpa_algorithm
 
 
@@ -158,35 +163,51 @@ class TWPARatioAlgorithm(MultiWindowIndicatorAlgorithm):
         """
         return True
 
-    def calculate_multi_window(self,
-                              windows: List[Tuple[Sequence[Tuple[float, float]], float, float]],
-                              params: IndicatorParameters) -> Optional[float]:
+    # ========================================
+    # NEW PURE FUNCTION INTERFACE
+    # ========================================
+
+    def get_window_specs(self, params: IndicatorParameters) -> List[WindowSpec]:
         """
-        Calculate TWPA ratio using two windows.
+        Specify the two windows needed for TWPA ratio calculation.
+
+        Returns:
+            Two WindowSpec objects: [numerator_window, denominator_window]
+        """
+        t1 = params.get_float("t1", 300.0)
+        t2 = params.get_float("t2", 60.0)
+        t3 = params.get_float("t3", 1800.0)
+        t4 = params.get_float("t4", 300.0)
+
+        return [
+            WindowSpec(t1, t2),  # Window 1: numerator
+            WindowSpec(t3, t4),  # Window 2: denominator
+        ]
+
+    def calculate_from_windows(self,
+                               data_windows: List[DataWindow],
+                               params: IndicatorParameters) -> Optional[float]:
+        """
+        Calculate TWPA ratio using two pre-prepared data windows.
+
+        PURE FUNCTION: No engine dependency, thread-safe, easy to test.
 
         Args:
-            windows: [(window1_data, start1, end1), (window2_data, start2, end2)]
+            data_windows: [window1, window2] pre-prepared by engine
             params: Algorithm parameters
+
+        Returns:
+            TWPA ratio or None if cannot calculate
         """
-        if len(windows) != 2:
+        if len(data_windows) != 2:
             return None
 
-        window1_data, start1, end1 = windows[0]
-        window2_data, start2, end2 = windows[1]
+        window1 = data_windows[0]
+        window2 = data_windows[1]
 
-        # Calculate both TWPA values
-        twpa1 = twpa_algorithm._compute_twpa(window1_data, start1, end1)
-        twpa2 = twpa_algorithm._compute_twpa(window2_data, start2, end2)
-
-        # ✅ DIAGNOSTIC: Store calculation details for logging
-        self._last_calculation_details = {
-            "window1_points": len(window1_data),
-            "window2_points": len(window2_data),
-            "twpa1": twpa1,
-            "twpa2": twpa2,
-            "window1_range": (start1, end1),
-            "window2_range": (start2, end2)
-        }
+        # Calculate both TWPA values using pure function
+        twpa1 = twpa_algorithm._compute_twpa(window1.data, window1.start_ts, window1.end_ts)
+        twpa2 = twpa_algorithm._compute_twpa(window2.data, window2.start_ts, window2.end_ts)
 
         if twpa1 is None or twpa2 is None:
             return None
@@ -197,6 +218,40 @@ class TWPARatioAlgorithm(MultiWindowIndicatorAlgorithm):
             return None
 
         return twpa1 / twpa2
+
+    # ========================================
+    # OLD INTERFACE (kept for backward compatibility)
+    # ========================================
+
+    def calculate_multi_window(self, 
+                              windows: List[Tuple[Sequence[Tuple[float, float]], float, float]], 
+                              params: IndicatorParameters) -> Optional[float]:
+        """
+        Calculate TWPA ratio using two windows.
+        
+        Args:
+            windows: [(window1_data, start1, end1), (window2_data, start2, end2)]
+            params: Algorithm parameters
+        """
+        if len(windows) != 2:
+            return None
+        
+        window1_data, start1, end1 = windows[0]
+        window2_data, start2, end2 = windows[1]
+        
+        # Calculate both TWPA values
+        twpa1 = twpa_algorithm._compute_twpa(window1_data, start1, end1)
+        twpa2 = twpa_algorithm._compute_twpa(window2_data, start2, end2)
+        
+        if twpa1 is None or twpa2 is None:
+            return None
+        
+        # Avoid division by zero
+        min_denominator = params.get_float("min_denominator", 0.001)
+        if abs(twpa2) < min_denominator:
+            return None
+        
+        return twpa1 / twpa2
     
     def _get_multiple_data_windows(self, engine, indicator, params: IndicatorParameters):
         """Get two data windows for TWPA ratio calculation."""
@@ -204,90 +259,12 @@ class TWPARatioAlgorithm(MultiWindowIndicatorAlgorithm):
         t2 = params.get_float("t2", 60.0)
         t3 = params.get_float("t3", 1800.0)
         t4 = params.get_float("t4", 300.0)
-
+        
         # Get both windows
         window1 = engine._get_price_series_for_window(indicator, t1, t2)
         window2 = engine._get_price_series_for_window(indicator, t3, t4)
-
+        
         return [window1, window2]
-
-    def _create_engine_hook(self):
-        """
-        Create specialized hook with diagnostic logging for TWPA Ratio.
-
-        Override base class to add detailed logging when calculation returns None.
-        This helps diagnose data availability issues.
-        """
-        def compute_indicator_value(engine, indicator, params):
-            """Hook for multi-window calculation with diagnostic logging."""
-            wrapped_params = IndicatorParameters(params)
-            windows = self._get_multiple_data_windows(engine, indicator, wrapped_params)
-
-            # ✅ DIAGNOSTIC LOGGING: Log empty windows BEFORE calculation
-            if len(windows) >= 2:
-                window1_data, start1, end1 = windows[0]
-                window2_data, start2, end2 = windows[1]
-
-                # Log warning if windows are empty (common cause of None results)
-                if not window1_data:
-                    engine.logger.warning("twpa_ratio.empty_window_numerator", {
-                        "indicator": indicator.indicator,
-                        "symbol": indicator.symbol,
-                        "t1_seconds": wrapped_params.get_float("t1", 300.0),
-                        "t2_seconds": wrapped_params.get_float("t2", 60.0),
-                        "window_duration_seconds": end1 - start1,
-                        "reason": "No price data in numerator window - indicator will return None"
-                    })
-
-                if not window2_data:
-                    engine.logger.warning("twpa_ratio.empty_window_denominator", {
-                        "indicator": indicator.indicator,
-                        "symbol": indicator.symbol,
-                        "t3_seconds": wrapped_params.get_float("t3", 1800.0),
-                        "t4_seconds": wrapped_params.get_float("t4", 300.0),
-                        "window_duration_seconds": end2 - start2,
-                        "reason": "No price data in denominator window - indicator will return None"
-                    })
-
-            # Calculate ratio
-            result = self.calculate_multi_window(windows, wrapped_params)
-
-            # ✅ DIAGNOSTIC LOGGING: Log detailed reason if None was returned
-            if result is None and hasattr(self, '_last_calculation_details'):
-                details = self._last_calculation_details
-                engine.logger.info("twpa_ratio.calculation_returned_none", {
-                    "indicator": indicator.indicator,
-                    "symbol": indicator.symbol,
-                    "window1_data_points": details["window1_points"],
-                    "window2_data_points": details["window2_points"],
-                    "twpa1_value": details["twpa1"],
-                    "twpa2_value": details["twpa2"],
-                    "reason": self._diagnose_none_reason(details, wrapped_params)
-                })
-
-            return result
-
-        return compute_indicator_value
-
-    def _diagnose_none_reason(self, details: dict, params: IndicatorParameters) -> str:
-        """Diagnose why calculation returned None."""
-        if details["window1_points"] == 0:
-            return f"Numerator window empty (t1={params.get_float('t1', 300.0)}s, t2={params.get_float('t2', 60.0)}s)"
-
-        if details["window2_points"] == 0:
-            return f"Denominator window empty (t3={params.get_float('t3', 1800.0)}s, t4={params.get_float('t4', 300.0)}s)"
-
-        if details["twpa1"] is None:
-            return f"TWPA numerator calculation failed ({details['window1_points']} points available)"
-
-        if details["twpa2"] is None:
-            return f"TWPA denominator calculation failed ({details['window2_points']} points available)"
-
-        min_denom = params.get_float("min_denominator", 0.001)
-        if details["twpa2"] is not None and abs(details["twpa2"]) < min_denom:
-            return f"Denominator too small for division ({details['twpa2']:.6f} < {min_denom})"
-
-        return "Unknown reason - check algorithm logic"
 
 
 # Create instance for registration
