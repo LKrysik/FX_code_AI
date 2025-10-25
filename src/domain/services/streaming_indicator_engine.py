@@ -3594,6 +3594,95 @@ class StreamingIndicatorEngine:
         window.sort(key=lambda x: x[0])
         return window, start_ts, end_ts
 
+    def _get_volume_series_for_window(self, indicator: StreamingIndicator, t1: float, t2: float):
+        """
+        Return list of (timestamp, volume) tuples for volume-based calculations.
+
+        Extracts volume data from deal_data (which contains price+volume).
+
+        Returns:
+            - window: List of (timestamp, volume) tuples
+            - start_ts: Window start timestamp
+            - end_ts: Window end timestamp
+        """
+        # Validate time window semantics
+        t1, t2 = self._validate_time_window_semantics(t1, t2, indicator.metadata.get("type", "UNKNOWN"))
+
+        deal_key = f"{indicator.symbol}_{indicator.timeframe}"
+        series = list(self._deal_data.get(deal_key, deque()))
+
+        if not series:
+            # No data available - return empty window
+            current_time = time.time()
+            start_ts = current_time - float(t1)
+            end_ts = current_time - float(t2)
+            return [], start_ts, end_ts
+
+        # Determine reference 'now' as last seen timestamp
+        now_ts = self._normalize_timestamp(series[-1].get("timestamp") or time.time())
+        start_ts = now_ts - float(t1)
+        end_ts = now_ts - float(t2)
+
+        # Get all volume points within the window
+        window = [
+            (
+                self._normalize_timestamp(s.get("timestamp")),
+                float(s.get("volume", 0.0)),
+            )
+            for s in series
+            if s.get("timestamp") is not None
+            and start_ts <= self._normalize_timestamp(s["timestamp"]) <= end_ts
+        ]
+
+        # Ensure ascending by timestamp
+        window.sort(key=lambda x: x[0])
+        return window, start_ts, end_ts
+
+    def _get_deal_series_for_window(self, indicator: StreamingIndicator, t1: float, t2: float):
+        """
+        Return list of (timestamp, price, volume) tuples for deal-based calculations.
+
+        Returns full deal data with both price and volume.
+
+        Returns:
+            - window: List of (timestamp, price, volume) tuples
+            - start_ts: Window start timestamp
+            - end_ts: Window end timestamp
+        """
+        # Validate time window semantics
+        t1, t2 = self._validate_time_window_semantics(t1, t2, indicator.metadata.get("type", "UNKNOWN"))
+
+        deal_key = f"{indicator.symbol}_{indicator.timeframe}"
+        series = list(self._deal_data.get(deal_key, deque()))
+
+        if not series:
+            # No data available - return empty window
+            current_time = time.time()
+            start_ts = current_time - float(t1)
+            end_ts = current_time - float(t2)
+            return [], start_ts, end_ts
+
+        # Determine reference 'now' as last seen timestamp
+        now_ts = self._normalize_timestamp(series[-1].get("timestamp") or time.time())
+        start_ts = now_ts - float(t1)
+        end_ts = now_ts - float(t2)
+
+        # Get all deal points within the window
+        window = [
+            (
+                self._normalize_timestamp(s.get("timestamp")),
+                float(s.get("price", 0.0)),
+                float(s.get("volume", 0.0)),
+            )
+            for s in series
+            if s.get("timestamp") is not None
+            and start_ts <= self._normalize_timestamp(s["timestamp"]) <= end_ts
+        ]
+
+        # Ensure ascending by timestamp
+        window.sort(key=lambda x: x[0])
+        return window, start_ts, end_ts
+
     def _get_orderbook_series_for_window(self, indicator: StreamingIndicator, t1: float, t2: float):
         if t1 < t2:
             t1, t2 = t2, t1
