@@ -10,9 +10,41 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
+class DataWindow:
+    """
+    Immutable data window for indicator calculation.
+
+    Pure data structure with no engine dependencies.
+    Thread-safe due to immutability.
+    """
+    data: Sequence[Tuple[float, float]]  # [(timestamp, price), ...]
+    start_ts: float  # Window start timestamp
+    end_ts: float    # Window end timestamp
+
+    def __len__(self) -> int:
+        """Return number of data points in window."""
+        return len(self.data)
+
+
+@dataclass(frozen=True)
+class WindowSpec:
+    """
+    Specification for a time window.
+
+    Uses the t1/t2 convention where:
+    - t1: seconds ago from target timestamp for window start
+    - t2: seconds ago from target timestamp for window end
+
+    Example: WindowSpec(300, 0) means "last 5 minutes"
+    """
+    t1: float  # Seconds ago for window start (further back in time)
+    t2: float  # Seconds ago for window end (closer to present)
+
+
+@dataclass(frozen=True)
 class IndicatorParameters:
     """Encapsulate parameters for indicator calculations."""
-    
+
     params: Dict[str, Any]
     refresh_interval_override: Optional[float] = None
     
@@ -141,6 +173,78 @@ class IndicatorAlgorithm(ABC):
             False if indicator should recalculate on data arrival (default)
         """
         return False  # Safe default: event-driven
+
+    # ========================================
+    # NEW PURE FUNCTION INTERFACE (Phase 1)
+    # ========================================
+
+    def get_window_specs(self, params: IndicatorParameters) -> List[WindowSpec]:
+        """
+        Specify what data windows this algorithm needs.
+
+        NEW INTERFACE: Override this in new algorithms.
+        Default implementation uses t1/t2 for single window (backward compatible).
+
+        Args:
+            params: Algorithm parameters
+
+        Returns:
+            List of WindowSpec objects describing needed windows
+
+        Example:
+            # Single window (default)
+            return [WindowSpec(60, 0)]  # Last 60 seconds
+
+            # Multiple windows (e.g., TWPA Ratio)
+            return [
+                WindowSpec(60, 0),   # Window 1
+                WindowSpec(300, 0),  # Window 2
+            ]
+        """
+        t1 = params.get_float("t1", 60.0)
+        t2 = params.get_float("t2", 0.0)
+        return [WindowSpec(t1, t2)]
+
+    def calculate_from_windows(self,
+                               data_windows: List[DataWindow],
+                               params: IndicatorParameters) -> Optional[float]:
+        """
+        Calculate indicator value from pre-prepared data windows.
+
+        NEW INTERFACE: Override this in new algorithms for pure function implementation.
+        Default implementation delegates to old single-window calculate() for backward compatibility.
+
+        This is a PURE FUNCTION:
+        - No engine dependency
+        - No side effects
+        - Easy to test
+        - Thread-safe
+
+        Args:
+            data_windows: Pre-prepared data windows (engine's responsibility)
+            params: Algorithm parameters
+
+        Returns:
+            Calculated indicator value or None
+
+        Example:
+            def calculate_from_windows(self, data_windows, params):
+                window = data_windows[0]
+                # Pure calculation logic
+                return self._compute_twpa(window.data, window.start_ts, window.end_ts)
+        """
+        # Default: delegate to old single-window interface for backward compatibility
+        if len(data_windows) == 1:
+            window = data_windows[0]
+            return self.calculate(window.data, window.start_ts, window.end_ts, params)
+        elif len(data_windows) == 0:
+            return None
+        else:
+            # Multi-window but algorithm hasn't implemented new interface
+            raise NotImplementedError(
+                f"{self.__class__.__name__} requires multiple windows but hasn't "
+                f"implemented calculate_from_windows(). Please migrate to new interface."
+            )
 
     def get_registry_metadata(self) -> Dict[str, Any]:
         """Return complete metadata for engine registration."""

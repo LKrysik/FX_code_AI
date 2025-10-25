@@ -10,28 +10,15 @@ from pathlib import Path
 from typing import Dict, Optional, List, Any
 import logging
 
+# Import IndicatorAlgorithm base classes
+from .base_algorithm import IndicatorAlgorithm, MultiWindowIndicatorAlgorithm
+
+# StructuredLogger import with fallback
 try:
-    from .base_algorithm import IndicatorAlgorithm, MultiWindowIndicatorAlgorithm
     from ...core.logger import StructuredLogger
 except ImportError:
-    # Fallback for testing
-    try:
-        from base_algorithm import IndicatorAlgorithm, MultiWindowIndicatorAlgorithm
-        import logging
-        StructuredLogger = logging.getLogger
-    except ImportError:
-        # Create minimal fallbacks for testing
-        class IndicatorAlgorithm:
-            def get_indicator_type(self): return "UNKNOWN"
-            def get_name(self): return "Unknown Algorithm"
-            def get_category(self): return "unknown"
-            def get_registry_metadata(self): return {}
-        
-        class MultiWindowIndicatorAlgorithm(IndicatorAlgorithm):
-            pass
-        
-        import logging
-        StructuredLogger = logging.getLogger
+    import logging
+    StructuredLogger = logging.getLogger
 
 
 class IndicatorAlgorithmRegistry:
@@ -72,12 +59,31 @@ class IndicatorAlgorithmRegistry:
             "existing_algorithms": len(self._algorithms)
         })
         
-        for py_file in indicators_dir.glob("*.py"):
+        files_found = list(indicators_dir.glob("*.py"))
+        self.logger.info("indicator_algorithm_registry.files_found", {
+            "total_files": len(files_found),
+            "files": [f.name for f in files_found]
+        })
+
+        for py_file in files_found:
             if py_file.name.startswith("_") or py_file.name in ["base_algorithm.py", "algorithm_registry.py"]:
+                self.logger.info("indicator_algorithm_registry.file_skipped", {
+                    "file": py_file.name,
+                    "reason": "excluded"
+                })
                 continue
-            
+
             module_name = py_file.stem
-            discovered_count += self._load_algorithms_from_module(module_name)
+            self.logger.info("indicator_algorithm_registry.loading_module", {
+                "module": module_name,
+                "file": py_file.name
+            })
+            count = self._load_algorithms_from_module(module_name)
+            self.logger.info("indicator_algorithm_registry.module_loaded", {
+                "module": module_name,
+                "algorithms_found": count
+            })
+            discovered_count += count
         
         self.logger.info("indicator_algorithm_registry.discovery_completed", {
             "total_algorithms": len(self._algorithms),
@@ -108,8 +114,17 @@ class IndicatorAlgorithmRegistry:
                         module = importlib.import_module(import_path, __package__)
                     else:
                         module = importlib.import_module(import_path)
+                    self.logger.info("indicator_algorithm_registry.import_success", {
+                        "module": module_name,
+                        "import_path": import_path
+                    })
                     break
                 except (ImportError, ValueError) as e:
+                    self.logger.info("indicator_algorithm_registry.import_attempt_failed", {
+                        "module": module_name,
+                        "import_path": import_path,
+                        "error": str(e)
+                    })
                     continue
             
             if not module:
@@ -120,15 +135,17 @@ class IndicatorAlgorithmRegistry:
                 return 0
             
             # Find algorithm classes and instances
+            members_count = 0
             for name, obj in inspect.getmembers(module):
+                members_count += 1
                 if self._is_algorithm_class(obj):
                     # Instantiate and register algorithm class
                     try:
                         algorithm = obj()
                         self.register_algorithm(algorithm)
                         discovered_count += 1
-                        
-                        self.logger.debug("indicator_algorithm_registry.algorithm_class_registered", {
+
+                        self.logger.info("indicator_algorithm_registry.algorithm_class_registered", {
                             "module": module_name,
                             "class_name": name,
                             "indicator_type": algorithm.get_indicator_type()
@@ -139,17 +156,23 @@ class IndicatorAlgorithmRegistry:
                             "class_name": name,
                             "error": str(e)
                         })
-                
+
                 elif self._is_algorithm_instance(obj):
                     # Register algorithm instance directly
                     self.register_algorithm(obj)
                     discovered_count += 1
-                    
-                    self.logger.debug("indicator_algorithm_registry.algorithm_instance_registered", {
+
+                    self.logger.info("indicator_algorithm_registry.algorithm_instance_registered", {
                         "module": module_name,
                         "instance_name": name,
                         "indicator_type": obj.get_indicator_type()
                     })
+
+            self.logger.info("indicator_algorithm_registry.module_inspection_complete", {
+                "module": module_name,
+                "total_members": members_count,
+                "algorithms_found": discovered_count
+            })
         
         except Exception as e:
             self.logger.warning("indicator_algorithm_registry.module_load_failed", {
