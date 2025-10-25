@@ -3584,13 +3584,11 @@ class StreamingIndicatorEngine:
 
         # ✅ TWPA FIX: ALWAYS include the pre-window point at the beginning
         # This is REQUIRED by TWPA algorithm to calculate duration of first price
+        # This handles both cases:
+        #   1. Window has points: pre_window_point is inserted at position 0
+        #   2. Window is empty: pre_window_point creates a single-element list
         if pre_window_point:
             window.insert(0, pre_window_point)
-        elif not window:
-            # Edge case: No points in window, but we need the last known price before window
-            # TWPA will use this price for the entire window duration
-            if pre_window_point:
-                window = [pre_window_point]
 
         # Ensure ascending by timestamp (should already be sorted, but ensure it)
         window.sort(key=lambda x: x[0])
