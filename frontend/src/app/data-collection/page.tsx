@@ -471,7 +471,7 @@ export default function DataCollectionPage() {
       // Get both current session and historical sessions
       const [sessionStatus, historicalSessions] = await Promise.all([
         apiService.getExecutionStatus().catch(() => null),
-        apiService.getDataCollectionSessions(50, true).catch(() => ({ sessions: [] }))
+        apiService.getDataCollectionSessions(50, false).catch(() => ({ sessions: [] }))
       ]);
 
       const allSessions: DataCollectionSession[] = [];
