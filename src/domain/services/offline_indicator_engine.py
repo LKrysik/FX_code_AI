@@ -30,18 +30,34 @@ class OfflineIndicatorEngine(IIndicatorEngine):
     def __init__(self, data_path: str = "data"):
         """
         Initialize offline indicator engine.
-        
+
         Args:
             data_path: Base path for data files
         """
         self.data_path = data_path
         self.logger = get_logger("offline_indicator_engine")
-        
+
         # Thread-safe storage for indicators
         self._lock = Lock()
         self._indicators: Dict[str, Dict[str, Any]] = {}
         self._calculated_values: Dict[str, List[IndicatorValue]] = {}
         self._data_cache: Dict[str, List[MarketDataPoint]] = {}
+
+        # Initialize algorithm registry for new pure function interface
+        try:
+            from .indicators.algorithm_registry import IndicatorAlgorithmRegistry
+            self._algorithm_registry = IndicatorAlgorithmRegistry(self.logger)
+            discovered_count = self._algorithm_registry.auto_discover_algorithms()
+            self.logger.info(
+                "offline_indicator_engine.algorithm_registry_initialized",
+                {"discovered_algorithms": discovered_count}
+            )
+        except Exception as e:
+            self.logger.error(
+                "offline_indicator_engine.algorithm_registry_init_failed",
+                {"error": str(e)}
+            )
+            self._algorithm_registry = None
     
     @property
     def mode(self) -> EngineMode:
@@ -284,6 +300,50 @@ class OfflineIndicatorEngine(IIndicatorEngine):
     ) -> List[IndicatorValue]:
         """
         Convert raw market data into a timestamp-aligned indicator series.
+
+        NEW: Uses algorithm registry with pure function interface when available.
+        Falls back to legacy calculate_indicator_unified for unmigrated indicators.
+        """
+        if not data_points:
+            return []
+
+        # Try new algorithm registry method first
+        if self._algorithm_registry:
+            algorithm = self._algorithm_registry.get_algorithm(indicator_type.value)
+            if algorithm and hasattr(algorithm, 'calculate_from_windows'):
+                try:
+                    return self._calculate_indicator_series_new(
+                        symbol, indicator_type, timeframe, period, params, data_points
+                    )
+                except Exception as e:
+                    self.logger.warning(
+                        "offline_indicator_engine.new_method_failed_fallback_to_old",
+                        {
+                            "indicator_type": indicator_type.value,
+                            "error": str(e)
+                        }
+                    )
+                    # Fall through to old method
+
+        # Fallback to legacy method for unmigrated indicators
+        return self._calculate_indicator_series_old(
+            symbol, indicator_type, timeframe, period, params, data_points
+        )
+
+    def _calculate_indicator_series_old(
+        self,
+        symbol: str,
+        indicator_type: IndicatorType,
+        timeframe: str,
+        period: int,
+        params: Dict[str, Any],
+        data_points: List[MarketDataPoint],
+    ) -> List[IndicatorValue]:
+        """
+        LEGACY: Old implementation using calculate_indicator_unified.
+
+        Kept for backward compatibility with unmigrated algorithms.
+        Will be removed in Phase 3 after all algorithms are migrated.
         """
         if not data_points:
             return []
@@ -327,6 +387,156 @@ class OfflineIndicatorEngine(IIndicatorEngine):
                     metadata={
                         "timeframe": timeframe,
                         "params": dict(params_copy),
+                    },
+                )
+            )
+
+        return series
+
+    def _extract_windows_at_timestamp(
+        self,
+        sorted_data: List[MarketDataPoint],
+        target_ts: float,
+        window_specs: List,
+    ) -> List:
+        """
+        Extract multiple data windows for a single timestamp.
+
+        EFFICIENT: Single pass through data to extract all windows.
+        Returns DataWindow objects ready for pure function calculation.
+
+        Args:
+            sorted_data: All data points sorted by timestamp
+            target_ts: Target timestamp for calculation
+            window_specs: List of WindowSpec objects
+
+        Returns:
+            List of DataWindow objects
+        """
+        from .indicators.base_algorithm import DataWindow
+
+        windows = []
+
+        for spec in window_specs:
+            # Calculate window bounds
+            start_ts = target_ts - spec.t1
+            end_ts = target_ts - spec.t2
+
+            # Extract window data - single pass
+            window_data = []
+            for point in sorted_data:
+                if point.timestamp > target_ts:
+                    break  # Early exit - data is sorted
+                if start_ts <= point.timestamp < end_ts:
+                    window_data.append((point.timestamp, point.price))
+
+            windows.append(DataWindow(
+                data=tuple(window_data),  # Immutable
+                start_ts=start_ts,
+                end_ts=end_ts
+            ))
+
+        return windows
+
+    def _calculate_indicator_series_new(
+        self,
+        symbol: str,
+        indicator_type: IndicatorType,
+        timeframe: str,
+        period: int,
+        params: Dict[str, Any],
+        data_points: List[MarketDataPoint],
+    ) -> List[IndicatorValue]:
+        """
+        NEW IMPLEMENTATION: Calculate indicator series using algorithm registry.
+
+        Uses pure function interface with zero coupling.
+        More efficient than old method - single pass window extraction.
+
+        Args:
+            symbol: Symbol identifier
+            indicator_type: Type of indicator
+            timeframe: Timeframe
+            period: Period (for compatibility)
+            params: Calculation parameters
+            data_points: Historical data points
+
+        Returns:
+            List of IndicatorValue objects
+        """
+        if not data_points:
+            return []
+
+        # Get algorithm from registry
+        algorithm = self._algorithm_registry.get_algorithm(indicator_type.value)
+        if not algorithm:
+            self.logger.warning(
+                "offline_indicator_engine.algorithm_not_found",
+                {"indicator_type": indicator_type.value}
+            )
+            return []
+
+        # Wrap parameters
+        from .indicators.base_algorithm import IndicatorParameters
+        wrapped_params = IndicatorParameters(params or {})
+
+        # Get window specifications from algorithm
+        try:
+            window_specs = algorithm.get_window_specs(wrapped_params)
+        except Exception as e:
+            self.logger.error(
+                "offline_indicator_engine.get_window_specs_failed",
+                {"indicator_type": indicator_type.value, "error": str(e)}
+            )
+            return []
+
+        # Sort data once
+        sorted_points = sorted(data_points, key=lambda p: p.timestamp)
+        start_ts = sorted_points[0].timestamp
+        end_ts = sorted_points[-1].timestamp
+
+        # Generate time axis
+        refresh_interval = float(
+            params.get("refresh_interval_seconds")
+            or params.get("refresh_interval_override")
+            or 1.0
+        )
+
+        bounds = TimeAxisBounds(start=start_ts, end=end_ts, interval=refresh_interval)
+        time_axis = list(TimeAxisGenerator.generate(bounds))
+
+        # Calculate indicator values
+        series: List[IndicatorValue] = []
+
+        for target_ts in time_axis:
+            # Extract all windows for this timestamp
+            windows = self._extract_windows_at_timestamp(
+                sorted_points, target_ts, window_specs
+            )
+
+            # Calculate using pure function
+            try:
+                value = algorithm.calculate_from_windows(windows, wrapped_params)
+            except Exception as e:
+                self.logger.error(
+                    "offline_indicator_engine.calculate_failed",
+                    {
+                        "indicator_type": indicator_type.value,
+                        "timestamp": target_ts,
+                        "error": str(e)
+                    }
+                )
+                value = None
+
+            series.append(
+                IndicatorValue(
+                    timestamp=target_ts,
+                    symbol=symbol,
+                    indicator_id=f"{indicator_type.value}_{period}_{timeframe}",
+                    value=value,
+                    metadata={
+                        "timeframe": timeframe,
+                        "params": dict(params),
                     },
                 )
             )
