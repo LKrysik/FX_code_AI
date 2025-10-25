@@ -14,6 +14,7 @@ import json
 import os
 import logging
 import statistics
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple, Set
@@ -87,6 +88,9 @@ class DataAnalysisService:
         self.data_directory.mkdir(parents=True, exist_ok=True)
 
         self._data_directories = self._initialize_data_directories(self.data_directory)
+
+        # Thread-safe cache with RLock for concurrent access protection
+        self._cache_lock = threading.RLock()
         self._metadata_cache: Dict[str, Dict[str, Any]] = {}
         self._symbol_cache: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
 
@@ -151,18 +155,9 @@ class DataAnalysisService:
             if not data_points:
                 return []
 
-            # Convert to chart format and limit points
+            # Convert to chart format and limit points using downsampling
             chart_data = []
             step = max(1, len(data_points) // max_points)
-
-            # Prepare price data for indicators
-            prices = [point['price'] for point in data_points]
-            volumes = [point['volume'] for point in data_points]
-            
-            # Calculate simple indicators if we have enough data
-            sma_20 = self._calculate_sma(prices, 20) if len(prices) >= 20 else [None] * len(prices)
-            sma_50 = self._calculate_sma(prices, 50) if len(prices) >= 50 else [None] * len(prices)
-            volume_sma = self._calculate_sma(volumes, 20) if len(volumes) >= 20 else [None] * len(volumes)
 
             for i in range(0, len(data_points), step):
                 point = data_points[i]
@@ -172,19 +167,6 @@ class DataAnalysisService:
                     'volume': point['volume'],
                     'symbol': symbol
                 }
-                
-                # Add indicators if available
-                if i < len(sma_20) and sma_20[i] is not None:
-                    chart_point['sma_20'] = round(sma_20[i], 6)
-                if i < len(sma_50) and sma_50[i] is not None:
-                    chart_point['sma_50'] = round(sma_50[i], 6)
-                if i < len(volume_sma) and volume_sma[i] is not None:
-                    chart_point['volume_sma'] = round(volume_sma[i], 2)
-                
-                # Add basic support/resistance levels (simple example)
-                chart_point['support'] = round(point['price'] * 0.98, 6)  # 2% below
-                chart_point['resistance'] = round(point['price'] * 1.02, 6)  # 2% above
-                
                 chart_data.append(chart_point)
 
             logger.info(f"Generated {len(chart_data)} chart points for {symbol} in session {session_id}")
@@ -194,28 +176,15 @@ class DataAnalysisService:
             logger.error(f"Failed to get chart data for {symbol} in session {session_id}: {e}")
             raise
 
-    def _calculate_sma(self, prices: List[float], period: int) -> List[Optional[float]]:
-        """Calculate Simple Moving Average"""
-        if len(prices) < period:
-            return [None] * len(prices)
-        
-        sma_values = []
-        for i in range(len(prices)):
-            if i < period - 1:
-                sma_values.append(None)
-            else:
-                window = prices[i - period + 1:i + 1]
-                sma_values.append(sum(window) / period)
-        
-        return sma_values
-
     async def _load_session_metadata(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Load session metadata from file system or infer it from collected CSV data."""
         if not session_id:
             return None
 
-        if session_id in self._metadata_cache:
-            return self._metadata_cache[session_id]
+        # Check cache with lock
+        with self._cache_lock:
+            if session_id in self._metadata_cache:
+                return self._metadata_cache[session_id]
 
         session_dir = self._find_session_directory(session_id)
         if not session_dir:
@@ -226,14 +195,16 @@ class DataAnalysisService:
             try:
                 with open(meta_file, "r") as f:
                     metadata = json.load(f)
-                self._metadata_cache[session_id] = metadata
+                with self._cache_lock:
+                    self._metadata_cache[session_id] = metadata
                 return metadata
             except Exception as e:
                 logger.error(f"Failed to parse session metadata for {session_id}: {e}")
 
         metadata = await asyncio.to_thread(self._build_metadata_from_session, session_id, session_dir)
         if metadata:
-            self._metadata_cache[session_id] = metadata
+            with self._cache_lock:
+                self._metadata_cache[session_id] = metadata
         return metadata
 
     async def list_sessions(self, limit: int = 50, include_stats: bool = False) -> Dict[str, Any]:
@@ -331,13 +302,14 @@ class DataAnalysisService:
                 "deleted_files": []
             }
         
-        # Clear cache for deleted session
-        cache_keys_to_remove = [key for key in self._symbol_cache.keys() if key[0] == session_id]
-        for key in cache_keys_to_remove:
-            del self._symbol_cache[key]
-        
-        if session_id in self._metadata_cache:
-            del self._metadata_cache[session_id]
+        # Clear cache for deleted session with lock
+        with self._cache_lock:
+            cache_keys_to_remove = [key for key in self._symbol_cache.keys() if key[0] == session_id]
+            for key in cache_keys_to_remove:
+                del self._symbol_cache[key]
+
+            if session_id in self._metadata_cache:
+                del self._metadata_cache[session_id]
         
         return {
             "success": True,
@@ -350,8 +322,11 @@ class DataAnalysisService:
             return None
 
         cache_key = (session_id, symbol)
-        if cache_key in self._symbol_cache:
-            return self._symbol_cache[cache_key]
+
+        # Check cache with lock
+        with self._cache_lock:
+            if cache_key in self._symbol_cache:
+                return self._symbol_cache[cache_key]
 
         session_dir = self._find_session_directory(session_id)
         if not session_dir:
@@ -363,7 +338,8 @@ class DataAnalysisService:
                 with open(data_file, "r") as f:
                     data = json.load(f)
                 data = sorted(data, key=lambda x: x["timestamp"])
-                self._symbol_cache[cache_key] = data
+                with self._cache_lock:
+                    self._symbol_cache[cache_key] = data
                 return data
             except Exception as e:
                 logger.error(f"Failed to load JSON symbol data for {symbol} in session {session_id}: {e}")
@@ -375,7 +351,8 @@ class DataAnalysisService:
 
         data = await asyncio.to_thread(self._parse_price_csv, price_csv)
         if data:
-            self._symbol_cache[cache_key] = data
+            with self._cache_lock:
+                self._symbol_cache[cache_key] = data
         return data
 
     def _initialize_data_directories(self, primary: Path) -> List[Path]:
@@ -676,16 +653,20 @@ class DataAnalysisService:
             'volume_change_pct': round(volume_change_pct, 2)
         }
 
-    def _calculate_time_metrics(self, timestamps: List[int]) -> Dict[str, Any]:
-        """Calculate time-based metrics"""
+    def _calculate_time_metrics(self, timestamps: List[int], max_gaps: int = 10) -> Dict[str, Any]:
+        """Calculate time-based metrics with early exit optimization"""
         if not timestamps:
             return {}
 
-        # Calculate gaps between points
+        # Calculate gaps between points with early exit
         gaps = []
         expected_interval = 1.0  # 1 second in seconds (timestamps are in seconds)
 
         for i in range(1, len(timestamps)):
+            # Early exit optimization: stop when we have enough gaps for summary
+            if len(gaps) >= max_gaps:
+                break
+
             gap = timestamps[i] - timestamps[i-1]
             if gap > expected_interval * 2:  # Significant gap
                 gaps.append({
@@ -699,7 +680,7 @@ class DataAnalysisService:
             'total_gaps': len(gaps),
             'total_gap_duration_ms': sum(gap['duration_ms'] for gap in gaps),
             'avg_gap_duration_ms': round(sum(gap['duration_ms'] for gap in gaps) / max(1, len(gaps)), 2),
-            'gaps': gaps[:10]  # Limit to first 10 gaps for summary
+            'gaps': gaps  # Already limited by max_gaps
         }
 
     def _assess_data_quality(self, data_points: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -740,223 +721,3 @@ class DataAnalysisService:
             'completeness_pct': round((len(data_points) - missing_prices) / len(data_points) * 100, 1)
         }
 
-    def _calculate_overall_score(self, completeness: float, gap_count: int,
-                               anomaly_count: int, timestamp_issues: int,
-                               total_points: int) -> float:
-        """Calculate weighted overall quality score"""
-        if total_points == 0:
-            return 0.0
-
-        # Base score from completeness
-        score = completeness
-
-        # Penalty for gaps (weighted by severity and count)
-        gap_penalty = min(30, gap_count * 2)
-        score -= gap_penalty
-
-        # Penalty for anomalies
-        anomaly_penalty = min(20, anomaly_count * 1.5)
-        score -= anomaly_penalty
-
-        # Penalty for timestamp issues
-        timestamp_penalty = min(15, timestamp_issues * 3)
-        score -= timestamp_penalty
-
-        # Bonus for large datasets (more data = potentially better quality)
-        if total_points > 1000:
-            score += 5
-        elif total_points > 100:
-            score += 2
-
-        return max(0.0, min(100.0, score))
-
-    def _calculate_completeness(self, data_points: List[Dict[str, Any]]) -> float:
-        """Calculate data completeness percentage"""
-        if not data_points:
-            return 0.0
-
-        total_fields = 0
-        valid_fields = 0
-
-        for point in data_points:
-            # Check required fields
-            required_fields = ['timestamp', 'price', 'volume']
-
-            for field in required_fields:
-                total_fields += 1
-                value = point.get(field)
-
-                # Check if value is present and valid
-                if value is not None and value != 0 and value != "":
-                    # Additional validation for numeric fields
-                    if field in ['price', 'volume']:
-                        try:
-                            float(value)
-                            valid_fields += 1
-                        except (ValueError, TypeError):
-                            pass  # Invalid numeric value
-                    else:
-                        valid_fields += 1
-
-        return (valid_fields / total_fields * 100) if total_fields > 0 else 0.0
-
-    def _detect_gaps(self, data_points: List[Dict[str, Any]]) -> List[GapInfo]:
-        """Detect gaps in time series data"""
-        if len(data_points) < 2:
-            return []
-
-        gaps = []
-        sorted_points = sorted(data_points, key=lambda x: x.get('timestamp', 0))
-
-        for i in range(1, len(sorted_points)):
-            current_time = sorted_points[i].get('timestamp', 0)
-            previous_time = sorted_points[i-1].get('timestamp', 0)
-
-            if current_time <= previous_time:
-                continue  # Skip invalid timestamps
-
-            gap_duration = current_time - previous_time
-            expected_duration = 1.0  # 1 second in seconds (timestamps are in seconds)
-
-            # Check if gap exceeds minimum threshold
-            if gap_duration > expected_duration * 2:
-                missing_points = int(gap_duration / expected_duration) - 1
-
-                # Determine severity
-                severity = 'minor'
-                if gap_duration >= 300:  # 5 minutes (in seconds)
-                    severity = 'critical'
-                elif gap_duration >= 30:  # 30 seconds
-                    severity = 'moderate'
-
-                gap_info = GapInfo(
-                    start_time=previous_time,
-                    end_time=current_time,
-                    duration_ms=gap_duration,
-                    missing_points=missing_points,
-                    severity=severity
-                )
-                gaps.append(gap_info)
-
-        return gaps
-
-    def _detect_anomalies(self, data_points: List[Dict[str, Any]]) -> List[AnomalyInfo]:
-        """Detect data anomalies"""
-        if len(data_points) < 10:  # Need minimum data for statistical analysis
-            return []
-
-        anomalies = []
-
-        # Extract numeric fields for analysis
-        prices = []
-        volumes = []
-
-        for point in data_points:
-            try:
-                price = float(point.get('price', 0))
-                volume = float(point.get('volume', 0))
-
-                if price > 0:
-                    prices.append(price)
-                if volume >= 0:  # Volume can be 0
-                    volumes.append(volume)
-            except (ValueError, TypeError):
-                continue
-
-        # Calculate statistical bounds
-        price_bounds = self._calculate_statistical_bounds(prices)
-        volume_bounds = self._calculate_statistical_bounds(volumes)
-
-        # Check each point for anomalies
-        for point in data_points:
-            timestamp = point.get('timestamp', 0)
-
-            # Check price anomalies
-            try:
-                price = float(point.get('price', 0))
-                if price > 0 and not (price_bounds[0] <= price <= price_bounds[1]):
-                    anomalies.append(AnomalyInfo(
-                        timestamp=timestamp,
-                        field='price',
-                        value=price,
-                        expected_range=price_bounds,
-                        severity='high' if price > price_bounds[1] * 2 else 'medium'
-                    ))
-            except (ValueError, TypeError):
-                pass
-
-            # Check volume anomalies
-            try:
-                volume = float(point.get('volume', 0))
-                if volume >= 0 and not (volume_bounds[0] <= volume <= volume_bounds[1]):
-                    anomalies.append(AnomalyInfo(
-                        timestamp=timestamp,
-                        field='volume',
-                        value=volume,
-                        expected_range=volume_bounds,
-                        severity='high' if volume > volume_bounds[1] * 3 else 'medium'
-                    ))
-            except (ValueError, TypeError):
-                pass
-
-        return anomalies
-
-    def _calculate_statistical_bounds(self, values: List[float], z_threshold: float = 3.0) -> Tuple[float, float]:
-        """Calculate statistical bounds using z-score method"""
-        if len(values) < 3:
-            # Fallback to simple range
-            return min(values), max(values)
-
-        try:
-            mean = statistics.mean(values)
-            stdev = statistics.stdev(values)
-
-            lower_bound = mean - (z_threshold * stdev)
-            upper_bound = mean + (z_threshold * stdev)
-
-            # Ensure bounds are reasonable
-            lower_bound = max(lower_bound, min(values) * 0.1)  # Don't go below 10% of min
-            upper_bound = min(upper_bound, max(values) * 10)   # Don't go above 10x max
-
-            return lower_bound, upper_bound
-
-        except statistics.StatisticsError:
-            # Fallback to percentile method
-            sorted_values = sorted(values)
-            lower_idx = int(len(sorted_values) * 0.01)  # 1st percentile
-            upper_idx = int(len(sorted_values) * 0.99)  # 99th percentile
-
-            return sorted_values[lower_idx], sorted_values[upper_idx]
-
-    def _check_timestamp_ordering(self, data_points: List[Dict[str, Any]]) -> int:
-        """Check for timestamp ordering issues"""
-        if not data_points:
-            return 0
-
-        issues = 0
-        previous_time = None
-
-        for point in data_points:
-            current_time = point.get('timestamp')
-            if current_time is None:
-                issues += 1
-                continue
-
-            if previous_time is not None and current_time < previous_time:
-                issues += 1
-
-            previous_time = current_time
-
-        return issues
-
-    def _count_missing_values(self, data_points: List[Dict[str, Any]]) -> int:
-        """Count total missing values across all fields"""
-        missing_count = 0
-
-        for point in data_points:
-            for field in ['timestamp', 'price', 'volume']:
-                value = point.get(field)
-                if value is None or value == "" or str(value).lower() in ['null', 'none']:
-                    missing_count += 1
-
-        return missing_count
