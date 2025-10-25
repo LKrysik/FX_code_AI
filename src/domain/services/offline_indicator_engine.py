@@ -402,6 +402,10 @@ class OfflineIndicatorEngine(IIndicatorEngine):
         """
         Extract multiple data windows for a single timestamp.
 
+        CRITICAL: Each window INCLUDES one transaction BEFORE the window start.
+        This is required by TWPA and time-weighted algorithms to calculate
+        the duration of the first price in the window.
+
         EFFICIENT: Single pass through data to extract all windows.
         Returns DataWindow objects ready for pure function calculation.
 
@@ -411,7 +415,7 @@ class OfflineIndicatorEngine(IIndicatorEngine):
             window_specs: List of WindowSpec objects
 
         Returns:
-            List of DataWindow objects
+            List of DataWindow objects, each including pre-window point if available
         """
         from .indicators.base_algorithm import DataWindow
 
@@ -422,13 +426,26 @@ class OfflineIndicatorEngine(IIndicatorEngine):
             start_ts = target_ts - spec.t1
             end_ts = target_ts - spec.t2
 
-            # Extract window data - single pass
+            # ✅ TWPA FIX: Find last transaction BEFORE window (required by TWPA)
+            # AND extract window data - optimized single pass
+            pre_window_point = None
             window_data = []
             for point in sorted_data:
                 if point.timestamp > target_ts:
                     break  # Early exit - data is sorted
-                if start_ts <= point.timestamp < end_ts:
+                if point.timestamp < start_ts:
+                    # Keep updating to get the LAST point before window
+                    pre_window_point = (point.timestamp, point.price)
+                elif start_ts <= point.timestamp < end_ts:
                     window_data.append((point.timestamp, point.price))
+
+            # ✅ TWPA FIX: ALWAYS include the pre-window point at the beginning
+            # This is REQUIRED by TWPA algorithm to calculate duration of first price
+            # This handles both cases:
+            #   1. Window has points: pre_window_point is inserted at position 0
+            #   2. Window is empty: pre_window_point creates a single-element list
+            if pre_window_point:
+                window_data.insert(0, pre_window_point)
 
             windows.append(DataWindow(
                 data=tuple(window_data),  # Immutable
