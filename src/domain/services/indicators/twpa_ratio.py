@@ -5,7 +5,12 @@ Calculates ratio between two TWPA values: TWPA(t1,t2) / TWPA(t3,t4)
 """
 
 from typing import List, Optional, Sequence, Tuple
-from .base_algorithm import MultiWindowIndicatorAlgorithm, IndicatorParameters
+from .base_algorithm import (
+    MultiWindowIndicatorAlgorithm,
+    IndicatorParameters,
+    DataWindow,
+    WindowSpec
+)
 from .twpa import twpa_algorithm
 
 
@@ -157,6 +162,66 @@ class TWPARatioAlgorithm(MultiWindowIndicatorAlgorithm):
             Always True - TWPA_RATIO requires time-driven scheduling
         """
         return True
+
+    # ========================================
+    # NEW PURE FUNCTION INTERFACE
+    # ========================================
+
+    def get_window_specs(self, params: IndicatorParameters) -> List[WindowSpec]:
+        """
+        Specify the two windows needed for TWPA ratio calculation.
+
+        Returns:
+            Two WindowSpec objects: [numerator_window, denominator_window]
+        """
+        t1 = params.get_float("t1", 300.0)
+        t2 = params.get_float("t2", 60.0)
+        t3 = params.get_float("t3", 1800.0)
+        t4 = params.get_float("t4", 300.0)
+
+        return [
+            WindowSpec(t1, t2),  # Window 1: numerator
+            WindowSpec(t3, t4),  # Window 2: denominator
+        ]
+
+    def calculate_from_windows(self,
+                               data_windows: List[DataWindow],
+                               params: IndicatorParameters) -> Optional[float]:
+        """
+        Calculate TWPA ratio using two pre-prepared data windows.
+
+        PURE FUNCTION: No engine dependency, thread-safe, easy to test.
+
+        Args:
+            data_windows: [window1, window2] pre-prepared by engine
+            params: Algorithm parameters
+
+        Returns:
+            TWPA ratio or None if cannot calculate
+        """
+        if len(data_windows) != 2:
+            return None
+
+        window1 = data_windows[0]
+        window2 = data_windows[1]
+
+        # Calculate both TWPA values using pure function
+        twpa1 = twpa_algorithm._compute_twpa(window1.data, window1.start_ts, window1.end_ts)
+        twpa2 = twpa_algorithm._compute_twpa(window2.data, window2.start_ts, window2.end_ts)
+
+        if twpa1 is None or twpa2 is None:
+            return None
+
+        # Avoid division by zero
+        min_denominator = params.get_float("min_denominator", 0.001)
+        if abs(twpa2) < min_denominator:
+            return None
+
+        return twpa1 / twpa2
+
+    # ========================================
+    # OLD INTERFACE (kept for backward compatibility)
+    # ========================================
 
     def calculate_multi_window(self, 
                               windows: List[Tuple[Sequence[Tuple[float, float]], float, float]], 
