@@ -16,10 +16,17 @@ class DataWindow:
 
     Pure data structure with no engine dependencies.
     Thread-safe due to immutability.
+
+    Supports multiple data types:
+    - Price data: [(timestamp, price), ...]
+    - Volume data: [(timestamp, volume), ...]
+    - Deal data: [(timestamp, price, volume), ...]
+    - OrderBook data: [(timestamp, best_bid, best_ask, bid_qty, ask_qty), ...]
     """
-    data: Sequence[Tuple[float, float]]  # [(timestamp, price), ...]
+    data: Sequence[Tuple[float, ...]]  # [(timestamp, value1, value2, ...), ...]
     start_ts: float  # Window start timestamp
     end_ts: float    # Window end timestamp
+    data_type: str = "price"  # "price", "volume", "deal", "orderbook"
 
     def __len__(self) -> int:
         """Return number of data points in window."""

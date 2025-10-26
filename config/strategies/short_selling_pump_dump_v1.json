@@ -1,0 +1,137 @@
+{
+  "id": "short-selling-pump-dump-v1",
+  "strategy_name": "SHORT SELLING - Pump & Dump Hunter v1",
+  "enabled": true,
+  "description": "Detects pump peak and plays the dump using advanced TWPA-based indicators. Enters short at pump peak, exits when dump exhausted.",
+  "s1_signal": {
+    "conditions": [
+      {
+        "id": "s1_pump_magnitude",
+        "indicatorId": "pump-magnitude-001",
+        "operator": ">=",
+        "value": 15.0,
+        "description": "Pump magnitude >= 15% (significant price increase)"
+      },
+      {
+        "id": "s1_volume_surge",
+        "indicatorId": "volume-surge-001",
+        "operator": ">=",
+        "value": 3.0,
+        "description": "Volume surge >= 3x (abnormal trading activity)"
+      },
+      {
+        "id": "s1_price_velocity",
+        "indicatorId": "price-velocity-001",
+        "operator": ">=",
+        "value": 0.5,
+        "description": "Price velocity >= 0.5%/s (rapid price increase)"
+      },
+      {
+        "id": "s1_velocity_cascade",
+        "indicatorId": "velocity-cascade-001",
+        "operator": ">=",
+        "value": 0.5,
+        "description": "Velocity cascade >= 0.5 (acceleration across timeframes)"
+      }
+    ],
+    "logic": "AND",
+    "description": "All four conditions must be met: significant pump (15%+), high volume (3x+), fast velocity (0.5%/s+), and multi-timeframe acceleration"
+  },
+  "z1_entry": {
+    "conditions": [],
+    "positionSize": {
+      "type": "percentage",
+      "value": 2.0,
+      "description": "2% of portfolio per trade (conservative sizing for short selling)"
+    },
+    "timeoutSeconds": 60,
+    "description": "Enter short position within 60 seconds of signal. Position size is conservative due to short selling risks."
+  },
+  "o1_cancel": {
+    "timeoutSeconds": 300,
+    "conditions": [
+      {
+        "id": "o1_momentum_continues",
+        "indicatorId": "momentum-reversal-001",
+        "operator": "<",
+        "value": -20.0,
+        "description": "Cancel if momentum drops < -20% (pump still accelerating, bad entry)"
+      }
+    ],
+    "cooldownMinutes": 5,
+    "description": "Cancel if pump momentum still strong after 5 minutes. Cooldown prevents rapid re-entry."
+  },
+  "ze1_close": {
+    "conditions": [
+      {
+        "id": "ze1_exhaustion_score",
+        "indicatorId": "dump-exhaustion-001",
+        "operator": ">=",
+        "value": 70.0,
+        "description": "Dump exhaustion score >= 70 (dump nearly complete)"
+      },
+      {
+        "id": "ze1_support_proximity",
+        "indicatorId": "support-proximity-001",
+        "operator": "<=",
+        "value": 2.0,
+        "description": "Support proximity <= 2% (near pre-pump support level)"
+      },
+      {
+        "id": "ze1_velocity_stable",
+        "indicatorId": "velocity-stabilization-001",
+        "operator": "<=",
+        "value": 0.5,
+        "description": "Velocity stabilization <= 0.5 (price movement stabilizing)"
+      }
+    ],
+    "logic": "OR",
+    "description": "Exit short when ANY of: exhaustion score high (70+), near support (2%), or velocity stable (0.5). Conservative exit to capture dump profit."
+  },
+  "emergency_exit": {
+    "conditions": [
+      {
+        "id": "emergency_reversal",
+        "indicatorId": "momentum-reversal-001",
+        "operator": ">=",
+        "value": 50.0,
+        "description": "Emergency: momentum reversal >= 50% (strong upward reversal, cut losses)"
+      }
+    ],
+    "cooldownMinutes": 60,
+    "actions": {
+      "cancelPending": true,
+      "closePosition": true,
+      "logEvent": true
+    },
+    "description": "Emergency exit if strong upward reversal detected (50%+ momentum gain). Prevents catastrophic losses on failed dumps."
+  },
+  "created_at": "2025-10-26T00:00:00.000000",
+  "updated_at": "2025-10-26T00:00:00.000000",
+  "created_by": "claude_ai",
+  "version": "1.0",
+  "metadata": {
+    "strategy_type": "SHORT_SELLING",
+    "risk_level": "MEDIUM_HIGH",
+    "timeframe": "1m-5m",
+    "target_profit": "10-30%",
+    "max_drawdown": "5%",
+    "indicators_used": [
+      "PUMP_MAGNITUDE_PCT",
+      "VOLUME_SURGE_RATIO",
+      "PRICE_VELOCITY",
+      "VELOCITY_CASCADE",
+      "MOMENTUM_REVERSAL_INDEX",
+      "DUMP_EXHAUSTION_SCORE",
+      "SUPPORT_LEVEL_PROXIMITY",
+      "VELOCITY_STABILIZATION_INDEX"
+    ],
+    "notes": [
+      "Short selling strategy requires careful risk management",
+      "Works best on coins with clear pump & dump patterns",
+      "Typical pump lasts 2-5 minutes, dump 3-10 minutes",
+      "Expected success rate: 60-70% with proper parameter tuning",
+      "Use on volatile low-cap coins for best results"
+    ]
+  }
+}
