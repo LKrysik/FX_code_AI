@@ -1,0 +1,29 @@
+{
+  "id": "dump-exhaustion-001",
+  "name": "Dump Exhaustion Score (Default)",
+  "base_indicator_type": "DUMP_EXHAUSTION_SCORE",
+  "variant_type": "general",
+  "description": "Multi-factor dump exhaustion detector (0-100 score) - combines velocity, volume, retracement, and bid-ask balance",
+  "parameters": {
+    "velocity_t1": 10.0,
+    "velocity_t3": 40.0,
+    "velocity_d": 10.0,
+    "volume_t1": 30.0,
+    "volume_t2": 0.0,
+    "volume_t3": 600.0,
+    "volume_t4": 30.0,
+    "imbalance_t1": 30.0,
+    "imbalance_t2": 0.0,
+    "peak_price": 0.0,
+    "current_price": 0.0,
+    "velocity_threshold": 0.1,
+    "volume_threshold": 0.8,
+    "retracement_threshold": 40.0,
+    "imbalance_threshold": -10.0,
+    "r": 2.0
+  },
+  "is_system": false,
+  "created_by": "system",
+  "created_at": 1729928400.0,
+  "updated_at": 1729928400.0
+}
