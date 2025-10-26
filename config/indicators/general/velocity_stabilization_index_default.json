@@ -1,0 +1,19 @@
+{
+  "id": "velocity-stabilization-001",
+  "name": "Velocity Stabilization Index (Default)",
+  "base_indicator_type": "VELOCITY_STABILIZATION_INDEX",
+  "variant_type": "general",
+  "description": "Detects velocity variance decrease (dump stabilizing) - lower value indicates more stable market",
+  "parameters": {
+    "num_samples": 3,
+    "sample_interval": 5.0,
+    "t1": 10.0,
+    "t3": 40.0,
+    "d": 10.0,
+    "r": 2.0
+  },
+  "is_system": false,
+  "created_by": "system",
+  "created_at": 1729928400.0,
+  "updated_at": 1729928400.0
+}
