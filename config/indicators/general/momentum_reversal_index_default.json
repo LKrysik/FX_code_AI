@@ -1,0 +1,20 @@
+{
+  "id": "momentum-reversal-001",
+  "name": "Momentum Reversal Index (Default)",
+  "base_indicator_type": "MOMENTUM_REVERSAL_INDEX",
+  "variant_type": "general",
+  "description": "Detects pump-to-dump transition via velocity drop from peak",
+  "parameters": {
+    "t1_current": 10.0,
+    "t3_current": 40.0,
+    "d_current": 10.0,
+    "t1_peak": 20.0,
+    "t3_peak": 80.0,
+    "d_peak": 20.0,
+    "r": 1.0
+  },
+  "is_system": false,
+  "created_by": "system",
+  "created_at": 1729928400.0,
+  "updated_at": 1729928400.0
+}
