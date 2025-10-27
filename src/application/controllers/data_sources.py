@@ -22,8 +22,13 @@ from ...data.questdb_data_provider import QuestDBDataProvider
 
 class HistoricalDataSource(IExecutionDataSource):
     """
-    Historical data source for backtesting.
-    Replays CSV files with time acceleration.
+    Historical data source for backtesting using CSV files.
+
+    ⚠️ DEPRECATED: This class is deprecated and will be removed in a future version.
+    Use QuestDBHistoricalDataSource instead for QuestDB-based backtest.
+
+    CSV-based backtest is no longer supported as all data now goes to QuestDB.
+    This class remains for backward compatibility only.
     """
     
     def __init__(self, 

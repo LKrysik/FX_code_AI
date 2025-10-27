@@ -15,7 +15,7 @@ from collections import deque
 from ...core.event_bus import EventBus, EventPriority
 from ...core.logger import StructuredLogger
 from ..controllers.execution_controller import ExecutionController, ExecutionMode
-from ..controllers.data_sources import HistoricalDataSource, LiveDataSource, QuestDBHistoricalDataSource
+from ..controllers.data_sources import LiveDataSource, QuestDBHistoricalDataSource
 from ...domain.interfaces.market_data import IMarketDataProvider
 from ...data.questdb_data_provider import QuestDBDataProvider
 from ...data_feed.questdb_provider import QuestDBProvider
