@@ -288,6 +288,15 @@ class ExecutionController:
         self.event_bus = event_bus
         self.logger = logger
         self.market_data_provider_factory = market_data_provider_factory
+
+        # ✅ STEP 0.1: QuestDB is REQUIRED (fail-fast validation)
+        if db_persistence_service is None:
+            raise RuntimeError(
+                "QuestDB persistence service is REQUIRED for ExecutionController.\n"
+                "Data collection requires QuestDB database for storing tick prices and orderbook data.\n"
+                "Please ensure QuestDB is running and properly configured in container.py"
+            )
+
         self.db_persistence_service = db_persistence_service  # DataCollectionPersistenceService
         self._event_bus = event_bus  # Store reference for adapters
 
@@ -561,25 +570,29 @@ class ExecutionController:
                 "symbols": symbols
             })
 
-            # ✅ DATABASE INTEGRATION: Create session in QuestDB
-            if self.db_persistence_service:
-                try:
-                    await self.db_persistence_service.create_session(
-                        session_id=session_id,
-                        symbols=symbols,
-                        data_types=['prices', 'orderbook'],  # Based on files created
-                        exchange='mexc',
-                        notes=f"Data collection session created via API"
-                    )
-                    self.logger.info("data_collection.db_session_created", {
-                        "session_id": session_id
-                    })
-                except Exception as db_error:
-                    # Log but don't fail - CSV fallback still works
-                    self.logger.warning("data_collection.db_session_creation_failed", {
-                        "session_id": session_id,
-                        "error": str(db_error)
-                    })
+            # ✅ STEP 0.1: QuestDB is REQUIRED - Create session in database
+            try:
+                await self.db_persistence_service.create_session(
+                    session_id=session_id,
+                    symbols=symbols,
+                    data_types=['prices', 'orderbook'],  # Based on files created
+                    exchange='mexc',
+                    notes=f"Data collection session created via API"
+                )
+                self.logger.info("data_collection.db_session_created", {
+                    "session_id": session_id
+                })
+            except Exception as db_error:
+                # ✅ STEP 0.1: QuestDB is required - fail the entire session creation
+                self.logger.error("data_collection.db_session_creation_failed", {
+                    "session_id": session_id,
+                    "error": str(db_error),
+                    "error_type": type(db_error).__name__
+                })
+                raise RuntimeError(
+                    f"Failed to create session in QuestDB (required): {str(db_error)}\n"
+                    f"Session creation aborted. Please ensure QuestDB is running and healthy."
+                ) from db_error
 
         except Exception as exc:
             self.logger.error("data_collection.session_dir_initialization_failed", {
@@ -1344,8 +1357,8 @@ class ExecutionController:
                 except Exception:
                     pass
 
-            # ✅ DATABASE INTEGRATION: Dual write to QuestDB
-            if self.db_persistence_service and self._current_session:
+            # ✅ STEP 0.1: QuestDB write is REQUIRED (db_persistence_service is always not None)
+            if self._current_session:
                 try:
                     session_id = self._current_session.session_id
 
@@ -1394,12 +1407,19 @@ class ExecutionController:
                     })
 
                 except Exception as db_error:
-                    # Log but don't fail - CSV write succeeded, DB is supplementary
-                    self.logger.warning("data_collection.db_write_failed", {
+                    # ✅ STEP 0.1: QuestDB is REQUIRED - log as ERROR (not warning)
+                    # Don't raise to avoid crashing data collection, but log as critical error
+                    self.logger.error("data_collection.db_write_failed_critical", {
                         "session_id": session_id if self._current_session else None,
                         "symbol": symbol,
-                        "error": str(db_error)
+                        "error": str(db_error),
+                        "error_type": type(db_error).__name__,
+                        "message": "QuestDB write failed! Data may be lost. Check QuestDB health."
                     })
+                    # Re-raise to fail-fast and stop data collection
+                    raise RuntimeError(
+                        f"QuestDB write failed for session {session_id}, symbol {symbol}: {str(db_error)}"
+                    ) from db_error
 
             buffer['last_flush'] = time.time()
         except asyncio.CancelledError:
@@ -1426,8 +1446,8 @@ class ExecutionController:
                     self._transition_to(ExecutionState.STOPPED)
                 self._current_session.end_time = datetime.now()
 
-            # ✅ DATABASE INTEGRATION: Update session status in QuestDB
-            if self.db_persistence_service and self._current_session.mode == ExecutionMode.DATA_COLLECTION:
+            # ✅ STEP 0.1: Update session status in QuestDB (required)
+            if self._current_session.mode == ExecutionMode.DATA_COLLECTION:
                 try:
                     # Determine final status
                     final_status = 'completed' if self._current_session.status == ExecutionState.STOPPED else 'failed'
@@ -1442,10 +1462,13 @@ class ExecutionController:
                         "status": final_status
                     })
                 except Exception as db_error:
-                    self.logger.warning("data_collection.db_session_update_failed", {
+                    # ✅ STEP 0.1: Log as ERROR - session status update is important
+                    self.logger.error("data_collection.db_session_update_failed", {
                         "session_id": self._current_session.session_id,
-                        "error": str(db_error)
+                        "error": str(db_error),
+                        "error_type": type(db_error).__name__
                     })
+                    # Don't raise here - session is already ending, just log the error
 
         # ✅ MEMORY LEAK FIX: Clear progress callbacks to prevent accumulation
         self._progress_callbacks.clear()
