@@ -14,6 +14,21 @@ From **COMPLETE_SYSTEM_ANALYSIS.md** - Problems to solve:
 - **Problem 6:** No inline parameter validation
 - **Problem 7:** Poor real-time feedback (no indicator preview)
 
+### ⚡ Database Migration: TimescaleDB → QuestDB
+
+**QuestDB 9.1.0** is available and running:
+- URL: `http://127.0.0.1:9000` and `http://192.168.1.40:9000`
+- Platform: Windows x86-64
+- **Advantages over TimescaleDB:**
+  - 🚀 **10x faster ingestion** for high-frequency data
+  - 💾 **Lower memory footprint** (better for Windows)
+  - 🔌 **Multiple protocols:** PostgreSQL wire, InfluxDB line, REST API
+  - 📊 **Built-in Web UI** at port 9000
+  - ⚡ **Native time-series optimization** (no extensions needed)
+  - 🪟 **Windows native** (TimescaleDB requires Docker/WSL2)
+
+**Migration planned for Sprint 3** - Will migrate all time-series data (prices, indicators, backtests)
+
 ---
 
 ## Current State Analysis
@@ -177,7 +192,181 @@ User clicks "Templates" button
 
 ---
 
-### Sprint 3: Inline Validation (Week 5)
+### Sprint 3: QuestDB Migration (Week 5-6) 🔥 NEW
+
+**Goal:** Migrate from TimescaleDB (Docker) to QuestDB (native Windows) for better performance.
+
+**Why QuestDB?**
+- ✅ Already running: `http://127.0.0.1:9000` and `http://192.168.1.40:9000`
+- ✅ 10x faster ingestion (1M+ rows/sec vs 100K rows/sec)
+- ✅ Native Windows binary (no Docker overhead)
+- ✅ Multiple protocols: PostgreSQL wire, InfluxDB line protocol, REST API
+- ✅ Better for high-frequency trading data (1-second updates)
+- ✅ Built-in Web UI for data visualization
+- ✅ Lower memory usage (500MB vs 2GB for TimescaleDB)
+
+**Tasks:**
+
+1. **Create QuestDB schemas**
+```sql
+-- prices table (time-series)
+CREATE TABLE prices (
+    symbol SYMBOL,
+    timestamp TIMESTAMP,
+    open DOUBLE,
+    high DOUBLE,
+    low DOUBLE,
+    close DOUBLE,
+    volume DOUBLE
+) timestamp(timestamp) PARTITION BY DAY;
+
+-- indicators table (time-series)
+CREATE TABLE indicators (
+    symbol SYMBOL,
+    indicator_id SYMBOL,
+    timestamp TIMESTAMP,
+    value DOUBLE,
+    metadata STRING
+) timestamp(timestamp) PARTITION BY DAY;
+
+-- strategy_templates table (relational)
+-- Use PostgreSQL wire protocol for this
+CREATE TABLE strategy_templates (
+    id UUID,
+    name STRING,
+    category STRING,
+    strategy_json STRING,
+    created_at TIMESTAMP
+);
+```
+
+2. **Update data providers**
+   - Modify `src/data_feed/questdb_provider.py` (NEW)
+   - Use InfluxDB line protocol for fast inserts
+   - Keep PostgreSQL protocol for queries
+
+```python
+# Fast bulk insert (InfluxDB line protocol)
+sender = Sender('localhost', 9009)
+sender.row(
+    'prices',
+    symbols={'symbol': 'BTC/USD'},
+    columns={'open': 50000, 'close': 50100, 'volume': 1000},
+    at=timestamp_nanos
+)
+sender.flush()
+
+# Query with SQL (PostgreSQL wire protocol)
+conn = psycopg2.connect(
+    host='localhost',
+    port=8812,
+    user='admin',
+    password='quest',
+    database='qdb'
+)
+```
+
+3. **Migrate existing data**
+   - Export from TimescaleDB (COPY to CSV)
+   - Import to QuestDB (InfluxDB line protocol)
+   - Script: `scripts/migrate_timescale_to_questdb.py`
+   - Estimated time: 10 minutes for 1M rows
+
+4. **Update indicator scheduler**
+   - Change connection from TimescaleDB to QuestDB
+   - Use InfluxDB line protocol for 1-second inserts
+   - Expected: 10x faster writes
+
+5. **Update backtesting engine**
+   - Change data provider to QuestDB
+   - Use SQL queries via PostgreSQL protocol
+   - Keep same API interface
+
+6. **Update strategy template service**
+   - Store templates in QuestDB (or keep in SQLite for simplicity)
+   - Templates are relational, not time-series
+
+7. **Performance testing**
+   - Benchmark: Insert 1M price records
+   - Benchmark: Query indicators for backtest
+   - Compare: TimescaleDB vs QuestDB
+   - Expected: 5-10x faster overall
+
+**Files to create/modify:**
+- `src/data_feed/questdb_provider.py` (NEW)
+- `scripts/migrate_timescale_to_questdb.py` (NEW)
+- `src/config/database.py` (update connection string)
+- `src/scheduler/indicator_scheduler.py` (update DB connection)
+- `src/backtesting/data_provider.py` (update DB connection)
+- `docs/QUESTDB_MIGRATION_GUIDE.md` (NEW)
+
+**QuestDB Configuration:**
+```ini
+# server.conf
+http.bind.to=0.0.0.0:9000        # Web UI
+pg.net.bind.to=0.0.0.0:8812      # PostgreSQL wire protocol
+line.tcp.net.bind.to=0.0.0.0:9009  # InfluxDB line protocol (fast writes)
+
+# Performance settings
+shared.worker.count=2
+http.worker.count=2
+cairo.sql.copy.buffer.size=2m
+```
+
+**Expected results:**
+```
+Before (TimescaleDB):
+  - Docker container: 2GB RAM
+  - Insert rate: 100K rows/sec
+  - Query time: 50ms for 1 hour of data
+  - Startup: 10 seconds (Docker)
+
+After (QuestDB):
+  - Native process: 500MB RAM
+  - Insert rate: 1M+ rows/sec (10x faster)
+  - Query time: 20ms for 1 hour of data (2.5x faster)
+  - Startup: 1 second (native binary)
+```
+
+**Migration checklist:**
+- [ ] Install QuestDB 9.1.0 (✅ Already installed!)
+- [ ] Create schemas (prices, indicators)
+- [ ] Update config files (database.py)
+- [ ] Create migration script
+- [ ] Test data insertion (InfluxDB protocol)
+- [ ] Test data querying (PostgreSQL protocol)
+- [ ] Migrate existing data
+- [ ] Update indicator scheduler
+- [ ] Update backtesting engine
+- [ ] Update strategy template service
+- [ ] Performance benchmarks
+- [ ] Documentation
+
+**Testing:**
+```python
+# Test 1: Fast bulk insert
+import time
+from questdb.ingress import Sender
+
+with Sender('localhost', 9009) as sender:
+    start = time.time()
+    for i in range(100000):
+        sender.row(
+            'prices',
+            symbols={'symbol': 'BTC/USD'},
+            columns={'close': 50000 + i, 'volume': 1000},
+            at=pd.Timestamp.now().value
+        )
+    sender.flush()
+    elapsed = time.time() - start
+    print(f"Inserted 100K rows in {elapsed:.2f}s = {100000/elapsed:.0f} rows/sec")
+
+# Expected: ~0.1s = 1M rows/sec (vs TimescaleDB: 1s = 100K rows/sec)
+```
+
+---
+
+### Sprint 4: Inline Validation (Week 7)
 
 **Goal:** Real-time parameter validation with helpful error messages.
 
@@ -263,7 +452,7 @@ User hovers over "Timeout" field
 
 ---
 
-### Sprint 4: Real-time Indicator Preview (Week 6)
+### Sprint 5: Real-time Indicator Preview (Week 8)
 
 **Goal:** Show live indicator values during strategy configuration.
 
@@ -429,25 +618,36 @@ test('User creates strategy from template', async ({ page }) => {
 
 ## Implementation Order
 
-### Week 1-2: OR/NOT Logic
+### Week 1-2: OR/NOT Logic ✅ COMPLETE
 - Day 1-2: Update type definitions, backend logic
 - Day 3-5: Update ConditionBlock UI
 - Day 6-8: Add ConditionGroup component
 - Day 9-10: Testing and bug fixes
 
-### Week 3-4: Strategy Templates
+### Week 3-4: Strategy Templates ✅ COMPLETE
 - Day 1-2: Database schema, backend service
 - Day 3-5: Template browser UI
 - Day 6-7: Create 10+ pre-built templates
 - Day 8-10: Testing and polish
 
-### Week 5: Inline Validation
+### Week 5-6: QuestDB Migration 🔥 NEXT
+- Day 1: Create QuestDB schemas (prices, indicators)
+- Day 2: Create migration script (TimescaleDB → QuestDB)
+- Day 3: Update data providers (InfluxDB line protocol)
+- Day 4: Update indicator scheduler (1-second inserts)
+- Day 5: Update backtesting engine (queries)
+- Day 6: Migrate existing data
+- Day 7-8: Performance benchmarks and testing
+- Day 9: Documentation
+- Day 10: Cleanup and optimization
+
+### Week 7: Inline Validation
 - Day 1-2: Validation rules and logic
 - Day 3-4: UI components for errors
 - Day 5: API endpoint and integration
 
-### Week 6: Indicator Preview
-- Day 1-2: Preview API endpoint
+### Week 8: Indicator Preview
+- Day 1-2: Preview API endpoint (using QuestDB)
 - Day 3-4: Chart component
 - Day 5: WebSocket integration
 - Day 6: Testing and performance optimization
@@ -464,11 +664,16 @@ test('User creates strategy from template', async ({ page }) => {
 
 **Backend:**
 - FastAPI
-- asyncpg
+- asyncpg (for PostgreSQL wire protocol)
+- questdb (Python client for InfluxDB line protocol)
 - Pydantic (for validation)
 
 **Database:**
-- TimescaleDB (already available from Phase 1A)
+- **QuestDB 9.1.0** ✅ (native Windows, running on ports 9000, 8812, 9009)
+  - Replaces TimescaleDB (Docker) from Phase 1A
+  - 10x faster ingestion for high-frequency data
+  - Better for 1-second indicator updates
+  - Built-in Web UI at http://127.0.0.1:9000
 
 ---
 
@@ -480,6 +685,9 @@ test('User creates strategy from template', async ({ page }) => {
 | Templates not useful | Medium | Medium | User research first, iterate based on feedback |
 | Performance issues with real-time preview | Medium | Medium | Debouncing, caching, lazy loading |
 | Complex UI confuses users | High | Low | User testing, progressive disclosure, help tooltips |
+| QuestDB migration data loss | High | Low | Full backup before migration, validation script |
+| QuestDB incompatibility | Medium | Low | Keep TimescaleDB code for rollback, test thoroughly |
+| QuestDB performance issues | Low | Very Low | QuestDB is proven faster, but have rollback plan |
 
 ---
 
