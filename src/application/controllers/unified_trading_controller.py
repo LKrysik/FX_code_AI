@@ -89,8 +89,7 @@ class UnifiedTradingController:
             raise RuntimeError(f"Failed to create market data provider factory: {str(e)}") from e
 
         # Core components
-        # Create data collection persistence service (optional - for QuestDB integration)
-        db_persistence_service = None
+        # Create data collection persistence service (REQUIRED for data collection)
         try:
             from ...data.data_collection_persistence_service import DataCollectionPersistenceService
             from ...data_feed.questdb_provider import QuestDBProvider
@@ -113,11 +112,20 @@ class UnifiedTradingController:
                 "provider": "QuestDB"
             })
         except Exception as e:
-            # Optional feature - log but don't fail
-            self.logger.warning("unified_trading_controller.db_persistence_disabled", {
+            # QuestDB is REQUIRED - fail fast with clear error message
+            error_msg = (
+                f"Failed to initialize QuestDB persistence service: {str(e)}\n"
+                f"QuestDB is REQUIRED for data collection.\n"
+                f"Please ensure:\n"
+                f"  1. QuestDB is running (check http://127.0.0.1:9000)\n"
+                f"  2. Migration completed (run: python database/questdb/install_questdb.py)\n"
+                f"  3. Required packages installed (asyncpg, questdb, psycopg2-binary)"
+            )
+            self.logger.error("unified_trading_controller.db_persistence_required", {
                 "error": str(e),
-                "reason": "QuestDB persistence service could not be initialized"
+                "error_type": type(e).__name__
             })
+            raise RuntimeError(error_msg) from e
 
         self.execution_controller = ExecutionController(
             self.event_bus,

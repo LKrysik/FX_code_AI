@@ -283,12 +283,28 @@ class ExecutionController:
         event_bus: EventBus,
         logger: StructuredLogger,
         market_data_provider_factory=None,
-        db_persistence_service=None
+        db_persistence_service=None  # REQUIRED for data collection
     ):
+        """
+        Initialize ExecutionController.
+
+        Args:
+            event_bus: Event bus for publishing events
+            logger: Structured logger
+            market_data_provider_factory: Factory for creating market data providers (required for data collection)
+            db_persistence_service: QuestDB persistence service (REQUIRED for data collection)
+
+        Raises:
+            ValueError: If db_persistence_service is None when data collection is attempted
+        """
         self.event_bus = event_bus
         self.logger = logger
         self.market_data_provider_factory = market_data_provider_factory
-        self.db_persistence_service = db_persistence_service  # DataCollectionPersistenceService
+
+        # QuestDB persistence is REQUIRED for data collection
+        # We don't validate here because execution_controller can be used for backtesting without it
+        # Validation happens in start_data_collection()
+        self.db_persistence_service = db_persistence_service
         self._event_bus = event_bus  # Store reference for adapters
 
         # State management
@@ -469,6 +485,14 @@ class ExecutionController:
         if not symbols:
             raise ValueError("data_collection_failed: symbols list cannot be empty")
 
+        # ✅ CRITICAL: QuestDB is REQUIRED for data collection
+        if self.db_persistence_service is None:
+            raise RuntimeError(
+                "QuestDB persistence service is required for data collection. "
+                "Please ensure QuestDB is running and properly configured. "
+                "Check: http://127.0.0.1:9000 (QuestDB Web UI)"
+            )
+
         extra_params = {k: v for k, v in kwargs.items() if k != "data_path"}
         requested_data_path = kwargs.get("data_path")
         if requested_data_path is None and self._current_session:
@@ -561,25 +585,18 @@ class ExecutionController:
                 "symbols": symbols
             })
 
-            # ✅ DATABASE INTEGRATION: Create session in QuestDB
-            if self.db_persistence_service:
-                try:
-                    await self.db_persistence_service.create_session(
-                        session_id=session_id,
-                        symbols=symbols,
-                        data_types=['prices', 'orderbook'],  # Based on files created
-                        exchange='mexc',
-                        notes=f"Data collection session created via API"
-                    )
-                    self.logger.info("data_collection.db_session_created", {
-                        "session_id": session_id
-                    })
-                except Exception as db_error:
-                    # Log but don't fail - CSV fallback still works
-                    self.logger.warning("data_collection.db_session_creation_failed", {
-                        "session_id": session_id,
-                        "error": str(db_error)
-                    })
+            # ✅ DATABASE INTEGRATION: Create session in QuestDB (REQUIRED)
+            # Errors propagate - if DB fails, data collection fails
+            await self.db_persistence_service.create_session(
+                session_id=session_id,
+                symbols=symbols,
+                data_types=['prices', 'orderbook'],
+                exchange='mexc',
+                notes=f"Data collection session created via API"
+            )
+            self.logger.info("data_collection.db_session_created", {
+                "session_id": session_id
+            })
 
         except Exception as exc:
             self.logger.error("data_collection.session_dir_initialization_failed", {
@@ -1344,62 +1361,54 @@ class ExecutionController:
                 except Exception:
                     pass
 
-            # ✅ DATABASE INTEGRATION: Dual write to QuestDB
-            if self.db_persistence_service and self._current_session:
-                try:
-                    session_id = self._current_session.session_id
+            # ✅ DATABASE INTEGRATION: Write to QuestDB (REQUIRED)
+            # Errors propagate - if DB write fails, data collection fails
+            if self._current_session:
+                session_id = self._current_session.session_id
 
-                    # Persist price data
-                    if price_batch:
-                        db_price_records = []
-                        for data_point in price_batch:
-                            if data_point is not None:
-                                db_price_records.append({
-                                    'timestamp': data_point.get('timestamp', time.time()),
-                                    'price': data_point.get('price', 0),
-                                    'volume': data_point.get('volume', 0),
-                                    'quote_volume': data_point.get('quote_volume', 0)
-                                })
+                # Persist price data
+                if price_batch:
+                    db_price_records = []
+                    for data_point in price_batch:
+                        if data_point is not None:
+                            db_price_records.append({
+                                'timestamp': data_point.get('timestamp', time.time()),
+                                'price': data_point.get('price', 0),
+                                'volume': data_point.get('volume', 0),
+                                'quote_volume': data_point.get('quote_volume', 0)
+                            })
 
-                        if db_price_records:
-                            await self.db_persistence_service.persist_tick_prices(
-                                session_id=session_id,
-                                symbol=symbol,
-                                price_data=db_price_records
-                            )
+                    if db_price_records:
+                        await self.db_persistence_service.persist_tick_prices(
+                            session_id=session_id,
+                            symbol=symbol,
+                            price_data=db_price_records
+                        )
 
-                    # Persist orderbook data
-                    if orderbook_batch:
-                        db_orderbook_records = []
-                        for data_point in orderbook_batch:
-                            if data_point is not None:
-                                db_orderbook_records.append({
-                                    'timestamp': data_point.get('timestamp', time.time()),
-                                    'bids': data_point.get('bids', []),
-                                    'asks': data_point.get('asks', [])
-                                })
+                # Persist orderbook data
+                if orderbook_batch:
+                    db_orderbook_records = []
+                    for data_point in orderbook_batch:
+                        if data_point is not None:
+                            db_orderbook_records.append({
+                                'timestamp': data_point.get('timestamp', time.time()),
+                                'bids': data_point.get('bids', []),
+                                'asks': data_point.get('asks', [])
+                            })
 
-                        if db_orderbook_records:
-                            await self.db_persistence_service.persist_orderbook_snapshots(
-                                session_id=session_id,
-                                symbol=symbol,
-                                orderbook_data=db_orderbook_records
-                            )
+                    if db_orderbook_records:
+                        await self.db_persistence_service.persist_orderbook_snapshots(
+                            session_id=session_id,
+                            symbol=symbol,
+                            orderbook_data=db_orderbook_records
+                        )
 
-                    self.logger.debug("data_collection.db_write_success", {
-                        "session_id": session_id,
-                        "symbol": symbol,
-                        "prices": len(price_batch),
-                        "orderbooks": len(orderbook_batch)
-                    })
-
-                except Exception as db_error:
-                    # Log but don't fail - CSV write succeeded, DB is supplementary
-                    self.logger.warning("data_collection.db_write_failed", {
-                        "session_id": session_id if self._current_session else None,
-                        "symbol": symbol,
-                        "error": str(db_error)
-                    })
+                self.logger.debug("data_collection.db_write_success", {
+                    "session_id": session_id,
+                    "symbol": symbol,
+                    "prices": len(price_batch),
+                    "orderbooks": len(orderbook_batch)
+                })
 
             buffer['last_flush'] = time.time()
         except asyncio.CancelledError:
@@ -1426,26 +1435,21 @@ class ExecutionController:
                     self._transition_to(ExecutionState.STOPPED)
                 self._current_session.end_time = datetime.now()
 
-            # ✅ DATABASE INTEGRATION: Update session status in QuestDB
-            if self.db_persistence_service and self._current_session.mode == ExecutionMode.DATA_COLLECTION:
-                try:
-                    # Determine final status
-                    final_status = 'completed' if self._current_session.status == ExecutionState.STOPPED else 'failed'
+            # ✅ DATABASE INTEGRATION: Update session status in QuestDB (REQUIRED)
+            # Errors propagate - session status update is critical
+            if self._current_session.mode == ExecutionMode.DATA_COLLECTION:
+                # Determine final status
+                final_status = 'completed' if self._current_session.status == ExecutionState.STOPPED else 'failed'
 
-                    await self.db_persistence_service.update_session_status(
-                        session_id=self._current_session.session_id,
-                        status=final_status,
-                        records_collected=self._current_session.metrics.get('records_collected', 0)
-                    )
-                    self.logger.info("data_collection.db_session_completed", {
-                        "session_id": self._current_session.session_id,
-                        "status": final_status
-                    })
-                except Exception as db_error:
-                    self.logger.warning("data_collection.db_session_update_failed", {
-                        "session_id": self._current_session.session_id,
-                        "error": str(db_error)
-                    })
+                await self.db_persistence_service.update_session_status(
+                    session_id=self._current_session.session_id,
+                    status=final_status,
+                    records_collected=self._current_session.metrics.get('records_collected', 0)
+                )
+                self.logger.info("data_collection.db_session_completed", {
+                    "session_id": self._current_session.session_id,
+                    "status": final_status
+                })
 
         # ✅ MEMORY LEAK FIX: Clear progress callbacks to prevent accumulation
         self._progress_callbacks.clear()
