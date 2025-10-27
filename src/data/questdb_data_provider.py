@@ -1,0 +1,484 @@
+"""
+QuestDB Data Provider
+====================
+
+Provider for reading data collection sessions and market data from QuestDB.
+Used by REST API and data analysis services to query historical data.
+
+This replaces CSV file reading with database queries.
+"""
+
+from typing import List, Dict, Any, Optional
+from datetime import datetime
+import json
+
+from ..data_feed.questdb_provider import QuestDBProvider
+from ..core.logger import StructuredLogger
+
+
+class QuestDBDataProvider:
+    """
+    Provider for reading data collection sessions from QuestDB.
+
+    Provides high-level API for:
+    - Listing sessions
+    - Getting session metadata
+    - Reading tick prices
+    - Reading orderbook snapshots
+    - Reading aggregated OHLCV candles
+
+    Used by:
+    - DataAnalysisService (data_analysis_service.py)
+    - REST API routes (data_analysis_routes.py)
+    - Backtest data sources (data_sources.py)
+    """
+
+    def __init__(
+        self,
+        db_provider: QuestDBProvider,
+        logger: Optional[StructuredLogger] = None
+    ):
+        self.db = db_provider
+        self.logger = logger or StructuredLogger("questdb_data_provider")
+
+    async def get_sessions_list(
+        self,
+        limit: int = 50,
+        status_filter: Optional[str] = None,
+        symbol_filter: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        List data collection sessions from database.
+
+        Args:
+            limit: Maximum number of sessions to return
+            status_filter: Filter by status ('active', 'completed', 'failed', 'stopped')
+            symbol_filter: Filter by symbol (searches in symbols JSON array)
+
+        Returns:
+            List of session dictionaries with metadata
+        """
+        try:
+            # Build query with filters
+            where_clauses = []
+
+            if status_filter:
+                where_clauses.append(f"status = '{status_filter}'")
+
+            if symbol_filter:
+                # QuestDB: Check if symbol exists in JSON array
+                # Note: Simplified search, may need improvement for exact match
+                where_clauses.append(f"symbols LIKE '%{symbol_filter}%'")
+
+            where_clause = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
+            query = f"""
+            SELECT session_id, status, symbols, data_types,
+                   start_time, end_time, duration_seconds,
+                   records_collected, prices_count, orderbook_count,
+                   exchange, notes, created_at, updated_at
+            FROM data_collection_sessions
+            {where_clause}
+            ORDER BY created_at DESC
+            LIMIT {limit}
+            """
+
+            self.logger.debug("questdb_data_provider.get_sessions_list", {
+                "query": query,
+                "limit": limit,
+                "status_filter": status_filter,
+                "symbol_filter": symbol_filter
+            })
+
+            results = await self.db.execute_query(query)
+
+            # Parse JSON fields
+            for session in results:
+                session['symbols'] = json.loads(session.get('symbols', '[]'))
+                session['data_types'] = json.loads(session.get('data_types', '[]'))
+
+            return results
+
+        except Exception as e:
+            self.logger.error("questdb_data_provider.get_sessions_list_failed", {
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "limit": limit
+            })
+            raise
+
+    async def get_session_metadata(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get metadata for specific session.
+
+        Args:
+            session_id: Session identifier
+
+        Returns:
+            Session metadata dictionary or None if not found
+        """
+        try:
+            query = f"""
+            SELECT session_id, status, symbols, data_types,
+                   start_time, end_time, duration_seconds,
+                   records_collected, prices_count, orderbook_count, trades_count,
+                   errors_count, exchange, notes, created_at, updated_at
+            FROM data_collection_sessions
+            WHERE session_id = '{session_id}'
+            LIMIT 1
+            """
+
+            self.logger.debug("questdb_data_provider.get_session_metadata", {
+                "session_id": session_id,
+                "query": query
+            })
+
+            results = await self.db.execute_query(query)
+
+            if not results:
+                self.logger.warning("questdb_data_provider.session_not_found", {
+                    "session_id": session_id
+                })
+                return None
+
+            metadata = results[0]
+
+            # Parse JSON fields
+            metadata['symbols'] = json.loads(metadata.get('symbols', '[]'))
+            metadata['data_types'] = json.loads(metadata.get('data_types', '[]'))
+
+            return metadata
+
+        except Exception as e:
+            self.logger.error("questdb_data_provider.get_session_metadata_failed", {
+                "session_id": session_id,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            raise
+
+    async def get_tick_prices(
+        self,
+        session_id: str,
+        symbol: str,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        limit: Optional[int] = None,
+        offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        """
+        Get tick prices for symbol in session.
+
+        Args:
+            session_id: Session identifier
+            symbol: Trading pair symbol
+            start_time: Filter by start timestamp
+            end_time: Filter by end timestamp
+            limit: Maximum number of records
+            offset: Skip first N records (for pagination)
+
+        Returns:
+            List of price tick dictionaries
+        """
+        try:
+            # Build time filter
+            time_filters = []
+            if start_time:
+                # Convert to epoch microseconds (QuestDB timestamp format)
+                start_us = int(start_time.timestamp() * 1_000_000)
+                time_filters.append(f"timestamp >= {start_us}")
+
+            if end_time:
+                end_us = int(end_time.timestamp() * 1_000_000)
+                time_filters.append(f"timestamp <= {end_us}")
+
+            time_clause = f"AND {' AND '.join(time_filters)}" if time_filters else ""
+            limit_clause = f"LIMIT {limit}" if limit else ""
+            offset_clause = f"OFFSET {offset}" if offset > 0 else ""
+
+            query = f"""
+            SELECT timestamp, price, volume, quote_volume
+            FROM tick_prices
+            WHERE session_id = '{session_id}' AND symbol = '{symbol}'
+            {time_clause}
+            ORDER BY timestamp ASC
+            {limit_clause}
+            {offset_clause}
+            """
+
+            self.logger.debug("questdb_data_provider.get_tick_prices", {
+                "session_id": session_id,
+                "symbol": symbol,
+                "limit": limit,
+                "offset": offset
+            })
+
+            results = await self.db.execute_query(query)
+            return results
+
+        except Exception as e:
+            self.logger.error("questdb_data_provider.get_tick_prices_failed", {
+                "session_id": session_id,
+                "symbol": symbol,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            raise
+
+    async def get_tick_orderbook(
+        self,
+        session_id: str,
+        symbol: str,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        limit: Optional[int] = None,
+        offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        """
+        Get orderbook snapshots for symbol in session.
+
+        Args:
+            session_id: Session identifier
+            symbol: Trading pair symbol
+            start_time: Filter by start timestamp
+            end_time: Filter by end timestamp
+            limit: Maximum number of records
+            offset: Skip first N records (for pagination)
+
+        Returns:
+            List of orderbook snapshot dictionaries
+        """
+        try:
+            # Build time filter
+            time_filters = []
+            if start_time:
+                start_us = int(start_time.timestamp() * 1_000_000)
+                time_filters.append(f"timestamp >= {start_us}")
+
+            if end_time:
+                end_us = int(end_time.timestamp() * 1_000_000)
+                time_filters.append(f"timestamp <= {end_us}")
+
+            time_clause = f"AND {' AND '.join(time_filters)}" if time_filters else ""
+            limit_clause = f"LIMIT {limit}" if limit else ""
+            offset_clause = f"OFFSET {offset}" if offset > 0 else ""
+
+            query = f"""
+            SELECT timestamp,
+                   bid_price_1, bid_qty_1, bid_price_2, bid_qty_2, bid_price_3, bid_qty_3,
+                   ask_price_1, ask_qty_1, ask_price_2, ask_qty_2, ask_price_3, ask_qty_3
+            FROM tick_orderbook
+            WHERE session_id = '{session_id}' AND symbol = '{symbol}'
+            {time_clause}
+            ORDER BY timestamp ASC
+            {limit_clause}
+            {offset_clause}
+            """
+
+            self.logger.debug("questdb_data_provider.get_tick_orderbook", {
+                "session_id": session_id,
+                "symbol": symbol,
+                "limit": limit,
+                "offset": offset
+            })
+
+            results = await self.db.execute_query(query)
+
+            # Convert flat structure to bids/asks arrays
+            for row in results:
+                row['bids'] = [
+                    [row['bid_price_1'], row['bid_qty_1']],
+                    [row['bid_price_2'], row['bid_qty_2']],
+                    [row['bid_price_3'], row['bid_qty_3']]
+                ]
+                row['asks'] = [
+                    [row['ask_price_1'], row['ask_qty_1']],
+                    [row['ask_price_2'], row['ask_qty_2']],
+                    [row['ask_price_3'], row['ask_qty_3']]
+                ]
+
+                # Calculate spread
+                row['best_bid'] = row['bid_price_1']
+                row['best_ask'] = row['ask_price_1']
+                row['spread'] = row['best_ask'] - row['best_bid'] if row['best_bid'] > 0 and row['best_ask'] > 0 else 0
+
+            return results
+
+        except Exception as e:
+            self.logger.error("questdb_data_provider.get_tick_orderbook_failed", {
+                "session_id": session_id,
+                "symbol": symbol,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            raise
+
+    async def get_aggregated_ohlcv(
+        self,
+        session_id: str,
+        symbol: str,
+        interval: str = '1m',
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        limit: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get pre-aggregated OHLCV candles.
+
+        Args:
+            session_id: Session identifier
+            symbol: Trading pair symbol
+            interval: Timeframe ('1m', '5m', '15m', '1h', '4h', '1d')
+            start_time: Filter by start timestamp
+            end_time: Filter by end timestamp
+            limit: Maximum number of candles
+
+        Returns:
+            List of OHLCV candle dictionaries
+        """
+        try:
+            # Build time filter
+            time_filters = []
+            if start_time:
+                start_us = int(start_time.timestamp() * 1_000_000)
+                time_filters.append(f"timestamp >= {start_us}")
+
+            if end_time:
+                end_us = int(end_time.timestamp() * 1_000_000)
+                time_filters.append(f"timestamp <= {end_us}")
+
+            time_clause = f"AND {' AND '.join(time_filters)}" if time_filters else ""
+            limit_clause = f"LIMIT {limit}" if limit else ""
+
+            query = f"""
+            SELECT timestamp, open, high, low, close, volume, quote_volume,
+                   trades_count, is_closed
+            FROM aggregated_ohlcv
+            WHERE session_id = '{session_id}'
+              AND symbol = '{symbol}'
+              AND interval = '{interval}'
+            {time_clause}
+            ORDER BY timestamp ASC
+            {limit_clause}
+            """
+
+            self.logger.debug("questdb_data_provider.get_aggregated_ohlcv", {
+                "session_id": session_id,
+                "symbol": symbol,
+                "interval": interval,
+                "limit": limit
+            })
+
+            results = await self.db.execute_query(query)
+            return results
+
+        except Exception as e:
+            self.logger.error("questdb_data_provider.get_aggregated_ohlcv_failed", {
+                "session_id": session_id,
+                "symbol": symbol,
+                "interval": interval,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            raise
+
+    async def get_session_statistics(self, session_id: str) -> Dict[str, Any]:
+        """
+        Get detailed statistics for a session.
+
+        Args:
+            session_id: Session identifier
+
+        Returns:
+            Dictionary with statistics (record counts, duration, etc.)
+        """
+        try:
+            # Get session metadata
+            session = await self.get_session_metadata(session_id)
+            if not session:
+                return {}
+
+            # Get per-symbol counts
+            symbol_stats = []
+            for symbol in session.get('symbols', []):
+                # Count prices
+                price_query = f"""
+                SELECT COUNT(*) as cnt
+                FROM tick_prices
+                WHERE session_id = '{session_id}' AND symbol = '{symbol}'
+                """
+                price_result = await self.db.execute_query(price_query)
+                price_count = price_result[0]['cnt'] if price_result else 0
+
+                # Count orderbooks
+                orderbook_query = f"""
+                SELECT COUNT(*) as cnt
+                FROM tick_orderbook
+                WHERE session_id = '{session_id}' AND symbol = '{symbol}'
+                """
+                orderbook_result = await self.db.execute_query(orderbook_query)
+                orderbook_count = orderbook_result[0]['cnt'] if orderbook_result else 0
+
+                symbol_stats.append({
+                    'symbol': symbol,
+                    'price_records': price_count,
+                    'orderbook_records': orderbook_count,
+                    'total_records': price_count + orderbook_count
+                })
+
+            return {
+                'session_id': session_id,
+                'status': session.get('status'),
+                'duration_seconds': session.get('duration_seconds'),
+                'total_records': session.get('records_collected', 0),
+                'symbols': symbol_stats,
+                'created_at': session.get('created_at'),
+                'updated_at': session.get('updated_at')
+            }
+
+        except Exception as e:
+            self.logger.error("questdb_data_provider.get_session_statistics_failed", {
+                "session_id": session_id,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            raise
+
+    async def count_records(
+        self,
+        session_id: str,
+        symbol: str,
+        data_type: str = 'prices'
+    ) -> int:
+        """
+        Count records for session/symbol.
+
+        Args:
+            session_id: Session identifier
+            symbol: Trading pair symbol
+            data_type: 'prices' or 'orderbook'
+
+        Returns:
+            Number of records
+        """
+        try:
+            table = 'tick_prices' if data_type == 'prices' else 'tick_orderbook'
+
+            query = f"""
+            SELECT COUNT(*) as cnt
+            FROM {table}
+            WHERE session_id = '{session_id}' AND symbol = '{symbol}'
+            """
+
+            results = await self.db.execute_query(query)
+            return results[0]['cnt'] if results else 0
+
+        except Exception as e:
+            self.logger.error("questdb_data_provider.count_records_failed", {
+                "session_id": session_id,
+                "symbol": symbol,
+                "data_type": data_type,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            return 0
