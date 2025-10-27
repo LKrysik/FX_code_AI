@@ -278,10 +278,33 @@ class ExecutionController:
     FLUSH_INTERVAL_SECONDS = 0.5  # ✅ TRADING FIX: Reduced from 5.0s to 500ms for faster data writes
     FLUSH_TIMEOUT_SECONDS = 5.0
 
-    def __init__(self, event_bus: EventBus, logger: StructuredLogger, market_data_provider_factory=None):
+    def __init__(
+        self,
+        event_bus: EventBus,
+        logger: StructuredLogger,
+        market_data_provider_factory=None,
+        db_persistence_service=None  # REQUIRED for data collection
+    ):
+        """
+        Initialize ExecutionController.
+
+        Args:
+            event_bus: Event bus for publishing events
+            logger: Structured logger
+            market_data_provider_factory: Factory for creating market data providers (required for data collection)
+            db_persistence_service: QuestDB persistence service (REQUIRED for data collection)
+
+        Raises:
+            ValueError: If db_persistence_service is None when data collection is attempted
+        """
         self.event_bus = event_bus
         self.logger = logger
         self.market_data_provider_factory = market_data_provider_factory
+
+        # QuestDB persistence is REQUIRED for data collection
+        # We don't validate here because execution_controller can be used for backtesting without it
+        # Validation happens in start_data_collection()
+        self.db_persistence_service = db_persistence_service
         self._event_bus = event_bus  # Store reference for adapters
 
         # State management
@@ -462,6 +485,14 @@ class ExecutionController:
         if not symbols:
             raise ValueError("data_collection_failed: symbols list cannot be empty")
 
+        # ✅ CRITICAL: QuestDB is REQUIRED for data collection
+        if self.db_persistence_service is None:
+            raise RuntimeError(
+                "QuestDB persistence service is required for data collection. "
+                "Please ensure QuestDB is running and properly configured. "
+                "Check: http://127.0.0.1:9000 (QuestDB Web UI)"
+            )
+
         extra_params = {k: v for k, v in kwargs.items() if k != "data_path"}
         requested_data_path = kwargs.get("data_path")
         if requested_data_path is None and self._current_session:
@@ -541,7 +572,7 @@ class ExecutionController:
                         # Add bid columns (price_1, qty_1, price_2, qty_2, price_3, qty_3)
                         for i in range(1, 4):
                             header_parts.extend([f"bid_price_{i}", f"bid_qty_{i}"])
-                        # Add ask columns (price_1, qty_1, price_2, qty_2, price_3, qty_3)  
+                        # Add ask columns (price_1, qty_1, price_2, qty_2, price_3, qty_3)
                         for i in range(1, 4):
                             header_parts.extend([f"ask_price_{i}", f"ask_qty_{i}"])
                         # Add summary columns
@@ -553,6 +584,20 @@ class ExecutionController:
                 "session_dir": str(session_dir),
                 "symbols": symbols
             })
+
+            # ✅ DATABASE INTEGRATION: Create session in QuestDB (REQUIRED)
+            # Errors propagate - if DB fails, data collection fails
+            await self.db_persistence_service.create_session(
+                session_id=session_id,
+                symbols=symbols,
+                data_types=['prices', 'orderbook'],
+                exchange='mexc',
+                notes=f"Data collection session created via API"
+            )
+            self.logger.info("data_collection.db_session_created", {
+                "session_id": session_id
+            })
+
         except Exception as exc:
             self.logger.error("data_collection.session_dir_initialization_failed", {
                 "session_id": session_id,
@@ -1316,6 +1361,55 @@ class ExecutionController:
                 except Exception:
                     pass
 
+            # ✅ DATABASE INTEGRATION: Write to QuestDB (REQUIRED)
+            # Errors propagate - if DB write fails, data collection fails
+            if self._current_session:
+                session_id = self._current_session.session_id
+
+                # Persist price data
+                if price_batch:
+                    db_price_records = []
+                    for data_point in price_batch:
+                        if data_point is not None:
+                            db_price_records.append({
+                                'timestamp': data_point.get('timestamp', time.time()),
+                                'price': data_point.get('price', 0),
+                                'volume': data_point.get('volume', 0),
+                                'quote_volume': data_point.get('quote_volume', 0)
+                            })
+
+                    if db_price_records:
+                        await self.db_persistence_service.persist_tick_prices(
+                            session_id=session_id,
+                            symbol=symbol,
+                            price_data=db_price_records
+                        )
+
+                # Persist orderbook data
+                if orderbook_batch:
+                    db_orderbook_records = []
+                    for data_point in orderbook_batch:
+                        if data_point is not None:
+                            db_orderbook_records.append({
+                                'timestamp': data_point.get('timestamp', time.time()),
+                                'bids': data_point.get('bids', []),
+                                'asks': data_point.get('asks', [])
+                            })
+
+                    if db_orderbook_records:
+                        await self.db_persistence_service.persist_orderbook_snapshots(
+                            session_id=session_id,
+                            symbol=symbol,
+                            orderbook_data=db_orderbook_records
+                        )
+
+                self.logger.debug("data_collection.db_write_success", {
+                    "session_id": session_id,
+                    "symbol": symbol,
+                    "prices": len(price_batch),
+                    "orderbooks": len(orderbook_batch)
+                })
+
             buffer['last_flush'] = time.time()
         except asyncio.CancelledError:
             buffer['price_data'][0:0] = price_batch
@@ -1340,6 +1434,22 @@ class ExecutionController:
                 else:
                     self._transition_to(ExecutionState.STOPPED)
                 self._current_session.end_time = datetime.now()
+
+            # ✅ DATABASE INTEGRATION: Update session status in QuestDB (REQUIRED)
+            # Errors propagate - session status update is critical
+            if self._current_session.mode == ExecutionMode.DATA_COLLECTION:
+                # Determine final status
+                final_status = 'completed' if self._current_session.status == ExecutionState.STOPPED else 'failed'
+
+                await self.db_persistence_service.update_session_status(
+                    session_id=self._current_session.session_id,
+                    status=final_status,
+                    records_collected=self._current_session.metrics.get('records_collected', 0)
+                )
+                self.logger.info("data_collection.db_session_completed", {
+                    "session_id": self._current_session.session_id,
+                    "status": final_status
+                })
 
         # ✅ MEMORY LEAK FIX: Clear progress callbacks to prevent accumulation
         self._progress_callbacks.clear()

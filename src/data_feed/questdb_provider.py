@@ -549,6 +549,204 @@ class QuestDBProvider:
         return df
 
     # ========================================================================
+    # DATA COLLECTION SUPPORT
+    # ========================================================================
+
+    async def insert_tick_prices_batch(self, ticks: List[Dict[str, Any]]) -> int:
+        """
+        Insert batch of tick price data (high-frequency).
+
+        Args:
+            ticks: List of tick dictionaries with keys:
+                - session_id: str
+                - symbol: str
+                - timestamp: float (seconds with decimal precision)
+                - price: float
+                - volume: float
+                - quote_volume: float
+
+        Returns:
+            Number of successfully inserted rows
+        """
+        if not ticks:
+            return 0
+
+        inserted = 0
+
+        try:
+            with Sender(self.ilp_host, self.ilp_port) as sender:
+                for tick in ticks:
+                    timestamp_seconds = float(tick['timestamp'])
+                    timestamp_ns = int(timestamp_seconds * 1_000_000_000)
+
+                    sender.row(
+                        'tick_prices',
+                        symbols={
+                            'session_id': tick['session_id'],
+                            'symbol': tick['symbol'],
+                        },
+                        columns={
+                            'price': float(tick['price']),
+                            'volume': float(tick['volume']),
+                            'quote_volume': float(tick['quote_volume']),
+                        },
+                        at=TimestampNanos(timestamp_ns)
+                    )
+                    inserted += 1
+
+                sender.flush()
+
+            logger.debug(f"Inserted {inserted} tick price records")
+            return inserted
+
+        except IngressError as e:
+            logger.error(f"Failed to insert tick batch: {e}")
+            return inserted
+
+    async def insert_orderbook_snapshots_batch(self, snapshots: List[Dict[str, Any]]) -> int:
+        """
+        Insert batch of orderbook snapshots (3-level).
+
+        Args:
+            snapshots: List of orderbook dictionaries with keys:
+                - session_id: str
+                - symbol: str
+                - timestamp: float (seconds with decimal precision)
+                - bid_price_1, bid_qty_1, bid_price_2, bid_qty_2, bid_price_3, bid_qty_3: float
+                - ask_price_1, ask_qty_1, ask_price_2, ask_qty_2, ask_price_3, ask_qty_3: float
+
+        Returns:
+            Number of successfully inserted rows
+        """
+        if not snapshots:
+            return 0
+
+        inserted = 0
+
+        try:
+            with Sender(self.ilp_host, self.ilp_port) as sender:
+                for snapshot in snapshots:
+                    timestamp_seconds = float(snapshot['timestamp'])
+                    timestamp_ns = int(timestamp_seconds * 1_000_000_000)
+
+                    sender.row(
+                        'tick_orderbook',
+                        symbols={
+                            'session_id': snapshot['session_id'],
+                            'symbol': snapshot['symbol'],
+                        },
+                        columns={
+                            'bid_price_1': float(snapshot.get('bid_price_1', 0)),
+                            'bid_qty_1': float(snapshot.get('bid_qty_1', 0)),
+                            'bid_price_2': float(snapshot.get('bid_price_2', 0)),
+                            'bid_qty_2': float(snapshot.get('bid_qty_2', 0)),
+                            'bid_price_3': float(snapshot.get('bid_price_3', 0)),
+                            'bid_qty_3': float(snapshot.get('bid_qty_3', 0)),
+                            'ask_price_1': float(snapshot.get('ask_price_1', 0)),
+                            'ask_qty_1': float(snapshot.get('ask_qty_1', 0)),
+                            'ask_price_2': float(snapshot.get('ask_price_2', 0)),
+                            'ask_qty_2': float(snapshot.get('ask_qty_2', 0)),
+                            'ask_price_3': float(snapshot.get('ask_price_3', 0)),
+                            'ask_qty_3': float(snapshot.get('ask_qty_3', 0)),
+                        },
+                        at=TimestampNanos(timestamp_ns)
+                    )
+                    inserted += 1
+
+                sender.flush()
+
+            logger.debug(f"Inserted {inserted} orderbook snapshot records")
+            return inserted
+
+        except IngressError as e:
+            logger.error(f"Failed to insert orderbook batch: {e}")
+            return inserted
+
+    async def insert_ohlcv_candles_batch(self, candles: List[Dict[str, Any]]) -> int:
+        """
+        Insert batch of pre-aggregated OHLCV candles.
+
+        Args:
+            candles: List of candle dictionaries with keys:
+                - session_id: str
+                - symbol: str
+                - interval: str ('1m', '5m', '15m', '1h', etc.)
+                - timestamp: float (candle start time in seconds)
+                - open, high, low, close, volume, quote_volume: float
+                - trades_count: int
+                - is_closed: bool
+
+        Returns:
+            Number of successfully inserted rows
+        """
+        if not candles:
+            return 0
+
+        inserted = 0
+
+        try:
+            with Sender(self.ilp_host, self.ilp_port) as sender:
+                for candle in candles:
+                    timestamp_seconds = float(candle['timestamp'])
+                    timestamp_ns = int(timestamp_seconds * 1_000_000_000)
+
+                    sender.row(
+                        'aggregated_ohlcv',
+                        symbols={
+                            'session_id': candle['session_id'],
+                            'symbol': candle['symbol'],
+                            'interval': candle['interval'],
+                        },
+                        columns={
+                            'open': float(candle['open']),
+                            'high': float(candle['high']),
+                            'low': float(candle['low']),
+                            'close': float(candle['close']),
+                            'volume': float(candle['volume']),
+                            'quote_volume': float(candle['quote_volume']),
+                            'trades_count': int(candle['trades_count']),
+                            'is_closed': bool(candle.get('is_closed', False)),
+                        },
+                        at=TimestampNanos(timestamp_ns)
+                    )
+                    inserted += 1
+
+                sender.flush()
+
+            logger.debug(f"Inserted {inserted} OHLCV candle records")
+            return inserted
+
+        except IngressError as e:
+            logger.error(f"Failed to insert OHLCV batch: {e}")
+            return inserted
+
+    async def execute_query(self, query: str, params: Optional[List[Any]] = None) -> List[Dict[str, Any]]:
+        """
+        Execute arbitrary SQL query via PostgreSQL wire protocol.
+
+        Args:
+            query: SQL query string
+            params: Query parameters (optional)
+
+        Returns:
+            List of result dictionaries
+        """
+        await self.initialize()
+
+        try:
+            async with self.pg_pool.acquire() as conn:
+                if params:
+                    rows = await conn.fetch(query, *params)
+                else:
+                    rows = await conn.fetch(query)
+
+            return [dict(row) for row in rows]
+
+        except Exception as e:
+            logger.error(f"Query execution failed: {e}\nQuery: {query}")
+            raise
+
+    # ========================================================================
     # BACKTEST SUPPORT
     # ========================================================================
 

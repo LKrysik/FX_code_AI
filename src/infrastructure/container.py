@@ -628,15 +628,55 @@ class Container:
                     logger=self.logger
                 )
 
-                # Create execution controller with factory
+                # Create data collection persistence service (REQUIRED for data collection)
+                try:
+                    from ..data.data_collection_persistence_service import DataCollectionPersistenceService
+                    from ..data_feed.questdb_provider import QuestDBProvider
+
+                    # Create QuestDB provider
+                    questdb_provider = QuestDBProvider(
+                        ilp_host='127.0.0.1',
+                        ilp_port=9009,
+                        pg_host='127.0.0.1',
+                        pg_port=8812
+                    )
+
+                    # Create persistence service
+                    db_persistence_service = DataCollectionPersistenceService(
+                        db_provider=questdb_provider,
+                        logger=self.logger
+                    )
+
+                    self.logger.info("container.db_persistence_enabled", {
+                        "provider": "QuestDB"
+                    })
+                except Exception as e:
+                    # QuestDB is REQUIRED - fail fast with clear error message
+                    error_msg = (
+                        f"Failed to initialize QuestDB persistence service: {str(e)}\n"
+                        f"QuestDB is REQUIRED for data collection.\n"
+                        f"Please ensure:\n"
+                        f"  1. QuestDB is running (check http://127.0.0.1:9000)\n"
+                        f"  2. Migration completed (run: python database/questdb/install_questdb.py)\n"
+                        f"  3. Required packages installed (asyncpg, questdb, psycopg2-binary)"
+                    )
+                    self.logger.error("container.db_persistence_required", {
+                        "error": str(e),
+                        "error_type": type(e).__name__
+                    })
+                    raise RuntimeError(error_msg) from e
+
+                # Create execution controller with factory and persistence
                 controller = ExecutionController(
                     event_bus=self.event_bus,
                     logger=self.logger,
-                    market_data_provider_factory=market_data_factory
+                    market_data_provider_factory=market_data_factory,
+                    db_persistence_service=db_persistence_service
                 )
 
                 self.logger.info("container.data_collection_controller_created", {
-                    "factory_type": type(market_data_factory).__name__
+                    "factory_type": type(market_data_factory).__name__,
+                    "db_persistence": db_persistence_service is not None
                 })
 
                 return controller

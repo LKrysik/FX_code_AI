@@ -89,8 +89,52 @@ class UnifiedTradingController:
             raise RuntimeError(f"Failed to create market data provider factory: {str(e)}") from e
 
         # Core components
-        self.execution_controller = ExecutionController(self.event_bus, self.logger, self.market_data_factory)
+        # Create data collection persistence service (REQUIRED for data collection)
+        try:
+            from ...data.data_collection_persistence_service import DataCollectionPersistenceService
+            from ...data_feed.questdb_provider import QuestDBProvider
+
+            # Create QuestDB provider
+            questdb_provider = QuestDBProvider(
+                ilp_host='127.0.0.1',
+                ilp_port=9009,
+                pg_host='127.0.0.1',
+                pg_port=8812
+            )
+
+            # Create persistence service
+            db_persistence_service = DataCollectionPersistenceService(
+                db_provider=questdb_provider,
+                logger=self.logger
+            )
+
+            self.logger.info("unified_trading_controller.db_persistence_enabled", {
+                "provider": "QuestDB"
+            })
+        except Exception as e:
+            # QuestDB is REQUIRED - fail fast with clear error message
+            error_msg = (
+                f"Failed to initialize QuestDB persistence service: {str(e)}\n"
+                f"QuestDB is REQUIRED for data collection.\n"
+                f"Please ensure:\n"
+                f"  1. QuestDB is running (check http://127.0.0.1:9000)\n"
+                f"  2. Migration completed (run: python database/questdb/install_questdb.py)\n"
+                f"  3. Required packages installed (asyncpg, questdb, psycopg2-binary)"
+            )
+            self.logger.error("unified_trading_controller.db_persistence_required", {
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            raise RuntimeError(error_msg) from e
+
+        self.execution_controller = ExecutionController(
+            self.event_bus,
+            self.logger,
+            self.market_data_factory,
+            db_persistence_service
+        )
         print(f"[DEBUG] ExecutionController created with factory: {self.execution_controller.market_data_provider_factory is not None}")
+        print(f"[DEBUG] ExecutionController DB persistence: {self.execution_controller.db_persistence_service is not None}")
         self.execution_monitor = ExecutionMonitor(self.event_bus, self.logger)
         self.command_processor = AsyncCommandProcessor(
             self.execution_controller,
