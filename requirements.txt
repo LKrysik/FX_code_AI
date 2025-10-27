@@ -15,3 +15,9 @@ uvicorn
 PyYAML
 PyJWT
 redis
+
+# QuestDB dependencies
+asyncpg
+psycopg2-binary
+questdb
+requests
