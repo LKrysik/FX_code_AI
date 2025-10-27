@@ -1,0 +1,536 @@
+-- QuestDB Schema Creation Script
+-- Version: 1.0
+-- Date: 2025-10-27
+-- Purpose: Create all tables for FX trading system
+--
+-- Run this script via:
+-- 1. Web UI: http://127.0.0.1:9000 (SQL Console)
+-- 2. REST API: curl -G "http://localhost:9000/exec" --data-urlencode "query=$(cat this_file)"
+-- 3. Python: psycopg2.connect(...).execute(script)
+--
+-- ============================================================================
+-- ARCHITECTURE OVERVIEW
+-- ============================================================================
+--
+-- KEY DECISION: ONE TABLE PER DATA TYPE (not per symbol!)
+--
+-- ✅ CORRECT APPROACH:
+--    - prices (one table for ALL symbols: BTC/USD, ETH/USD, etc.)
+--    - indicators (one table for ALL symbols × ALL indicators)
+--    - orders (one table for ALL orders across ALL symbols)
+--    - ... etc.
+--
+-- ❌ WRONG APPROACH (do NOT do this):
+--    - prices_btc, prices_eth, prices_xrp (separate table per symbol)
+--    - indicators_btc, indicators_eth (separate per symbol)
+--    - rsi_table, ema_table, sma_table (separate per indicator)
+--
+-- WHY ONE TABLE?
+-- 1. SYMBOL type in QuestDB is DESIGNED for this pattern
+--    - Stored as 32-bit integer internally (not string)
+--    - Automatically indexed and cached
+--    - O(1) lookup performance
+--    - Perfect for enum-like values (symbol, indicator_id, status, etc.)
+--
+-- 2. Much easier to manage
+--    - One schema for all symbols
+--    - Add new symbol: just INSERT with new symbol value
+--    - No dynamic table creation
+--
+-- 3. Better for cross-symbol queries
+--    - "SELECT * FROM prices WHERE timestamp = X" (all symbols at once)
+--    - Portfolio analysis across symbols
+--    - Correlation calculations
+--
+-- 4. Partitioning is TIME-BASED (not symbol-based)
+--    - QuestDB only supports: PARTITION BY DAY/MONTH/YEAR/HOUR
+--    - Cannot partition by symbol directly
+--    - But SYMBOL column gives same performance benefit
+--
+-- PERFORMANCE:
+-- - Query: WHERE symbol = 'BTC/USD' → O(1) via symbol table
+-- - Insert: 1M+ rows/sec (InfluxDB line protocol)
+-- - Storage: ~100 bytes/row compressed
+-- - 10 symbols × 86,400 rows/day = 864K rows/day in ONE table
+--
+-- ============================================================================
+
+-- ============================================================================
+-- TABLE 1: PRICES (Time-Series)
+-- ============================================================================
+-- Stores OHLCV price data for ALL trading pairs in ONE table
+--
+-- ARCHITECTURE DECISION: ONE TABLE FOR ALL SYMBOLS
+-- ✅ Single table with 'symbol' column (using SYMBOL type)
+-- ❌ NOT separate tables per symbol (e.g., prices_btc, prices_eth)
+--
+-- Why one table?
+-- 1. SYMBOL type is ultra-efficient (32-bit int internally, auto-indexed)
+-- 2. Easier cross-symbol queries (correlations, portfolios)
+-- 3. Simpler schema management (one schema for all symbols)
+-- 4. QuestDB optimized for this pattern
+-- 5. Queries like "WHERE symbol = 'BTC/USD'" are extremely fast
+--
+-- Partitioning: BY DAY (time-based, not symbol-based)
+-- - QuestDB only supports time-based partitioning (DAY/MONTH/YEAR/HOUR)
+-- - Daily partitions allow easy cleanup (DROP PARTITION older than X days)
+-- - SYMBOL column is automatically indexed for fast per-symbol filtering
+--
+-- Optimized for high-frequency 1-second updates
+-- Expected: ~86,400 rows/day per symbol (1 row/second)
+-- Example: 10 symbols = 864,000 rows/day in this ONE table
+
+DROP TABLE IF EXISTS prices;
+
+CREATE TABLE prices (
+    symbol SYMBOL capacity 256 CACHE,      -- Trading pair (BTC/USD, ETH/USD, etc.)
+                                           -- SYMBOL type: auto-indexed, cached, efficient
+                                           -- Capacity 256 = max 256 unique symbols
+    timestamp TIMESTAMP,                   -- Price timestamp (microsecond precision)
+    open DOUBLE,                           -- Open price
+    high DOUBLE,                           -- High price
+    low DOUBLE,                            -- Low price
+    close DOUBLE,                          -- Close price
+    volume DOUBLE,                         -- Volume
+    bid DOUBLE,                            -- Bid price (optional)
+    ask DOUBLE,                            -- Ask price (optional)
+    spread DOUBLE                          -- Bid-ask spread (optional)
+) timestamp(timestamp) PARTITION BY DAY WAL;
+
+-- Note: SYMBOL type is automatically indexed - no manual index needed
+-- Query performance: WHERE symbol = 'BTC/USD' is O(1) lookup via symbol table
+
+-- ============================================================================
+-- TABLE 2: INDICATORS (Time-Series)
+-- ============================================================================
+-- Stores calculated indicator values for ALL symbols and indicators in ONE table
+--
+-- ARCHITECTURE DECISION: ONE TABLE FOR ALL SYMBOLS AND ALL INDICATORS
+-- ✅ Single table with 'symbol' and 'indicator_id' columns (both SYMBOL type)
+-- ❌ NOT separate tables per symbol (indicators_btc, indicators_eth)
+-- ❌ NOT separate tables per indicator (rsi_table, ema_table)
+--
+-- Why one table?
+-- 1. Both symbol and indicator_id use SYMBOL type (ultra-efficient)
+-- 2. Easy to query: "give me all indicators for BTC at timestamp X"
+-- 3. Easy to add new indicators (just insert with new indicator_id)
+-- 4. Composite index (symbol, indicator_id) for fast lookups
+--
+-- Partitioning: BY DAY (time-based)
+-- - One table holds ALL symbols × ALL indicators
+-- - Example: 10 symbols × 10 indicators × 86,400 rows/day = 864,000 rows/day
+--
+-- Expected: ~864,000 rows/day (10 indicators × 10 symbols × 86,400 updates)
+
+DROP TABLE IF EXISTS indicators;
+
+CREATE TABLE indicators (
+    symbol SYMBOL capacity 256 CACHE,        -- Trading pair
+                                             -- Capacity 256 = max 256 symbols
+    indicator_id SYMBOL capacity 2048 CACHE, -- Indicator identifier (RSI_14, EMA_50, etc.)
+                                             -- Capacity 2048 = max 2048 unique indicators
+                                             -- Examples: RSI_14, RSI_21, EMA_12, EMA_50,
+                                             --           SMA_200, MACD_12_26_9, VWAP, etc.
+    timestamp TIMESTAMP,                     -- Calculation timestamp
+    value DOUBLE,                            -- Indicator value
+    confidence DOUBLE,                       -- Confidence score (0-1, optional)
+    metadata STRING                          -- JSON metadata (optional)
+) timestamp(timestamp) PARTITION BY DAY WAL;
+
+-- Note: Both symbol and indicator_id are SYMBOL type = double-indexed
+-- Query: WHERE symbol = 'BTC/USD' AND indicator_id = 'RSI_14' is extremely fast
+
+-- ============================================================================
+-- TABLE 3: STRATEGY_SIGNALS (Time-Series)
+-- ============================================================================
+-- Stores strategy signals (S1, S2, etc.) generated by strategy evaluator
+-- Expected: ~1,000 rows/day per active strategy
+
+DROP TABLE IF EXISTS strategy_signals;
+
+CREATE TABLE strategy_signals (
+    strategy_id SYMBOL capacity 512 CACHE,  -- Strategy identifier (UUID or name)
+    symbol SYMBOL capacity 256 CACHE,       -- Trading pair
+    signal_type SYMBOL capacity 64 CACHE,   -- Signal type (S1, S2, Z1, ZE1, O1, EMERGENCY)
+    timestamp TIMESTAMP,                    -- Signal generation time
+    triggered BOOLEAN,                      -- Whether signal was triggered
+    conditions_met STRING,                  -- JSON: which conditions were met
+    indicator_values STRING,                -- JSON: indicator values at signal time
+    action STRING,                          -- Action taken (BUY, SELL, CANCEL, CLOSE)
+    metadata STRING                         -- Additional metadata
+) timestamp(timestamp) PARTITION BY DAY WAL;
+
+-- ============================================================================
+-- TABLE 4: ORDERS (Time-Series)
+-- ============================================================================
+-- Stores order lifecycle (created, filled, cancelled)
+-- Expected: ~100 rows/day per active strategy
+
+DROP TABLE IF EXISTS orders;
+
+CREATE TABLE orders (
+    order_id SYMBOL capacity 4096 CACHE,    -- Exchange order ID
+    strategy_id SYMBOL capacity 512 CACHE,  -- Strategy that created order
+    symbol SYMBOL capacity 256 CACHE,       -- Trading pair
+    side SYMBOL capacity 8 CACHE,           -- BUY or SELL
+    order_type SYMBOL capacity 16 CACHE,    -- MARKET, LIMIT, STOP_LOSS, etc.
+    timestamp TIMESTAMP,                    -- Order creation time
+    quantity DOUBLE,                        -- Order quantity
+    price DOUBLE,                           -- Order price (null for MARKET)
+    filled_quantity DOUBLE,                 -- Filled quantity
+    filled_price DOUBLE,                    -- Average filled price
+    status SYMBOL capacity 32 CACHE,        -- NEW, FILLED, PARTIALLY_FILLED, CANCELLED, etc.
+    commission DOUBLE,                      -- Trading commission
+    metadata STRING                         -- Additional order metadata
+) timestamp(timestamp) PARTITION BY DAY WAL;
+
+-- ============================================================================
+-- TABLE 5: POSITIONS (Time-Series)
+-- ============================================================================
+-- Stores position snapshots (entry, updates, exit)
+-- Expected: ~50 rows/day per active strategy
+
+DROP TABLE IF EXISTS positions;
+
+CREATE TABLE positions (
+    position_id SYMBOL capacity 4096 CACHE, -- Position identifier
+    strategy_id SYMBOL capacity 512 CACHE,  -- Strategy that opened position
+    symbol SYMBOL capacity 256 CACHE,       -- Trading pair
+    timestamp TIMESTAMP,                    -- Position event timestamp
+    side SYMBOL capacity 8 CACHE,           -- LONG or SHORT
+    quantity DOUBLE,                        -- Position size
+    entry_price DOUBLE,                     -- Entry price
+    current_price DOUBLE,                   -- Current market price
+    unrealized_pnl DOUBLE,                  -- Unrealized profit/loss
+    realized_pnl DOUBLE,                    -- Realized profit/loss (when closed)
+    stop_loss DOUBLE,                       -- Stop loss price
+    take_profit DOUBLE,                     -- Take profit price
+    status SYMBOL capacity 32 CACHE,        -- OPEN, CLOSED, LIQUIDATED
+    metadata STRING                         -- Additional position metadata
+) timestamp(timestamp) PARTITION BY DAY WAL;
+
+-- ============================================================================
+-- TABLE 6: BACKTEST_RESULTS (Time-Series)
+-- ============================================================================
+-- Stores backtest run results and metrics
+-- Expected: ~10 rows/day (manual backtests)
+
+DROP TABLE IF EXISTS backtest_results;
+
+CREATE TABLE backtest_results (
+    backtest_id SYMBOL capacity 1024 CACHE, -- Backtest run identifier
+    strategy_id SYMBOL capacity 512 CACHE,  -- Strategy being tested
+    symbol SYMBOL capacity 256 CACHE,       -- Trading pair
+    timestamp TIMESTAMP,                    -- Backtest completion time
+    start_time TIMESTAMP,                   -- Backtest period start
+    end_time TIMESTAMP,                     -- Backtest period end
+    initial_capital DOUBLE,                 -- Starting capital
+    final_capital DOUBLE,                   -- Ending capital
+    total_return DOUBLE,                    -- Total return %
+    sharpe_ratio DOUBLE,                    -- Sharpe ratio
+    max_drawdown DOUBLE,                    -- Maximum drawdown %
+    win_rate DOUBLE,                        -- Win rate %
+    total_trades INT,                       -- Number of trades
+    winning_trades INT,                     -- Number of winning trades
+    losing_trades INT,                      -- Number of losing trades
+    avg_win DOUBLE,                         -- Average win amount
+    avg_loss DOUBLE,                        -- Average loss amount
+    metadata STRING                         -- Full backtest metadata (JSON)
+) timestamp(timestamp) PARTITION BY DAY WAL;
+
+-- ============================================================================
+-- TABLE 7: STRATEGY_TEMPLATES (Relational - NOT Time-Series)
+-- ============================================================================
+-- Stores strategy templates for user library
+-- This is a relational table (not time-series)
+
+DROP TABLE IF EXISTS strategy_templates;
+
+CREATE TABLE strategy_templates (
+    id STRING,                              -- UUID as string
+    name STRING,                            -- Template name
+    description STRING,                     -- Template description
+    category STRING,                        -- Category (trend_following, mean_reversion, etc.)
+    strategy_json STRING,                   -- Full strategy configuration (JSON)
+    author STRING,                          -- Template author
+    is_public BOOLEAN,                      -- Public or private
+    is_featured BOOLEAN,                    -- Featured template
+    usage_count INT,                        -- Number of times used
+    success_rate DOUBLE,                    -- Backtest success rate %
+    avg_return DOUBLE,                      -- Average return %
+    tags STRING,                            -- Comma-separated tags
+    version INT,                            -- Template version
+    parent_template_id STRING,              -- Parent template (for forks)
+    created_at TIMESTAMP,                   -- Creation timestamp
+    updated_at TIMESTAMP                    -- Last update timestamp
+);
+
+-- Create index on category for fast filtering
+CREATE INDEX idx_category ON strategy_templates(category);
+
+-- ============================================================================
+-- TABLE 8: SYSTEM_METRICS (Time-Series)
+-- ============================================================================
+-- Stores system health metrics (CPU, memory, latency, etc.)
+-- Expected: ~60 rows/minute (1 row/second)
+
+DROP TABLE IF EXISTS system_metrics;
+
+CREATE TABLE system_metrics (
+    metric_name SYMBOL capacity 128 CACHE,  -- Metric name (cpu_usage, memory_usage, etc.)
+    timestamp TIMESTAMP,                    -- Metric timestamp
+    value DOUBLE,                           -- Metric value
+    host STRING,                            -- Host identifier
+    component STRING,                       -- Component name (scheduler, evaluator, etc.)
+    metadata STRING                         -- Additional metadata
+) timestamp(timestamp) PARTITION BY HOUR WAL;
+
+-- Note: Partition by HOUR for system metrics (more frequent data)
+
+-- ============================================================================
+-- TABLE 9: ERROR_LOGS (Time-Series)
+-- ============================================================================
+-- Stores error logs and exceptions
+-- Expected: Variable (0-1000 rows/day)
+
+DROP TABLE IF EXISTS error_logs;
+
+CREATE TABLE error_logs (
+    timestamp TIMESTAMP,                    -- Error timestamp
+    severity SYMBOL capacity 16 CACHE,      -- ERROR, WARNING, CRITICAL
+    component STRING,                       -- Component that generated error
+    error_type STRING,                      -- Exception type
+    message STRING,                         -- Error message
+    stack_trace STRING,                     -- Full stack trace
+    context STRING,                         -- Additional context (JSON)
+    resolved BOOLEAN,                       -- Whether error was resolved
+    resolved_at TIMESTAMP                   -- Resolution timestamp
+) timestamp(timestamp) PARTITION BY DAY WAL;
+
+-- ============================================================================
+-- OPTIMIZATION: Deduplication Settings
+-- ============================================================================
+-- Enable deduplication for tables that might receive duplicate data
+-- This prevents duplicate inserts if data is sent multiple times
+
+ALTER TABLE prices DEDUP ENABLE UPSERT KEYS(timestamp, symbol);
+ALTER TABLE indicators DEDUP ENABLE UPSERT KEYS(timestamp, symbol, indicator_id);
+
+-- ============================================================================
+-- VERIFICATION QUERIES
+-- ============================================================================
+
+-- Check that all tables were created
+SELECT table_name, designatedTimestamp, partitionBy, walEnabled
+FROM tables()
+WHERE table_name IN (
+    'prices',
+    'indicators',
+    'strategy_signals',
+    'orders',
+    'positions',
+    'backtest_results',
+    'strategy_templates',
+    'system_metrics',
+    'error_logs'
+)
+ORDER BY table_name;
+
+-- Check table sizes (should be empty initially)
+SELECT table_name,
+       count(*) as row_count,
+       pg_size_pretty(pg_total_relation_size(table_name)) as total_size
+FROM tables()
+WHERE table_name IN (
+    'prices',
+    'indicators',
+    'strategy_signals',
+    'orders',
+    'positions',
+    'backtest_results',
+    'strategy_templates',
+    'system_metrics',
+    'error_logs'
+)
+GROUP BY table_name
+ORDER BY table_name;
+
+-- ============================================================================
+-- NOTES
+-- ============================================================================
+
+/*
+1. SYMBOL TYPE ADVANTAGES:
+   - Stored as 32-bit integer internally (not string)
+   - Automatically indexed
+   - Cached in memory
+   - Perfect for enum-like fields (symbol, indicator_id, status, etc.)
+   - Capacity defines max unique values (can be increased later)
+
+2. PARTITION STRATEGY:
+   - PARTITION BY DAY: Most tables (standard time-series)
+   - PARTITION BY HOUR: system_metrics (high-frequency monitoring)
+   - No partition: strategy_templates (relational table)
+
+3. WAL (Write-Ahead Log):
+   - Enables durability (crash recovery)
+   - Required for DEDUP
+   - Slight performance overhead (~5%) but worth it
+
+4. DEDUP (Deduplication):
+   - Prevents duplicate inserts
+   - Uses timestamp + symbol (+ indicator_id) as unique key
+   - UPSERT mode: Updates existing row if duplicate detected
+
+5. PERFORMANCE EXPECTATIONS:
+   - Insert rate: 1M+ rows/sec (InfluxDB line protocol)
+   - Query latency: 10-50ms for typical queries
+   - Storage: ~100 bytes/row (compressed)
+   - 1 day of data (1 symbol, 86400 rows): ~8MB
+
+6. CAPACITY PLANNING:
+   Symbol capacity 256: Up to 256 trading pairs
+   Indicator capacity 2048: Up to 2048 unique indicators
+   Strategy capacity 512: Up to 512 active strategies
+   Order capacity 4096: Unique order IDs (resets daily with partitions)
+
+7. METADATA FIELDS:
+   - Store JSON strings for flexible additional data
+   - Query with QuestDB JSON functions
+   - Example: metadata::json->>'key'
+*/
+
+-- ============================================================================
+-- SAMPLE DATA INSERTION (Testing)
+-- ============================================================================
+
+-- Sample price insert (SQL)
+INSERT INTO prices VALUES (
+    'BTC/USD',
+    systimestamp(),
+    50000.0,
+    50100.0,
+    49900.0,
+    50050.0,
+    1000000.0,
+    50048.0,
+    50052.0,
+    4.0
+);
+
+-- Sample indicator insert (SQL)
+INSERT INTO indicators VALUES (
+    'BTC/USD',
+    'RSI_14',
+    systimestamp(),
+    45.5,
+    0.95,
+    '{"period": 14, "source": "close"}'
+);
+
+-- Sample strategy template insert (SQL)
+INSERT INTO strategy_templates VALUES (
+    'template-uuid-1',
+    'RSI Mean Reversion',
+    'Buy oversold, sell overbought',
+    'mean_reversion',
+    '{"s1_signal": {...}}',
+    'system',
+    true,
+    true,
+    0,
+    null,
+    null,
+    'rsi,mean_reversion,beginner',
+    1,
+    null,
+    systimestamp(),
+    systimestamp()
+);
+
+-- ============================================================================
+-- QUERY EXAMPLES
+-- ============================================================================
+
+-- Get latest price for all symbols
+SELECT symbol, timestamp, close, volume
+FROM prices
+LATEST BY symbol;
+
+-- Get last 100 BTC prices
+SELECT timestamp, open, high, low, close, volume
+FROM prices
+WHERE symbol = 'BTC/USD'
+ORDER BY timestamp DESC
+LIMIT 100;
+
+-- Get all indicators for BTC at specific timestamp
+SELECT indicator_id, value
+FROM indicators
+WHERE symbol = 'BTC/USD'
+  AND timestamp = '2025-10-27T12:00:00'
+ORDER BY indicator_id;
+
+-- Get latest indicator values for strategy evaluation
+SELECT indicator_id, value, timestamp
+FROM indicators
+WHERE symbol = 'BTC/USD'
+LATEST BY indicator_id;
+
+-- Get daily OHLCV aggregates
+SELECT
+    timestamp,
+    first(open) as open,
+    max(high) as high,
+    min(low) as low,
+    last(close) as close,
+    sum(volume) as volume
+FROM prices
+WHERE symbol = 'BTC/USD'
+  AND timestamp > '2025-10-27'
+SAMPLE BY 1d ALIGN TO CALENDAR;
+
+-- Get backtest results summary
+SELECT
+    strategy_id,
+    count(*) as total_backtests,
+    avg(total_return) as avg_return,
+    avg(sharpe_ratio) as avg_sharpe,
+    avg(win_rate) as avg_win_rate
+FROM backtest_results
+GROUP BY strategy_id
+ORDER BY avg_return DESC;
+
+-- Get featured templates by category
+SELECT id, name, category, usage_count, success_rate
+FROM strategy_templates
+WHERE is_featured = true
+  AND is_public = true
+ORDER BY category, usage_count DESC;
+
+-- ============================================================================
+-- MAINTENANCE QUERIES
+-- ============================================================================
+
+-- Drop old partitions (data older than 30 days)
+ALTER TABLE prices DROP PARTITION WHERE timestamp < dateadd('d', -30, now());
+ALTER TABLE indicators DROP PARTITION WHERE timestamp < dateadd('d', -30, now());
+
+-- Vacuum to reclaim space (run after dropping partitions)
+VACUUM TABLE prices;
+VACUUM TABLE indicators;
+
+-- Check partition sizes
+SELECT
+    table_name,
+    partition,
+    rows,
+    pg_size_pretty(size) as size
+FROM table_partitions()
+WHERE table_name IN ('prices', 'indicators')
+ORDER BY table_name, partition DESC
+LIMIT 20;
+
+-- ============================================================================
+-- END OF SCHEMA
+-- ============================================================================

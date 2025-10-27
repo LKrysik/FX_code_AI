@@ -1,10 +1,23 @@
 // 5-Section Strategy Types for user_feedback.md implementation
 
+// Phase 2 Sprint 1: OR/NOT Logic Support
+export type LogicOperator = 'AND' | 'OR' | 'NOT';
+
 export interface Condition {
   id: string;
   indicatorId: string;
-  operator: '>' | '<' | '>=' | '<=';
+  operator: '>' | '<' | '>=' | '<=' | '==';  // Added '==' for equality
   value: number;
+  logic?: LogicOperator;  // Phase 2: Logic connector to next condition (default: AND)
+}
+
+// Phase 2 Sprint 1: Condition Groups for complex logic
+// Allows expressions like: (A AND B) OR (C AND D)
+export interface ConditionGroup {
+  id: string;
+  logic: 'AND' | 'OR';  // How this group combines with next group
+  conditions: Condition[];
+  groups?: ConditionGroup[];  // Nested groups for complex logic
 }
 
 export interface OrderConfig {

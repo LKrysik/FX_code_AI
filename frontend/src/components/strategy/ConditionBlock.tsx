@@ -11,7 +11,7 @@ import TextField from '@mui/material/TextField';
 import Chip from '@mui/material/Chip';
 import Tooltip from '@mui/material/Tooltip';
 import { Delete as DeleteIcon, ExpandMore as ExpandMoreIcon, Info as InfoIcon } from '@mui/icons-material';
-import { Condition, IndicatorVariant } from '@/types/strategy';
+import { Condition, IndicatorVariant, LogicOperator } from '@/types/strategy';
 
 interface ConditionBlockProps {
   condition: Condition;
@@ -19,7 +19,9 @@ interface ConditionBlockProps {
   availableIndicators: IndicatorVariant[];
   onChange: (condition: Condition) => void;
   onRemove: () => void;
-  logicType?: 'AND';
+  logicType?: LogicOperator;  // Phase 2: Support AND/OR/NOT
+  onLogicChange?: (logic: LogicOperator) => void;  // Phase 2: Logic change callback
+  isLastCondition?: boolean;  // Phase 2: Hide logic selector on last condition
 }
 
 export const ConditionBlock = ({
@@ -29,6 +31,8 @@ export const ConditionBlock = ({
   onChange,
   onRemove,
   logicType = 'AND',
+  onLogicChange,
+  isLastCondition = false,
 }: ConditionBlockProps) => {
   const [showDetails, setShowDetails] = useState(false);
   const selectedIndicator = availableIndicators.find(ind => ind.id === condition.indicatorId);
@@ -66,6 +70,27 @@ export const ConditionBlock = ({
     }
   };
 
+  // Phase 2: Handle logic operator change
+  const handleLogicChange = (newLogic: LogicOperator) => {
+    if (onLogicChange) {
+      onLogicChange(newLogic);
+    }
+  };
+
+  // Phase 2: Get color for logic operator chip
+  const getLogicColor = (logic: LogicOperator): 'primary' | 'secondary' | 'error' | 'warning' | 'success' => {
+    switch (logic) {
+      case 'AND':
+        return 'primary';
+      case 'OR':
+        return 'success';
+      case 'NOT':
+        return 'error';
+      default:
+        return 'primary';
+    }
+  };
+
   const generateDescription = () => {
     if (!selectedIndicator) return 'Select an indicator';
 
@@ -78,7 +103,10 @@ export const ConditionBlock = ({
       '==': 'equal to',
     }[condition.operator] || condition.operator;
 
-    return `${indicatorName} must be ${operatorText} ${condition.value}`;
+    // Phase 2: Add NOT prefix if logic is NOT
+    const notPrefix = logicType === 'NOT' ? 'NOT ' : '';
+
+    return `${notPrefix}${indicatorName} must be ${operatorText} ${condition.value}`;
   };
 
   return (
@@ -96,12 +124,58 @@ export const ConditionBlock = ({
         <Typography variant="subtitle2" sx={{ flexGrow: 1 }}>
           Condition {index + 1}
         </Typography>
-        <Chip
-          label={logicType}
-          size="small"
-          color={logicType === 'AND' ? 'primary' : 'secondary'}
-          variant="outlined"
-        />
+
+        {/* Phase 2: Logic operator selector (only show if not last condition) */}
+        {!isLastCondition && onLogicChange && (
+          <FormControl size="small" sx={{ minWidth: 100, mr: 1 }}>
+            <Select
+              value={logicType}
+              onChange={(e) => handleLogicChange(e.target.value as LogicOperator)}
+              displayEmpty
+              sx={{
+                height: 28,
+                '& .MuiSelect-select': { py: 0.5, fontSize: '0.875rem' }
+              }}
+            >
+              <MenuItem value="AND">
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Chip label="AND" size="small" color="primary" sx={{ height: 20 }} />
+                  <Typography variant="caption" color="text.secondary">
+                    All must be true
+                  </Typography>
+                </Box>
+              </MenuItem>
+              <MenuItem value="OR">
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Chip label="OR" size="small" color="success" sx={{ height: 20 }} />
+                  <Typography variant="caption" color="text.secondary">
+                    Any can be true
+                  </Typography>
+                </Box>
+              </MenuItem>
+              <MenuItem value="NOT">
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Chip label="NOT" size="small" color="error" sx={{ height: 20 }} />
+                  <Typography variant="caption" color="text.secondary">
+                    Must be false
+                  </Typography>
+                </Box>
+              </MenuItem>
+            </Select>
+          </FormControl>
+        )}
+
+        {/* Show current logic as chip (read-only view) */}
+        {!isLastCondition && !onLogicChange && (
+          <Chip
+            label={logicType}
+            size="small"
+            color={getLogicColor(logicType)}
+            variant="outlined"
+            sx={{ mr: 1 }}
+          />
+        )}
+
         <IconButton
           size="small"
           onClick={onRemove}
@@ -163,10 +237,11 @@ export const ConditionBlock = ({
             onChange={(e) => handleOperatorChange(e.target.value)}
             disabled={!condition.indicatorId}
           >
-            <MenuItem value=">">{'>'}</MenuItem>
-            <MenuItem value="<">{'<'}</MenuItem>
-            <MenuItem value=">=">{'>='}</MenuItem>
-            <MenuItem value="<=">{'<='}</MenuItem>
+            <MenuItem value=">">{'>'} Greater than</MenuItem>
+            <MenuItem value="<">{'<'} Less than</MenuItem>
+            <MenuItem value=">=">{'>='} Greater or equal</MenuItem>
+            <MenuItem value="<=">{'<='} Less or equal</MenuItem>
+            <MenuItem value="==">{'=='} Equal to</MenuItem>
           </Select>
         </FormControl>
 
