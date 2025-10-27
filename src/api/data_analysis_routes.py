@@ -6,6 +6,8 @@ Provides REST endpoints for:
 - Chart data retrieval
 - Data export functionality
 - Quality metrics assessment
+
+✅ STEP 3.3: Updated to use QuestDB for data access
 """
 
 import logging
@@ -17,15 +19,27 @@ from fastapi.responses import StreamingResponse
 from ..data.data_analysis_service import DataAnalysisService
 from ..data.data_export_service import DataExportService
 from ..data.data_quality_service import DataQualityService
-from ..core.logger import get_logger
+from ..data.questdb_data_provider import QuestDBDataProvider
+from ..data_feed.questdb_provider import QuestDBProvider
+from ..core.logger import get_logger, StructuredLogger
 
 logger = get_logger(__name__)
 
 # Create router
 router = APIRouter(prefix="/api/data-collection", tags=["data-analysis"])
 
-# Initialize services
-analysis_service = DataAnalysisService()
+# ✅ STEP 3.3: Initialize QuestDB provider and data provider
+structured_logger = StructuredLogger("data_analysis_routes")
+questdb_provider = QuestDBProvider(
+    ilp_host='127.0.0.1',
+    ilp_port=9009,
+    pg_host='127.0.0.1',
+    pg_port=8812
+)
+questdb_data_provider = QuestDBDataProvider(questdb_provider, structured_logger)
+
+# Initialize services with QuestDB provider
+analysis_service = DataAnalysisService(db_provider=questdb_data_provider)
 export_service = DataExportService()
 quality_service = DataQualityService()
 
