@@ -2,11 +2,14 @@
 Execution Data Sources
 ======================
 Implementations of IExecutionDataSource for different execution modes.
+
+✅ STEP 4: Added QuestDBHistoricalDataSource for backtest using QuestDB
 """
 
 import asyncio
 import csv
 import os
+import time
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pathlib import Path
@@ -14,12 +17,18 @@ from pathlib import Path
 from .execution_controller import IExecutionDataSource
 from ...core.logger import StructuredLogger
 from ...domain.interfaces.market_data import IMarketDataProvider
+from ...data.questdb_data_provider import QuestDBDataProvider
 
 
 class HistoricalDataSource(IExecutionDataSource):
     """
-    Historical data source for backtesting.
-    Replays CSV files with time acceleration.
+    Historical data source for backtesting using CSV files.
+
+    ⚠️ DEPRECATED: This class is deprecated and will be removed in a future version.
+    Use QuestDBHistoricalDataSource instead for QuestDB-based backtest.
+
+    CSV-based backtest is no longer supported as all data now goes to QuestDB.
+    This class remains for backward compatibility only.
     """
     
     def __init__(self, 
@@ -359,3 +368,212 @@ class LiveDataSource(IExecutionDataSource):
                     "symbol": symbol,
                     "error": str(e)
                 })
+
+
+class QuestDBHistoricalDataSource(IExecutionDataSource):
+    """
+    Historical data source for backtesting using QuestDB.
+    
+    Replays tick_prices from specific data collection session with:
+    - Time acceleration support
+    - Batch reading for performance
+    - Progress tracking
+    - Multi-symbol support
+    
+    ✅ STEP 4: New implementation for QuestDB-based backtest
+    """
+    
+    def __init__(
+        self,
+        session_id: str,
+        symbols: List[str],
+        db_provider: QuestDBDataProvider,
+        acceleration_factor: float = 1.0,
+        batch_size: int = 100,
+        logger: Optional[StructuredLogger] = None
+    ):
+        """
+        Initialize QuestDB historical data source.
+        
+        Args:
+            session_id: Data collection session ID to replay
+            symbols: List of trading symbols to backtest
+            db_provider: QuestDB data provider for queries
+            acceleration_factor: Time acceleration (1.0 = realtime, 10.0 = 10x speed)
+            batch_size: Number of records to fetch per batch
+            logger: Optional structured logger
+        """
+        self.session_id = session_id
+        self.symbols = list(symbols)  # Make a copy
+        self.db_provider = db_provider
+        self.acceleration_factor = acceleration_factor
+        self.batch_size = batch_size
+        self.logger = logger
+        
+        # State tracking
+        self._cursors: Dict[str, int] = {}  # symbol -> current offset
+        self._total_rows: Dict[str, int] = {}  # symbol -> total row count
+        self._is_streaming = False
+        self._exhausted_symbols: set = set()
+        
+    async def start_stream(self) -> None:
+        """Initialize streaming from QuestDB"""
+        if self._is_streaming:
+            return
+        
+        self._is_streaming = True
+        
+        # Count total rows for each symbol (for progress tracking)
+        for symbol in self.symbols:
+            try:
+                count = await self.db_provider.count_records(
+                    session_id=self.session_id,
+                    symbol=symbol,
+                    data_type='prices'
+                )
+                
+                self._total_rows[symbol] = count
+                self._cursors[symbol] = 0
+                
+                if self.logger:
+                    self.logger.info("questdb_historical.stream_started", {
+                        "session_id": self.session_id,
+                        "symbol": symbol,
+                        "total_rows": count
+                    })
+                    
+            except Exception as e:
+                if self.logger:
+                    self.logger.error("questdb_historical.count_failed", {
+                        "session_id": self.session_id,
+                        "symbol": symbol,
+                        "error": str(e),
+                        "error_type": type(e).__name__
+                    })
+                # Mark as exhausted if count fails
+                self._exhausted_symbols.add(symbol)
+    
+    async def get_next_batch(self) -> Optional[List[Dict[str, Any]]]:
+        """
+        Get next batch of market data from QuestDB.
+        
+        Returns:
+            List of market data dictionaries or None if stream ended
+        """
+        if not self._is_streaming:
+            return None
+        
+        # Check if all symbols are exhausted
+        if len(self._exhausted_symbols) >= len(self.symbols):
+            return None
+        
+        batch = []
+        
+        # Read from all active symbols in round-robin fashion
+        for symbol in list(self.symbols):
+            if symbol in self._exhausted_symbols:
+                continue
+            
+            if len(batch) >= self.batch_size:
+                break
+            
+            offset = self._cursors.get(symbol, 0)
+            
+            try:
+                # Query next batch for this symbol
+                rows = await self.db_provider.get_tick_prices(
+                    session_id=self.session_id,
+                    symbol=symbol,
+                    limit=self.batch_size - len(batch),
+                    offset=offset
+                )
+                
+                if not rows:
+                    # Symbol exhausted
+                    self._exhausted_symbols.add(symbol)
+                    
+                    if self.logger:
+                        self.logger.info("questdb_historical.symbol_exhausted", {
+                            "session_id": self.session_id,
+                            "symbol": symbol,
+                            "rows_processed": offset
+                        })
+                    continue
+                
+                # Convert to market data format
+                for row in rows:
+                    market_data = {
+                        "symbol": symbol,
+                        "timestamp": row.get('timestamp'),
+                        "price": float(row.get('price', 0)),
+                        "volume": float(row.get('volume', 0)),
+                        "quote_volume": float(row.get('quote_volume', 0)),
+                        "source": "questdb_historical",
+                        "metadata": {
+                            "session_id": self.session_id,
+                            "acceleration_factor": self.acceleration_factor,
+                            "batch_offset": offset
+                        }
+                    }
+                    batch.append(market_data)
+                
+                # Update cursor
+                self._cursors[symbol] = offset + len(rows)
+                
+            except Exception as e:
+                if self.logger:
+                    self.logger.error("questdb_historical.batch_read_failed", {
+                        "session_id": self.session_id,
+                        "symbol": symbol,
+                        "offset": offset,
+                        "error": str(e),
+                        "error_type": type(e).__name__
+                    })
+                
+                # Mark symbol as exhausted on error
+                self._exhausted_symbols.add(symbol)
+        
+        # No data available
+        if not batch:
+            return None
+        
+        # Apply time acceleration delay
+        if self.acceleration_factor > 0:
+            # Calculate delay based on acceleration factor
+            # Base delay of 10ms, scaled by acceleration
+            delay = (10.0 / max(1.0, self.acceleration_factor)) / 1000.0
+            await asyncio.sleep(delay)
+        
+        return batch
+    
+    async def stop_stream(self) -> None:
+        """Stop streaming"""
+        self._is_streaming = False
+        
+        if self.logger:
+            total_processed = sum(self._cursors.values())
+            total_available = sum(self._total_rows.values())
+            
+            self.logger.info("questdb_historical.stream_stopped", {
+                "session_id": self.session_id,
+                "total_processed": total_processed,
+                "total_available": total_available,
+                "symbols_completed": len(self._exhausted_symbols)
+            })
+    
+    def get_progress(self) -> Optional[float]:
+        """
+        Calculate backtest progress percentage.
+        
+        Returns:
+            Progress as percentage (0.0 - 100.0) or None
+        """
+        total_available = sum(self._total_rows.values())
+        
+        if total_available == 0:
+            return 0.0
+        
+        total_processed = sum(self._cursors.values())
+        
+        progress = (total_processed / total_available) * 100.0
+        return min(100.0, progress)
