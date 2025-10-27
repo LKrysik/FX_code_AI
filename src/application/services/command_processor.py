@@ -15,8 +15,10 @@ from collections import deque
 from ...core.event_bus import EventBus, EventPriority
 from ...core.logger import StructuredLogger
 from ..controllers.execution_controller import ExecutionController, ExecutionMode
-from ..controllers.data_sources import HistoricalDataSource, LiveDataSource
+from ..controllers.data_sources import HistoricalDataSource, LiveDataSource, QuestDBHistoricalDataSource
 from ...domain.interfaces.market_data import IMarketDataProvider
+from ...data.questdb_data_provider import QuestDBDataProvider
+from ...data_feed.questdb_provider import QuestDBProvider
 
 
 class CommandType(Enum):
@@ -557,39 +559,66 @@ class AsyncCommandProcessor:
     
     # Command executors
     async def _execute_start_backtest(self, command_execution: CommandExecution) -> Dict[str, Any]:
-        """Execute START_BACKTEST command"""
+        """
+        Execute START_BACKTEST command using QuestDB historical data.
+
+        ✅ STEP 4.2: Updated to use QuestDBHistoricalDataSource with session_id
+        """
         parameters = command_execution.parameters
-        
+
+        # ✅ STEP 4.2: Require session_id parameter
+        data_session_id = parameters.get("session_id")
+        if not data_session_id:
+            raise ValueError(
+                "session_id parameter is required for backtest.\n"
+                "Specify the data collection session to replay for backtesting.\n"
+                "Use GET /api/data-collection/sessions to list available sessions."
+            )
+
         # Resolve symbols
-        symbols = parameters["symbols"]
-        if isinstance(symbols, str) and symbols.upper() == "ALL":
-            # Get all available symbols from data directory
-            symbols = self._get_available_symbols()
-        
-        # Create historical data source
-        data_source = HistoricalDataSource(
-            data_path=self.data_path,
+        symbols = parameters.get("symbols")
+        if not symbols:
+            # If no symbols specified, get from session metadata
+            symbols = await self._get_session_symbols(data_session_id)
+        elif isinstance(symbols, str) and symbols.upper() == "ALL":
+            # Get symbols from session metadata
+            symbols = await self._get_session_symbols(data_session_id)
+
+        # ✅ STEP 4.2: Create QuestDB data provider
+        questdb_provider = QuestDBProvider(
+            ilp_host='127.0.0.1',
+            ilp_port=9009,
+            pg_host='127.0.0.1',
+            pg_port=8812
+        )
+        questdb_data_provider = QuestDBDataProvider(questdb_provider, self.logger)
+
+        # ✅ STEP 4.2: Create QuestDB historical data source
+        data_source = QuestDBHistoricalDataSource(
+            session_id=data_session_id,
             symbols=symbols,
+            db_provider=questdb_data_provider,
             acceleration_factor=parameters.get("acceleration_factor", 10.0),
             batch_size=parameters.get("batch_size", 100),
             logger=self.logger
         )
-        
+
         # Start execution
-        session_id = await self.execution_controller.start_execution(
+        execution_session_id = await self.execution_controller.start_execution(
             mode=ExecutionMode.BACKTEST,
             symbols=symbols,
             data_source=data_source,
             parameters=parameters
         )
-        
-        command_execution.session_id = session_id
-        
+
+        command_execution.session_id = execution_session_id
+
         return {
-            "session_id": session_id,
+            "session_id": execution_session_id,
+            "data_session_id": data_session_id,  # Link to source data session
             "mode": "backtest",
             "symbols": symbols,
-            "estimated_duration": 1200  # Placeholder
+            "acceleration_factor": parameters.get("acceleration_factor", 10.0)
         }
     
     async def _execute_start_trading(self, command_execution: CommandExecution) -> Dict[str, Any]:
@@ -726,3 +755,54 @@ class AsyncCommandProcessor:
                     symbols.append(item.name)
         
         return symbols[:10]  # Limit to first 10 symbols for safety
+
+    async def _get_session_symbols(self, session_id: str) -> List[str]:
+        """
+        Get symbols from session metadata in QuestDB.
+        
+        ✅ STEP 4.2: Helper method to retrieve symbols from data collection session
+        
+        Args:
+            session_id: Data collection session ID
+            
+        Returns:
+            List of symbol strings
+            
+        Raises:
+            ValueError: If session not found or has no symbols
+        """
+        # Create temporary QuestDB provider
+        questdb_provider = QuestDBProvider(
+            ilp_host='127.0.0.1',
+            ilp_port=9009,
+            pg_host='127.0.0.1',
+            pg_port=8812
+        )
+        questdb_data_provider = QuestDBDataProvider(questdb_provider, self.logger)
+        
+        try:
+            # Get session metadata
+            metadata = await questdb_data_provider.get_session_metadata(session_id)
+            
+            if not metadata:
+                raise ValueError(f"Data collection session '{session_id}' not found in QuestDB")
+            
+            symbols = metadata.get('symbols', [])
+            
+            if not symbols:
+                raise ValueError(f"Session '{session_id}' has no symbols")
+            
+            self.logger.info("command_processor.session_symbols_resolved", {
+                "session_id": session_id,
+                "symbols": symbols
+            })
+            
+            return symbols
+            
+        except Exception as e:
+            self.logger.error("command_processor.get_session_symbols_failed", {
+                "session_id": session_id,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            raise
