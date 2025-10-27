@@ -288,6 +288,15 @@ class ExecutionController:
         self.event_bus = event_bus
         self.logger = logger
         self.market_data_provider_factory = market_data_provider_factory
+
+        # ✅ STEP 0.1: QuestDB is REQUIRED (fail-fast validation)
+        if db_persistence_service is None:
+            raise RuntimeError(
+                "QuestDB persistence service is REQUIRED for ExecutionController.\n"
+                "Data collection requires QuestDB database for storing tick prices and orderbook data.\n"
+                "Please ensure QuestDB is running and properly configured in container.py"
+            )
+
         self.db_persistence_service = db_persistence_service  # DataCollectionPersistenceService
         self._event_bus = event_bus  # Store reference for adapters
 
@@ -528,58 +537,39 @@ class ExecutionController:
             )
 
         # Ensure session directory exists immediately for user feedback
-        session_dir = base_data_path / f"session_{session_id}"
+        # ✅ STEP 0.2: Removed CSV directory creation (data goes to QuestDB only)
+        # Session directory structure no longer needed
+        session_dir = base_data_path / f"session_{session_id}"  # Keep variable for logging
         try:
-            session_dir.mkdir(parents=True, exist_ok=True)
-            for symbol in symbols:
-                symbol_dir = session_dir / symbol.upper()
-                symbol_dir.mkdir(parents=True, exist_ok=True)
-
-                price_file = symbol_dir / "prices.csv"
-                if not price_file.exists():
-                    with price_file.open('w') as f:
-                        f.write("timestamp,price,volume,quote_volume\n")
-
-                orderbook_file = symbol_dir / "orderbook.csv"
-                if not orderbook_file.exists():
-                    with orderbook_file.open('w') as f:
-                        # ✅ ENHANCED CSV: TOP 3 bids and asks in one row
-                        header_parts = ["timestamp"]
-                        # Add bid columns (price_1, qty_1, price_2, qty_2, price_3, qty_3)
-                        for i in range(1, 4):
-                            header_parts.extend([f"bid_price_{i}", f"bid_qty_{i}"])
-                        # Add ask columns (price_1, qty_1, price_2, qty_2, price_3, qty_3)
-                        for i in range(1, 4):
-                            header_parts.extend([f"ask_price_{i}", f"ask_qty_{i}"])
-                        # Add summary columns
-                        header_parts.extend(["best_bid", "best_ask", "spread"])
-                        f.write(",".join(header_parts) + "\n")
-
             self.logger.info("data_collection.session_initialized", {
                 "session_id": session_id,
-                "session_dir": str(session_dir),
-                "symbols": symbols
+                "symbols": symbols,
+                "storage": "QuestDB"  # Indicate data storage backend
             })
 
-            # ✅ DATABASE INTEGRATION: Create session in QuestDB
-            if self.db_persistence_service:
-                try:
-                    await self.db_persistence_service.create_session(
-                        session_id=session_id,
-                        symbols=symbols,
-                        data_types=['prices', 'orderbook'],  # Based on files created
-                        exchange='mexc',
-                        notes=f"Data collection session created via API"
-                    )
-                    self.logger.info("data_collection.db_session_created", {
-                        "session_id": session_id
-                    })
-                except Exception as db_error:
-                    # Log but don't fail - CSV fallback still works
-                    self.logger.warning("data_collection.db_session_creation_failed", {
-                        "session_id": session_id,
-                        "error": str(db_error)
-                    })
+            # ✅ STEP 0.1: QuestDB is REQUIRED - Create session in database
+            try:
+                await self.db_persistence_service.create_session(
+                    session_id=session_id,
+                    symbols=symbols,
+                    data_types=['prices', 'orderbook'],  # Based on files created
+                    exchange='mexc',
+                    notes=f"Data collection session created via API"
+                )
+                self.logger.info("data_collection.db_session_created", {
+                    "session_id": session_id
+                })
+            except Exception as db_error:
+                # ✅ STEP 0.1: QuestDB is required - fail the entire session creation
+                self.logger.error("data_collection.db_session_creation_failed", {
+                    "session_id": session_id,
+                    "error": str(db_error),
+                    "error_type": type(db_error).__name__
+                })
+                raise RuntimeError(
+                    f"Failed to create session in QuestDB (required): {str(db_error)}\n"
+                    f"Session creation aborted. Please ensure QuestDB is running and healthy."
+                ) from db_error
 
         except Exception as exc:
             self.logger.error("data_collection.session_dir_initialization_failed", {
@@ -1198,10 +1188,8 @@ class ExecutionController:
             return "0"
 
     async def _write_data_batch(self, symbol: str, buffer: Dict[str, Any]) -> None:
-        """Write buffered price and orderbook data for a symbol"""
-        import aiofiles
-        import aiofiles.os as aio_os
-        from pathlib import Path
+        """Write buffered price and orderbook data to QuestDB"""
+        # ✅ STEP 0.2: Removed CSV-related imports (aiofiles, aio_os, Path)
 
         price_batch = list(buffer['price_data'])
         orderbook_batch = list(buffer['orderbook_data'])
@@ -1210,132 +1198,13 @@ class ExecutionController:
         buffer['price_data'].clear()
         buffer['orderbook_data'].clear()
 
-        # Create session-specific directory structure
+        # ✅ STEP 0.2: Removed session directory creation (data goes to QuestDB only)
+        total_records = 0
+
+        # ✅ STEP 0.2: Removed CSV writes (data goes to QuestDB only)
+        # Count records for metrics
         try:
-            # Debug: log all parameters
-            self.logger.info("data_collection.parameters_debug", {
-                "symbol": symbol,
-                "session_parameters": self._current_session.parameters if self._current_session else None,
-                "data_path_param": self._current_session.parameters.get("data_path") if self._current_session else None
-            })
-
-            data_path_param = self._current_session.parameters.get("data_path", "data")
-            self.logger.info("data_collection.data_path_resolved", {
-                "symbol": symbol,
-                "data_path_param": data_path_param,
-                "data_path_type": type(data_path_param).__name__
-            })
-
-            base_data_path = Path(data_path_param)
-            session_id = self._current_session.session_id
-            session_dir = base_data_path / f"session_{session_id}"
-
-            self.logger.info("data_collection.creating_session_dir", {
-                "symbol": symbol,
-                "session_id": session_id,
-                "session_dir": str(session_dir),
-                "base_path": str(base_data_path),
-                "base_path_exists": base_data_path.exists(),
-                "base_path_parent_exists": base_data_path.parent.exists()
-            })
-
-            session_dir.mkdir(parents=True, exist_ok=True)
-            total_records = 0
-        except Exception as e:
-            self.logger.error("data_collection.session_dir_creation_failed", {
-                "symbol": symbol,
-                "session_id": self._current_session.session_id if self._current_session else "unknown",
-                "session_parameters": self._current_session.parameters if self._current_session else None,
-                "error": str(e),
-                "error_type": type(e).__name__
-            })
-            raise
-
-        try:
-            if price_batch:
-                price_file = session_dir / symbol / "prices.csv"
-                self.logger.debug("data_collection.writing_price_file", {
-                    "symbol": symbol,
-                    "file_path": str(price_file),
-                    "records": len(price_batch)
-                })
-
-                await aio_os.makedirs(price_file.parent, exist_ok=True)
-                price_lines = []
-                for data_point in price_batch:
-                    timestamp = data_point.get('timestamp', time.time())
-                    price = data_point.get('price', 0)
-                    volume = data_point.get('volume', 0)
-                    quote_volume = data_point.get('quote_volume')
-                    if quote_volume is None:
-                        try:
-                            if price is not None and volume is not None:
-                                quote_volume = float(price) * float(volume)
-                        except (TypeError, ValueError):
-                            quote_volume = None
-                    price_lines.append(
-                        f"{timestamp},{self._format_numeric(price)},{self._format_numeric(volume)},{self._format_numeric(quote_volume)}\n"
-                    )
-                async with aiofiles.open(price_file, 'a') as f:
-                    await f.write(''.join(price_lines))
-                total_records += len(price_lines)
-
-            if orderbook_batch:
-                orderbook_file = session_dir / symbol / "orderbook.csv"
-                self.logger.debug("data_collection.writing_orderbook_file", {
-                    "symbol": symbol,
-                    "file_path": str(orderbook_file),
-                    "records": len(orderbook_batch)
-                })
-
-                await aio_os.makedirs(orderbook_file.parent, exist_ok=True)
-                orderbook_lines = []
-                for data_point in orderbook_batch:
-                    if data_point is None:
-                        continue
-                    timestamp = data_point.get('timestamp', time.time())
-                    bids = data_point.get('bids', [])
-                    asks = data_point.get('asks', [])
-
-                    # ✅ ENHANCED CSV: Build row with TOP 3 bids and asks
-                    row_parts = [str(timestamp)]
-                    
-                    # Add bid data (TOP 3 levels)
-                    for i in range(3):
-                        if i < len(bids) and bids[i] is not None and len(bids[i]) >= 2:
-                            bid_price = self._format_numeric(bids[i][0])
-                            bid_qty = self._format_numeric(bids[i][1])
-                        else:
-                            bid_price = "0"
-                            bid_qty = "0"
-                        row_parts.extend([bid_price, bid_qty])
-                    
-                    # Add ask data (TOP 3 levels)
-                    for i in range(3):
-                        if i < len(asks) and asks[i] is not None and len(asks[i]) >= 2:
-                            ask_price = self._format_numeric(asks[i][0])
-                            ask_qty = self._format_numeric(asks[i][1])
-                        else:
-                            ask_price = "0"
-                            ask_qty = "0"
-                        row_parts.extend([ask_price, ask_qty])
-                    
-                    # Add summary columns
-                    best_bid = bids[0][0] if bids and len(bids[0]) > 0 else 0
-                    best_ask = asks[0][0] if asks and len(asks[0]) > 0 else 0
-                    spread_value = best_ask - best_bid if best_bid > 0 and best_ask > 0 else 0
-                    
-                    row_parts.extend([
-                        self._format_numeric(best_bid),
-                        self._format_numeric(best_ask), 
-                        self._format_numeric(spread_value)
-                    ])
-                    
-                    orderbook_lines.append(",".join(row_parts) + "\n")
-                    
-                async with aiofiles.open(orderbook_file, 'a') as f:
-                    await f.write(''.join(orderbook_lines))
-                total_records += len(orderbook_lines)
+            total_records += len(price_batch) + len(orderbook_batch)
 
             if total_records and self._current_session:
                 try:
@@ -1344,8 +1213,8 @@ class ExecutionController:
                 except Exception:
                     pass
 
-            # ✅ DATABASE INTEGRATION: Dual write to QuestDB
-            if self.db_persistence_service and self._current_session:
+            # ✅ STEP 0.1: QuestDB write is REQUIRED (db_persistence_service is always not None)
+            if self._current_session:
                 try:
                     session_id = self._current_session.session_id
 
@@ -1394,12 +1263,19 @@ class ExecutionController:
                     })
 
                 except Exception as db_error:
-                    # Log but don't fail - CSV write succeeded, DB is supplementary
-                    self.logger.warning("data_collection.db_write_failed", {
+                    # ✅ STEP 0.1: QuestDB is REQUIRED - log as ERROR (not warning)
+                    # Don't raise to avoid crashing data collection, but log as critical error
+                    self.logger.error("data_collection.db_write_failed_critical", {
                         "session_id": session_id if self._current_session else None,
                         "symbol": symbol,
-                        "error": str(db_error)
+                        "error": str(db_error),
+                        "error_type": type(db_error).__name__,
+                        "message": "QuestDB write failed! Data may be lost. Check QuestDB health."
                     })
+                    # Re-raise to fail-fast and stop data collection
+                    raise RuntimeError(
+                        f"QuestDB write failed for session {session_id}, symbol {symbol}: {str(db_error)}"
+                    ) from db_error
 
             buffer['last_flush'] = time.time()
         except asyncio.CancelledError:
@@ -1426,8 +1302,8 @@ class ExecutionController:
                     self._transition_to(ExecutionState.STOPPED)
                 self._current_session.end_time = datetime.now()
 
-            # ✅ DATABASE INTEGRATION: Update session status in QuestDB
-            if self.db_persistence_service and self._current_session.mode == ExecutionMode.DATA_COLLECTION:
+            # ✅ STEP 0.1: Update session status in QuestDB (required)
+            if self._current_session.mode == ExecutionMode.DATA_COLLECTION:
                 try:
                     # Determine final status
                     final_status = 'completed' if self._current_session.status == ExecutionState.STOPPED else 'failed'
@@ -1442,10 +1318,13 @@ class ExecutionController:
                         "status": final_status
                     })
                 except Exception as db_error:
-                    self.logger.warning("data_collection.db_session_update_failed", {
+                    # ✅ STEP 0.1: Log as ERROR - session status update is important
+                    self.logger.error("data_collection.db_session_update_failed", {
                         "session_id": self._current_session.session_id,
-                        "error": str(db_error)
+                        "error": str(db_error),
+                        "error_type": type(db_error).__name__
                     })
+                    # Don't raise here - session is already ending, just log the error
 
         # ✅ MEMORY LEAK FIX: Clear progress callbacks to prevent accumulation
         self._progress_callbacks.clear()

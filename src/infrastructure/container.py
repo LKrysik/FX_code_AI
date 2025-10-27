@@ -628,8 +628,7 @@ class Container:
                     logger=self.logger
                 )
 
-                # Create data collection persistence service (optional - for QuestDB integration)
-                db_persistence_service = None
+                # ✅ STEP 0.1: QuestDB is REQUIRED (fail-fast) - not optional
                 try:
                     from ..data.data_collection_persistence_service import DataCollectionPersistenceService
                     from ..data_feed.questdb_provider import QuestDBProvider
@@ -642,21 +641,37 @@ class Container:
                         pg_port=8812
                     )
 
+                    # Test QuestDB connection (fail-fast if not available)
+                    # Note: initialize() is async, will be called later
+                    # For now just verify provider was created
+                    if questdb_provider is None:
+                        raise RuntimeError("QuestDB provider creation failed")
+
                     # Create persistence service
                     db_persistence_service = DataCollectionPersistenceService(
                         db_provider=questdb_provider,
                         logger=self.logger
                     )
 
+                    if db_persistence_service is None:
+                        raise RuntimeError("Data collection persistence service creation failed")
+
                     self.logger.info("container.db_persistence_enabled", {
-                        "provider": "QuestDB"
+                        "provider": "QuestDB",
+                        "status": "required"
                     })
                 except Exception as e:
-                    # Optional feature - log but don't fail
-                    self.logger.warning("container.db_persistence_disabled", {
+                    # ✅ FAIL-FAST: QuestDB is required, not optional
+                    self.logger.error("container.db_persistence_required", {
                         "error": str(e),
-                        "reason": "QuestDB persistence service could not be initialized"
+                        "error_type": type(e).__name__,
+                        "message": "QuestDB is required for data collection. Ensure QuestDB is running."
                     })
+                    raise RuntimeError(
+                        f"QuestDB persistence is REQUIRED but could not be initialized: {str(e)}\n"
+                        f"Please ensure QuestDB is running at 127.0.0.1:9009 (ILP) and 127.0.0.1:8812 (PG).\n"
+                        f"Run: python database/questdb/install_questdb.py"
+                    ) from e
 
                 # Create execution controller with factory and persistence
                 controller = ExecutionController(
