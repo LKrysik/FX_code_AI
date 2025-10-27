@@ -19,8 +19,8 @@ from ..exchanges.file_connector import FileConnector, FileExchangeConfig
 from ..results.unified_results_manager import UnifiedResultsManager, TradeRecord, SignalRecord
 from ..engine.graph_adapter import GraphAdapter, LiveGraphExecutor
 from ..strategy_graph.serializer import StrategyGraph
-from ..database.timescale_client import TimescaleClient
-from .backtest_data_provider import BacktestMarketDataProvider
+from ..data_feed.questdb_provider import QuestDBProvider
+from .backtest_data_provider_questdb import BacktestMarketDataProvider
 
 
 @dataclass
@@ -77,12 +77,12 @@ class BacktestingEngine:
     def __init__(
         self,
         event_bus: EventBus,
-        db_client: Optional[TimescaleClient] = None,
+        db_provider: Optional[QuestDBProvider] = None,
         logger: Optional[StructuredLogger] = None,
         settings: Optional[BacktestSettings] = None
     ):
         self.event_bus = event_bus
-        self.db_client = db_client
+        self.db_provider = db_provider
         self.logger = logger or StructuredLogger("backtesting_engine")
         self.settings = settings or BacktestSettings()
 
@@ -167,9 +167,9 @@ class BacktestingEngine:
             )
 
             # Initialize data provider if database is available
-            if self.db_client:
+            if self.db_provider:
                 self.data_provider = BacktestMarketDataProvider(
-                    db_client=self.db_client,
+                    db_provider=self.db_provider,
                     cache_size=1000
                 )
                 self.logger.info("backtesting_engine.data_provider_initialized", {
