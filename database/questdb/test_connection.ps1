@@ -5,12 +5,12 @@
 .DESCRIPTION
     Quick script to test QuestDB connectivity on all ports
 
-.PARAMETER Host
+.PARAMETER QuestHost
     QuestDB host (default: localhost)
 #>
 
 param(
-    [string]$Host = "127.0.0.1"
+    [string]$QuestHost = "127.0.0.1"
 )
 
 Write-Host ""
@@ -21,9 +21,9 @@ Write-Host ""
 # Test HTTP (Web UI)
 Write-Host "Testing HTTP (Web UI) on port 9000..." -NoNewline
 try {
-    $response = Invoke-RestMethod -Uri "http://${Host}:9000/exec?query=SELECT%201" -TimeoutSec 5
+    $response = Invoke-RestMethod -Uri "http://${QuestHost}:9000/exec?query=SELECT%201" -TimeoutSec 5
     Write-Host " OK" -ForegroundColor Green
-    Write-Host "  Web UI: http://${Host}:9000" -ForegroundColor DarkGray
+    Write-Host "  Web UI: http://${QuestHost}:9000" -ForegroundColor DarkGray
 }
 catch {
     Write-Host " FAILED" -ForegroundColor Red
@@ -33,10 +33,10 @@ catch {
 # Test PostgreSQL wire protocol
 Write-Host "Testing PostgreSQL wire protocol on port 8812..." -NoNewline
 try {
-    $null = Test-NetConnection -ComputerName $Host -Port 8812 -InformationLevel Quiet -WarningAction SilentlyContinue
+    $null = Test-NetConnection -ComputerName $QuestHost -Port 8812 -InformationLevel Quiet -WarningAction SilentlyContinue
     if ($?) {
         Write-Host " OK" -ForegroundColor Green
-        Write-Host "  PostgreSQL: ${Host}:8812" -ForegroundColor DarkGray
+        Write-Host "  PostgreSQL: ${QuestHost}:8812" -ForegroundColor DarkGray
     }
     else {
         Write-Host " FAILED" -ForegroundColor Red
@@ -49,10 +49,10 @@ catch {
 # Test InfluxDB line protocol
 Write-Host "Testing InfluxDB line protocol on port 9009..." -NoNewline
 try {
-    $null = Test-NetConnection -ComputerName $Host -Port 9009 -InformationLevel Quiet -WarningAction SilentlyContinue
+    $null = Test-NetConnection -ComputerName $QuestHost -Port 9009 -InformationLevel Quiet -WarningAction SilentlyContinue
     if ($?) {
         Write-Host " OK" -ForegroundColor Green
-        Write-Host "  InfluxDB: ${Host}:9009" -ForegroundColor DarkGray
+        Write-Host "  InfluxDB: ${QuestHost}:9009" -ForegroundColor DarkGray
     }
     else {
         Write-Host " FAILED" -ForegroundColor Red
