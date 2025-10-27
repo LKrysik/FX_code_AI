@@ -6,12 +6,12 @@ Provides comprehensive analysis of collected market data including:
 - Time-series data for charting
 - Data completeness analysis
 - Performance metrics calculation
+
+✅ STEP 3.2: Refactored to use QuestDB instead of CSV files
 """
 
 import asyncio
-import csv
 import json
-import os
 import logging
 import statistics
 import threading
@@ -22,6 +22,7 @@ from dataclasses import dataclass
 
 from ..core.logger import get_logger
 from ..core.utils import calculate_volatility, calculate_distribution
+from .questdb_data_provider import QuestDBDataProvider
 
 logger = get_logger(__name__)
 
@@ -83,11 +84,22 @@ class DataAnalysisService:
     - Compute data completeness metrics
     """
 
-    def __init__(self, data_directory: str = "data/historical"):
-        self.data_directory = Path(data_directory)
-        self.data_directory.mkdir(parents=True, exist_ok=True)
+    def __init__(self, db_provider: Optional[QuestDBDataProvider] = None):
+        """
+        Initialize DataAnalysisService with QuestDB data provider.
 
-        self._data_directories = self._initialize_data_directories(self.data_directory)
+        Args:
+            db_provider: QuestDB data provider (required for production use)
+
+        ✅ STEP 3.2: Changed from data_directory to db_provider
+        """
+        if db_provider is None:
+            raise ValueError(
+                "QuestDBDataProvider is required for DataAnalysisService.\n"
+                "CSV-based data access has been removed. All data now comes from QuestDB."
+            )
+
+        self.db_provider = db_provider
 
         # Thread-safe cache with RLock for concurrent access protection
         self._cache_lock = threading.RLock()
@@ -177,7 +189,11 @@ class DataAnalysisService:
             raise
 
     async def _load_session_metadata(self, session_id: str) -> Optional[Dict[str, Any]]:
-        """Load session metadata from file system or infer it from collected CSV data."""
+        """
+        Load session metadata from QuestDB.
+
+        ✅ STEP 3.2: Changed from file system to QuestDB query
+        """
         if not session_id:
             return None
 
@@ -186,91 +202,68 @@ class DataAnalysisService:
             if session_id in self._metadata_cache:
                 return self._metadata_cache[session_id]
 
-        session_dir = self._find_session_directory(session_id)
-        if not session_dir:
-            return None
+        # Load from QuestDB
+        try:
+            metadata = await self.db_provider.get_session_metadata(session_id)
 
-        meta_file = session_dir / "session_metadata.json"
-        if meta_file.exists():
-            try:
-                with open(meta_file, "r") as f:
-                    metadata = json.load(f)
+            if metadata:
+                # Cache the result
                 with self._cache_lock:
                     self._metadata_cache[session_id] = metadata
-                return metadata
-            except Exception as e:
-                logger.error(f"Failed to parse session metadata for {session_id}: {e}")
 
-        metadata = await asyncio.to_thread(self._build_metadata_from_session, session_id, session_dir)
-        if metadata:
-            with self._cache_lock:
-                self._metadata_cache[session_id] = metadata
-        return metadata
+            return metadata
+
+        except Exception as e:
+            logger.error(f"Failed to load session metadata for {session_id}: {e}")
+            return None
 
     async def list_sessions(self, limit: int = 50, include_stats: bool = False) -> Dict[str, Any]:
-        """Scan data directories and return discovered data collection sessions."""
-        sessions: List[Dict[str, Any]] = []
-        seen_ids: Set[str] = set()
-        total_found = 0
+        """
+        List data collection sessions from QuestDB.
 
-        for base_dir in self._data_directories:
-            if not base_dir.exists():
-                continue
-            try:
-                entries = sorted(
-                    [entry for entry in base_dir.iterdir() if entry.is_dir()],
-                    key=lambda entry: entry.stat().st_mtime,
-                    reverse=True
-                )
-            except Exception as e:
-                logger.error("session_scan_failed", {"directory": str(base_dir), "error": str(e)})
-                continue
+        ✅ STEP 3.2: Changed from directory scanning to QuestDB query
+        """
+        try:
+            # Get sessions from QuestDB
+            sessions_raw = await self.db_provider.get_sessions_list(limit=limit)
 
-            for entry in entries:
-                metadata = await self._load_session_metadata(entry.name)
-                if not metadata:
-                    continue
-
-                session_id = metadata.get("session_id") or entry.name
-                if session_id in seen_ids:
-                    continue
-
-                seen_ids.add(session_id)
-                total_found += 1
-
-                if len(sessions) >= limit:
-                    continue
-
+            sessions = []
+            for session_meta in sessions_raw:
                 session_info: Dict[str, Any] = {
-                    "session_id": session_id,
-                    "status": metadata.get("status", "completed"),
-                    "symbols": metadata.get("symbols", []),
-                    "records_collected": metadata.get("records_collected", 0),
-                    "data_path": metadata.get("data_path", str(entry)),
-                    "start_time": metadata.get("start_time"),
-                    "end_time": metadata.get("end_time"),
-                    "start_timestamp": metadata.get("start_timestamp"),
-                    "end_timestamp": metadata.get("end_timestamp"),
-                    "duration_seconds": metadata.get("duration_seconds"),
-                    "created_at": metadata.get("created_at"),
-                    "updated_at": metadata.get("updated_at"),
+                    "session_id": session_meta.get("session_id"),
+                    "status": session_meta.get("status", "completed"),
+                    "symbols": session_meta.get("symbols", []),
+                    "records_collected": session_meta.get("records_collected", 0),
+                    "start_time": session_meta.get("start_time"),
+                    "end_time": session_meta.get("end_time"),
+                    "duration_seconds": session_meta.get("duration_seconds"),
+                    "created_at": session_meta.get("created_at"),
+                    "updated_at": session_meta.get("updated_at"),
+                    "exchange": session_meta.get("exchange"),
+                    "prices_count": session_meta.get("prices_count", 0),
+                    "orderbook_count": session_meta.get("orderbook_count", 0),
                 }
 
                 if include_stats and session_info["symbols"]:
                     try:
-                        summary = await self._collect_session_summary(session_id, session_info["symbols"])
-                        if summary:
-                            session_info["stats"] = summary
+                        # Get detailed statistics from QuestDB
+                        stats = await self.db_provider.get_session_statistics(session_info["session_id"])
+                        if stats:
+                            session_info["stats"] = stats
                     except Exception as e:
-                        logger.error("session_summary_failed", {"session_id": session_id, "error": str(e)})
+                        logger.error("session_summary_failed", {"session_id": session_info["session_id"], "error": str(e)})
 
                 sessions.append(session_info)
 
-        return {
-            "sessions": sessions,
-            "total_count": total_found,
-            "limit": limit,
-        }
+            return {
+                "sessions": sessions,
+                "total_count": len(sessions),
+                "limit": limit,
+            }
+
+        except Exception as e:
+            logger.error("list_sessions_failed", {"error": str(e), "error_type": type(e).__name__})
+            raise
 
     async def delete_session(self, session_id: str) -> Dict[str, Any]:
         """Delete a data collection session and its associated files."""
@@ -317,7 +310,11 @@ class DataAnalysisService:
         }
 
     async def _load_symbol_data(self, session_id: str, symbol: str) -> Optional[List[Dict[str, Any]]]:
-        """Load data points for a specific symbol"""
+        """
+        Load price data points for a specific symbol from QuestDB.
+
+        ✅ STEP 3.2: Changed from CSV/JSON files to QuestDB query
+        """
         if not session_id or not symbol:
             return None
 
@@ -328,32 +325,23 @@ class DataAnalysisService:
             if cache_key in self._symbol_cache:
                 return self._symbol_cache[cache_key]
 
-        session_dir = self._find_session_directory(session_id)
-        if not session_dir:
-            return None
+        # Load from QuestDB
+        try:
+            data = await self.db_provider.get_tick_prices(
+                session_id=session_id,
+                symbol=symbol
+            )
 
-        data_file = session_dir / f"{symbol}.json"
-        if data_file.exists():
-            try:
-                with open(data_file, "r") as f:
-                    data = json.load(f)
-                data = sorted(data, key=lambda x: x["timestamp"])
+            if data:
+                # Cache the result
                 with self._cache_lock:
                     self._symbol_cache[cache_key] = data
-                return data
-            except Exception as e:
-                logger.error(f"Failed to load JSON symbol data for {symbol} in session {session_id}: {e}")
 
-        price_csv = session_dir / symbol / "prices.csv"
-        if not price_csv.exists():
-            logger.warning(f"No price data found for {symbol} in session {session_id} (expected {price_csv})")
+            return data
+
+        except Exception as e:
+            logger.error(f"Failed to load symbol data for {symbol} in session {session_id}: {e}")
             return None
-
-        data = await asyncio.to_thread(self._parse_price_csv, price_csv)
-        if data:
-            with self._cache_lock:
-                self._symbol_cache[cache_key] = data
-        return data
 
     def _initialize_data_directories(self, primary: Path) -> List[Path]:
         """Build a prioritized list of directories to scan for session data."""
