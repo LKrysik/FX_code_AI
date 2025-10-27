@@ -271,7 +271,11 @@ class StrategyEvaluator4Section:
 
     def _check_emergency_conditions(self, symbol: str, indicator_data: Dict[str, Any],
                                   state: SymbolState) -> Optional[Strategy4SectionSignal]:
-        """Check emergency exit conditions (highest priority)."""
+        """
+        Check emergency exit conditions (highest priority).
+
+        Phase 2 Sprint 1: Now supports OR/NOT/AND logic via _evaluate_conditions_with_logic
+        """
         # Check cooldown period
         now = datetime.now()
         if state.emergency_cooldown_until and now < state.emergency_cooldown_until:
@@ -283,13 +287,10 @@ class StrategyEvaluator4Section:
         if not conditions:
             return None
 
-        # Check if any emergency condition is met (OR logic)
-        met_conditions = []
-        for condition in conditions:
-            if self._evaluate_condition(condition, indicator_data):
-                met_conditions.append(condition["id"])
+        # Phase 2: Use new logic evaluation function
+        if self._evaluate_conditions_with_logic(conditions, indicator_data):
+            met_conditions = [cond.get("id", f"condition_{i}") for i, cond in enumerate(conditions)]
 
-        if met_conditions:
             # Update cooldown
             cooldown_minutes = emergency_config.get("cooldownMinutes", 60)
             state.emergency_cooldown_until = now + timedelta(minutes=cooldown_minutes)
@@ -303,28 +304,27 @@ class StrategyEvaluator4Section:
                 conditions_met=met_conditions,
                 indicator_values={k: v["value"] for k, v in indicator_data.items()},
                 timestamp=int(time.time() * 1000),
-                reason=f"Emergency conditions met: {', '.join(met_conditions)}"
+                reason=f"Emergency conditions met: {len(conditions)} conditions evaluated to TRUE"
             )
 
         return None
 
     def _check_s1_conditions(self, symbol: str, indicator_data: Dict[str, Any]) -> Optional[Strategy4SectionSignal]:
-        """Check S1 signal detection conditions (AND logic)."""
+        """
+        Check S1 signal detection conditions.
+
+        Phase 2 Sprint 1: Now supports OR/NOT/AND logic via _evaluate_conditions_with_logic
+        """
         s1_config = self.config.s1_signal
         conditions = s1_config.get("conditions", [])
 
         if not conditions:
             return None
 
-        # All conditions must be met (AND logic)
-        met_conditions = []
-        for condition in conditions:
-            if self._evaluate_condition(condition, indicator_data):
-                met_conditions.append(condition["id"])
-            else:
-                return None  # AND logic: any false condition fails
+        # Phase 2: Use new logic evaluation function
+        if self._evaluate_conditions_with_logic(conditions, indicator_data):
+            met_conditions = [cond.get("id", f"condition_{i}") for i, cond in enumerate(conditions)]
 
-        if len(met_conditions) == len(conditions):
             return Strategy4SectionSignal(
                 symbol=symbol,
                 signal_type=SignalType.LOCK_SYMBOL,
@@ -333,28 +333,27 @@ class StrategyEvaluator4Section:
                 conditions_met=met_conditions,
                 indicator_values={k: v["value"] for k, v in indicator_data.items()},
                 timestamp=int(time.time() * 1000),
-                reason=f"S1 signal detected: all {len(conditions)} conditions met"
+                reason=f"S1 signal detected: {len(conditions)} conditions evaluated to TRUE"
             )
 
         return None
 
     def _check_z1_conditions(self, symbol: str, indicator_data: Dict[str, Any]) -> Optional[Strategy4SectionSignal]:
-        """Check Z1 order entry conditions (AND logic)."""
+        """
+        Check Z1 order entry conditions.
+
+        Phase 2 Sprint 1: Now supports OR/NOT/AND logic via _evaluate_conditions_with_logic
+        """
         z1_config = self.config.z1_entry
         conditions = z1_config.get("conditions", [])
 
         if not conditions:
             return None
 
-        # All conditions must be met (AND logic)
-        met_conditions = []
-        for condition in conditions:
-            if self._evaluate_condition(condition, indicator_data):
-                met_conditions.append(condition["id"])
-            else:
-                return None  # AND logic: any false condition fails
+        # Phase 2: Use new logic evaluation function
+        if self._evaluate_conditions_with_logic(conditions, indicator_data):
+            met_conditions = [cond.get("id", f"condition_{i}") for i, cond in enumerate(conditions)]
 
-        if len(met_conditions) == len(conditions):
             return Strategy4SectionSignal(
                 symbol=symbol,
                 signal_type=SignalType.PLACE_ORDER,
@@ -363,28 +362,27 @@ class StrategyEvaluator4Section:
                 conditions_met=met_conditions,
                 indicator_values={k: v["value"] for k, v in indicator_data.items()},
                 timestamp=int(time.time() * 1000),
-                reason=f"Z1 order entry: all {len(conditions)} conditions met"
+                reason=f"Z1 order entry: {len(conditions)} conditions evaluated to TRUE"
             )
 
         return None
 
     def _check_ze1_conditions(self, symbol: str, indicator_data: Dict[str, Any]) -> Optional[Strategy4SectionSignal]:
-        """Check ZE1 order closing conditions (AND logic)."""
+        """
+        Check ZE1 order closing conditions.
+
+        Phase 2 Sprint 1: Now supports OR/NOT/AND logic via _evaluate_conditions_with_logic
+        """
         ze1_config = self.config.ze1_close
         conditions = ze1_config.get("conditions", [])
 
         if not conditions:
             return None
 
-        # All conditions must be met (AND logic)
-        met_conditions = []
-        for condition in conditions:
-            if self._evaluate_condition(condition, indicator_data):
-                met_conditions.append(condition["id"])
-            else:
-                return None  # AND logic: any false condition fails
+        # Phase 2: Use new logic evaluation function
+        if self._evaluate_conditions_with_logic(conditions, indicator_data):
+            met_conditions = [cond.get("id", f"condition_{i}") for i, cond in enumerate(conditions)]
 
-        if len(met_conditions) == len(conditions):
             return Strategy4SectionSignal(
                 symbol=symbol,
                 signal_type=SignalType.CLOSE_ORDER,
@@ -393,13 +391,17 @@ class StrategyEvaluator4Section:
                 conditions_met=met_conditions,
                 indicator_values={k: v["value"] for k, v in indicator_data.items()},
                 timestamp=int(time.time() * 1000),
-                reason=f"ZE1 order close: all {len(conditions)} conditions met"
+                reason=f"ZE1 order close: {len(conditions)} conditions evaluated to TRUE"
             )
 
         return None
 
     def _check_o1_conditions(self, symbol: str, indicator_data: Dict[str, Any], state: SymbolState) -> bool:
-        """Check O1 cancellation conditions (OR logic + timeout)."""
+        """
+        Check O1 cancellation conditions.
+
+        Phase 2 Sprint 1: Now supports OR/NOT/AND logic via _evaluate_conditions_with_logic
+        """
         o1_config = self.config.o1_cancel
         conditions = o1_config.get("conditions", [])
         timeout_seconds = o1_config.get("timeoutSeconds", 300)  # 5 minutes default
@@ -410,20 +412,82 @@ class StrategyEvaluator4Section:
             if elapsed >= timeout_seconds:
                 return True
 
-        # Check conditions (OR logic)
-        for condition in conditions:
-            if self._evaluate_condition(condition, indicator_data):
-                return True
+        # Phase 2: Use new logic evaluation function for conditions
+        if conditions and self._evaluate_conditions_with_logic(conditions, indicator_data):
+            return True
 
         return False
 
+    def _evaluate_conditions_with_logic(self, conditions: List[Dict[str, Any]], indicator_data: Dict[str, Any]) -> bool:
+        """
+        Evaluate list of conditions with OR/NOT/AND logic support.
+
+        Phase 2 Sprint 1: New function for complex logic evaluation.
+
+        Logic rules:
+        - Each condition has optional 'logic' field: 'AND' (default), 'OR', 'NOT'
+        - Logic connector applies to NEXT condition
+        - NOT inverts the result of current condition
+        - Evaluation order: left to right with short-circuit
+
+        Examples:
+        - [A, B, C] with no logic = A AND B AND C
+        - [A(OR), B, C] = A OR (B AND C)
+        - [A, B(NOT), C] = A AND (NOT B) AND C
+        - [A(OR), B(NOT), C] = A OR (NOT B) AND C
+        """
+        if not conditions:
+            return True
+
+        result = True
+        next_logic = 'AND'  # Start with AND
+
+        for i, condition in enumerate(conditions):
+            # Evaluate this condition
+            cond_result = self._evaluate_condition(condition, indicator_data)
+
+            # Get logic operator for this condition (applies to next)
+            current_logic = condition.get('logic', 'AND')
+
+            # Apply NOT if current logic is NOT
+            if current_logic == 'NOT':
+                cond_result = not cond_result
+
+            # Combine with previous result using next_logic
+            if i == 0:
+                result = cond_result
+            else:
+                if next_logic == 'AND':
+                    result = result and cond_result
+                    if not result:  # Short-circuit AND
+                        return False
+                elif next_logic == 'OR':
+                    result = result or cond_result
+                    if result:  # Short-circuit OR
+                        return True
+                elif next_logic == 'NOT':
+                    # NOT was already applied above
+                    result = result and cond_result
+
+            # Set next logic operator (from current condition)
+            if current_logic in ['AND', 'OR']:
+                next_logic = current_logic
+            # If current is NOT, keep previous next_logic
+
+        return result
+
     def _evaluate_condition(self, condition: Dict[str, Any], indicator_data: Dict[str, Any]) -> bool:
-        """Evaluate a single condition against indicator data."""
+        """
+        Evaluate a single condition against indicator data.
+
+        Phase 2 Sprint 1: Added support for '==' operator.
+        """
         indicator_id = condition.get("indicatorId")
         operator = condition.get("operator")
         value = condition.get("value")
 
-        if not indicator_id or operator not in [">", "<", ">=", "<="]:
+        # Phase 2: Support '==' operator
+        if not indicator_id or operator not in [">", "<", ">=", "<=", "=="]:
             return False
 
         # Get indicator value
@@ -441,6 +505,9 @@ class StrategyEvaluator4Section:
             return indicator_value >= value
         elif operator == "<=":
             return indicator_value <= value
+        elif operator == "==":
+            # Phase 2: Equality comparison (with small epsilon for floating point)
+            return abs(indicator_value - value) < 1e-9
 
         return False
 

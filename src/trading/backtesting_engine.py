@@ -19,6 +19,8 @@ from ..exchanges.file_connector import FileConnector, FileExchangeConfig
 from ..results.unified_results_manager import UnifiedResultsManager, TradeRecord, SignalRecord
 from ..engine.graph_adapter import GraphAdapter, LiveGraphExecutor
 from ..strategy_graph.serializer import StrategyGraph
+from ..data_feed.questdb_provider import QuestDBProvider
+from .backtest_data_provider_questdb import BacktestMarketDataProvider
 
 
 @dataclass
@@ -75,10 +77,12 @@ class BacktestingEngine:
     def __init__(
         self,
         event_bus: EventBus,
+        db_provider: Optional[QuestDBProvider] = None,
         logger: Optional[StructuredLogger] = None,
         settings: Optional[BacktestSettings] = None
     ):
         self.event_bus = event_bus
+        self.db_provider = db_provider
         self.logger = logger or StructuredLogger("backtesting_engine")
         self.settings = settings or BacktestSettings()
 
@@ -86,6 +90,7 @@ class BacktestingEngine:
         self.file_connector: Optional[FileConnector] = None
         self.graph_adapter: Optional[GraphAdapter] = None
         self.results_manager: Optional[UnifiedResultsManager] = None
+        self.data_provider: Optional[BacktestMarketDataProvider] = None
 
         # Execution state
         self.is_running = False
@@ -160,6 +165,16 @@ class BacktestingEngine:
                 config.start_date.timestamp(),
                 config.end_date.timestamp()
             )
+
+            # Initialize data provider if database is available
+            if self.db_provider:
+                self.data_provider = BacktestMarketDataProvider(
+                    db_provider=self.db_provider,
+                    cache_size=1000
+                )
+                self.logger.info("backtesting_engine.data_provider_initialized", {
+                    "cache_size": 1000
+                })
 
             # Validate strategy graph
             if not config.strategy_graph:
@@ -277,6 +292,10 @@ class BacktestingEngine:
             if not symbol or not price or not timestamp:
                 return
 
+            # Update current price in data provider
+            if self.data_provider:
+                self.data_provider.update_current_price(symbol, price)
+
             # Create market data dict for graph execution
             market_data = {
                 symbol: {
@@ -325,6 +344,14 @@ class BacktestingEngine:
     async def _process_signal(self, signal):
         """Process a trading signal from the strategy graph"""
         try:
+            # Get current price for signal record (FIXED: was hardcoded 0.0)
+            current_price = 0.0
+
+            if self.data_provider:
+                price_from_provider = self.data_provider.get_current_price(signal.symbol)
+                if price_from_provider:
+                    current_price = price_from_provider
+
             # Convert signal to our format
             signal_record = SignalRecord(
                 signal_id=str(uuid.uuid4()),
@@ -332,7 +359,7 @@ class BacktestingEngine:
                 symbol=signal.symbol,
                 signal_type=signal.signal_type.value,
                 strength=signal.confidence,
-                price=0.0,  # Would need to be filled from market data
+                price=current_price,
                 metadata={
                     'position_size': signal.position_size,
                     'risk_level': signal.risk_level.value,
@@ -362,8 +389,35 @@ class BacktestingEngine:
     async def _execute_buy_signal(self, signal):
         """Execute a buy signal"""
         try:
-            # Get current market price (simplified - would need to get from market data)
-            current_price = 50000.0  # Placeholder - should come from market data
+            # Get current market price from data provider (FIXED: was hardcoded 50000.0)
+            current_price = None
+
+            if self.data_provider:
+                current_price = self.data_provider.get_current_price(signal.symbol)
+
+            # Fallback: try to get from signal timestamp if data provider query available
+            if current_price is None and self.data_provider and hasattr(signal, 'timestamp'):
+                try:
+                    timestamp = datetime.fromtimestamp(signal.timestamp / 1000)
+                    market_data = await self.data_provider.get_market_data_at_time(
+                        signal.symbol,
+                        timestamp,
+                        timeframe="1s"
+                    )
+                    if market_data:
+                        current_price = market_data.close
+                except Exception as e:
+                    self.logger.warning("backtesting_engine.price_query_failed", {
+                        "symbol": signal.symbol,
+                        "error": str(e)
+                    })
+
+            if current_price is None:
+                self.logger.error("backtesting_engine.no_price_available", {
+                    "symbol": signal.symbol,
+                    "signal_timestamp": signal.timestamp
+                })
+                return
 
             # Calculate position size
             quantity = self._calculate_position_size(current_price)
@@ -441,8 +495,35 @@ class BacktestingEngine:
             })
             return
 
-        # Get current market price
-        current_price = 50000.0  # Placeholder - should come from market data
+        # Get current market price from data provider (FIXED: was hardcoded 50000.0)
+        current_price = None
+
+        if self.data_provider:
+            current_price = self.data_provider.get_current_price(signal.symbol)
+
+        # Fallback: try to get from signal timestamp if data provider query available
+        if current_price is None and self.data_provider and hasattr(signal, 'timestamp'):
+            try:
+                timestamp = datetime.fromtimestamp(signal.timestamp / 1000)
+                market_data = await self.data_provider.get_market_data_at_time(
+                    signal.symbol,
+                    timestamp,
+                    timeframe="1s"
+                )
+                if market_data:
+                    current_price = market_data.close
+            except Exception as e:
+                self.logger.warning("backtesting_engine.price_query_failed", {
+                    "symbol": signal.symbol,
+                    "error": str(e)
+                })
+
+        if current_price is None:
+            self.logger.error("backtesting_engine.no_price_available", {
+                "symbol": signal.symbol,
+                "signal_timestamp": signal.timestamp
+            })
+            return
 
         position = self.open_positions[position_key]
         quantity = min(position['quantity'], self._calculate_position_size(current_price))
