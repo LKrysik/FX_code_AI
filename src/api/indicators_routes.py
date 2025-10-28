@@ -855,27 +855,9 @@ async def add_indicator_for_session(
             # Don't fail the request if QuestDB save fails
             # (backward compatibility - indicators still calculated)
 
-        # Still save to CSV for backward compatibility during transition
-        variant_type = str(getattr(variant, "variant_type", None) or "general").lower()
-        try:
-            persistence_service.save_batch_values(
-                session_id,
-                symbol,
-                variant_id,
-                series,
-                variant_type=variant_type
-            )
-            file_info = persistence_service.get_file_info(session_id, symbol, variant_id, variant_type)
-        except Exception as exc:
-            logger = get_logger(__name__)
-            logger.warning("indicators_routes.csv_save_failed", {
-                "session_id": session_id,
-                "symbol": symbol,
-                "indicator_id": indicator_id,
-                "error": str(exc)
-            })
-            # CSV save failed, but QuestDB save succeeded - continue
-            file_info = {"path": "questdb://indicators", "rows": len(series)}
+        # REMOVED: CSV dual-write eliminated to prevent data inconsistency
+        # All indicator data now stored exclusively in QuestDB
+        file_info = {"path": "questdb://indicators", "rows": len(series)}
 
         recent_values = [
             {"timestamp": value.timestamp, "value": value.value}
