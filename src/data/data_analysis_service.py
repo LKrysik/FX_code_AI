@@ -309,15 +309,17 @@ class DataAnalysisService:
             ValueError: If session not found or session is active
             RuntimeError: If database deletion fails
 
-        ✅ BUG-001 FIX: Implemented proper cascade delete using QuestDBDataProvider
+        ✅ ARCHITECTURAL FIX: Propagates exceptions instead of swallowing them.
+        API layer handles exception-to-HTTP-status mapping.
         """
-        try:
-            logger.info("delete_session_start", {
-                "session_id": session_id
-            })
+        logger.info("delete_session_start", {
+            "session_id": session_id
+        })
 
+        try:
             # 1. Delegate to QuestDBDataProvider for database deletion
-            #    This handles validation (session exists, not active) and cascade delete
+            #    This validates (session exists, not active) and performs cascade delete
+            #    Raises ValueError for validation errors, RuntimeError for DB errors
             result = await self.db_provider.delete_session(session_id)
 
             # 2. Clear caches after successful database deletion
@@ -343,32 +345,38 @@ class DataAnalysisService:
 
             return result
 
-        except ValueError as e:
-            # Validation error (session not found or active)
-            logger.warning("delete_session_validation_failed", {
-                "session_id": session_id,
-                "error": str(e)
-            })
-            return {
-                "success": False,
-                "session_id": session_id,
-                "error": str(e),
-                "message": "Session deletion validation failed"
-            }
+        except (ValueError, RuntimeError) as e:
+            # Log at service layer for traceability, then re-raise
+            # ValueError: validation errors (session not found, active)
+            # RuntimeError: database errors
+            error_type = type(e).__name__
+
+            if isinstance(e, ValueError):
+                logger.warning("delete_session_validation_failed", {
+                    "session_id": session_id,
+                    "error": str(e),
+                    "error_type": error_type
+                })
+            else:
+                logger.error("delete_session_database_error", {
+                    "session_id": session_id,
+                    "error": str(e),
+                    "error_type": error_type
+                })
+
+            # Re-raise exception for API layer to handle
+            raise
 
         except Exception as e:
-            # Database error or unexpected issue
-            logger.error("delete_session_failed", {
+            # Unexpected errors - log and wrap in RuntimeError
+            logger.error("delete_session_unexpected_error", {
                 "session_id": session_id,
                 "error": str(e),
                 "error_type": type(e).__name__
             })
-            return {
-                "success": False,
-                "session_id": session_id,
-                "error": f"Database deletion failed: {str(e)}",
-                "message": "Failed to delete session from database"
-            }
+
+            # Wrap unexpected exceptions in RuntimeError for consistent error handling
+            raise RuntimeError(f"Unexpected error during session deletion: {str(e)}") from e
 
     async def _load_symbol_data(self, session_id: str, symbol: str) -> Optional[List[Dict[str, Any]]]:
         """
