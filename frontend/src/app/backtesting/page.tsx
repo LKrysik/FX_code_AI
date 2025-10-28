@@ -50,7 +50,8 @@ import {
   PieChart as PieChartIcon,
 } from '@mui/icons-material';
 import { apiService } from '@/services/api';
-import { strategyBuilderApi, StrategyBlueprintSummary } from '@/services/strategyBuilderApi';
+// DEPRECATED: Visual Strategy Builder removed - only 5-section strategies supported
+// import { strategyBuilderApi, StrategyBlueprintSummary } from '@/services/strategyBuilderApi';
 import { SystemStatusIndicator } from '@/components/common/SystemStatusIndicator';
 import {
   getSessionStatusColor,
@@ -102,7 +103,8 @@ export default function BacktestingPage() {
   const [sessions, setSessions] = useState<BacktestSession[]>([]);
   const [selectedSession, setSelectedSession] = useState<BacktestResult | null>(null);
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
-  const [availableStrategies, setAvailableStrategies] = useState<StrategyBlueprintSummary[]>([]);
+  // DEPRECATED: Visual Strategy Builder removed
+  // const [availableStrategies, setAvailableStrategies] = useState<StrategyBlueprintSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [snackbar, setSnackbar] = useState<{open: boolean, message: string, severity: 'success' | 'error' | 'info' | 'warning'}>({
@@ -142,23 +144,25 @@ export default function BacktestingPage() {
   useEffect(() => {
     loadBacktestSessions();
     loadDataSources();
-    loadAvailableStrategies();
+    // DEPRECATED: Visual Strategy Builder removed
+    // loadAvailableStrategies();
   }, []);
 
-  const loadAvailableStrategies = async () => {
-    try {
-      const response = await strategyBuilderApi.listBlueprints();
-      setAvailableStrategies(response.blueprints);
-    } catch (error) {
-      console.error('Failed to load available strategies:', error);
-      setAvailableStrategies([]);
-      setSnackbar({
-        open: true,
-        message: 'Failed to load available strategies',
-        severity: 'error'
-      });
-    }
-  };
+  // DEPRECATED: Visual Strategy Builder removed - only 5-section strategies supported
+  // const loadAvailableStrategies = async () => {
+  //   try {
+  //     const response = await strategyBuilderApi.listBlueprints();
+  //     setAvailableStrategies(response.blueprints);
+  //   } catch (error) {
+  //     console.error('Failed to load available strategies:', error);
+  //     setAvailableStrategies([]);
+  //     setSnackbar({
+  //       open: true,
+  //       message: 'Failed to load available strategies',
+  //       severity: 'error'
+  //     });
+  //   }
+  // };
 
   const loadDataSources = async () => {
     try {
@@ -283,11 +287,23 @@ export default function BacktestingPage() {
         return;
       }
 
+      // DEPRECATED: Visual Strategy Builder removed
       // Load the selected strategy graph
-      const strategyId = backtestForm.selected_strategies[0];
-      const response = await strategyBuilderApi.getBlueprint(strategyId);
-      const strategyGraph = response.blueprint.graph;
+      // const strategyId = backtestForm.selected_strategies[0];
+      // const response = await strategyBuilderApi.getBlueprint(strategyId);
+      // const strategyGraph = response.blueprint.graph;
 
+      // DEPRECATED: Backtest requires reimplementation with 5-section strategies
+      // Visual Strategy Builder has been removed
+      setSnackbar({
+        open: true,
+        message: 'Backtest functionality requires reimplementation after Strategy Builder removal',
+        severity: 'warning'
+      });
+      setLoading(false);
+      return;
+
+      /* COMMENTED OUT - Requires strategy_graph from Visual Builder
       const backtestData = {
         session_type: 'backtest',
         symbols: backtestForm.symbols,
@@ -829,7 +845,8 @@ export default function BacktestingPage() {
                 </Select>
               </FormControl>
 
-              <FormControl fullWidth>
+              {/* DEPRECATED: Visual Strategy Builder removed */}
+              {/* <FormControl fullWidth>
                 <InputLabel>Strategies to Test</InputLabel>
                 <Select
                   multiple
@@ -871,7 +888,11 @@ export default function BacktestingPage() {
                 <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
                   Select strategy blueprints from Strategy Builder to test against historical data. Multiple strategies can be compared.
                 </Typography>
-              </FormControl>
+              </FormControl> */}
+
+              <Alert severity="warning" sx={{ mt: 2, mb: 2 }}>
+                Backtest functionality temporarily disabled. Strategy Builder removed - only 5-section strategies supported.
+              </Alert>
 
               <FormControl fullWidth>
                 <InputLabel>Data Sources (Historical Sessions)</InputLabel>
