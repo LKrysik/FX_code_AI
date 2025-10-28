@@ -45,7 +45,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from data_feed.questdb_provider import QuestDBProvider
 from data.data_collection_persistence_service import DataCollectionPersistenceService
-from core.logger import StructuredLogger
+from core.logger import StructuredLogger, get_logger
 
 
 class CSVMigrator:
@@ -419,7 +419,9 @@ async def main():
     args = parser.parse_args()
 
     # Setup logger
-    logger = StructuredLogger("migration", log_level="DEBUG" if args.verbose else "INFO")
+    # ✅ LOGGER FIX: Use get_logger() instead of direct StructuredLogger
+    # Note: Log level controlled by config.json, not by --verbose flag
+    logger = get_logger("migration")
 
     logger.info("migration.init", {
         "data_dir": str(args.data_dir),

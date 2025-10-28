@@ -991,39 +991,6 @@ class Container:
 
         return await self._get_or_create_singleton_async("metrics_exporter", _create)
 
-    async def create_strategy_blueprints_api(self):
-        """
-        Create strategy blueprints API for visual strategy builder.
-        Uses singleton pattern to prevent multiple instances.
-
-        Returns:
-            Configured strategy blueprints API
-        """
-        async def _create():
-            try:
-                from ..api.strategy_blueprints import StrategyBlueprintsAPI
-
-                websocket_server = await self.create_websocket_server()
-                jwt_secret = getattr(self.settings, 'jwt_secret', None) or getattr(
-                    websocket_server,
-                    'jwt_secret',
-                    'dev_jwt_secret_key'
-                )
-
-                api = StrategyBlueprintsAPI(
-                    logger=self.logger,
-                    jwt_secret=jwt_secret
-                )
-                return api
-            except Exception as e:
-                self.logger.error("container.strategy_blueprints_api_creation_failed", {
-                    "error": str(e),
-                    "error_type": type(e).__name__
-                })
-                raise RuntimeError(f"Failed to create strategy blueprints API: {str(e)}") from e
-
-        return await self._get_or_create_singleton_async("strategy_blueprints_api", _create)
-
     async def create_ops_api(self):
         """
         Create operations API for dashboard and risk controls.

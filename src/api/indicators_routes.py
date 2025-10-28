@@ -18,7 +18,7 @@ from typing import List, Dict, Any, Optional, Set, Tuple, Callable
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse
 
-from src.core.logger import StructuredLogger, get_logger
+from src.core.logger import get_logger
 
 from src.core.event_bus import EventPriority
 from src.domain.services.streaming_indicator_engine import StreamingIndicatorEngine
@@ -122,7 +122,8 @@ def _ensure_questdb_providers() -> Tuple[QuestDBProvider, QuestDBDataProvider]:
         )
 
     if _questdb_data_provider is None:
-        logger = StructuredLogger("indicators_routes_questdb")
+        # ✅ LOGGER FIX: Use get_logger() instead of direct StructuredLogger instantiation
+        logger = get_logger("indicators_routes_questdb")
         _questdb_data_provider = QuestDBDataProvider(_questdb_provider, logger)
 
     return _questdb_provider, _questdb_data_provider
@@ -762,6 +763,16 @@ async def add_indicator_for_session(
     }
     """
     try:
+        # Validate session exists before adding indicators
+        # Prevents orphaned indicators in QuestDB (no FK constraints)
+        analysis_service, questdb_provider = _ensure_support_services()
+        session_metadata = await analysis_service.get_session_metadata(session_id)
+        if not session_metadata:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Session '{session_id}' not found. Cannot add indicators to non-existent session."
+            )
+
         body = await request.json()
         variant_id = body.get('variant_id')
         parameters = body.get('parameters', {})
@@ -855,27 +866,9 @@ async def add_indicator_for_session(
             # Don't fail the request if QuestDB save fails
             # (backward compatibility - indicators still calculated)
 
-        # Still save to CSV for backward compatibility during transition
-        variant_type = str(getattr(variant, "variant_type", None) or "general").lower()
-        try:
-            persistence_service.save_batch_values(
-                session_id,
-                symbol,
-                variant_id,
-                series,
-                variant_type=variant_type
-            )
-            file_info = persistence_service.get_file_info(session_id, symbol, variant_id, variant_type)
-        except Exception as exc:
-            logger = get_logger(__name__)
-            logger.warning("indicators_routes.csv_save_failed", {
-                "session_id": session_id,
-                "symbol": symbol,
-                "indicator_id": indicator_id,
-                "error": str(exc)
-            })
-            # CSV save failed, but QuestDB save succeeded - continue
-            file_info = {"path": "questdb://indicators", "rows": len(series)}
+        # REMOVED: CSV dual-write eliminated to prevent data inconsistency
+        # All indicator data now stored exclusively in QuestDB
+        file_info = {"path": "questdb://indicators", "rows": len(series)}
 
         recent_values = [
             {"timestamp": value.timestamp, "value": value.value}
@@ -1104,7 +1097,7 @@ async def get_indicator_history(
             })
 
         except Exception as db_error:
-            # Log database error
+            # REMOVED: CSV fallback eliminated - QuestDB is single source of truth
             logger = get_logger(__name__)
             logger.error("indicators_routes.history_questdb_failed", {
                 "session_id": session_id,
@@ -1112,51 +1105,10 @@ async def get_indicator_history(
                 "indicator_id": indicator_id,
                 "error": str(db_error)
             })
-
-            # Fallback to CSV for backward compatibility during transition
-            logger.warning("indicators_routes.history_fallback_to_csv", {
-                "session_id": session_id,
-                "symbol": symbol,
-                "indicator_id": indicator_id
-            })
-
-            persistence_service, _ = _ensure_support_services()
-            variant_id = config.get("variant_id")
-            if not variant_id:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Indicator '{indicator_id}' missing variant metadata"
-                )
-            variant_type = str(config.get("variant_type") or "general").lower()
-
-            result = persistence_service.load_values_with_stats(
-                session_id=session_id,
-                symbol=symbol,
-                variant_id=variant_id,
-                variant_type=variant_type,
-                limit=limit
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to query indicator history from QuestDB: {str(db_error)}"
             )
-
-            history = [
-                {
-                    "timestamp": value.timestamp,
-                    "value": value.value,
-                    "metadata": value.metadata
-                }
-                for value in result["values"]
-            ]
-
-            return _json_ok({
-                "session_id": session_id,
-                "symbol": symbol,
-                "indicator_id": indicator_id,
-                "history": history,
-                "limit": limit,
-                "total_count": result["returned_count"],
-                "total_available": result["total_available"],
-                "limited": result["limited"],
-                "source": "csv_fallback"  # ✅ Indicate fallback used
-            })
 
     except HTTPException:
         raise
