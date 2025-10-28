@@ -44,9 +44,6 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
-# Import strategy blueprints API
-from src.api.strategy_blueprints import blueprints_api
-
 # Import data analysis API
 from src.api.data_analysis_routes import router as data_analysis_router
 
@@ -145,20 +142,13 @@ def create_unified_app():
         strategy_storage = StrategyStorage("config/strategies")
         app.state.strategy_storage = strategy_storage
 
-        # Initialize strategy blueprints API with proper dependency injection
-        from src.api.strategy_blueprints import blueprints_api
-        proper_blueprints_api = await container.create_strategy_blueprints_api()
-        # Replace the global instance with properly injected one
-        import src.api.strategy_blueprints as blueprints_module
-        blueprints_module.blueprints_api = proper_blueprints_api
-
         # Initialize ops API with proper dependencies
         ops_api = await container.create_ops_api()
         # Replace the global instance with properly injected one
         import src.api.ops.ops_routes as ops_module
         ops_module.ops_api = ops_api
 
-        # Initialize live graph executor for strategy blueprints
+        # Initialize live graph executor
         try:
             from src.engine.graph_adapter import get_live_executor
             live_executor = get_live_executor(event_bus)
@@ -247,9 +237,6 @@ def create_unified_app():
         logger.info("Unified server shutdown complete.")
 
     app = FastAPI(title="Unified Trading API", debug=True, lifespan=lifespan)
-
-    # Include strategy blueprints API router
-    app.include_router(blueprints_api.get_router())
 
     # Include data analysis API router
     app.include_router(data_analysis_router)
