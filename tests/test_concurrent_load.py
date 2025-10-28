@@ -20,7 +20,7 @@ try:
     )
     from src.domain.services.streaming_indicator_engine import StreamingIndicatorEngine
     from src.core.event_bus import EventBus
-    from src.core.logger import StructuredLogger
+    from src.core.logger import StructuredLogger, get_logger
 except ImportError:
     # Mock for testing
     pass
@@ -34,7 +34,8 @@ class TestConcurrentLoad:
         """Setup load testing framework"""
         # This would be replaced with actual service initialization
         event_bus = EventBus()
-        logger = StructuredLogger("load_test")
+        # ✅ LOGGER FIX: Use get_logger() instead of direct StructuredLogger
+        logger = get_logger("load_test")
         engine = StreamingIndicatorEngine(event_bus, logger)
 
         framework = LoadTestFramework(engine, event_bus, logger)
@@ -186,7 +187,8 @@ async def run_load_tests():
 
     # Initialize services (simplified for testing)
     event_bus = EventBus()
-    logger = StructuredLogger("load_test")
+    # ✅ LOGGER FIX: Use get_logger() instead of direct StructuredLogger
+    logger = get_logger("load_test")
     engine = StreamingIndicatorEngine(event_bus, logger)
 
     try:
