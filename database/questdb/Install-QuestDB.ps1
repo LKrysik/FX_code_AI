@@ -499,7 +499,7 @@ function Install-QuestDB {
     Write-Header "Database Information"
 
     try {
-        $tablesQuery = "SELECT table_name FROM tables() ORDER BY table_name"
+        $tablesQuery = 'SELECT table_name FROM tables() ORDER BY table_name'
         $tables = Invoke-QuestDBQuery -Query $tablesQuery
 
         if ($tables.dataset) {
@@ -973,7 +973,7 @@ function Install-QuestDB {
     Write-Header "Database Information"
 
     try {
-        $tablesQuery = "SELECT table_name FROM tables() ORDER BY table_name"
+        $tablesQuery = 'SELECT table_name FROM tables() ORDER BY table_name'
         $tables = Invoke-QuestDBQuery -Query $tablesQuery
 
         if ($tables.dataset) {
