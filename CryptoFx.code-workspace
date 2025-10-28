@@ -2,10 +2,6 @@
 	"folders": [
 		{
 			"path": "."
-		},
-		{
-			"name": "FX_code_AI",
-			"path": "FX_code_AI"
 		}
 	],
 	"settings": {
