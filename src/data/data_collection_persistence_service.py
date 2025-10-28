@@ -362,63 +362,83 @@ class DataCollectionPersistenceService:
             return None
 
     async def _insert_session_metadata(self, session: Dict[str, Any]) -> None:
-        """Insert session metadata into database."""
-        # Use PostgreSQL wire protocol for INSERT
+        """Insert session metadata into database using parameterized query."""
         import json
 
-        query = f"""
+        # Parameterized query prevents SQL injection
+        query = """
         INSERT INTO data_collection_sessions (
             session_id, status, symbols, data_types, collection_interval_ms,
             start_time, end_time, duration_seconds,
             records_collected, prices_count, orderbook_count, trades_count, errors_count,
             exchange, notes, created_at, updated_at
         ) VALUES (
-            '{session['session_id']}',
-            '{session['status']}',
-            '{json.dumps(session['symbols'])}',
-            '{json.dumps(session['data_types'])}',
-            1000,
-            {self._timestamp_to_questdb(session['start_time'])},
-            NULL,
-            0,
+            $1, $2, $3, $4, $5,
+            cast($6 as timestamp), NULL, 0,
             0, 0, 0, 0, 0,
-            '{session.get('exchange', 'mexc')}',
-            '{session.get('notes', '')}',
-            {self._timestamp_to_questdb(session['created_at'])},
-            {self._timestamp_to_questdb(session['updated_at'])}
+            $7, $8, cast($9 as timestamp), cast($10 as timestamp)
         )
         """
 
-        await self.db_provider.execute_query(query)
+        # Convert datetime to microseconds (LONG) for QuestDB
+        start_time_us = int(session['start_time'].timestamp() * 1_000_000)
+        created_at_us = int(session['created_at'].timestamp() * 1_000_000)
+        updated_at_us = int(session['updated_at'].timestamp() * 1_000_000)
+
+        params = [
+            session['session_id'],
+            session['status'],
+            json.dumps(session['symbols']),
+            json.dumps(session['data_types']),
+            1000,  # collection_interval_ms
+            start_time_us,
+            session.get('exchange', 'mexc'),
+            session.get('notes', ''),
+            created_at_us,
+            updated_at_us
+        ]
+
+        await self.db_provider.execute_query(query, params)
 
     async def _update_session_metadata(self, session: Dict[str, Any]) -> None:
-        """Update session metadata in database."""
-        end_time = self._timestamp_to_questdb(session['end_time']) if session.get('end_time') else 'NULL'
+        """Update session metadata in database using parameterized query."""
 
-        query = f"""
+        # Parameterized query prevents SQL injection
+        query = """
         UPDATE data_collection_sessions SET
-            status = '{session['status']}',
-            end_time = {end_time},
-            duration_seconds = {session['duration_seconds']},
-            records_collected = {session['records_collected']},
-            prices_count = {session.get('prices_count', 0)},
-            orderbook_count = {session.get('orderbook_count', 0)},
-            trades_count = {session.get('trades_count', 0)},
-            errors_count = {session.get('errors_count', 0)},
-            updated_at = {self._timestamp_to_questdb(session['updated_at'])}
-        WHERE session_id = '{session['session_id']}'
+            status = $1,
+            end_time = cast($2 as timestamp),
+            duration_seconds = $3,
+            records_collected = $4,
+            prices_count = $5,
+            orderbook_count = $6,
+            trades_count = $7,
+            errors_count = $8,
+            updated_at = cast($9 as timestamp)
+        WHERE session_id = $10
         """
 
-        await self.db_provider.execute_query(query)
+        # Convert datetime to microseconds (LONG) for QuestDB, handle NULL for end_time
+        end_time_us = None
+        if session.get('end_time'):
+            end_time_us = int(session['end_time'].timestamp() * 1_000_000)
 
-    def _timestamp_to_questdb(self, dt: Optional[datetime]) -> str:
-        """Convert datetime to QuestDB timestamp format."""
-        if dt is None:
-            return 'NULL'
+        updated_at_us = int(session['updated_at'].timestamp() * 1_000_000)
 
-        # QuestDB expects microseconds since epoch
-        timestamp_us = int(dt.timestamp() * 1_000_000)
-        return f"to_timestamp({timestamp_us}, 'yyyy-MM-ddTHH:mm:ss.SSSUUUZ')"
+        params = [
+            session['status'],
+            end_time_us,
+            session['duration_seconds'],
+            session['records_collected'],
+            session.get('prices_count', 0),
+            session.get('orderbook_count', 0),
+            session.get('trades_count', 0),
+            session.get('errors_count', 0),
+            updated_at_us,
+            session['session_id']
+        ]
+
+        await self.db_provider.execute_query(query, params)
 
 
 class OHLCVAggregator:
