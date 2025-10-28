@@ -52,6 +52,7 @@ from src.api.ops.ops_routes import router as ops_router
 
 # Import indicators API
 from src.api.indicators_routes import router as indicators_router
+from src.api.indicators_crud_routes import router as indicators_crud_router
 
 
 class LoginRequest(BaseModel):
@@ -246,6 +247,9 @@ def create_unified_app():
 
     # Include indicators API router
     app.include_router(indicators_router)
+
+    # Include indicators CRUD API router (simplified CRUD endpoints)
+    app.include_router(indicators_crud_router)
 
     # JWT Authentication dependency
     async def get_current_user(request: Request) -> UserSession:
