@@ -314,22 +314,80 @@ async def list_sessions(
 
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):
-    """Delete a data collection session and its associated files."""
+    """
+    Delete a data collection session and its associated data.
+
+    Performs cascade delete of:
+    - Session metadata
+    - Tick prices
+    - Orderbook snapshots
+    - Aggregated OHLCV candles
+    - Indicators
+    - Backtest results
+
+    Returns 404 if session not found, 409 if session is active.
+    """
     try:
         result = await analysis_service.delete_session(session_id)
-        if result.get('success'):
-            return {
-                'success': True,
-                'message': f'Session {session_id} deleted successfully',
-                'deleted_files': result.get('deleted_files', [])
-            }
+
+        logger.info("session_deleted_successfully", {
+            "session_id": session_id,
+            "deleted_counts": result.get('deleted_counts', {})
+        })
+
+        return {
+            'success': True,
+            'message': result.get('message', f'Session {session_id} deleted successfully'),
+            'session_id': session_id,
+            'deleted_counts': result.get('deleted_counts', {})
+        }
+
+    except ValueError as e:
+        # Validation errors: session not found, session active, invalid input
+        error_msg = str(e)
+
+        # Determine appropriate HTTP status code
+        if "not found" in error_msg.lower():
+            status_code = 404
+        elif "active" in error_msg.lower() or "cannot delete" in error_msg.lower():
+            status_code = 409  # Conflict
         else:
-            raise HTTPException(status_code=404, detail=f"Session {session_id} not found or could not be deleted")
-    except Exception as e:
-        logger.error("session_deletion_failed", {
+            status_code = 400  # Bad request
+
+        logger.warning("session_deletion_validation_failed", {
+            "session_id": session_id,
+            "error": error_msg,
+            "status_code": status_code
+        })
+
+        raise HTTPException(
+            status_code=status_code,
+            detail=f"Failed to delete session: {error_msg}"
+        )
+
+    except RuntimeError as e:
+        # Database errors during deletion
+        logger.error("session_deletion_database_error", {
             "session_id": session_id,
             "error": str(e),
             "error_type": type(e).__name__
         })
-        raise HTTPException(status_code=500, detail=f"Failed to delete session: {str(e)}")
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error during session deletion: {str(e)}"
+        )
+
+    except Exception as e:
+        # Unexpected errors
+        logger.error("session_deletion_unexpected_error", {
+            "session_id": session_id,
+            "error": str(e),
+            "error_type": type(e).__name__
+        })
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected error during session deletion: {str(e)}"
+        )
 
