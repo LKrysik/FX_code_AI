@@ -1086,7 +1086,7 @@ async def get_indicator_history(
             })
 
         except Exception as db_error:
-            # Log database error
+            # REMOVED: CSV fallback eliminated - QuestDB is single source of truth
             logger = get_logger(__name__)
             logger.error("indicators_routes.history_questdb_failed", {
                 "session_id": session_id,
@@ -1094,51 +1094,10 @@ async def get_indicator_history(
                 "indicator_id": indicator_id,
                 "error": str(db_error)
             })
-
-            # Fallback to CSV for backward compatibility during transition
-            logger.warning("indicators_routes.history_fallback_to_csv", {
-                "session_id": session_id,
-                "symbol": symbol,
-                "indicator_id": indicator_id
-            })
-
-            persistence_service, _ = _ensure_support_services()
-            variant_id = config.get("variant_id")
-            if not variant_id:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Indicator '{indicator_id}' missing variant metadata"
-                )
-            variant_type = str(config.get("variant_type") or "general").lower()
-
-            result = persistence_service.load_values_with_stats(
-                session_id=session_id,
-                symbol=symbol,
-                variant_id=variant_id,
-                variant_type=variant_type,
-                limit=limit
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to query indicator history from QuestDB: {str(db_error)}"
             )
-
-            history = [
-                {
-                    "timestamp": value.timestamp,
-                    "value": value.value,
-                    "metadata": value.metadata
-                }
-                for value in result["values"]
-            ]
-
-            return _json_ok({
-                "session_id": session_id,
-                "symbol": symbol,
-                "indicator_id": indicator_id,
-                "history": history,
-                "limit": limit,
-                "total_count": result["returned_count"],
-                "total_available": result["total_available"],
-                "limited": result["limited"],
-                "source": "csv_fallback"  # ✅ Indicate fallback used
-            })
 
     except HTTPException:
         raise
