@@ -25,7 +25,15 @@
       "Bash(then git mv goals/* archive/)",
       "Bash(if [ -d templates ])",
       "Bash(then git rm -r templates/)",
-      "Bash(pytest:*)"
+      "Bash(pytest:*)",
+      "WebSearch",
+      "Bash(curl:*)",
+      "Bash(python -m json.tool:*)",
+      "Bash(.venvScriptspython.exe -c \"from src.data_feed.questdb_provider import QuestDBProvider; import inspect; print(inspect.getsource(QuestDBProvider.delete_tick_prices)[:500])\")",
+      "Bash(.venv/Scripts/python.exe:*)",
+      "Bash(Get-Content \"C:\\Users\\lukasz.krysik\\Desktop\\FXcrypto\\FX_code_AI_v2\\src\\data_feed\\questdb_provider.py\")",
+      "Bash(Select-String -Pattern \"def delete_tick_prices\" -Context 0,15)",
+      "Bash(rm:*)"
     ],
     "deny": [],
     "ask": []
