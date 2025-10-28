@@ -31,13 +31,25 @@ class FileExchangeConfig:
 
 class FileConnector(ExchangeConnector):
     """
-    Exchange connector that reads from JSONL files instead of live WebSocket.
-    
+    Exchange connector that reads from CSV/JSONL files instead of live WebSocket.
+
+    ⚠️ LEGACY: This connector is maintained for external data import only.
+
+    🔄 MIGRATION NOTE (2025-10-28):
+    For backtesting with internal data, use QuestDBHistoricalDataSource instead.
+
+    Use cases for FileConnector:
+    - Importing external market data from CSV files
+    - Replaying historical data from third-party sources
+    - Testing with custom datasets
+
     Features:
-    - Reads market data from JSONL files
+    - Reads market data from CSV/JSONL files
     - Simulates real-time playback based on timestamps
     - Supports variable playback speed
     - Can loop data for continuous testing
+
+    Recommended alternative: QuestDBHistoricalDataSource (10x faster, better reliability)
     """
     
     def __init__(
