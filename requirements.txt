@@ -19,5 +19,5 @@ redis
 # QuestDB dependencies
 asyncpg
 psycopg2-binary
-questdb
+questdb>=4.0.0,<5.0.0
 requests

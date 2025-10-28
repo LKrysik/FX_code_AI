@@ -167,11 +167,11 @@ pip install questdb psycopg2-binary
 ### Fast Bulk Insert (InfluxDB Line Protocol)
 
 ```python
-from questdb.ingress import Sender
+from questdb.ingress import Sender, Protocol
 import pandas as pd
 
 # Context manager automatically flushes and closes
-with Sender('localhost', 9009) as sender:
+with Sender(Protocol.Tcp, 'localhost', 9009) as sender:
     # Single row
     sender.row(
         'prices',
@@ -275,10 +275,10 @@ with open('prices.csv', 'rb') as f:
 
 ```python
 import time
-from questdb.ingress import Sender
+from questdb.ingress import Sender, Protocol
 
 # Test: Insert 100K rows
-with Sender('localhost', 9009) as sender:
+with Sender(Protocol.Tcp, 'localhost', 9009) as sender:
     start = time.time()
 
     for i in range(100000):
@@ -408,14 +408,14 @@ with open('prices.csv', 'rb') as f:
 
 **Option 3: Python Script (Fastest)**
 ```python
-from questdb.ingress import Sender
+from questdb.ingress import Sender, Protocol
 import pandas as pd
 
 # Read CSV
 df = pd.read_csv('prices.csv')
 
 # Insert in batches
-with Sender('localhost', 9009) as sender:
+with Sender(Protocol.Tcp, 'localhost', 9009) as sender:
     for _, row in df.iterrows():
         sender.row(
             'prices',

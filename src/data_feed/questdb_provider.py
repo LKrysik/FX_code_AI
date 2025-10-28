@@ -36,7 +36,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
 import pandas as pd
 import asyncpg
-from questdb.ingress import Sender, IngressError, TimestampNanos
+from questdb.ingress import Sender, IngressError, TimestampNanos, Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +110,19 @@ class QuestDBProvider:
             self.pg_pool = None
             logger.info("PostgreSQL pool closed")
 
+    def _get_sender(self) -> Sender:
+        """
+        Create and return configured Sender instance.
+
+        Uses TCP protocol for InfluxDB Line Protocol (ILP) writes.
+        This method centralizes Sender creation to ensure consistency
+        and simplify future protocol changes.
+
+        Returns:
+            Configured Sender instance for ILP writes
+        """
+        return Sender(Protocol.Tcp, self.ilp_host, self.ilp_port)
+
     # ========================================================================
     # FAST WRITES (InfluxDB Line Protocol)
     # ========================================================================
@@ -144,7 +157,7 @@ class QuestDBProvider:
             True if successful
         """
         try:
-            with Sender(self.ilp_host, self.ilp_port) as sender:
+            with self._get_sender() as sender:
                 columns = {
                     'open': open_price,
                     'high': high,
@@ -194,7 +207,7 @@ class QuestDBProvider:
         inserted = 0
 
         try:
-            with Sender(self.ilp_host, self.ilp_port) as sender:
+            with self._get_sender() as sender:
                 for price in prices:
                     columns = {
                         'open': price['open'],
@@ -252,7 +265,7 @@ class QuestDBProvider:
             True if successful
         """
         try:
-            with Sender(self.ilp_host, self.ilp_port) as sender:
+            with self._get_sender() as sender:
                 columns = {'value': value}
 
                 if confidence is not None:
@@ -299,7 +312,7 @@ class QuestDBProvider:
         inserted = 0
 
         try:
-            with Sender(self.ilp_host, self.ilp_port) as sender:
+            with self._get_sender() as sender:
                 for indicator in indicators:
                     columns = {'value': indicator['value']}
 
@@ -574,7 +587,7 @@ class QuestDBProvider:
         inserted = 0
 
         try:
-            with Sender(self.ilp_host, self.ilp_port) as sender:
+            with self._get_sender() as sender:
                 for tick in ticks:
                     timestamp_seconds = float(tick['timestamp'])
                     timestamp_ns = int(timestamp_seconds * 1_000_000_000)
@@ -624,7 +637,7 @@ class QuestDBProvider:
         inserted = 0
 
         try:
-            with Sender(self.ilp_host, self.ilp_port) as sender:
+            with self._get_sender() as sender:
                 for snapshot in snapshots:
                     timestamp_seconds = float(snapshot['timestamp'])
                     timestamp_ns = int(timestamp_seconds * 1_000_000_000)
@@ -685,7 +698,7 @@ class QuestDBProvider:
         inserted = 0
 
         try:
-            with Sender(self.ilp_host, self.ilp_port) as sender:
+            with self._get_sender() as sender:
                 for candle in candles:
                     timestamp_seconds = float(candle['timestamp'])
                     timestamp_ns = int(timestamp_seconds * 1_000_000_000)
@@ -1094,7 +1107,7 @@ class QuestDBProvider:
 
         # Test InfluxDB line protocol
         try:
-            with Sender(self.ilp_host, self.ilp_port) as sender:
+            with self._get_sender() as sender:
                 sender.row(
                     'health_check',
                     symbols={'test': 'test'},

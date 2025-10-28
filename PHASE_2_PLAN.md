@@ -346,9 +346,9 @@ After (QuestDB):
 ```python
 # Test 1: Fast bulk insert
 import time
-from questdb.ingress import Sender
+from questdb.ingress import Sender, Protocol
 
-with Sender('localhost', 9009) as sender:
+with Sender(Protocol.Tcp, 'localhost', 9009) as sender:
     start = time.time()
     for i in range(100000):
         sender.row(
