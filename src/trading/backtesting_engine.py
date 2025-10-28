@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..core.logger import StructuredLogger
+from ..core.logger import StructuredLogger, get_logger
 from ..core.event_bus import EventBus
 from ..infrastructure.config.settings import BacktestSettings
 from ..exchanges.file_connector import FileConnector, FileExchangeConfig
@@ -83,7 +83,8 @@ class BacktestingEngine:
     ):
         self.event_bus = event_bus
         self.db_provider = db_provider
-        self.logger = logger or StructuredLogger("backtesting_engine")
+        # ✅ LOGGER FIX: Use get_logger() for fallback instead of direct StructuredLogger
+        self.logger = logger or get_logger("backtesting_engine")
         self.settings = settings or BacktestSettings()
 
         # Core components

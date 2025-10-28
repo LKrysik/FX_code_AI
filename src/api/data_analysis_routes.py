@@ -21,7 +21,7 @@ from ..data.data_export_service import DataExportService
 from ..data.data_quality_service import DataQualityService
 from ..data.questdb_data_provider import QuestDBDataProvider
 from ..data_feed.questdb_provider import QuestDBProvider
-from ..core.logger import get_logger, StructuredLogger
+from ..core.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -29,14 +29,14 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/data-collection", tags=["data-analysis"])
 
 # ✅ STEP 3.3: Initialize QuestDB provider and data provider
-structured_logger = StructuredLogger("data_analysis_routes")
+# ✅ LOGGER FIX: Removed duplicate StructuredLogger, using logger from line 26
 questdb_provider = QuestDBProvider(
     ilp_host='127.0.0.1',
     ilp_port=9009,
     pg_host='127.0.0.1',
     pg_port=8812
 )
-questdb_data_provider = QuestDBDataProvider(questdb_provider, structured_logger)
+questdb_data_provider = QuestDBDataProvider(questdb_provider, logger)
 
 # Initialize services with QuestDB provider
 # ✅ BUG-003 FIX: Pass db_provider to DataExportService

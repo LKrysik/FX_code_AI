@@ -50,7 +50,7 @@ import json
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from data_feed.questdb_provider import QuestDBProvider
-from core.logger import StructuredLogger
+from core.logger import StructuredLogger, get_logger
 
 
 class IndicatorCSVMigrator:
@@ -396,7 +396,8 @@ async def main():
     args = parser.parse_args()
 
     # Initialize logger
-    logger = StructuredLogger("indicator_migration")
+    # ✅ LOGGER FIX: Use get_logger() instead of direct StructuredLogger
+    logger = get_logger("indicator_migration")
 
     # Initialize QuestDB provider
     logger.info("migration.init_questdb", {})
