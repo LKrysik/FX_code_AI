@@ -267,32 +267,91 @@ class DataAnalysisService:
 
     async def delete_session(self, session_id: str) -> Dict[str, Any]:
         """
-        Delete a data collection session from QuestDB.
+        Delete a data collection session from QuestDB (cascade delete).
 
-        ✅ STEP 3.2: Changed from file deletion to database deletion
-        Note: Actual DB deletion not implemented yet - would need new method in QuestDBProvider
+        Deletes session metadata and all related data:
+        - Tick prices
+        - Orderbook snapshots
+        - Aggregated OHLCV candles
+        - Indicators
+        - Backtest results
+
+        Args:
+            session_id: Session identifier
+
+        Returns:
+            Dictionary with deletion results:
+            {
+                'success': bool,
+                'session_id': str,
+                'deleted_counts': Dict[str, int],
+                'message': str
+            }
+
+        Raises:
+            ValueError: If session not found or session is active
+            RuntimeError: If database deletion fails
+
+        ✅ BUG-001 FIX: Implemented proper cascade delete using QuestDBDataProvider
         """
-        # TODO: Implement session deletion in QuestDB
-        # For now, just log warning
-        logger.warning("delete_session_not_implemented", {
-            "session_id": session_id,
-            "message": "Session deletion from QuestDB not yet implemented"
-        })
+        try:
+            logger.info("delete_session_start", {
+                "session_id": session_id
+            })
 
-        # Clear cache for session
-        with self._cache_lock:
-            cache_keys_to_remove = [key for key in self._symbol_cache.keys() if key[0] == session_id]
-            for key in cache_keys_to_remove:
-                del self._symbol_cache[key]
+            # 1. Delegate to QuestDBDataProvider for database deletion
+            #    This handles validation (session exists, not active) and cascade delete
+            result = await self.db_provider.delete_session(session_id)
 
-            if session_id in self._metadata_cache:
-                del self._metadata_cache[session_id]
+            # 2. Clear caches after successful database deletion
+            with self._cache_lock:
+                # Clear symbol cache (all entries for this session)
+                cache_keys_to_remove = [key for key in self._symbol_cache.keys() if key[0] == session_id]
+                for key in cache_keys_to_remove:
+                    del self._symbol_cache[key]
 
-        return {
-            "success": False,
-            "error": "Session deletion from QuestDB not yet implemented",
-            "message": "Cache cleared, but database records remain"
-        }
+                # Clear metadata cache
+                if session_id in self._metadata_cache:
+                    del self._metadata_cache[session_id]
+
+            # 3. Add informative message to result
+            total_deleted = result.get('deleted_counts', {}).get('total', 0)
+            result['message'] = f"Successfully deleted session {session_id} and {total_deleted} related records"
+
+            logger.info("delete_session_success", {
+                "session_id": session_id,
+                "deleted_counts": result.get('deleted_counts'),
+                "cache_cleared": True
+            })
+
+            return result
+
+        except ValueError as e:
+            # Validation error (session not found or active)
+            logger.warning("delete_session_validation_failed", {
+                "session_id": session_id,
+                "error": str(e)
+            })
+            return {
+                "success": False,
+                "session_id": session_id,
+                "error": str(e),
+                "message": "Session deletion validation failed"
+            }
+
+        except Exception as e:
+            # Database error or unexpected issue
+            logger.error("delete_session_failed", {
+                "session_id": session_id,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            return {
+                "success": False,
+                "session_id": session_id,
+                "error": f"Database deletion failed: {str(e)}",
+                "message": "Failed to delete session from database"
+            }
 
     async def _load_symbol_data(self, session_id: str, symbol: str) -> Optional[List[Dict[str, Any]]]:
         """
