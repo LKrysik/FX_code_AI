@@ -39,9 +39,11 @@ questdb_provider = QuestDBProvider(
 questdb_data_provider = QuestDBDataProvider(questdb_provider, structured_logger)
 
 # Initialize services with QuestDB provider
+# ✅ BUG-003 FIX: Pass db_provider to DataExportService
+# ✅ BUG-005 FIX: Pass db_provider to DataQualityService
 analysis_service = DataAnalysisService(db_provider=questdb_data_provider)
-export_service = DataExportService()
-quality_service = DataQualityService()
+export_service = DataExportService(db_provider=questdb_data_provider)
+quality_service = DataQualityService(db_provider=questdb_data_provider)
 
 @router.get("/{session_id}/analysis")
 async def get_session_analysis(

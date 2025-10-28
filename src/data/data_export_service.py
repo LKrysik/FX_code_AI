@@ -30,10 +30,29 @@ class DataExportService:
     - Symbol-specific filtering
     - Time range filtering
     - Compressed archives for large datasets
+
+    ✅ BUG-003 FIX: Changed from filesystem-based to QuestDB-based data loading
     """
 
-    def __init__(self, data_directory: str = "data/historical"):
-        self.data_directory = Path(data_directory)
+    def __init__(self, db_provider=None):
+        """
+        Initialize DataExportService with QuestDB provider.
+
+        Args:
+            db_provider: QuestDBDataProvider instance for database access
+
+        Raises:
+            ValueError: If db_provider is None
+
+        ✅ BUG-003 FIX: Now requires QuestDBDataProvider (was filesystem-based)
+        """
+        if db_provider is None:
+            raise ValueError(
+                "QuestDBDataProvider is required for DataExportService.\n"
+                "Filesystem-based data access has been removed. All data now comes from QuestDB."
+            )
+
+        self.db_provider = db_provider
         self.max_export_size = 100000  # Maximum rows per export
 
     async def export_session_csv(self, session_id: str, symbol: str = None) -> bytes:
@@ -234,41 +253,67 @@ class DataExportService:
             return None
 
     async def _load_session_metadata(self, session_id: str) -> Optional[Dict[str, Any]]:
-        """Load session metadata"""
-        try:
-            meta_file = self.data_directory / session_id / "session_metadata.json"
-            if not meta_file.exists():
-                return None
+        """
+        Load session metadata from QuestDB.
 
-            with open(meta_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
+        ✅ BUG-003 FIX: Changed from filesystem to QuestDB query
+
+        Args:
+            session_id: Session identifier
+
+        Returns:
+            Session metadata dictionary or None if not found
+        """
+        try:
+            metadata = await self.db_provider.get_session_metadata(session_id)
+            return metadata
         except Exception as e:
             logger.error(f"Failed to load session metadata for {session_id}: {e}")
             return None
 
-    def _load_session_metadata_sync(self, session_id: str) -> Optional[Dict[str, Any]]:
-        """Synchronous version for validation"""
-        try:
-            meta_file = self.data_directory / session_id / "session_metadata.json"
-            if not meta_file.exists():
-                return None
-
-            with open(meta_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception:
-            return None
-
     async def _load_symbol_data(self, session_id: str, symbol: str) -> Optional[List[Dict[str, Any]]]:
-        """Load data points for a specific symbol"""
+        """
+        Load tick price data for symbol from QuestDB.
+
+        ✅ BUG-003 FIX: Changed from filesystem to QuestDB query
+
+        Args:
+            session_id: Session identifier
+            symbol: Trading pair symbol
+
+        Returns:
+            List of price tick dictionaries or None if not found
+        """
         try:
-            data_file = self.data_directory / session_id / f"{symbol}.json"
-            if not data_file.exists():
+            # Query all tick prices for session/symbol
+            tick_prices = await self.db_provider.get_tick_prices(
+                session_id=session_id,
+                symbol=symbol
+                # No limit - export needs all data
+            )
+
+            if not tick_prices:
                 return None
 
-            with open(data_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            # Convert QuestDB format to export format
+            # QuestDB returns: {timestamp, price, volume, quote_volume}
+            # Export needs: {timestamp (ms), price, volume, ...}
+            export_data = []
+            for tick in tick_prices:
+                # Convert timestamp if needed
+                timestamp = tick.get('timestamp')
+                if isinstance(timestamp, datetime):
+                    timestamp = int(timestamp.timestamp() * 1000)  # Convert to milliseconds
 
-            return data
+                export_data.append({
+                    'timestamp': timestamp,
+                    'price': float(tick.get('price', 0)),
+                    'volume': float(tick.get('volume', 0)),
+                    'quote_volume': float(tick.get('quote_volume', 0))
+                })
+
+            return export_data
+
         except Exception as e:
             logger.error(f"Failed to load symbol data for {symbol} in session {session_id}: {e}")
             return None
