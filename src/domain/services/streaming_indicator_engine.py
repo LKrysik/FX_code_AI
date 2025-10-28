@@ -21,11 +21,11 @@ from threading import RLock
 try:
     from ...core.event_bus import EventBus, EventPriority
     from ...core.logger import StructuredLogger
-    from ..types.indicator_types import IndicatorConfig
+    from ..types.indicator_types import IndicatorConfig, VariantParameter
 except Exception:
     from src.core.event_bus import EventBus, EventPriority
     from src.core.logger import StructuredLogger
-    from src.domain.types.indicator_types import IndicatorConfig
+    from src.domain.types.indicator_types import IndicatorConfig, VariantParameter
 
 # Configuration constants
 INDICATORS_CONFIG_DIR = Path("config/indicators")
@@ -206,21 +206,6 @@ class IndicatorVariant:
     created_by: str
     created_at: float
     updated_at: float
-
-
-@dataclass
-@dataclass
-class VariantParameter:
-    """Parameter definition for indicator variants"""
-    name: str
-    parameter_type: str  # 'int', 'float', 'string', 'boolean', 'json'
-    default_value: Any
-    min_value: Any = None
-    max_value: Any = None
-    allowed_values: List[Any] = None
-    is_required: bool = True
-    description: str = ""
-    validation_rules: Dict[str, Any] = None
 
 
 @dataclass

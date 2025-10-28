@@ -13,7 +13,7 @@ from datetime import datetime
 import json
 
 from ..data_feed.questdb_provider import QuestDBProvider
-from ..core.logger import StructuredLogger
+from ..core.logger import StructuredLogger, get_logger
 
 
 class QuestDBDataProvider:
@@ -39,7 +39,8 @@ class QuestDBDataProvider:
         logger: Optional[StructuredLogger] = None
     ):
         self.db = db_provider
-        self.logger = logger or StructuredLogger("questdb_data_provider")
+        # ✅ LOGGER FIX: Use get_logger() for fallback instead of direct StructuredLogger
+        self.logger = logger or get_logger("questdb_data_provider")
 
     async def get_sessions_list(
         self,

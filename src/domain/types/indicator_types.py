@@ -83,12 +83,37 @@ class IndicatorConfig:
         return IndicatorCategory(self.variant_type)
 
 
+@dataclass
+class VariantParameter:
+    """
+    Parameter definition for indicator variants.
+
+    Located in types module (not streaming_indicator_engine) to avoid circular imports:
+    - streaming_indicator_engine imports algorithm classes from indicators/
+    - Algorithm classes need VariantParameter for get_parameters() method
+    - Both can safely import from this shared types module
+
+    This structure allows algorithm files to define their parameters without
+    creating import cycles or using try-except import workarounds.
+    """
+    name: str
+    parameter_type: str  # 'int', 'float', 'string', 'boolean', 'json'
+    default_value: Any
+    min_value: Any = None
+    max_value: Any = None
+    allowed_values: List[Any] = None
+    is_required: bool = True
+    description: str = ""
+    validation_rules: Dict[str, Any] = None
+
+
 # Export all types for easy importing
 __all__ = [
     'IndicatorMode',
-    'IndicatorCategory', 
+    'IndicatorCategory',
     'MarketDataPoint',
     'IndicatorValue',
     'TimeWindow',
-    'IndicatorConfig'
+    'IndicatorConfig',
+    'VariantParameter'
 ]

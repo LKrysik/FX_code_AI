@@ -13,12 +13,8 @@ import logging
 # Import IndicatorAlgorithm base classes
 from .base_algorithm import IndicatorAlgorithm, MultiWindowIndicatorAlgorithm
 
-# StructuredLogger import with fallback
-try:
-    from ...core.logger import StructuredLogger
-except ImportError:
-    import logging
-    StructuredLogger = logging.getLogger
+# ✅ LOGGER FIX: Use absolute import (project standard) instead of relative import
+from src.core.logger import StructuredLogger, get_logger
 
 
 class IndicatorAlgorithmRegistry:
@@ -33,7 +29,8 @@ class IndicatorAlgorithmRegistry:
     """
     
     def __init__(self, logger: Optional[Any] = None):
-        self.logger = logger or StructuredLogger(__name__)
+        # ✅ LOGGER FIX: Use get_logger() for fallback instead of direct StructuredLogger
+        self.logger = logger or get_logger(__name__)
         self._algorithms: Dict[str, IndicatorAlgorithm] = {}
         self._metadata_cache: Dict[str, Dict[str, Any]] = {}
         self._discovery_attempted = False
