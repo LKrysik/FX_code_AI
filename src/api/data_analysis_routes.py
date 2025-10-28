@@ -197,47 +197,29 @@ async def get_data_quality(
     symbol: Optional[str] = Query(None, description="Specific symbol to analyze (optional)")
 ):
     """
-    Get detailed data quality metrics for a session
+    Get detailed data quality metrics for a session.
+
+    ✅ BUG-005 FIX: Simplified - quality_service now loads data directly from QuestDB
 
     Returns completeness scores, gap analysis, and improvement recommendations
     """
     try:
-        # Get session analysis to extract data for quality assessment
-        analysis = await analysis_service.analyze_session_data(session_id)
-        if not analysis:
+        # Get session metadata to determine available symbols
+        session = await analysis_service._load_session_metadata(session_id)
+        if not session:
             raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
 
-        # Get sample data for quality assessment
-        session_info = analysis.get('session_info', {})
-        symbols = session_info.get('symbols', [])
-
+        symbols = session.get('symbols', [])
         if not symbols:
             raise HTTPException(status_code=404, detail="No symbols found in session")
 
         # Use specified symbol or first available
         target_symbol = symbol or symbols[0]
 
-        # Get chart data for quality assessment
-        chart_data = await analysis_service.get_session_chart_data(session_id, target_symbol, max_points=5000)
-        if not chart_data:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No data found for symbol {target_symbol} in session {session_id}"
-            )
+        # Perform quality assessment (service loads data from QuestDB)
+        quality_report = await quality_service.get_quality_report(session_id, target_symbol)
 
-        # Convert to raw format for quality assessment
-        raw_data = [
-            {
-                'timestamp': point['timestamp'],
-                'price': point['price'],
-                'volume': point['volume']
-            } for point in chart_data
-        ]
-
-        # Perform quality assessment
-        quality_report = await quality_service.get_quality_report(session_id, raw_data)
-
-        logger.info(f"Quality assessment requested for session {session_id}, symbol {target_symbol}")
+        logger.info(f"Quality assessment completed for session {session_id}, symbol {target_symbol}")
         return quality_report
 
     except ValueError as e:
