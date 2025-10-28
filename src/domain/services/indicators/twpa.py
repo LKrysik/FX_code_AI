@@ -44,22 +44,7 @@ class TWPAAlgorithm(IndicatorAlgorithm):
     
     def get_parameters(self) -> List:
         """Return variant parameter definitions for registration."""
-        # Import here to avoid circular dependency
-        try:
-            from ..streaming_indicator_engine import VariantParameter
-        except ImportError:
-            # Fallback for testing
-            from typing import NamedTuple
-            
-            class VariantParameter(NamedTuple):
-                name: str
-                type: str
-                default: float
-                min_value: float
-                max_value: float
-                allowed_values: Optional[List] = None
-                required: bool = True
-                description: str = ""
+        from ...types.indicator_types import VariantParameter
 
         return [
             VariantParameter(
