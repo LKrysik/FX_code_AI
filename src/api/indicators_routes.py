@@ -762,6 +762,16 @@ async def add_indicator_for_session(
     }
     """
     try:
+        # Validate session exists before adding indicators
+        # Prevents orphaned indicators in QuestDB (no FK constraints)
+        analysis_service, questdb_provider = _ensure_support_services()
+        session_metadata = await analysis_service.get_session_metadata(session_id)
+        if not session_metadata:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Session '{session_id}' not found. Cannot add indicators to non-existent session."
+            )
+
         body = await request.json()
         variant_id = body.get('variant_id')
         parameters = body.get('parameters', {})
