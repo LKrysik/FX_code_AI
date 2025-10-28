@@ -158,26 +158,53 @@ function Invoke-QuestDBScript {
         throw "Script not found: $ScriptPath"
     }
 
-    $sqlContent = Get-Content $ScriptPath -Raw
+    $sqlContent = Get-Content $ScriptPath -Raw -Encoding UTF8
+
+    # Remove multi-line comments /* ... */
+    $sqlContent = $sqlContent -replace '/\*[\s\S]*?\*/', ''
 
     # Split by semicolon and execute each statement
+    # Note: This simple split may fail for strings containing semicolons
+    # For production, consider using a proper SQL parser
     $statements = $sqlContent -split ";"
 
-    foreach ($statement in $statements) {
-        $trimmed = $statement.Trim()
+    $successCount = 0
+    $failCount = 0
 
-        # Skip empty statements and comments
-        if ([string]::IsNullOrWhiteSpace($trimmed) -or $trimmed.StartsWith("--")) {
+    foreach ($statement in $statements) {
+        # Remove single-line comments
+        $lines = $statement -split "`n" | Where-Object { $_ -notmatch '^\s*--' }
+        $trimmed = ($lines -join "`n").Trim()
+
+        # Skip empty statements
+        if ([string]::IsNullOrWhiteSpace($trimmed)) {
             continue
         }
 
         try {
             Invoke-QuestDBQuery -Query $trimmed -Host $Host -Port $Port | Out-Null
+            $successCount++
         }
         catch {
-            Write-Warn "Statement failed (continuing): $trimmed"
-            Write-Warn "Error: $($_.Exception.Message)"
+            $failCount++
+
+            # For INSERT statements, duplicate key errors are acceptable
+            if ($trimmed -match '^\s*INSERT\s+INTO' -and $_.Exception.Message -match 'duplicate') {
+                if ($Verbose) {
+                    Write-Host "  Skipping duplicate INSERT (OK)" -ForegroundColor DarkGray
+                }
+            }
+            else {
+                Write-Warn "Statement failed: $($_.Exception.Message)"
+                if ($Verbose) {
+                    Write-Host "  Statement: $($trimmed.Substring(0, [Math]::Min(100, $trimmed.Length)))..." -ForegroundColor DarkGray
+                }
+            }
         }
+    }
+
+    if ($Verbose) {
+        Write-Host "  Script execution: $successCount statements succeeded, $failCount failed/skipped" -ForegroundColor DarkGray
     }
 }
 
@@ -195,8 +222,9 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     name STRING,
     executed_at TIMESTAMP,
     execution_time_ms INT,
-    status STRING
-)
+    status STRING,
+    checksum STRING
+) timestamp(executed_at)
 "@
 
     try {
@@ -236,7 +264,7 @@ function Get-MigrationFiles {
 
     $files = Get-ChildItem -Path $Path -Filter "*.sql" | Sort-Object Name
 
-    return $files | ForEach-Object {
+    $migrations = $files | ForEach-Object {
         # Extract version from filename (e.g., "001_create_schema.sql" -> "001")
         if ($_.Name -match '^(\d+)_(.+)\.sql$') {
             [PSCustomObject]@{
@@ -247,6 +275,39 @@ function Get-MigrationFiles {
             }
         }
     }
+
+    # Validate migration sequence (no gaps or duplicates)
+    if ($migrations) {
+        $versions = $migrations | ForEach-Object { [int]$_.Version }
+        $sortedVersions = $versions | Sort-Object
+
+        # Check for duplicates
+        $duplicates = $versions | Group-Object | Where-Object { $_.Count -gt 1 }
+        if ($duplicates) {
+            Write-Fail "Duplicate migration versions detected: $($duplicates.Name -join ', ')"
+            throw "Migration validation failed: duplicate versions"
+        }
+
+        # Check for gaps in sequence
+        for ($i = 0; $i -lt ($sortedVersions.Count - 1); $i++) {
+            $current = $sortedVersions[$i]
+            $next = $sortedVersions[$i + 1]
+
+            if ($next - $current -gt 1) {
+                Write-Warn "Gap detected in migration sequence: $current -> $next"
+                Write-Warn "Consider renumbering migrations to be sequential"
+            }
+        }
+    }
+
+    return $migrations
+}
+
+function Get-FileChecksum {
+    param([string]$FilePath)
+
+    $hash = Get-FileHash -Path $FilePath -Algorithm SHA256
+    return $hash.Hash
 }
 
 function Invoke-Migration {
@@ -262,6 +323,12 @@ function Invoke-Migration {
         return $true
     }
 
+    # Calculate checksum for integrity verification
+    $checksum = Get-FileChecksum -FilePath $Migration.FullPath
+    if ($Verbose) {
+        Write-Host "  Checksum: $checksum" -ForegroundColor DarkGray
+    }
+
     $startTime = Get-Date
 
     try {
@@ -271,16 +338,17 @@ function Invoke-Migration {
         $endTime = Get-Date
         $duration = ($endTime - $startTime).TotalMilliseconds
 
-        # Record successful migration
+        # Record successful migration with checksum
         $insertLog = @"
-INSERT INTO schema_migrations (id, version, name, executed_at, execution_time_ms, status)
+INSERT INTO schema_migrations (id, version, name, executed_at, execution_time_ms, status, checksum)
 VALUES (
     $($Migration.Version),
     '$($Migration.Version)',
     '$($Migration.Name)',
     systimestamp(),
     $([int]$duration),
-    'success'
+    'success',
+    '$checksum'
 )
 "@
 
@@ -292,14 +360,15 @@ VALUES (
     catch {
         # Record failed migration
         $insertLog = @"
-INSERT INTO schema_migrations (id, version, name, executed_at, execution_time_ms, status)
+INSERT INTO schema_migrations (id, version, name, executed_at, execution_time_ms, status, checksum)
 VALUES (
     $($Migration.Version),
     '$($Migration.Version)',
     '$($Migration.Name)',
     systimestamp(),
     0,
-    'failed'
+    'failed',
+    '$checksum'
 )
 "@
 
