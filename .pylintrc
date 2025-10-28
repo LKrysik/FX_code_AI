@@ -1,0 +1,199 @@
+# pylint Configuration for FX_code_AI
+# Generated: 2025-10-28
+# Purpose: Enforce import standards and code quality
+
+[MASTER]
+# Add src to Python path for absolute imports
+init-hook='import sys; sys.path.insert(0, "src")'
+
+# Files or directories to be skipped
+ignore=CVS,.git,__pycache__,.venv,venv,node_modules
+
+# Use multiple processes to speed up Pylint
+jobs=4
+
+# Pickle collected data for later comparisons
+persistent=yes
+
+# When enabled, pylint would attempt to guess common misconfiguration
+suggestion-mode=yes
+
+[MESSAGES CONTROL]
+# Disable specific warnings that are too strict for this project
+disable=
+    C0103,  # invalid-name (allow short variable names like df, db)
+    C0114,  # missing-module-docstring (not all modules need docstrings)
+    C0115,  # missing-class-docstring (not all classes need docstrings)
+    C0116,  # missing-function-docstring (not all functions need docstrings)
+    R0903,  # too-few-public-methods (allow dataclasses with few methods)
+    R0913,  # too-many-arguments (some functions need many parameters)
+    R0914,  # too-many-locals (complex functions may need many variables)
+    W0212,  # protected-access (allow accessing _private members in tests)
+    W0511,  # fixme (allow TODO comments)
+    W0707,  # raise-missing-from (not critical)
+
+# Enable specific checks
+enable=
+    import-error,          # Missing or incorrect imports
+    relative-import,       # Check relative import correctness
+    cyclic-import,         # Detect circular imports
+    wildcard-import,       # Discourage from module import *
+    wrong-import-order,    # Check import order (PEP 8)
+    ungrouped-imports,     # Check import grouping
+    wrong-import-position, # Imports should be at top of file
+    useless-import-alias,  # Check for import X as X
+    reimported,            # Check for duplicate imports
+
+[IMPORTS]
+# Deprecated modules which should not be used
+deprecated-modules=
+    regsub,
+    TERMIOS,
+    Bastion,
+    rexec
+
+# Force absolute imports
+# Empty means allow both, but warn on problematic relative imports
+allow-wildcard-with-all=no
+
+# Maximum number of characters on a single line
+max-line-length=120
+
+[BASIC]
+# Good variable names which should always be accepted
+good-names=i,j,k,ex,Run,_,id,db,df,ts,dt,t1,t2,t3,d,r,pk
+
+# Regular expression matching correct function names
+function-rgx=[a-z_][a-z0-9_]{2,40}$
+
+# Regular expression matching correct variable names
+variable-rgx=[a-z_][a-z0-9_]{0,30}$
+
+# Regular expression matching correct constant names
+const-rgx=(([A-Z_][A-Z0-9_]*)|(__.*__))$
+
+# Regular expression matching correct class names
+class-rgx=[A-Z_][a-zA-Z0-9]+$
+
+[FORMAT]
+# Maximum number of characters on a single line
+max-line-length=120
+
+# Maximum number of lines in a module
+max-module-lines=2000
+
+# String used as indentation unit
+indent-string='    '
+
+# Expected format of line ending (empty means any)
+expected-line-ending-format=
+
+[DESIGN]
+# Maximum number of arguments for function / method
+max-args=10
+
+# Maximum number of attributes for a class
+max-attributes=15
+
+# Maximum number of boolean expressions in an if statement
+max-bool-expr=5
+
+# Maximum number of branch for function / method body
+max-branches=20
+
+# Maximum number of locals for function / method body
+max-locals=25
+
+# Maximum number of parents for a class
+max-parents=7
+
+# Maximum number of public methods for a class
+max-public-methods=25
+
+# Maximum number of return / yield for function / method body
+max-returns=10
+
+# Maximum number of statements in function / method body
+max-statements=75
+
+# Minimum number of public methods for a class
+min-public-methods=0
+
+[EXCEPTIONS]
+# Exceptions that will emit a warning when being caught
+overgeneral-exceptions=
+    BaseException,
+    Exception
+
+[LOGGING]
+# Format style used to check logging format string
+logging-format-style=old
+
+# Logging modules to check that the string format arguments are in logging function parameter format
+logging-modules=logging
+
+[MISCELLANEOUS]
+# List of note tags to take in consideration
+notes=FIXME,XXX,TODO,BUG
+
+[SIMILARITIES]
+# Minimum lines number of a similarity
+min-similarity-lines=4
+
+# Ignore comments when computing similarities
+ignore-comments=yes
+
+# Ignore docstrings when computing similarities
+ignore-docstrings=yes
+
+# Ignore imports when computing similarities
+ignore-imports=yes
+
+[TYPECHECK]
+# List of class names for which member attributes should not be checked
+ignored-classes=SQLObject,optparse.Values,thread._local,_thread._local
+
+# List of members which are set dynamically and missed by pylint inference
+generated-members=REQUEST,acl_users,aq_parent
+
+[VARIABLES]
+# Tells whether we should check for unused import in __init__ files
+init-import=yes
+
+# A regular expression matching the name of dummy variables
+dummy-variables-rgx=_$|dummy
+
+# List of additional names supposed to be defined in builtins
+additional-builtins=
+
+[CLASSES]
+# List of method names used to declare (i.e. assign) instance attributes
+defining-attr-methods=__init__,__new__,setUp
+
+# List of valid names for the first argument in a class method
+valid-classmethod-first-arg=cls
+
+# List of valid names for the first argument in a metaclass class method
+valid-metaclass-classmethod-first-arg=mcs
+
+[IMPORTS - CUSTOM RULES]
+# Note: These are comments for documentation, actual enforcement requires custom checker
+
+# RULE 1: Prefer absolute imports for core modules
+# ✅ GOOD: from src.core.logger import get_logger
+# ❌ BAD: from ...core.logger import get_logger (when in deep modules)
+
+# RULE 2: No try-except around imports (unless documented circular import)
+# ❌ BAD: try: from X import Y except ImportError: pass
+
+# RULE 3: Maximum relative import depth is 3 levels (...)
+# ❌ BAD: from ....core import X (4 levels)
+# ✅ GOOD: from src.core import X (absolute)
+
+# RULE 4: Import shared types from src.domain.types.*
+# ✅ GOOD: from src.domain.types.indicator_types import VariantParameter
+# ❌ BAD: from ..streaming_indicator_engine import VariantParameter (circular)
+
+# RULE 5: Consistent import style within file
+# ❌ BAD: Mix of absolute and relative for same package
+# ✅ GOOD: Pick one style and stick to it

@@ -13,8 +13,8 @@ import logging
 # Import IndicatorAlgorithm base classes
 from .base_algorithm import IndicatorAlgorithm, MultiWindowIndicatorAlgorithm
 
-# ✅ LOGGER FIX: Removed try-except import hack, using direct import
-from ...core.logger import StructuredLogger, get_logger
+# ✅ LOGGER FIX: Use absolute import (project standard) instead of relative import
+from src.core.logger import StructuredLogger, get_logger
 
 
 class IndicatorAlgorithmRegistry:
