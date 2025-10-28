@@ -81,20 +81,7 @@ class DumpExhaustionScoreAlgorithm(IndicatorAlgorithm):
 
     def get_parameters(self) -> List:
         """Return parameter definitions."""
-        try:
-            from ..streaming_indicator_engine import VariantParameter
-        except ImportError:
-            from typing import NamedTuple
-
-            class VariantParameter(NamedTuple):
-                name: str
-                type: str
-                default: any
-                min_value: any
-                max_value: any
-                allowed_values: Optional[List] = None
-                required: bool = True
-                description: str = ""
+        from ...types.indicator_types import VariantParameter
 
         return [
             # Velocity parameters
