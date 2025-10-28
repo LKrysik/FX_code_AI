@@ -1,0 +1,139 @@
+-- ============================================================================
+-- Migration 005: Add Scope and User Tracking to Indicators
+-- ============================================================================
+-- Date: 2025-10-28
+-- Purpose: Add columns for indicator scope management and user ownership
+--
+-- Changes:
+-- 1. Add session_id column to indicators table (link to data_collection_sessions)
+-- 2. Add scope column for filtering (user_id, session_id, or 'global')
+-- 3. Add user_id column for user ownership
+-- 4. Add created_by column for audit trail
+--
+-- Why these columns?
+-- - session_id: Links indicator configurations to specific data collection sessions
+-- - scope: Enables filtering indicators by user/session/global scope
+-- - user_id: Tracks who owns the indicator configuration
+-- - created_by: Audit trail for indicator creation
+--
+-- QuestDB Notes:
+-- - ALTER TABLE ADD COLUMN is supported in QuestDB 7.0+
+-- - New columns are nullable by default (existing rows get NULL)
+-- - SYMBOL type provides automatic indexing for fast filtering
+-- - STRING type for flexible text storage
+-- ============================================================================
+
+-- Add session_id column to indicators table
+-- SYMBOL type for automatic indexing and efficient filtering
+ALTER TABLE indicators ADD COLUMN session_id SYMBOL capacity 512 CACHE;
+
+-- Add scope column for user/session/global filtering
+-- STRING type for flexibility (values: user_id, session_id, or 'global')
+-- Examples: 'user_123', 'session_abc', 'global'
+ALTER TABLE indicators ADD COLUMN scope STRING;
+
+-- Add user_id column for user ownership tracking
+-- STRING type to support various user ID formats
+ALTER TABLE indicators ADD COLUMN user_id STRING;
+
+-- Add created_by column for audit trail
+-- STRING type for username or user identifier
+ALTER TABLE indicators ADD COLUMN created_by STRING;
+
+-- ============================================================================
+-- Column Descriptions and Usage
+-- ============================================================================
+--
+-- session_id: SYMBOL capacity 512 CACHE
+--   - Links indicator to data collection session
+--   - NULL for global/persistent indicators
+--   - Example: 'dc_2025-10-28_123456'
+--   - Use: WHERE session_id = 'dc_2025-10-28_123456'
+--
+-- scope: STRING
+--   - Defines indicator visibility/scope
+--   - Values:
+--     * 'global': Available to all users (system indicators)
+--     * 'user_<id>': Private to specific user
+--     * 'session_<id>': Scoped to specific session
+--   - Example: 'user_123' or 'session_abc' or 'global'
+--   - Use: WHERE scope = 'user_123' OR scope = 'global'
+--
+-- user_id: STRING
+--   - Owner of the indicator configuration
+--   - NULL for system/global indicators
+--   - Example: 'user_123' or 'admin'
+--   - Use: WHERE user_id = 'user_123'
+--
+-- created_by: STRING
+--   - Username or ID who created the indicator
+--   - Audit trail for indicator creation
+--   - Example: 'john.doe' or 'admin'
+--   - Use: WHERE created_by = 'admin'
+--
+-- ============================================================================
+-- Query Examples After Migration
+-- ============================================================================
+--
+-- Get all indicators for a specific user:
+-- SELECT * FROM indicators WHERE user_id = 'user_123';
+--
+-- Get all indicators for a session:
+-- SELECT * FROM indicators WHERE session_id = 'dc_2025-10-28_123456';
+--
+-- Get global indicators:
+-- SELECT * FROM indicators WHERE scope = 'global';
+--
+-- Get user's personal indicators + global indicators:
+-- SELECT * FROM indicators WHERE scope = 'user_123' OR scope = 'global';
+--
+-- Get all indicators created by admin:
+-- SELECT * FROM indicators WHERE created_by = 'admin';
+--
+-- ============================================================================
+-- Backward Compatibility
+-- ============================================================================
+--
+-- Existing rows:
+-- - All new columns will be NULL for existing indicator rows
+-- - This is expected and safe
+-- - Old indicators without scope are treated as global
+--
+-- Application code:
+-- - Check for NULL scope: treat as 'global'
+-- - Check for NULL user_id: treat as system indicator
+-- - Check for NULL session_id: treat as persistent indicator
+--
+-- ============================================================================
+-- Integration with Indicators CRUD API
+-- ============================================================================
+--
+-- The new indicators_crud_routes.py API will use these columns:
+--
+-- POST /api/indicators
+--   Body: {
+--     "symbol": "BTC_USDT",
+--     "indicator_type": "RSI",
+--     "parameters": {"period": 14},
+--     "scope": "user_123",          // NEW: uses scope column
+--     "created_by": "user_123"       // NEW: uses created_by column
+--   }
+--
+-- GET /api/indicators?scope=user_123&symbol=BTC_USDT
+--   - Filters using WHERE scope = 'user_123' AND symbol = 'BTC_USDT'
+--
+-- ============================================================================
+-- Next Steps After This Migration
+-- ============================================================================
+--
+-- 1. Update indicators_crud_routes.py to use new columns
+-- 2. Update IndicatorPersistenceService to populate new columns
+-- 3. Add index on session_id (migration 006)
+-- 4. Update frontend to support scope filtering
+-- 5. Update documentation to reflect new schema
+--
+-- ============================================================================
+
+-- Migration completed successfully
+-- New columns: session_id, scope, user_id, created_by
+-- Ready for use in indicators CRUD API

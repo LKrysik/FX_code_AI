@@ -1,0 +1,236 @@
+-- ============================================================================
+-- Migration 007: Add User Ownership and Enhanced Visibility to Strategy Templates
+-- ============================================================================
+-- Date: 2025-10-28
+-- Purpose: Add user ownership tracking and enhanced visibility control for strategy templates
+--
+-- Changes:
+-- 1. Add user_id column for clear ownership tracking
+-- 2. Add visibility column for granular access control (private, public, team, organization)
+-- 3. Add created_by column for audit trail
+-- 4. Add organization_id column for multi-tenant support
+-- 5. Add team_id column for team-based sharing
+--
+-- Why these columns?
+-- - user_id: Clear ownership of strategy templates
+-- - visibility: Granular access control beyond simple is_public boolean
+-- - created_by: Audit trail for who created the template
+-- - organization_id: Support for multi-tenant deployments
+-- - team_id: Enable team-based strategy sharing
+--
+-- Relationship with existing columns:
+-- - author: Kept for display name (e.g., "John Doe")
+-- - is_public: Deprecated, use visibility instead
+-- - user_id: Unique user identifier (e.g., "user_123")
+--
+-- ============================================================================
+
+-- Add user_id column for ownership tracking
+-- STRING type for flexible user ID formats
+-- NOT NULL for new inserts (existing rows will be NULL and need migration)
+ALTER TABLE strategy_templates ADD COLUMN user_id STRING;
+
+-- Add visibility column for access control
+-- STRING type for flexibility
+-- Values: 'private', 'public', 'team', 'organization'
+-- Default: 'private' (most restrictive)
+ALTER TABLE strategy_templates ADD COLUMN visibility STRING;
+
+-- Add created_by column for audit trail
+-- STRING type for username or user identifier
+-- Can differ from user_id (e.g., admin creating on behalf of user)
+ALTER TABLE strategy_templates ADD COLUMN created_by STRING;
+
+-- Add organization_id for multi-tenant support
+-- STRING type for organization identifier
+-- NULL for personal/public templates
+ALTER TABLE strategy_templates ADD COLUMN organization_id STRING;
+
+-- Add team_id for team-based sharing
+-- STRING type for team identifier
+-- NULL for personal/public templates
+ALTER TABLE strategy_templates ADD COLUMN team_id STRING;
+
+-- ============================================================================
+-- Column Descriptions and Usage
+-- ============================================================================
+--
+-- user_id: STRING
+--   - Unique identifier of the template owner
+--   - Required for new strategy templates
+--   - Example: 'user_123', 'admin', 'alice@example.com'
+--   - Use: WHERE user_id = 'user_123'
+--
+-- visibility: STRING
+--   - Access control level for the template
+--   - Values:
+--     * 'private': Only owner can view/edit
+--     * 'public': Anyone can view, only owner can edit
+--     * 'team': Team members can view, owner can edit
+--     * 'organization': Organization members can view, owner can edit
+--   - Default: 'private' for new templates
+--   - Example: 'public', 'private', 'team'
+--   - Use: WHERE visibility = 'public' OR (visibility = 'team' AND team_id = 'team_abc')
+--
+-- created_by: STRING
+--   - Username or ID who created the template
+--   - Audit trail for template creation
+--   - May differ from user_id (e.g., admin creating template)
+--   - Example: 'john.doe', 'admin', 'system'
+--   - Use: WHERE created_by = 'admin'
+--
+-- organization_id: STRING
+--   - Organization identifier for multi-tenant support
+--   - NULL for personal/public templates
+--   - Example: 'org_abc123', 'company_xyz'
+--   - Use: WHERE organization_id = 'org_abc123'
+--
+-- team_id: STRING
+--   - Team identifier for team-based sharing
+--   - NULL for personal/public templates
+--   - Example: 'team_trading', 'team_quant'
+--   - Use: WHERE team_id = 'team_trading'
+--
+-- ============================================================================
+-- Visibility Level Access Matrix
+-- ============================================================================
+--
+-- Visibility Level | Owner | Team Members | Org Members | Public
+-- -----------------|-------|--------------|-------------|--------
+-- private          | RW    | -            | -           | -
+-- team             | RW    | R            | -           | -
+-- organization     | RW    | R            | R           | -
+-- public           | RW    | R            | R           | R
+--
+-- R = Read access
+-- W = Write access
+-- - = No access
+--
+-- ============================================================================
+-- Migration Strategy for Existing Rows
+-- ============================================================================
+--
+-- Existing strategy_templates rows will have NULL for new columns.
+-- Application code should handle NULL values gracefully:
+--
+-- 1. user_id is NULL:
+--    - Check author column as fallback
+--    - If author is NULL, mark as 'system' or 'legacy'
+--
+-- 2. visibility is NULL:
+--    - Check is_public column
+--    - If is_public = true, treat as 'public'
+--    - If is_public = false, treat as 'private'
+--    - Default to 'private' if is_public is NULL
+--
+-- 3. created_by is NULL:
+--    - Use author column as fallback
+--    - Default to 'unknown' if author is NULL
+--
+-- 4. organization_id is NULL:
+--    - Template is not organization-scoped
+--    - Treat as personal or public template
+--
+-- 5. team_id is NULL:
+--    - Template is not team-scoped
+--    - Treat as personal or public template
+--
+-- ============================================================================
+-- Query Examples After Migration
+-- ============================================================================
+--
+-- Get all public templates:
+-- SELECT * FROM strategy_templates WHERE visibility = 'public';
+--
+-- Get user's private templates:
+-- SELECT * FROM strategy_templates WHERE user_id = 'user_123' AND visibility = 'private';
+--
+-- Get all templates user can access (personal + team + org + public):
+-- SELECT * FROM strategy_templates
+-- WHERE user_id = 'user_123'
+--    OR visibility = 'public'
+--    OR (visibility = 'team' AND team_id = 'team_abc')
+--    OR (visibility = 'organization' AND organization_id = 'org_xyz');
+--
+-- Get featured public templates:
+-- SELECT * FROM strategy_templates WHERE visibility = 'public' AND is_featured = true;
+--
+-- Get templates by category for organization:
+-- SELECT * FROM strategy_templates
+-- WHERE category = 'trend_following'
+--   AND (visibility = 'public' OR organization_id = 'org_xyz');
+--
+-- ============================================================================
+-- Integration with Strategy API
+-- ============================================================================
+--
+-- The Strategy API endpoints will use these columns:
+--
+-- POST /api/strategies
+--   Body: {
+--     "strategy_name": "My Strategy",
+--     "s1_signal": {...},
+--     "visibility": "private",         // NEW: uses visibility column
+--     "user_id": "user_123",          // NEW: uses user_id column
+--     "created_by": "user_123",        // NEW: uses created_by column
+--     "team_id": "team_trading"        // NEW: optional team sharing
+--   }
+--
+-- GET /api/strategies
+--   - Filters strategies based on user's access rights
+--   - WHERE user_id = current_user OR visibility = 'public' OR ...
+--
+-- PUT /api/strategies/{strategy_id}
+--   - Validates user_id matches current user (ownership check)
+--   - Can change visibility level
+--
+-- DELETE /api/strategies/{strategy_id}
+--   - Validates user_id matches current user (ownership check)
+--
+-- ============================================================================
+-- Backward Compatibility
+-- ============================================================================
+--
+-- Deprecated columns (kept for backward compatibility):
+-- - author: Display name (e.g., "John Doe")
+-- - is_public: Boolean public flag (use visibility instead)
+--
+-- Migration path:
+-- 1. New code writes to both old and new columns (dual write)
+-- 2. Background job migrates existing data:
+--    - Set user_id from author or system default
+--    - Set visibility from is_public
+--    - Set created_by from author
+-- 3. After migration, deprecate old columns
+-- 4. Future: Remove old columns in migration 008+
+--
+-- ============================================================================
+-- Index Recommendations
+-- ============================================================================
+--
+-- Consider adding indexes for common queries:
+-- CREATE INDEX idx_user_id ON strategy_templates(user_id);
+-- CREATE INDEX idx_visibility ON strategy_templates(visibility);
+-- CREATE INDEX idx_organization_id ON strategy_templates(organization_id);
+-- CREATE INDEX idx_team_id ON strategy_templates(team_id);
+--
+-- Note: QuestDB supports secondary indexes for non-SYMBOL columns
+-- Evaluate query performance before adding indexes
+--
+-- ============================================================================
+-- Next Steps After This Migration
+-- ============================================================================
+--
+-- 1. Update Strategy API to populate new columns
+-- 2. Update StrategyStorage to handle user_id and visibility
+-- 3. Add authorization checks based on user_id and visibility
+-- 4. Implement team and organization filtering
+-- 5. Create background job to migrate existing data
+-- 6. Update frontend to support visibility selection
+-- 7. Update documentation to reflect new schema
+--
+-- ============================================================================
+
+-- Migration completed successfully
+-- New columns: user_id, visibility, created_by, organization_id, team_id
+-- Ready for enhanced access control in Strategy Builder API
