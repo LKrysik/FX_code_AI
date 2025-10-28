@@ -374,7 +374,7 @@ From `.github/copilot-instructions.md` - **MUST follow for ALL code changes:**
    ```python
    app.include_router(my_router, prefix="/api/myfeature", tags=["My Feature"])
    ```
-3. **Update API documentation** in `docs/api/REST_API.md`
+3. **Update API documentation** in `docs/api/REST.md`
 
 ### Adding a New WebSocket Message Type
 
@@ -384,18 +384,19 @@ From `.github/copilot-instructions.md` - **MUST follow for ALL code changes:**
        # Implementation
    ```
 2. **Register in route mapping** in MessageRouter
-3. **Document in** `docs/api/WEBSOCKET_API_v1.md`
+3. **Document in** `docs/api/WEBSOCKET.md`
 
 ## Support and Documentation
 
 **Key Documentation Files:**
+- `docs/INDEX.md` - Complete documentation map
 - `docs/STATUS.md` - Current sprint status and priorities
 - `docs/ROADMAP.md` - Feature roadmap
 - `docs/development/CODING_STANDARDS.md` - Code quality standards
-- `docs/development/CONTAINER_ARCHITECTURE.md` - DI patterns
-- `docs/QUESTDB_SETUP.md` - Complete QuestDB guide
-- `docs/api/REST_API.md` - REST API specification
-- `docs/api/WEBSOCKET_API_v1.md` - WebSocket protocol
+- `docs/architecture/CONTAINER.md` - DI patterns
+- `docs/database/QUESTDB.md` - Complete QuestDB guide
+- `docs/api/REST.md` - REST API specification
+- `docs/api/WEBSOCKET.md` - WebSocket protocol
 - `docs/trading/INDICATORS.md` - Indicator catalog
 
 **Getting Help:**

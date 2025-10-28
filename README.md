@@ -1,6 +1,12 @@
-# Crypto Trading Bot - Frontend
+# FX Cryptocurrency Trading System
 
-Next.js + TypeScript frontend for the Pump & Dump Detection System.
+> **Quick Links**: [📖 Full Documentation](docs/INDEX.md) | [🤖 Claude Code Guide](CLAUDE.md) | [🤝 Contributing](CONTRIBUTING.md) | [📊 Current Sprint](docs/STATUS.md)
+
+---
+
+# Frontend - Crypto Trading Bot
+
+Next.js + TypeScript frontend for the FX Cryptocurrency Trading System.
 
 ## 🚀 Features
 
