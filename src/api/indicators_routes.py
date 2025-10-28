@@ -1028,14 +1028,18 @@ async def get_indicator_history(
 ) -> JSONResponse:
     """
     Get historical values for a specific indicator.
-    
+
+    ✅ NEXT STEP: Now reads from QuestDB instead of CSV files
+
     Args:
-        limit: Maximum number of values to return. 
-               If None, returns all available data. 
+        limit: Maximum number of values to return.
+               If None, returns all available data.
                Default: None (all data)
     """
     try:
-        persistence_service, _ = _ensure_support_services()
+        # ✅ NEXT STEP: Use QuestDB provider instead of persistence service
+        questdb_provider, _ = _ensure_questdb_providers()
+
         config = engine.get_indicator_config(indicator_id)
         if not config:
             raise HTTPException(
@@ -1043,43 +1047,127 @@ async def get_indicator_history(
                 detail=f"Indicator '{indicator_id}' not found"
             )
 
-        variant_id = config.get("variant_id")
-        if not variant_id:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Indicator '{indicator_id}' missing variant metadata"
+        # Query indicators from QuestDB
+        try:
+            # Get indicators using low-level provider method
+            indicators_df = await questdb_provider.get_indicators(
+                symbol=symbol,
+                indicator_ids=[indicator_id],
+                limit=limit if limit else 1000000  # Large limit if no limit specified
             )
-        variant_type = str(config.get("variant_type") or "general").lower()
 
-        result = persistence_service.load_values_with_stats(
-            session_id=session_id,
-            symbol=symbol,
-            variant_id=variant_id,
-            variant_type=variant_type,
-            limit=limit
-        )
-        
-        history = [
-            {
-                "timestamp": value.timestamp,
-                "value": value.value,
-                "metadata": value.metadata
-            }
-            for value in result["values"]
-        ]
+            # Filter by session_id if the column exists
+            if 'session_id' in indicators_df.columns:
+                indicators_df = indicators_df[indicators_df['session_id'] == session_id]
 
-        return _json_ok({
+            # Convert DataFrame to history list
+            history = []
+            for _, row in indicators_df.iterrows():
+                timestamp = row.get('timestamp')
+                if hasattr(timestamp, 'timestamp'):
+                    timestamp = timestamp.timestamp()  # Convert datetime to float
+                elif timestamp:
+                    timestamp = float(timestamp)
+
+                history.append({
+                    "timestamp": timestamp,
+                    "value": float(row.get('value', 0)),
+                    "metadata": {
+                        "session_id": session_id,
+                        "symbol": symbol,
+                        "indicator_id": indicator_id,
+                        "confidence": float(row.get('confidence')) if row.get('confidence') is not None else None
+                    }
+                })
+
+            # Sort by timestamp
+            history.sort(key=lambda x: x['timestamp'])
+
+            total_available = len(history)
+            returned_count = len(history)
+            limited = limit is not None and total_available > limit
+
+            if limited:
+                history = history[:limit]
+                returned_count = len(history)
+
+            return _json_ok({
+                "session_id": session_id,
+                "symbol": symbol,
+                "indicator_id": indicator_id,
+                "history": history,
+                "limit": limit,
+                "total_count": returned_count,
+                "total_available": total_available,
+                "limited": limited,
+                "source": "questdb"  # ✅ Indicate data source
+            })
+
+        except Exception as db_error:
+            # Log database error
+            logger = get_logger(__name__)
+            logger.error("indicators_routes.history_questdb_failed", {
+                "session_id": session_id,
+                "symbol": symbol,
+                "indicator_id": indicator_id,
+                "error": str(db_error)
+            })
+
+            # Fallback to CSV for backward compatibility during transition
+            logger.warning("indicators_routes.history_fallback_to_csv", {
+                "session_id": session_id,
+                "symbol": symbol,
+                "indicator_id": indicator_id
+            })
+
+            persistence_service, _ = _ensure_support_services()
+            variant_id = config.get("variant_id")
+            if not variant_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Indicator '{indicator_id}' missing variant metadata"
+                )
+            variant_type = str(config.get("variant_type") or "general").lower()
+
+            result = persistence_service.load_values_with_stats(
+                session_id=session_id,
+                symbol=symbol,
+                variant_id=variant_id,
+                variant_type=variant_type,
+                limit=limit
+            )
+
+            history = [
+                {
+                    "timestamp": value.timestamp,
+                    "value": value.value,
+                    "metadata": value.metadata
+                }
+                for value in result["values"]
+            ]
+
+            return _json_ok({
+                "session_id": session_id,
+                "symbol": symbol,
+                "indicator_id": indicator_id,
+                "history": history,
+                "limit": limit,
+                "total_count": result["returned_count"],
+                "total_available": result["total_available"],
+                "limited": result["limited"],
+                "source": "csv_fallback"  # ✅ Indicate fallback used
+            })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger = get_logger(__name__)
+        logger.error("indicators_routes.history_fatal_error", {
             "session_id": session_id,
             "symbol": symbol,
             "indicator_id": indicator_id,
-            "history": history,
-            "limit": limit,
-            "total_count": result["returned_count"],
-            "total_available": result["total_available"],
-            "limited": result["limited"]
+            "error": str(e)
         })
-
-    except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get indicator history: {str(e)}"
