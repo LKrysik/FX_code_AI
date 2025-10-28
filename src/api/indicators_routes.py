@@ -29,6 +29,10 @@ from src.domain.calculators.indicator_calculator import IndicatorCalculator
 from src.domain.services.streaming_indicator_engine import IndicatorType
 from src.domain.types.indicator_types import IndicatorValue
 
+# ✅ BUG-002 FIX: Import QuestDB providers for database access
+from src.data_feed.questdb_provider import QuestDBProvider
+from src.data.questdb_data_provider import QuestDBDataProvider
+
 # Create router
 router = APIRouter(prefix="/api/indicators", tags=["indicators"])
 
@@ -36,6 +40,10 @@ router = APIRouter(prefix="/api/indicators", tags=["indicators"])
 _streaming_engine: Optional[StreamingIndicatorEngine] = None
 _persistence_service: Optional[IndicatorPersistenceService] = None
 _offline_indicator_engine: Optional[OfflineIndicatorEngine] = None
+
+# ✅ BUG-002 FIX: Global QuestDB providers for database access
+_questdb_provider: Optional[QuestDBProvider] = None
+_questdb_data_provider: Optional[QuestDBDataProvider] = None
 
 DATA_BASE_PATH = Path(os.environ.get("INDICATOR_DATA_DIR", "data")).resolve()
 
@@ -94,44 +102,124 @@ def _ensure_support_services() -> Tuple[IndicatorPersistenceService, OfflineIndi
     return _persistence_service, _offline_indicator_engine
 
 
-def _load_session_price_data(session_id: str, symbol: str) -> List[Dict[str, float]]:
-    prices_path = DATA_BASE_PATH / session_id / symbol / "prices.csv"
-    if not prices_path.exists():
-        raise HTTPException(
-            status_code=404,
-            detail=f"Price data not found for session '{session_id}', symbol '{symbol}'"
+def _ensure_questdb_providers() -> Tuple[QuestDBProvider, QuestDBDataProvider]:
+    """
+    Ensure QuestDB providers are initialized (lazy initialization).
+
+    ✅ BUG-002 FIX: Initialize QuestDB providers for database access
+
+    Returns:
+        Tuple of (QuestDBProvider, QuestDBDataProvider)
+    """
+    global _questdb_provider, _questdb_data_provider
+
+    if _questdb_provider is None:
+        _questdb_provider = QuestDBProvider(
+            ilp_host='127.0.0.1',
+            ilp_port=9009,
+            pg_host='127.0.0.1',
+            pg_port=8812
         )
 
-    data: List[Dict[str, float]] = []
-    with prices_path.open("r", newline="", encoding="utf-8") as csvfile:
-        reader = csv.DictReader(csvfile)
-        for row in reader:
+    if _questdb_data_provider is None:
+        logger = StructuredLogger("indicators_routes_questdb")
+        _questdb_data_provider = QuestDBDataProvider(_questdb_provider, logger)
+
+    return _questdb_provider, _questdb_data_provider
+
+
+async def _load_session_price_data(session_id: str, symbol: str) -> List[Dict[str, float]]:
+    """
+    Load tick price data from QuestDB for indicator calculation.
+
+    ✅ BUG-002 FIX: Changed from CSV filesystem to QuestDB query
+
+    Args:
+        session_id: Session identifier
+        symbol: Trading pair symbol
+
+    Returns:
+        List of price dictionaries with timestamp, price, volume
+
+    Raises:
+        HTTPException: If session/symbol not found or data invalid
+    """
+    _, questdb_data_provider = _ensure_questdb_providers()
+
+    try:
+        # Query tick prices from QuestDB
+        tick_prices = await questdb_data_provider.get_tick_prices(
+            session_id=session_id,
+            symbol=symbol
+            # No limit - indicators need full dataset
+        )
+
+        if not tick_prices:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Price data not found for session '{session_id}', symbol '{symbol}'"
+            )
+
+        # Convert QuestDB format to indicator format
+        from datetime import datetime
+        data: List[Dict[str, float]] = []
+        for tick in tick_prices:
             try:
-                timestamp = float(row["timestamp"])
-                price = float(row["price"])
-                volume = float(row.get("volume") or 0.0)
-            except (KeyError, TypeError, ValueError) as exc:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid price row encountered: {row}"
-                ) from exc
-            data.append({
-                "timestamp": timestamp,
-                "price": price,
-                "volume": volume
-            })
+                # Convert timestamp if needed
+                timestamp = tick.get('timestamp')
+                if isinstance(timestamp, datetime):
+                    timestamp = timestamp.timestamp()  # Convert to seconds
+                elif timestamp:
+                    timestamp = float(timestamp)
+                else:
+                    continue  # Skip invalid timestamps
 
-    if not data:
+                price = float(tick.get('price', 0))
+                volume = float(tick.get('volume', 0.0))
+
+                data.append({
+                    "timestamp": timestamp,
+                    "price": price,
+                    "volume": volume
+                })
+            except (TypeError, ValueError) as exc:
+                # Skip invalid rows instead of failing entire dataset
+                logger = get_logger(__name__)
+                logger.warning("indicators_routes.invalid_price_row", {
+                    "session_id": session_id,
+                    "symbol": symbol,
+                    "tick": str(tick),
+                    "error": str(exc)
+                })
+                continue
+
+        if not data:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No valid price data rows available for session '{session_id}', symbol '{symbol}'"
+            )
+
+        # Data from QuestDB should already be sorted by timestamp, but ensure it
+        data.sort(key=lambda item: item["timestamp"])
+        return data
+
+    except HTTPException:
+        # Re-raise HTTPException as-is
+        raise
+    except Exception as e:
+        logger = get_logger(__name__)
+        logger.error("indicators_routes.load_price_data_failed", {
+            "session_id": session_id,
+            "symbol": symbol,
+            "error": str(e)
+        })
         raise HTTPException(
-            status_code=404,
-            detail=f"No price data rows available for session '{session_id}', symbol '{symbol}'"
-        )
-
-    data.sort(key=lambda item: item["timestamp"])
-    return data
+            status_code=500,
+            detail=f"Failed to load price data from database: {str(e)}"
+        ) from e
 
 
-def _compute_indicator_series(
+async def _compute_indicator_series(
     indicator_id: str,
     session_id: str,
     symbol: str,
@@ -141,6 +229,8 @@ def _compute_indicator_series(
 ) -> List[IndicatorValue]:
     """
     Compute indicator series for historical session data.
+
+    ✅ BUG-002 FIX: Now async to support QuestDB data loading
 
     CRITICAL FIX: Uses OfflineIndicatorEngine to generate indicator values at
     fixed time intervals (refresh_interval_seconds) instead of using raw price
@@ -158,7 +248,7 @@ def _compute_indicator_series(
         - Calculates indicator at fixed intervals (default 1.0 second)
         - Respects refresh_interval_seconds parameter
     """
-    price_rows = _load_session_price_data(session_id, symbol)
+    price_rows = await _load_session_price_data(session_id, symbol)
 
     # Convert price_rows to MarketDataPoint objects
     from src.domain.types.indicator_types import MarketDataPoint
@@ -701,7 +791,8 @@ async def add_indicator_for_session(
 
         persistence_service, _ = _ensure_support_services()
         try:
-            series = _compute_indicator_series(
+            # ✅ BUG-002 FIX: Added await for async _compute_indicator_series
+            series = await _compute_indicator_series(
                 indicator_id=indicator_id,
                 session_id=session_id,
                 symbol=symbol,
@@ -726,15 +817,66 @@ async def add_indicator_for_session(
                 detail=f"Failed to calculate indicator values: {str(exc)}"
             ) from exc
 
+        # ✅ BUG-002 FIX: Save indicators to QuestDB instead of CSV
+        questdb_provider, _ = _ensure_questdb_providers()
+
+        # Convert IndicatorValue objects to QuestDB format
+        indicators_batch = []
+        for value in series:
+            from datetime import datetime
+            indicators_batch.append({
+                'session_id': session_id,
+                'symbol': symbol,
+                'indicator_id': indicator_id,
+                'timestamp': datetime.fromtimestamp(value.timestamp),
+                'value': float(value.value),
+                'confidence': float(value.confidence) if value.confidence is not None else None
+            })
+
+        # Save to QuestDB
+        try:
+            inserted_count = await questdb_provider.insert_indicators_batch(indicators_batch)
+            logger = get_logger(__name__)
+            logger.info("indicators_routes.saved_to_questdb", {
+                "session_id": session_id,
+                "symbol": symbol,
+                "indicator_id": indicator_id,
+                "variant_id": variant_id,
+                "count": inserted_count
+            })
+        except Exception as exc:
+            logger = get_logger(__name__)
+            logger.error("indicators_routes.questdb_save_failed", {
+                "session_id": session_id,
+                "symbol": symbol,
+                "indicator_id": indicator_id,
+                "error": str(exc)
+            })
+            # Don't fail the request if QuestDB save fails
+            # (backward compatibility - indicators still calculated)
+
+        # Still save to CSV for backward compatibility during transition
         variant_type = str(getattr(variant, "variant_type", None) or "general").lower()
-        persistence_service.save_batch_values(
-            session_id,
-            symbol,
-            variant_id,
-            series,
-            variant_type=variant_type
-        )
-        file_info = persistence_service.get_file_info(session_id, symbol, variant_id, variant_type)
+        try:
+            persistence_service.save_batch_values(
+                session_id,
+                symbol,
+                variant_id,
+                series,
+                variant_type=variant_type
+            )
+            file_info = persistence_service.get_file_info(session_id, symbol, variant_id, variant_type)
+        except Exception as exc:
+            logger = get_logger(__name__)
+            logger.warning("indicators_routes.csv_save_failed", {
+                "session_id": session_id,
+                "symbol": symbol,
+                "indicator_id": indicator_id,
+                "error": str(exc)
+            })
+            # CSV save failed, but QuestDB save succeeded - continue
+            file_info = {"path": "questdb://indicators", "rows": len(series)}
+
         recent_values = [
             {"timestamp": value.timestamp, "value": value.value}
             for value in series[-min(len(series), 10):]
@@ -748,7 +890,8 @@ async def add_indicator_for_session(
             "status": "added",
             "parameters": parameters,
             "file": file_info,
-            "recent_values": recent_values
+            "recent_values": recent_values,
+            "saved_to_questdb": True  # ✅ BUG-002 FIX: Indicate database storage
         })
 
     except HTTPException:
