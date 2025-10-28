@@ -47,8 +47,7 @@ param(
     [int]$PostgreSQLPort = 8812,
     [string]$MigrationPath = ".\migrations",
     [switch]$DryRun,
-    [switch]$Force,
-    [switch]$Verbose
+    [switch]$Force
 )
 
 # ============================================================================
@@ -79,22 +78,22 @@ function Write-Header {
 
 function Write-Step {
     param([string]$Message)
-    Write-Host "→ $Message" -ForegroundColor $ColorInfo
+    Write-Host "[STEP] $Message" -ForegroundColor $ColorInfo
 }
 
 function Write-Success {
     param([string]$Message)
-    Write-Host "✓ $Message" -ForegroundColor $ColorSuccess
+    Write-Host "[OK] $Message" -ForegroundColor $ColorSuccess
 }
 
 function Write-Warn {
     param([string]$Message)
-    Write-Host "⚠ $Message" -ForegroundColor $ColorWarning
+    Write-Host "[WARN] $Message" -ForegroundColor $ColorWarning
 }
 
 function Write-Fail {
     param([string]$Message)
-    Write-Host "✗ $Message" -ForegroundColor $ColorError
+    Write-Host "[FAIL] $Message" -ForegroundColor $ColorError
 }
 
 # ============================================================================
@@ -103,12 +102,12 @@ function Write-Fail {
 
 function Test-QuestDBConnection {
     param(
-        [string]$Host,
+        [string]$QuestHost,
         [int]$Port
     )
 
     try {
-        $url = "http://${Host}:${Port}/exec?query=SELECT%201"
+        $url = "http://${QuestHost}:${Port}/exec?query=SELECT%201"
         $response = Invoke-RestMethod -Uri $url -Method Get -TimeoutSec 5
 
         if ($response) {
@@ -125,17 +124,15 @@ function Test-QuestDBConnection {
 function Invoke-QuestDBQuery {
     param(
         [string]$Query,
-        [string]$Host = $QuestDBHost,
+        [string]$QuestHost = $QuestDBHost,
         [int]$Port = $QuestDBPort
     )
 
     try {
         $encodedQuery = [System.Web.HttpUtility]::UrlEncode($Query)
-        $url = "http://${Host}:${Port}/exec?query=${encodedQuery}"
+        $url = "http://${QuestHost}:${Port}/exec?query=${encodedQuery}"
 
-        if ($Verbose) {
-            Write-Host "Query: $Query" -ForegroundColor DarkGray
-        }
+        Write-Verbose "Query: $Query"
 
         $response = Invoke-RestMethod -Uri $url -Method Get -TimeoutSec 30
 
@@ -150,7 +147,7 @@ function Invoke-QuestDBQuery {
 function Invoke-QuestDBScript {
     param(
         [string]$ScriptPath,
-        [string]$Host = $QuestDBHost,
+        [string]$QuestHost = $QuestDBHost,
         [int]$Port = $QuestDBPort
     )
 
@@ -172,7 +169,7 @@ function Invoke-QuestDBScript {
         }
 
         try {
-            Invoke-QuestDBQuery -Query $trimmed -Host $Host -Port $Port | Out-Null
+            Invoke-QuestDBQuery -Query $trimmed -QuestHost $QuestHost -Port $Port | Out-Null
         }
         catch {
             Write-Warn "Statement failed (continuing): $trimmed"
@@ -324,7 +321,7 @@ function Install-QuestDB {
 
     # 1. Check connection
     Write-Step "Checking QuestDB connection..."
-    if (-not (Test-QuestDBConnection -Host $QuestDBHost -Port $QuestDBPort)) {
+    if (-not (Test-QuestDBConnection -QuestHost $QuestDBHost -Port $QuestDBPort)) {
         Write-Fail "Cannot connect to QuestDB at ${QuestDBHost}:${QuestDBPort}"
         Write-Host ""
         Write-Host "Please ensure QuestDB is running:" -ForegroundColor Yellow
@@ -378,7 +375,7 @@ function Install-QuestDB {
     # 6. Show pending migrations
     Write-Header "Pending Migrations ($($pendingMigrations.Count))"
     foreach ($migration in $pendingMigrations) {
-        Write-Host "  • $($migration.Version) - $($migration.Name)" -ForegroundColor Cyan
+        Write-Host "  -> $($migration.Version) - $($migration.Name)" -ForegroundColor Cyan
     }
     Write-Host ""
 
@@ -436,7 +433,7 @@ function Install-QuestDB {
         if ($tables.dataset) {
             Write-Host "  Tables created: $($tables.dataset.Count)" -ForegroundColor Cyan
             foreach ($table in $tables.dataset) {
-                Write-Host "    • $($table[0])" -ForegroundColor DarkGray
+                Write-Host "    -> $($table[0])" -ForegroundColor DarkGray
             }
         }
     }
@@ -474,3 +471,4 @@ catch {
     Write-Host ""
     exit 1
 }
+
