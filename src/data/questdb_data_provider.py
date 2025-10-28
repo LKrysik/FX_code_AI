@@ -482,3 +482,92 @@ class QuestDBDataProvider:
                 "error_type": type(e).__name__
             })
             return 0
+
+    async def delete_session(self, session_id: str) -> Dict[str, Any]:
+        """
+        Delete session and all related data (cascade delete).
+
+        Performs application-level cascade delete since QuestDB does not
+        support foreign key constraints or ON DELETE CASCADE.
+
+        This method deletes data in the correct order:
+        1. Backtest results (most dispensable)
+        2. Indicators (computed from prices)
+        3. Aggregated OHLCV (derived data)
+        4. Orderbook snapshots
+        5. Tick prices
+        6. Session metadata (parent record)
+
+        Args:
+            session_id: Session identifier
+
+        Returns:
+            Dictionary with deletion results:
+            {
+                'success': bool,
+                'session_id': str,
+                'deleted_counts': {
+                    'backtest_results': int,
+                    'indicators': int,
+                    'aggregated_ohlcv': int,
+                    'tick_orderbook': int,
+                    'tick_prices': int,
+                    'data_collection_sessions': int,
+                    'total': int
+                }
+            }
+
+        Raises:
+            ValueError: If session not found or session is active
+            RuntimeError: If deletion fails
+        """
+        try:
+            # 1. Validate session exists
+            self.logger.info("questdb_data_provider.delete_session_start", {
+                "session_id": session_id
+            })
+
+            session = await self.get_session_metadata(session_id)
+            if not session:
+                raise ValueError(f"Session {session_id} not found in database")
+
+            # 2. Validate session is not active
+            status = session.get('status', '')
+            if status == 'active':
+                raise ValueError(
+                    f"Cannot delete active session {session_id}. "
+                    f"Session must be stopped or completed before deletion."
+                )
+
+            # 3. Perform cascade delete using low-level provider
+            deleted_counts = await self.db.delete_session_cascade(session_id)
+
+            self.logger.info("questdb_data_provider.delete_session_success", {
+                "session_id": session_id,
+                "deleted_counts": deleted_counts
+            })
+
+            return {
+                'success': True,
+                'session_id': session_id,
+                'deleted_counts': deleted_counts
+            }
+
+        except ValueError as e:
+            # Validation errors (session not found, session active)
+            self.logger.warning("questdb_data_provider.delete_session_validation_failed", {
+                "session_id": session_id,
+                "error": str(e)
+            })
+            raise
+
+        except Exception as e:
+            # Database errors or unexpected issues
+            self.logger.error("questdb_data_provider.delete_session_failed", {
+                "session_id": session_id,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            raise RuntimeError(
+                f"Failed to delete session {session_id}: {str(e)}"
+            ) from e
