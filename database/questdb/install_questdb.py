@@ -24,6 +24,7 @@ import sys
 import os
 import re
 import time
+import hashlib
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
@@ -133,20 +134,38 @@ def execute_script_http(script_path: Path, host: str, port: int):
     with open(script_path, 'r', encoding='utf-8') as f:
         sql_content = f.read()
 
+    # Remove multi-line comments /* ... */
+    sql_content = re.sub(r'/\*.*?\*/', '', sql_content, flags=re.DOTALL)
+
     # Split by semicolon and execute each statement
     statements = sql_content.split(';')
 
-    for statement in statements:
-        trimmed = statement.strip()
+    success_count = 0
+    fail_count = 0
 
-        # Skip empty statements and comments
-        if not trimmed or trimmed.startswith('--'):
+    for statement in statements:
+        # Remove single-line comments
+        lines = [line for line in statement.split('\n') if not line.strip().startswith('--')]
+        trimmed = '\n'.join(lines).strip()
+
+        # Skip empty statements
+        if not trimmed:
             continue
 
         try:
             execute_query_http(trimmed, host, port)
+            success_count += 1
         except Exception as e:
-            print_warn(f"Statement failed (continuing): {e}")
+            fail_count += 1
+
+            # For INSERT statements, duplicate key errors are acceptable
+            if trimmed.strip().upper().startswith('INSERT') and 'duplicate' in str(e).lower():
+                print(f"  Skipping duplicate INSERT (OK)")
+            else:
+                error_msg = str(e)[:100]
+                print_warn(f"Statement failed: {error_msg}")
+
+    print(f"  Script execution: {success_count} succeeded, {fail_count} failed/skipped")
 
 # ============================================================================
 # MIGRATION SYSTEM
@@ -163,8 +182,9 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     name STRING,
     executed_at TIMESTAMP,
     execution_time_ms INT,
-    status STRING
-)
+    status STRING,
+    checksum STRING
+) timestamp(executed_at)
 """
 
     try:
@@ -189,7 +209,7 @@ def get_applied_migrations(host: str, port: int) -> List[str]:
         return []
 
 def get_migration_files(migrations_dir: Path) -> List[Tuple[str, str, Path]]:
-    """Get list of migration files"""
+    """Get list of migration files with validation"""
     if not migrations_dir.exists():
         print_warn(f"Migration directory not found: {migrations_dir}")
         return []
@@ -204,7 +224,35 @@ def get_migration_files(migrations_dir: Path) -> List[Tuple[str, str, Path]]:
             name = match.group(2)
             migrations.append((version, name, file))
 
+    # Validate migration sequence
+    if migrations:
+        versions = [int(v[0]) for v in migrations]
+
+        # Check for duplicates
+        if len(versions) != len(set(versions)):
+            duplicates = [v for v in versions if versions.count(v) > 1]
+            print_fail(f"Duplicate migration versions detected: {duplicates}")
+            raise ValueError("Migration validation failed: duplicate versions")
+
+        # Check for gaps
+        sorted_versions = sorted(versions)
+        for i in range(len(sorted_versions) - 1):
+            current = sorted_versions[i]
+            next_ver = sorted_versions[i + 1]
+
+            if next_ver - current > 1:
+                print_warn(f"Gap detected in migration sequence: {current} -> {next_ver}")
+                print_warn("Consider renumbering migrations to be sequential")
+
     return migrations
+
+def calculate_file_checksum(file_path: Path) -> str:
+    """Calculate SHA256 checksum of a file"""
+    sha256 = hashlib.sha256()
+    with open(file_path, 'rb') as f:
+        for chunk in iter(lambda: f.read(4096), b''):
+            sha256.update(chunk)
+    return sha256.hexdigest()
 
 def execute_migration(
     version: str,
@@ -221,6 +269,10 @@ def execute_migration(
         print(f"  [DRY RUN] Would execute: {script_path}")
         return True
 
+    # Calculate checksum for integrity verification
+    checksum = calculate_file_checksum(script_path)
+    print(f"  Checksum: {checksum[:16]}...")
+
     start_time = time.time()
 
     try:
@@ -230,16 +282,17 @@ def execute_migration(
         end_time = time.time()
         duration_ms = int((end_time - start_time) * 1000)
 
-        # Record successful migration
+        # Record successful migration with checksum
         insert_log = f"""
-INSERT INTO schema_migrations (id, version, name, executed_at, execution_time_ms, status)
+INSERT INTO schema_migrations (id, version, name, executed_at, execution_time_ms, status, checksum)
 VALUES (
     {version},
     '{version}',
     '{name}',
     systimestamp(),
     {duration_ms},
-    'success'
+    'success',
+    '{checksum}'
 )
 """
 
@@ -251,14 +304,15 @@ VALUES (
     except Exception as e:
         # Record failed migration
         insert_log = f"""
-INSERT INTO schema_migrations (id, version, name, executed_at, execution_time_ms, status)
+INSERT INTO schema_migrations (id, version, name, executed_at, execution_time_ms, status, checksum)
 VALUES (
     {version},
     '{version}',
     '{name}',
     systimestamp(),
     0,
-    'failed'
+    'failed',
+    '{checksum}'
 )
 """
 
