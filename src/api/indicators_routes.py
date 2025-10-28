@@ -18,7 +18,7 @@ from typing import List, Dict, Any, Optional, Set, Tuple, Callable
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse
 
-from src.core.logger import StructuredLogger, get_logger
+from src.core.logger import get_logger
 
 from src.core.event_bus import EventPriority
 from src.domain.services.streaming_indicator_engine import StreamingIndicatorEngine
@@ -122,7 +122,8 @@ def _ensure_questdb_providers() -> Tuple[QuestDBProvider, QuestDBDataProvider]:
         )
 
     if _questdb_data_provider is None:
-        logger = StructuredLogger("indicators_routes_questdb")
+        # ✅ LOGGER FIX: Use get_logger() instead of direct StructuredLogger instantiation
+        logger = get_logger("indicators_routes_questdb")
         _questdb_data_provider = QuestDBDataProvider(_questdb_provider, logger)
 
     return _questdb_provider, _questdb_data_provider
