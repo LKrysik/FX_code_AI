@@ -41,23 +41,8 @@ class TWPARatioAlgorithm(MultiWindowIndicatorAlgorithm):
     
     def get_parameters(self) -> List:
         """Return parameter definitions for TWPA Ratio."""
-        # Import here to avoid circular dependency
-        try:
-            from ..streaming_indicator_engine import VariantParameter
-        except ImportError:
-            # Fallback for testing or standalone usage
-            from typing import NamedTuple
-            
-            class VariantParameter(NamedTuple):
-                name: str
-                type: str
-                default: float
-                min_value: float
-                max_value: float
-                allowed_values: Optional[List] = None
-                required: bool = True
-                description: str = ""
-        
+        from ...types.indicator_types import VariantParameter
+
         return [
             VariantParameter(
                 "t1",
