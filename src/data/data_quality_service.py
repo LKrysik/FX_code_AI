@@ -60,9 +60,30 @@ class DataQualityService:
     - Identify data anomalies
     - Generate quality scores
     - Provide improvement recommendations
+
+    ✅ BUG-005 FIX: Changed to load data from QuestDB instead of accepting data_points parameter
     """
 
-    def __init__(self):
+    def __init__(self, db_provider=None):
+        """
+        Initialize DataQualityService with QuestDB provider.
+
+        Args:
+            db_provider: QuestDBDataProvider instance for database access
+
+        Raises:
+            ValueError: If db_provider is None
+
+        ✅ BUG-005 FIX: Now requires QuestDBDataProvider (was parameter-less)
+        """
+        if db_provider is None:
+            raise ValueError(
+                "QuestDBDataProvider is required for DataQualityService.\n"
+                "Data must be loaded from QuestDB for quality assessment."
+            )
+
+        self.db_provider = db_provider
+
         # Quality thresholds
         self.expected_interval_ms = 1000  # 1 second
         self.gap_thresholds = {
@@ -72,18 +93,47 @@ class DataQualityService:
         }
         self.max_quality_score = 100
 
-    async def assess_session_quality(self, session_id: str, data_points: List[Dict[str, Any]]) -> DataQualityMetrics:
+    async def assess_session_quality(self, session_id: str, symbol: str) -> DataQualityMetrics:
         """
-        Perform comprehensive quality assessment for a session
+        Perform comprehensive quality assessment for a session.
+
+        ✅ BUG-005 FIX: Now loads data from QuestDB instead of accepting data_points parameter
 
         Args:
             session_id: Session identifier
-            data_points: List of data points to assess
+            symbol: Trading pair symbol to assess
 
         Returns:
             Complete quality metrics
+
+        Raises:
+            ValueError: If session not found or symbol has no data
         """
         try:
+            # Load tick price data from QuestDB
+            tick_prices = await self.db_provider.get_tick_prices(
+                session_id=session_id,
+                symbol=symbol
+                # No limit - quality assessment needs full dataset
+            )
+
+            if not tick_prices:
+                raise ValueError(f"No data found for session {session_id}, symbol {symbol}")
+
+            # Convert QuestDB format to analysis format
+            data_points = []
+            for tick in tick_prices:
+                # Convert timestamp if needed
+                timestamp = tick.get('timestamp')
+                if isinstance(timestamp, datetime):
+                    timestamp = int(timestamp.timestamp() * 1000)  # milliseconds
+
+                data_points.append({
+                    'timestamp': timestamp,
+                    'price': float(tick.get('price', 0)),
+                    'volume': float(tick.get('volume', 0))
+                })
+
             # Calculate individual quality components
             completeness = self._calculate_completeness(data_points)
             gaps = self._detect_gaps(data_points)
@@ -351,19 +401,43 @@ class DataQualityService:
 
         return max(0.0, min(100.0, score))
 
-    async def get_quality_report(self, session_id: str, data_points: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def get_quality_report(self, session_id: str, symbol: str) -> Dict[str, Any]:
         """
-        Generate detailed quality report with recommendations
+        Generate detailed quality report with recommendations.
+
+        ✅ BUG-005 FIX: Now loads data from QuestDB instead of accepting data_points parameter
 
         Args:
             session_id: Session identifier
-            data_points: Data points to analyze
+            symbol: Trading pair symbol to assess
 
         Returns:
             Detailed quality report with recommendations
         """
         try:
-            metrics = await self.assess_session_quality(session_id, data_points)
+            # Load data and assess quality (single call now)
+            metrics = await self.assess_session_quality(session_id, symbol)
+
+            # Load data again for gap/anomaly details
+            # (Already loaded in assess_session_quality, but kept separate for clarity)
+            tick_prices = await self.db_provider.get_tick_prices(
+                session_id=session_id,
+                symbol=symbol
+            )
+
+            # Convert to analysis format
+            data_points = []
+            for tick in tick_prices:
+                timestamp = tick.get('timestamp')
+                if isinstance(timestamp, datetime):
+                    timestamp = int(timestamp.timestamp() * 1000)
+
+                data_points.append({
+                    'timestamp': timestamp,
+                    'price': float(tick.get('price', 0)),
+                    'volume': float(tick.get('volume', 0))
+                })
+
             gaps = self._detect_gaps(data_points)
             anomalies = self._detect_anomalies(data_points)
 

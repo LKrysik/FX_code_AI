@@ -797,26 +797,288 @@ class QuestDBProvider:
         return prices_df, indicators_dict
 
     # ========================================================================
-    # UTILITY METHODS
+    # DELETE OPERATIONS (Application-Level Cascade)
     # ========================================================================
 
-    async def execute_query(self, query: str, *params) -> List[Dict[str, Any]]:
+    async def delete_tick_prices(
+        self,
+        session_id: str,
+        symbol: Optional[str] = None
+    ) -> int:
         """
-        Execute arbitrary SQL query.
+        Delete tick price data for session.
 
         Args:
-            query: SQL query string
-            params: Query parameters
+            session_id: Session identifier
+            symbol: Optional symbol filter (deletes all symbols if None)
 
         Returns:
-            List of row dictionaries
+            Number of rows deleted
         """
         await self.initialize()
 
-        async with self.pg_pool.acquire() as conn:
-            rows = await conn.fetch(query, *params)
+        try:
+            if symbol:
+                query = "DELETE FROM tick_prices WHERE session_id = $1 AND symbol = $2"
+                params = [session_id, symbol]
+            else:
+                query = "DELETE FROM tick_prices WHERE session_id = $1"
+                params = [session_id]
 
-        return [dict(row) for row in rows]
+            async with self.pg_pool.acquire() as conn:
+                result = await conn.execute(query, *params)
+                # Parse result: "DELETE N" -> N
+                deleted_count = int(result.split()[-1]) if result else 0
+
+            logger.info(f"Deleted {deleted_count} tick_prices rows for session {session_id}" +
+                       (f", symbol {symbol}" if symbol else ""))
+            return deleted_count
+
+        except Exception as e:
+            logger.error(f"Failed to delete tick_prices for session {session_id}: {e}")
+            raise
+
+    async def delete_tick_orderbook(
+        self,
+        session_id: str,
+        symbol: Optional[str] = None
+    ) -> int:
+        """
+        Delete orderbook snapshots for session.
+
+        Args:
+            session_id: Session identifier
+            symbol: Optional symbol filter (deletes all symbols if None)
+
+        Returns:
+            Number of rows deleted
+        """
+        await self.initialize()
+
+        try:
+            if symbol:
+                query = "DELETE FROM tick_orderbook WHERE session_id = $1 AND symbol = $2"
+                params = [session_id, symbol]
+            else:
+                query = "DELETE FROM tick_orderbook WHERE session_id = $1"
+                params = [session_id]
+
+            async with self.pg_pool.acquire() as conn:
+                result = await conn.execute(query, *params)
+                deleted_count = int(result.split()[-1]) if result else 0
+
+            logger.info(f"Deleted {deleted_count} tick_orderbook rows for session {session_id}" +
+                       (f", symbol {symbol}" if symbol else ""))
+            return deleted_count
+
+        except Exception as e:
+            logger.error(f"Failed to delete tick_orderbook for session {session_id}: {e}")
+            raise
+
+    async def delete_aggregated_ohlcv(
+        self,
+        session_id: str,
+        symbol: Optional[str] = None
+    ) -> int:
+        """
+        Delete aggregated OHLCV candles for session.
+
+        Args:
+            session_id: Session identifier
+            symbol: Optional symbol filter (deletes all symbols if None)
+
+        Returns:
+            Number of rows deleted
+        """
+        await self.initialize()
+
+        try:
+            if symbol:
+                query = "DELETE FROM aggregated_ohlcv WHERE session_id = $1 AND symbol = $2"
+                params = [session_id, symbol]
+            else:
+                query = "DELETE FROM aggregated_ohlcv WHERE session_id = $1"
+                params = [session_id]
+
+            async with self.pg_pool.acquire() as conn:
+                result = await conn.execute(query, *params)
+                deleted_count = int(result.split()[-1]) if result else 0
+
+            logger.info(f"Deleted {deleted_count} aggregated_ohlcv rows for session {session_id}" +
+                       (f", symbol {symbol}" if symbol else ""))
+            return deleted_count
+
+        except Exception as e:
+            logger.error(f"Failed to delete aggregated_ohlcv for session {session_id}: {e}")
+            raise
+
+    async def delete_indicators(
+        self,
+        session_id: str,
+        symbol: Optional[str] = None,
+        indicator_id: Optional[str] = None
+    ) -> int:
+        """
+        Delete indicator values for session.
+
+        Args:
+            session_id: Session identifier
+            symbol: Optional symbol filter
+            indicator_id: Optional indicator ID filter
+
+        Returns:
+            Number of rows deleted
+        """
+        await self.initialize()
+
+        try:
+            query = "DELETE FROM indicators WHERE session_id = $1"
+            params = [session_id]
+
+            if symbol:
+                query += " AND symbol = $2"
+                params.append(symbol)
+
+            if indicator_id:
+                param_idx = len(params) + 1
+                query += f" AND indicator_id = ${param_idx}"
+                params.append(indicator_id)
+
+            async with self.pg_pool.acquire() as conn:
+                result = await conn.execute(query, *params)
+                deleted_count = int(result.split()[-1]) if result else 0
+
+            logger.info(f"Deleted {deleted_count} indicators rows for session {session_id}" +
+                       (f", symbol {symbol}" if symbol else "") +
+                       (f", indicator {indicator_id}" if indicator_id else ""))
+            return deleted_count
+
+        except Exception as e:
+            logger.error(f"Failed to delete indicators for session {session_id}: {e}")
+            raise
+
+    async def delete_backtest_results(self, session_id: str) -> int:
+        """
+        Delete backtest results linked to session.
+
+        Args:
+            session_id: Session identifier
+
+        Returns:
+            Number of rows deleted
+        """
+        await self.initialize()
+
+        try:
+            query = "DELETE FROM backtest_results WHERE session_id = $1"
+
+            async with self.pg_pool.acquire() as conn:
+                result = await conn.execute(query, session_id)
+                deleted_count = int(result.split()[-1]) if result else 0
+
+            logger.info(f"Deleted {deleted_count} backtest_results rows for session {session_id}")
+            return deleted_count
+
+        except Exception as e:
+            logger.error(f"Failed to delete backtest_results for session {session_id}: {e}")
+            raise
+
+    async def delete_session_metadata(self, session_id: str) -> int:
+        """
+        Delete session metadata record.
+
+        WARNING: This should be called LAST after all child data is deleted.
+
+        Args:
+            session_id: Session identifier
+
+        Returns:
+            Number of rows deleted (should be 1)
+        """
+        await self.initialize()
+
+        try:
+            query = "DELETE FROM data_collection_sessions WHERE session_id = $1"
+
+            async with self.pg_pool.acquire() as conn:
+                result = await conn.execute(query, session_id)
+                deleted_count = int(result.split()[-1]) if result else 0
+
+            logger.info(f"Deleted session metadata for {session_id}")
+            return deleted_count
+
+        except Exception as e:
+            logger.error(f"Failed to delete session metadata for {session_id}: {e}")
+            raise
+
+    async def delete_session_cascade(self, session_id: str) -> Dict[str, int]:
+        """
+        Delete all data for session (cascade delete).
+
+        Deletes in correct order:
+        1. Backtest results (most dispensable)
+        2. Indicators (computed from prices)
+        3. Aggregated OHLCV (derived data)
+        4. Orderbook snapshots
+        5. Tick prices
+        6. Session metadata (parent record)
+
+        Args:
+            session_id: Session identifier
+
+        Returns:
+            Dictionary with deleted row counts per table:
+            {
+                'backtest_results': N,
+                'indicators': N,
+                'aggregated_ohlcv': N,
+                'tick_orderbook': N,
+                'tick_prices': N,
+                'data_collection_sessions': N,
+                'total': N
+            }
+        """
+        logger.info(f"Starting cascade delete for session {session_id}")
+
+        deleted_counts = {}
+
+        try:
+            # 1. Delete backtest results
+            deleted_counts['backtest_results'] = await self.delete_backtest_results(session_id)
+
+            # 2. Delete indicators
+            deleted_counts['indicators'] = await self.delete_indicators(session_id)
+
+            # 3. Delete aggregated OHLCV
+            deleted_counts['aggregated_ohlcv'] = await self.delete_aggregated_ohlcv(session_id)
+
+            # 4. Delete orderbook snapshots
+            deleted_counts['tick_orderbook'] = await self.delete_tick_orderbook(session_id)
+
+            # 5. Delete tick prices
+            deleted_counts['tick_prices'] = await self.delete_tick_prices(session_id)
+
+            # 6. Delete session metadata (parent record - LAST)
+            deleted_counts['data_collection_sessions'] = await self.delete_session_metadata(session_id)
+
+            # Calculate total
+            deleted_counts['total'] = sum(deleted_counts.values())
+
+            logger.info(f"Cascade delete completed for session {session_id}: " +
+                       f"total {deleted_counts['total']} rows deleted")
+
+            return deleted_counts
+
+        except Exception as e:
+            logger.error(f"Cascade delete failed for session {session_id}: {e}")
+            # Return partial counts if any deletes succeeded
+            deleted_counts['total'] = sum(deleted_counts.values())
+            deleted_counts['error'] = str(e)
+            raise
+
+    # ========================================================================
+    # UTILITY METHODS
+    # ========================================================================
 
     async def health_check(self) -> Dict[str, bool]:
         """
