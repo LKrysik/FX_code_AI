@@ -701,6 +701,13 @@ class ExecutionController:
             })
             return
 
+        # If already stopping, just return (idempotent operation)
+        if self._current_session.status == ExecutionState.STOPPING:
+            self.logger.debug("execution.already_stopping", {
+                "session_id": self._current_session.session_id
+            })
+            return
+
         if not self._can_transition_to(ExecutionState.STOPPING):
             if self._current_session.status in (ExecutionState.STARTING, ExecutionState.IDLE):
                 self._current_session.status = ExecutionState.STOPPING

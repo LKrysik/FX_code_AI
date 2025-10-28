@@ -83,13 +83,20 @@ async def get_session_analysis(
                     quality_report = await quality_service.get_quality_report(session_id, raw_data)
                     analysis['quality'] = quality_report
 
-        logger.info(f"Analysis requested for session {session_id}")
+        logger.info("session_analysis_requested", {
+            "session_id": session_id,
+            "symbols_count": len(analysis.get('symbols_analyzed', []))
+        })
         return analysis
 
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.error(f"Failed to get analysis for session {session_id}: {e}")
+        logger.error("session_analysis_failed", {
+            "session_id": session_id,
+            "error": str(e),
+            "error_type": type(e).__name__
+        })
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/{session_id}/chart-data")
@@ -112,7 +119,11 @@ async def get_chart_data(
                 detail=f"No chart data found for session {session_id}, symbol {symbol}"
             )
 
-        logger.info(f"Chart data requested for {symbol} in session {session_id} ({len(chart_data)} points)")
+        logger.info("chart_data_requested", {
+            "session_id": session_id,
+            "symbol": symbol,
+            "data_points": len(chart_data)
+        })
         return {
             'session_id': session_id,
             'symbol': symbol,
@@ -123,8 +134,12 @@ async def get_chart_data(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        print(f"Debug: logger type: {type(logger)}, error: {e}")
-        logger.error(f"Failed to get chart data for {symbol} in session {session_id}: {e}")
+        logger.error("chart_data_failed", {
+            "session_id": session_id,
+            "symbol": symbol,
+            "error": str(e),
+            "error_type": type(e).__name__
+        })
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/{session_id}/export")
@@ -188,7 +203,13 @@ async def export_session_data(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.error(f"Failed to export session {session_id}: {e}")
+        logger.error("session_export_failed", {
+            "session_id": session_id,
+            "format": format,
+            "symbol": symbol,
+            "error": str(e),
+            "error_type": type(e).__name__
+        })
         raise HTTPException(status_code=500, detail="Export failed")
 
 @router.get("/{session_id}/quality")
@@ -219,13 +240,22 @@ async def get_data_quality(
         # Perform quality assessment (service loads data from QuestDB)
         quality_report = await quality_service.get_quality_report(session_id, target_symbol)
 
-        logger.info(f"Quality assessment completed for session {session_id}, symbol {target_symbol}")
+        logger.info("quality_assessment_completed", {
+            "session_id": session_id,
+            "symbol": target_symbol,
+            "quality_score": quality_report.get('quality_score')
+        })
         return quality_report
 
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.error(f"Failed to get quality metrics for session {session_id}: {e}")
+        logger.error("quality_metrics_failed", {
+            "session_id": session_id,
+            "symbol": symbol,
+            "error": str(e),
+            "error_type": type(e).__name__
+        })
         raise HTTPException(status_code=500, detail="Quality assessment failed")
 
 @router.get("/{session_id}/export/estimate")
@@ -250,7 +280,13 @@ async def get_export_estimate(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.error(f"Failed to get export estimate for session {session_id}: {e}")
+        logger.error("export_estimate_failed", {
+            "session_id": session_id,
+            "format": format,
+            "symbol": symbol,
+            "error": str(e),
+            "error_type": type(e).__name__
+        })
         raise HTTPException(status_code=500, detail="Estimate calculation failed")
 
 @router.get("/sessions")
@@ -267,7 +303,12 @@ async def list_sessions(
             'limit': limit
         }
     except Exception as e:
-        logger.error(f"Failed to list sessions: {e}")
+        logger.error("sessions_list_failed", {
+            "limit": limit,
+            "include_stats": include_stats,
+            "error": str(e),
+            "error_type": type(e).__name__
+        })
         raise HTTPException(status_code=500, detail="Failed to retrieve sessions")
 
 
@@ -285,6 +326,10 @@ async def delete_session(session_id: str):
         else:
             raise HTTPException(status_code=404, detail=f"Session {session_id} not found or could not be deleted")
     except Exception as e:
-        logger.error(f"Failed to delete session {session_id}: {e}")
+        logger.error("session_deletion_failed", {
+            "session_id": session_id,
+            "error": str(e),
+            "error_type": type(e).__name__
+        })
         raise HTTPException(status_code=500, detail=f"Failed to delete session: {str(e)}")
 

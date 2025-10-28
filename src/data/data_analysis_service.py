@@ -143,7 +143,11 @@ class DataAnalysisService:
             for symbol, data in symbols_data.items():
                 analysis['symbols'][symbol] = await self._analyze_symbol_data(symbol, data)
 
-            logger.info(f"Completed analysis for session {session_id} with {len(symbols_data)} symbols")
+            logger.info("session_analysis_completed", {
+                "session_id": session_id,
+                "symbols_count": len(symbols_data),
+                "total_data_points": analysis['summary'].get('total_data_points', 0)
+            })
             return analysis
 
         except Exception as e:
@@ -181,11 +185,20 @@ class DataAnalysisService:
                 }
                 chart_data.append(chart_point)
 
-            logger.info(f"Generated {len(chart_data)} chart points for {symbol} in session {session_id}")
+            logger.info("chart_data_generated", {
+                "session_id": session_id,
+                "symbol": symbol,
+                "data_points": len(chart_data)
+            })
             return chart_data
 
         except Exception as e:
-            logger.error(f"Failed to get chart data for {symbol} in session {session_id}: {e}")
+            logger.error("chart_data_load_failed", {
+                "session_id": session_id,
+                "symbol": symbol,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
             raise
 
     async def _load_session_metadata(self, session_id: str) -> Optional[Dict[str, Any]]:
@@ -214,7 +227,11 @@ class DataAnalysisService:
             return metadata
 
         except Exception as e:
-            logger.error(f"Failed to load session metadata for {session_id}: {e}")
+            logger.error("session_metadata_load_failed", {
+                "session_id": session_id,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
             return None
 
     async def list_sessions(self, limit: int = 50, include_stats: bool = False) -> Dict[str, Any]:
@@ -384,7 +401,12 @@ class DataAnalysisService:
             return data
 
         except Exception as e:
-            logger.error(f"Failed to load symbol data for {symbol} in session {session_id}: {e}")
+            logger.error("symbol_data_load_failed", {
+                "session_id": session_id,
+                "symbol": symbol,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
             return None
 
     async def _calculate_session_summary(self, symbols_data: Dict[str, List]) -> Dict[str, Any]:
