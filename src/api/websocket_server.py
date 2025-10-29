@@ -1066,12 +1066,104 @@ class WebSocketAPIServer:
             })
             return False
 
+    async def _send_to_single_subscriber(self, client_id: str, subscription_type: str,
+                                         data: Dict[str, Any]) -> bool:
+        """
+        Send message to a single subscriber with all checks and error handling.
+        Returns True if message was successfully sent, False otherwise.
+        """
+        # Derive payload for filtering (strip envelope)
+        filter_payload = data
+        try:
+            if isinstance(data, dict):
+                if subscription_type == "market_data":
+                    filter_payload = data.get("market_data") or data.get("data") or data
+                elif subscription_type == "indicators":
+                    inds = data.get("indicators") if isinstance(data.get("indicators"), list) else None
+                    filter_payload = (inds[0] if inds else data.get("data")) or data
+                else:
+                    filter_payload = data.get("data") or data
+        except (AttributeError, TypeError) as e:
+            self.logger.debug("websocket_server.filter_payload_extraction_attribute_error", {
+                "client_id": client_id,
+                "subscription_type": subscription_type,
+                "error": str(e)
+            })
+            filter_payload = data
+        except Exception as e:
+            self.logger.warning("websocket_server.filter_payload_extraction_unexpected_error", {
+                "client_id": client_id,
+                "subscription_type": subscription_type,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            filter_payload = data
+
+        # Prioritize direct responses: if client has an in-flight response, skip sending streams now
+        try:
+            connection = await self.connection_manager.get_connection(client_id)
+            if connection and getattr(connection, 'in_flight_response', False):
+                # Record filtered message
+                message_size = len(json.dumps(data).encode('utf-8'))
+                await self.subscription_manager.record_message_delivery(
+                    client_id, subscription_type, message_size, filtered=True
+                )
+                return False
+        except (AttributeError, TypeError) as e:
+            self.logger.debug("websocket_server.broadcast_priority_check_error", {
+                "client_id": client_id,
+                "subscription_type": subscription_type,
+                "error": str(e)
+            })
+        except Exception as e:
+            self.logger.warning("websocket_server.broadcast_priority_unexpected_error", {
+                "client_id": client_id,
+                "subscription_type": subscription_type,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+
+        if self.subscription_manager.should_send_to_client(client_id, subscription_type, filter_payload):
+            # Check if connection is still active before sending
+            connection = await self.connection_manager.get_connection(client_id)
+            if connection and getattr(connection, 'websocket', None):
+                try:
+                    # Quick check if websocket is closed
+                    if hasattr(connection.websocket, 'closed') and connection.websocket.closed:
+                        # Connection is closed, remove it
+                        await self.connection_manager.remove_connection(client_id, "connection_closed")
+                        return False
+                except Exception:
+                    # If we can't check, assume it's closed
+                    await self.connection_manager.remove_connection(client_id, "connection_check_failed")
+                    return False
+
+                if await self._send_to_client(client_id, data):
+                    # Record message delivery
+                    message_size = len(json.dumps(data).encode('utf-8'))
+                    await self.subscription_manager.record_message_delivery(
+                        client_id, subscription_type, message_size, filtered=False
+                    )
+                    return True
+            else:
+                # Connection not found or invalid, clean up
+                await self.connection_manager.remove_connection(client_id, "connection_not_found")
+        else:
+            # Record filtered message
+            message_size = len(json.dumps(data).encode('utf-8'))
+            await self.subscription_manager.record_message_delivery(
+                client_id, subscription_type, message_size, filtered=True
+            )
+
+        return False
+
     async def broadcast_to_subscribers(self,
                                       subscription_type: str,
                                       data: Dict[str, Any],
                                       exclude_client: Optional[str] = None) -> int:
         """
         Broadcast message to all subscribers of a specific type.
+        Sends to all clients concurrently for minimal latency.
 
         Args:
             subscription_type: Type of subscription to broadcast to
@@ -1094,97 +1186,19 @@ class WebSocketAPIServer:
         if not subscribers:
             return 0
 
-        # Apply filtering and send to each subscriber
-        sent_count = 0
-        # Iterate over a copy of the set to prevent race conditions
-        for client_id in list(subscribers):
-            # Derive payload for filtering (strip envelope)
-            filter_payload = data
-            try:
-                if isinstance(data, dict):
-                    if subscription_type == "market_data":
-                        filter_payload = data.get("market_data") or data.get("data") or data
-                    elif subscription_type == "indicators":
-                        inds = data.get("indicators") if isinstance(data.get("indicators"), list) else None
-                        filter_payload = (inds[0] if inds else data.get("data")) or data
-                    else:
-                        filter_payload = data.get("data") or data
-            except (AttributeError, TypeError) as e:
-                # Expected errors when data structure is malformed
-                self.logger.debug("websocket_server.filter_payload_extraction_attribute_error", {
-                    "client_id": client_id,
-                    "subscription_type": subscription_type,
-                    "error": str(e)
-                })
-                filter_payload = data
-            except Exception as e:
-                # Unexpected error during filter payload extraction
-                self.logger.warning("websocket_server.filter_payload_extraction_unexpected_error", {
-                    "client_id": client_id,
-                    "subscription_type": subscription_type,
-                    "error": str(e),
-                    "error_type": type(e).__name__
-                })
-                filter_payload = data
+        # ✅ PERF FIX: Parallel broadcast to all clients
+        # Sequential await was blocking EventBus workers when broadcasting to many clients
+        # Now sends to all clients concurrently - critical for real-time trading
+        tasks = [
+            self._send_to_single_subscriber(client_id, subscription_type, data)
+            for client_id in list(subscribers)
+        ]
 
-            # Prioritize direct responses: if client has an in-flight response, skip sending streams now
-            try:
-                connection = await self.connection_manager.get_connection(client_id)
-                if connection and getattr(connection, 'in_flight_response', False):
-                    # Record filtered message
-                    message_size = len(json.dumps(data).encode('utf-8'))
-                    await self.subscription_manager.record_message_delivery(
-                        client_id, subscription_type, message_size, filtered=True
-                    )
-                    continue
-            except (AttributeError, TypeError) as e:
-                # Expected errors when connection object is malformed
-                self.logger.debug("websocket_server.broadcast_priority_check_error", {
-                    "client_id": client_id,
-                    "subscription_type": subscription_type,
-                    "error": str(e)
-                })
-            except Exception as e:
-                # Unexpected error checking connection priority
-                self.logger.warning("websocket_server.broadcast_priority_unexpected_error", {
-                    "client_id": client_id,
-                    "subscription_type": subscription_type,
-                    "error": str(e),
-                    "error_type": type(e).__name__
-                })
-                # Continue with broadcast attempt despite error
+        # Send to all clients concurrently and count successes
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            if self.subscription_manager.should_send_to_client(client_id, subscription_type, filter_payload):
-                # Check if connection is still active before sending
-                connection = await self.connection_manager.get_connection(client_id)
-                if connection and getattr(connection, 'websocket', None):
-                    try:
-                        # Quick check if websocket is closed
-                        if hasattr(connection.websocket, 'closed') and connection.websocket.closed:
-                            # Connection is closed, remove it
-                            await self.connection_manager.remove_connection(client_id, "connection_closed")
-                            continue
-                    except Exception:
-                        # If we can't check, assume it's closed
-                        await self.connection_manager.remove_connection(client_id, "connection_check_failed")
-                        continue
-
-                    if await self._send_to_client(client_id, data):
-                        sent_count += 1
-                        # Record message delivery
-                        message_size = len(json.dumps(data).encode('utf-8'))
-                        await self.subscription_manager.record_message_delivery(
-                            client_id, subscription_type, message_size, filtered=False
-                        )
-                else:
-                    # Connection not found or invalid, clean up
-                    await self.connection_manager.remove_connection(client_id, "connection_not_found")
-            else:
-                # Record filtered message
-                message_size = len(json.dumps(data).encode('utf-8'))
-                await self.subscription_manager.record_message_delivery(
-                    client_id, subscription_type, message_size, filtered=True
-                )
+        # Count successful sends (True values, ignore exceptions)
+        sent_count = sum(1 for result in results if result is True)
 
         return sent_count
 
