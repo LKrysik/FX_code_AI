@@ -701,8 +701,12 @@ class EventBridge(IEventBridge):
                 key = self._generate_event_key(event_type, transformed_data)
                 processor.batch_aggregator.add_update(key, transformed_data)
             else:
-                # Process immediately
-                await self._process_immediate_update(processor.stream_type, transformed_data, event_publish_time)
+                # ✅ PERF FIX: Fire-and-forget broadcast - don't block EventBus workers
+                # Broadcast to frontend is "best effort" - trading logic doesn't depend on it
+                # This prevents backpressure cascade: EventBridge → BroadcastProvider → WebSocket
+                asyncio.create_task(
+                    self._process_immediate_update(processor.stream_type, transformed_data, event_publish_time)
+                )
 
             # Track processing time
             processing_time = (time.time() - start_time) * 1000
