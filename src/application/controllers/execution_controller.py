@@ -315,6 +315,9 @@ class ExecutionController:
         self._progress_callbacks: List[Callable[[float], None]] = []
         self._last_progress_update = 0.0
 
+        # ✅ FIX: Track last QuestDB session status update for periodic updates
+        self._last_db_status_update = 0.0
+
         # ✅ CRITICAL FIX: Async lock for symbol conflict prevention
         self._symbol_lock = asyncio.Lock()
 
@@ -991,6 +994,33 @@ class ExecutionController:
                 },
                 priority=EventPriority.NORMAL
             )
+
+            # ✅ FIX: Periodic QuestDB session status update (every 10 seconds)
+            # This ensures GET /api/data-collection/sessions returns up-to-date records_collected
+            # and status when user returns to data-collection page
+            import time
+            current_time = time.time()
+            if current_time - self._last_db_status_update >= 10.0:
+                try:
+                    await self.db_persistence_service.update_session_status(
+                        session_id=self._current_session.session_id,
+                        status='running',
+                        records_collected=records_collected
+                    )
+                    self._last_db_status_update = current_time
+                    self.logger.debug("data_collection.db_status_update", {
+                        "session_id": self._current_session.session_id,
+                        "records_collected": records_collected,
+                        "progress": progress
+                    })
+                except Exception as db_error:
+                    # Log but don't fail - session can continue even if DB update fails
+                    self.logger.warning("data_collection.db_status_update_failed", {
+                        "session_id": self._current_session.session_id,
+                        "error": str(db_error),
+                        "error_type": type(db_error).__name__
+                    })
+
             return
 
         # For other modes, use the original logic
