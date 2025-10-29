@@ -1,9 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(tasklist)",
-      "Bash(findstr:*)",
-      "Bash(mv:*)"
+      "Bash(*)",
+      "FileSystem(*)",
+      "Bash(curl:*)",
+      "Bash(.venv/Scripts/python.exe:*)",
+      "Bash(pip:*)",
+      "FileSystem(write:*.py)"
     ],
     "deny": [],
     "ask": []
