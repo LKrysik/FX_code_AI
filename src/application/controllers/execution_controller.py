@@ -121,7 +121,7 @@ class MarketDataProviderAdapter(IExecutionDataSource):
         self.event_bus = event_bus
         self.logger = getattr(market_data_provider, 'logger', None)
         self._started = False
-        self._data_queue = asyncio.Queue(maxsize=1000)  # Buffer up to 1000 events
+        self._data_queue = asyncio.Queue(maxsize=10000)  # ✅ PERF FIX: Increased from 1000 to 10000 for multi-symbol collection
         self._running = False
         self._subscriptions: List[Tuple[str, Callable]] = []  # Track (event_name, handler) pairs
         self._max_batch_size = 256
@@ -324,6 +324,9 @@ class ExecutionController:
         # ✅ CRITICAL FIX: Per-symbol locks for buffer flushing to prevent race conditions
         self._symbol_flush_locks: Dict[str, asyncio.Lock] = {}
         self._symbol_flush_locks_lock = asyncio.Lock()
+
+        # ✅ PERF FIX: Global lock for data buffers to prevent race conditions
+        self._data_buffers_lock = asyncio.Lock()
 
         # State transitions
         self._valid_transitions = {
@@ -1128,39 +1131,49 @@ class ExecutionController:
         if not symbol:
             return
 
-        # ✅ BATCHING: Use a buffer per symbol to accumulate data before writing
-        if not hasattr(self, '_data_buffers'):
-            self._data_buffers = {}
+        # ✅ PERF FIX: Use global lock for data buffers to prevent race conditions
+        async with self._data_buffers_lock:
+            # ✅ BATCHING: Use a buffer per symbol to accumulate data before writing
+            if not hasattr(self, '_data_buffers'):
+                self._data_buffers = {}
 
-        flush_task = getattr(self, '_buffer_flush_task', None)
-        if not flush_task or flush_task.done():
-            self._buffer_flush_task = asyncio.create_task(self._flush_data_buffers())
+            flush_task = getattr(self, '_buffer_flush_task', None)
+            if not flush_task or flush_task.done():
+                self._buffer_flush_task = asyncio.create_task(self._flush_data_buffers())
 
-        if symbol not in self._data_buffers:
-            self._data_buffers[symbol] = {
-                'price_data': [],
-                'orderbook_data': [],
-                'last_flush': time.time()
-            }
+            if symbol not in self._data_buffers:
+                self._data_buffers[symbol] = {
+                    'price_data': [],
+                    'orderbook_data': [],
+                    'last_flush': time.time()
+                }
 
-        buffer = self._data_buffers[symbol]
+            buffer = self._data_buffers[symbol]
 
-        # Buffer the data instead of writing immediately
-        if 'price' in data_point or 'volume' in data_point:
-            buffer['price_data'].append(data_point)
-        elif 'bids' in data_point or 'asks' in data_point:
-            buffer['orderbook_data'].append(data_point)
+            # Buffer the data instead of writing immediately
+            if 'price' in data_point or 'volume' in data_point:
+                buffer['price_data'].append(data_point)
+            elif 'bids' in data_point or 'asks' in data_point:
+                buffer['orderbook_data'].append(data_point)
 
         # ✅ BATCHING: Flush if buffer gets too large (prevent memory bloat)
+        # Check outside lock to avoid holding lock during flush
         flush_threshold, flush_interval = self._get_flush_parameters()
 
-        if (len(buffer['price_data']) >= self.MAX_BUFFER_SIZE or
-                len(buffer['orderbook_data']) >= self.MAX_BUFFER_SIZE):
-            await self._flush_symbol_buffer(symbol)
-            return
+        # Re-acquire lock for size check (brief hold)
+        async with self._data_buffers_lock:
+            if symbol in self._data_buffers:
+                buffer = self._data_buffers[symbol]
+                should_flush = (
+                    len(buffer['price_data']) >= self.MAX_BUFFER_SIZE or
+                    len(buffer['orderbook_data']) >= self.MAX_BUFFER_SIZE or
+                    len(buffer['price_data']) + len(buffer['orderbook_data']) >= flush_threshold or
+                    time.time() - buffer['last_flush'] >= flush_interval
+                )
+            else:
+                should_flush = False
 
-        if (len(buffer['price_data']) + len(buffer['orderbook_data']) >= flush_threshold or
-                time.time() - buffer['last_flush'] >= flush_interval):  # Flush by size or interval
+        if should_flush:
             await self._flush_symbol_buffer(symbol)
 
     async def _flush_data_buffers(self) -> None:
@@ -1183,35 +1196,40 @@ class ExecutionController:
         symbol_lock = await self._get_symbol_flush_lock(symbol)
 
         async with symbol_lock:
-            if not hasattr(self, '_data_buffers') or symbol not in self._data_buffers:
-                return
+            # ✅ PERF FIX: Use global lock to safely read buffer
+            async with self._data_buffers_lock:
+                if not hasattr(self, '_data_buffers') or symbol not in self._data_buffers:
+                    return
 
-            buffer = self._data_buffers[symbol]
-            if not buffer['price_data'] and not buffer['orderbook_data']:
-                return
+                buffer = self._data_buffers[symbol]
+                if not buffer['price_data'] and not buffer['orderbook_data']:
+                    return
 
+            # Flush happens outside global lock (only symbol lock held)
             try:
                 await asyncio.wait_for(
                     self._write_data_batch(symbol, buffer),
                     timeout=self.FLUSH_TIMEOUT_SECONDS
                 )
             except asyncio.TimeoutError:
-                self.logger.error("execution.buffer_flush_timeout", {
-                    "symbol": symbol,
-                    "timeout_seconds": self.FLUSH_TIMEOUT_SECONDS,
-                    "price_buffer_size": len(buffer['price_data']),
-                    "orderbook_buffer_size": len(buffer['orderbook_data'])
-                })
-                buffer['price_data'].clear()
-                buffer['orderbook_data'].clear()
-                buffer['last_flush'] = time.time()
+                async with self._data_buffers_lock:
+                    self.logger.error("execution.buffer_flush_timeout", {
+                        "symbol": symbol,
+                        "timeout_seconds": self.FLUSH_TIMEOUT_SECONDS,
+                        "price_buffer_size": len(buffer['price_data']),
+                        "orderbook_buffer_size": len(buffer['orderbook_data'])
+                    })
+                    buffer['price_data'].clear()
+                    buffer['orderbook_data'].clear()
+                    buffer['last_flush'] = time.time()
             except Exception as e:
-                self.logger.error("execution.buffer_flush_error", {
-                    "symbol": symbol,
-                    "error": str(e),
-                    "price_buffer_size": len(buffer['price_data']),
-                    "orderbook_buffer_size": len(buffer['orderbook_data'])
-                })
+                async with self._data_buffers_lock:
+                    self.logger.error("execution.buffer_flush_error", {
+                        "symbol": symbol,
+                        "error": str(e),
+                        "price_buffer_size": len(buffer['price_data']),
+                        "orderbook_buffer_size": len(buffer['orderbook_data'])
+                    })
 
     @staticmethod
     def _format_numeric(value: Any, decimals: int = 8) -> str:
