@@ -181,7 +181,7 @@ class MexcWebSocketAdapter(IMarketDataProvider):
         # Periodic snapshot refresh to prevent drift from deltas
         self._snapshot_refresh_interval = self.config.get("snapshot_refresh_interval", 300)  # 5 minutes default
         self._snapshot_refresh_tasks = {}  # symbol -> asyncio.Task for periodic refresh
-        
+
         self.logger.info("mexc_adapter.initialized", {
             "ws_url": self.ws_url,
             "exchange": "mexc",
@@ -432,7 +432,7 @@ class MexcWebSocketAdapter(IMarketDataProvider):
         """Handle backpressure in event publishing system - TRADING OPTIMIZED"""
         # Check if this is a trading-critical event
         is_trading_critical = any(keyword in event_type for keyword in ["deal", "trade", "order", "position"])
-        
+
         if is_trading_critical:
             # NEVER drop trading events - log as ERROR
             self.logger.error("mexc_adapter.trading_event_backpressure_critical", {
@@ -1122,54 +1122,36 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                 await self._close_connection(connection_id)
                 break
 
-    async def _safe_publish_event(self, event_type: str, data: dict, max_retries: int = 2) -> None:
+    async def _safe_publish_event(self, event_type: str, data: dict, max_retries: int = 0) -> None:
         """
-        Improved event publishing with trading-optimized latency management.
-        Trading events bypass normal backpressure controls for zero-loss delivery.
+        ✅ PERF FIX: Fire-and-forget event publishing for real-time trading.
+
+        No retries by default - high-frequency events are published once and dropped on failure.
+        This ensures zero latency for trading systems that require real-time data delivery.
         """
         # Determine if this is a trading-critical event
         is_trading_critical = any(keyword in event_type for keyword in ["deal", "trade", "order", "position"])
         is_high_frequency = any(keyword in event_type for keyword in ["price_update", "orderbook_update", "depth_update"])
 
-        # Trading events get priority path with minimal latency
+        # ✅ PERF FIX: Ultra-low timeout for fire-and-forget publishing
         if is_trading_critical:
-            timeout = 0.05  # 50ms max for trading events
-            max_retries = 1  # One fast attempt for trading (was 0 - causing no execution!)
+            timeout = 0.01  # 10ms max for trading events (was 50ms)
+            max_retries = 0  # No retries - fail fast
         elif is_high_frequency:
-            # Get queue depth for adaptive timeout (if available)
-            try:
-                queue_depth = await self.event_bus.get_queue_depth(event_type)
-            except:
-                queue_depth = 0
-
-            # Market data events: fast but allow some queuing
-            if queue_depth > 100:
-                timeout = 0.1  # Very short timeout under high backpressure
-                max_retries = 1  # One fast attempt (was 0 - causing no execution!)
-            elif queue_depth > 50:
-                timeout = 0.2
-                max_retries = 1  # One fast attempt (was 0 - causing no execution!)
-            else:
-                timeout = 0.5
-                max_retries = 1
-                timeout = 1.0
-                max_retries = 1
+            # ✅ PERF FIX: No queue depth check - too expensive for hot path
+            # Just use fixed low timeout
+            timeout = 0.01  # 10ms max for high-frequency events
+            max_retries = 0  # No retries - drop event if EventBus overloaded
         else:
             # Low-frequency events: more tolerant
-            # Get queue depth for timeout decision
-            try:
-                queue_depth = await self.event_bus.get_queue_depth(event_type)
-            except:
-                queue_depth = 0
-            
-            timeout = 2.0 if queue_depth < 10 else 1.0
-            max_retries = max_retries
+            timeout = 2.0
+            max_retries = max_retries if max_retries > 0 else 1
         
-        # Track dropped events for monitoring
-        for attempt in range(max_retries):
+        # ✅ PERF FIX: Single attempt for high-frequency events (max_retries + 1)
+        for attempt in range(max_retries + 1):
             try:
                 await asyncio.wait_for(
-                    self.event_bus.publish(event_type, data), 
+                    self.event_bus.publish(event_type, data),
                     timeout=timeout
                 )
                 return  # Success - exit immediately
@@ -1604,8 +1586,9 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                         self._debug_log_rates[publish_log_key] = current_time
                         self._update_tracking_expiry(publish_log_key)
                     
-                    # Publish price update event via EventBus (moved after logging for performance)
-                    await self._safe_publish_event("market.price_update", {
+                    # ✅ PERF FIX: Fire-and-forget async publishing for zero latency
+                    # No batching - trading requires real-time data delivery
+                    asyncio.create_task(self._safe_publish_event("market.price_update", {
                         "exchange": "mexc",
                         "symbol": symbol,
                         "price": price,
@@ -1617,7 +1600,7 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                         "market_data": market_data_obj,
                         "mexc_timestamp": timestamp,  # Original MEXC timestamp in ms
                         "system_timestamp": time.time()  # Our system timestamp for comparison
-                    })
+                    }))
                     
                     # Rate-limited debug logging for price updates (max once per minute per symbol)
                     current_time = time.time()
@@ -2092,9 +2075,10 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                 
                 if not bids and not asks:
                     return
-                
-                # Publish orderbook update event
-                await self._safe_publish_event("market.orderbook_update", {
+
+                # ✅ PERF FIX: Fire-and-forget async publishing for zero latency
+                # No batching - trading requires real-time orderbook data
+                asyncio.create_task(self._safe_publish_event("market.orderbook_update", {
                     "exchange": "mexc",
                     "symbol": symbol,
                     "bids": bids,
@@ -2110,7 +2094,7 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                         "total_bids": len(cache_entry["bids"]),
                         "total_asks": len(cache_entry["asks"])
                     }
-                })
+                }))
                 
         except Exception as e:
             self.logger.error("mexc_adapter.orderbook_publish_error", {
