@@ -77,7 +77,7 @@ class QuestDBDataProvider:
             SELECT session_id, status, symbols, data_types,
                    start_time, end_time, duration_seconds,
                    records_collected, prices_count, orderbook_count,
-                   exchange, notes, created_at, updated_at
+                   exchange, notes, created_at, updated_at, is_deleted
             FROM data_collection_sessions
             {where_clause}
             ORDER BY created_at DESC
@@ -92,6 +92,14 @@ class QuestDBDataProvider:
             })
 
             results = await self.db.execute_query(query)
+
+            # DEBUG: Log results to track deleted sessions issue
+            self.logger.info("questdb_data_provider.get_sessions_list_results", {
+                "query": query,
+                "results_count": len(results),
+                "session_ids": [r.get('session_id') for r in results],
+                "is_deleted_values": [r.get('is_deleted', 'NOT_IN_RESULT') for r in results]
+            })
 
             # Parse JSON fields
             for session in results:

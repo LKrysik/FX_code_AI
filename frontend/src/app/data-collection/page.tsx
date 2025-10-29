@@ -673,14 +673,15 @@ export default function DataCollectionPage() {
         // Double-check by refreshing from backend (with blocklist active)
         await loadDataCollectionSessions();
 
-        // Clean up blocklist after 30 seconds (enough time for backend state to sync)
+        // Clean up blocklist after 5 minutes (enough time for backend state to sync)
+        // Extended from 30s to prevent race condition with execution controller state
         setTimeout(() => {
           setDeletedSessionIds(prev => {
             const newSet = new Set(prev);
             newSet.delete(sessionId);
             return newSet;
           });
-        }, 30000);
+        }, 300000); // 5 minutes = 300000ms
       } else {
         throw new Error(result.message || 'Failed to delete session');
       }
