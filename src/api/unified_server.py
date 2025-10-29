@@ -213,12 +213,193 @@ def create_unified_app():
                 "error_type": type(e).__name__
             })
 
+        # ✅ FIX: Cleanup orphaned sessions from previous backend run
+        # Mark all "running" sessions in QuestDB as "failed" (backend crash/restart)
+        # This prevents zombie sessions from appearing as active in UI
+        try:
+            logger.info("Checking for orphaned data collection sessions...")
+
+            # Query QuestDB for sessions with status='running' or status='active'
+            orphaned_query = """
+            SELECT session_id, status, start_time, symbols
+            FROM data_collection_sessions
+            WHERE (status = 'running' OR status = 'active')
+              AND is_deleted = false
+            ORDER BY start_time DESC
+            """
+
+            orphaned_sessions = await questdb_provider.execute_query(orphaned_query)
+
+            if orphaned_sessions and len(orphaned_sessions) > 0:
+                logger.warning("Found orphaned sessions from previous backend run", {
+                    "count": len(orphaned_sessions),
+                    "session_ids": [row['session_id'] for row in orphaned_sessions]
+                })
+
+                # Mark each orphaned session as 'failed'
+                for session_row in orphaned_sessions:
+                    session_id = session_row['session_id']
+
+                    # Update status to 'failed' with end_time
+                    update_query = """
+                    UPDATE data_collection_sessions
+                    SET status = 'failed',
+                        end_time = systimestamp(),
+                        updated_at = systimestamp()
+                    WHERE session_id = $1
+                    """
+
+                    await questdb_provider.execute_query(update_query, [session_id])
+
+                    logger.info("Marked orphaned session as failed", {
+                        "session_id": session_id,
+                        "original_status": session_row['status'],
+                        "start_time": session_row['start_time']
+                    })
+
+                logger.info("Orphaned session cleanup completed", {
+                    "cleaned_count": len(orphaned_sessions)
+                })
+            else:
+                logger.info("No orphaned sessions found")
+
+        except Exception as cleanup_error:
+            # Don't fail startup if cleanup fails, just log error
+            logger.error("Orphaned session cleanup failed", {
+                "error": str(cleanup_error),
+                "error_type": type(cleanup_error).__name__
+            })
+
+        # ✅ FIX: Start background cleanup task for stale sessions
+        # Periodically checks for sessions stuck in "running" state for >24h
+        cleanup_task = None
+        cleanup_task_stop_event = asyncio.Event()
+
+        async def background_stale_session_cleanup():
+            """
+            Background task to cleanup stale sessions.
+
+            Runs every hour and marks sessions as 'failed' if:
+            - Status is 'running' or 'active'
+            - Start time > 24 hours ago
+            - Not currently active in execution controller
+            """
+            try:
+                logger.info("Background stale session cleanup task started")
+
+                while not cleanup_task_stop_event.is_set():
+                    try:
+                        # Sleep first (1 hour intervals)
+                        await asyncio.wait_for(
+                            cleanup_task_stop_event.wait(),
+                            timeout=3600  # 1 hour
+                        )
+                        # If we get here, stop event was set
+                        break
+                    except asyncio.TimeoutError:
+                        # Timeout = normal, continue cleanup
+                        pass
+
+                    # Perform cleanup
+                    try:
+                        logger.info("Running stale session cleanup check...")
+
+                        # Query for stale sessions (>24h old, still 'running')
+                        stale_query = """
+                        SELECT session_id, status, start_time, symbols,
+                               datediff('h', start_time, systimestamp()) as hours_running
+                        FROM data_collection_sessions
+                        WHERE (status = 'running' OR status = 'active')
+                          AND is_deleted = false
+                          AND datediff('h', start_time, systimestamp()) > 24
+                        ORDER BY start_time ASC
+                        """
+
+                        stale_sessions = await questdb_provider.execute_query(stale_query)
+
+                        if stale_sessions and len(stale_sessions) > 0:
+                            logger.warning("Found stale sessions", {
+                                "count": len(stale_sessions),
+                                "session_ids": [row['session_id'] for row in stale_sessions]
+                            })
+
+                            # Get currently active session from controller
+                            controller = await app.state.rest_service.get_controller()
+                            controller_status = controller.get_execution_status()
+                            active_session_id = controller_status.get('session_id') if controller_status else None
+
+                            # Mark each stale session as 'failed' (unless it's the active one)
+                            for session_row in stale_sessions:
+                                session_id = session_row['session_id']
+
+                                # Skip if this is the currently active session in controller
+                                if session_id == active_session_id:
+                                    logger.info("Skipping stale cleanup for active session", {
+                                        "session_id": session_id,
+                                        "hours_running": session_row['hours_running']
+                                    })
+                                    continue
+
+                                # Update status to 'failed'
+                                update_query = """
+                                UPDATE data_collection_sessions
+                                SET status = 'failed',
+                                    end_time = systimestamp(),
+                                    updated_at = systimestamp()
+                                WHERE session_id = $1
+                                """
+
+                                await questdb_provider.execute_query(update_query, [session_id])
+
+                                logger.warning("Marked stale session as failed", {
+                                    "session_id": session_id,
+                                    "hours_running": session_row['hours_running'],
+                                    "start_time": session_row['start_time']
+                                })
+
+                            logger.info("Stale session cleanup completed", {
+                                "cleaned_count": len([s for s in stale_sessions if s['session_id'] != active_session_id])
+                            })
+                        else:
+                            logger.debug("No stale sessions found")
+
+                    except Exception as cleanup_error:
+                        logger.error("Stale session cleanup iteration failed", {
+                            "error": str(cleanup_error),
+                            "error_type": type(cleanup_error).__name__
+                        })
+
+            except Exception as task_error:
+                logger.error("Background stale session cleanup task crashed", {
+                    "error": str(task_error),
+                    "error_type": type(task_error).__name__
+                })
+
+        # Start the background task
+        cleanup_task = asyncio.create_task(background_stale_session_cleanup())
+        logger.info("Background stale session cleanup task scheduled")
+
         logger.info("Unified server startup complete.")
 
         yield
 
         # Shutdown logic
         logger.info("Executing unified server shutdown logic...")
+
+        # Stop background cleanup task
+        if cleanup_task:
+            logger.info("Stopping background stale session cleanup task...")
+            cleanup_task_stop_event.set()
+            try:
+                await asyncio.wait_for(cleanup_task, timeout=5.0)
+                logger.info("Background cleanup task stopped successfully")
+            except asyncio.TimeoutError:
+                logger.warning("Background cleanup task did not stop in time, cancelling...")
+                cleanup_task.cancel()
+                try:
+                    await cleanup_task
+                except asyncio.CancelledError:
+                    pass
         await app.state.websocket_api_server.stop()
 
         # Shutdown market data provider
@@ -1429,13 +1610,111 @@ def create_unified_app():
 
     @app.post("/sessions/stop")
     async def post_sessions_stop(body: Dict[str, Any], current_user: UserSession = Depends(get_current_user)):
+        """
+        Stop a data collection session with proper validation and QuestDB fallback.
+
+        ✅ FIX: Handles orphaned sessions (session in QuestDB but not in controller)
+        - Validates session_id exists in QuestDB
+        - Stops via controller if session is active in memory
+        - Falls back to direct QuestDB update for orphaned sessions
+        - Returns proper error codes for invalid requests
+        """
         _session_id = (body or {}).get("session_id")
-        controller = await app.state.rest_service.get_controller()
+
+        if not _session_id:
+            return _json_error("invalid_request", "session_id is required", status=400)
+
         try:
-            await controller.stop_execution()
-        except Exception:
-            pass
-        return _json_ok({"status": "session_stopped", "data": {"session_id": _session_id}})
+            # Step 1: Check if session exists in QuestDB
+            questdb_provider = app.state.questdb_provider
+            check_query = """
+            SELECT session_id, status, start_time, end_time
+            FROM data_collection_sessions
+            WHERE session_id = $1 AND is_deleted = false
+            """
+
+            session_rows = await questdb_provider.execute_query(check_query, [_session_id])
+
+            if not session_rows or len(session_rows) == 0:
+                return _json_error(
+                    "session_not_found",
+                    f"Session {_session_id} not found",
+                    status=404
+                )
+
+            session_row = session_rows[0]
+            current_status = session_row['status']
+
+            # Step 2: Check if session is already stopped/completed/failed
+            if current_status in ('stopped', 'completed', 'failed'):
+                return _json_error(
+                    "session_already_stopped",
+                    f"Session {_session_id} is already {current_status}",
+                    status=409  # Conflict
+                )
+
+            # Step 3: Try to stop via controller (if session is in memory)
+            controller = await app.state.rest_service.get_controller()
+            controller_status = controller.get_execution_status()
+
+            stopped_via_controller = False
+
+            if controller_status and controller_status.get('session_id') == _session_id:
+                # Session is active in controller - stop it properly
+                try:
+                    await controller.stop_execution()
+                    stopped_via_controller = True
+                    logger.info("Session stopped via controller", {
+                        "session_id": _session_id
+                    })
+                except Exception as controller_error:
+                    # Controller stop failed, will fall back to QuestDB
+                    logger.warning("Controller stop failed, using QuestDB fallback", {
+                        "session_id": _session_id,
+                        "error": str(controller_error)
+                    })
+
+            # Step 4: If not stopped via controller, update QuestDB directly (orphaned session)
+            if not stopped_via_controller:
+                logger.info("Stopping orphaned session via QuestDB", {
+                    "session_id": _session_id,
+                    "current_status": current_status
+                })
+
+                update_query = """
+                UPDATE data_collection_sessions
+                SET status = 'stopped',
+                    end_time = systimestamp(),
+                    updated_at = systimestamp()
+                WHERE session_id = $1
+                """
+
+                await questdb_provider.execute_query(update_query, [_session_id])
+
+                logger.info("Orphaned session marked as stopped in QuestDB", {
+                    "session_id": _session_id
+                })
+
+            return _json_ok({
+                "status": "session_stopped",
+                "data": {
+                    "session_id": _session_id,
+                    "stopped_via": "controller" if stopped_via_controller else "database",
+                    "was_orphaned": not stopped_via_controller
+                }
+            })
+
+        except Exception as e:
+            logger.error("Failed to stop session", {
+                "session_id": _session_id,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            return _json_error(
+                "stop_failed",
+                f"Failed to stop session: {str(e)}",
+                status=500
+            )
 
     @app.get("/sessions/{id}")
     async def get_session(id: str):

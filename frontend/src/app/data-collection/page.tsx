@@ -578,17 +578,54 @@ export default function DataCollectionPage() {
 
   const handleStopDataCollection = async (sessionId: string) => {
     try {
-      await apiService.stopSession(sessionId);
+      const response = await apiService.stopSession(sessionId);
+
+      // ✅ FIX: Check response for error codes and show appropriate messages
+      const data = response?.data || response;
+
+      // Check if it was an orphaned session
+      const wasOrphaned = data?.was_orphaned || false;
+      const stoppedVia = data?.stopped_via || 'unknown';
+
+      let message = 'Data collection stopped successfully';
+      if (wasOrphaned) {
+        message = 'Orphaned session stopped (backend was restarted)';
+      } else if (stoppedVia === 'database') {
+        message = 'Session stopped (backend fallback)';
+      }
+
       setSnackbar({
         open: true,
-        message: 'Data collection stopped successfully',
+        message: message,
         severity: 'success'
       });
+
+      // Immediately refresh sessions to show updated status
       loadDataCollectionSessions();
-    } catch (error) {
+
+    } catch (error: any) {
+      // ✅ FIX: Parse error response and show specific error message
+      let errorMessage = 'Failed to stop data collection';
+
+      if (error?.response?.data) {
+        const errorData = error.response.data;
+
+        if (errorData.error_code === 'session_not_found') {
+          errorMessage = 'Session not found (may have been deleted)';
+        } else if (errorData.error_code === 'session_already_stopped') {
+          errorMessage = 'Session is already stopped';
+          // Refresh to sync UI state
+          loadDataCollectionSessions();
+        } else if (errorData.error_message) {
+          errorMessage = errorData.error_message;
+        }
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+
       setSnackbar({
         open: true,
-        message: 'Failed to stop data collection',
+        message: errorMessage,
         severity: 'error'
       });
     }
