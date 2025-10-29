@@ -163,6 +163,24 @@ export default function DataCollectionPage() {
       }));
     }
   }, [availableSymbols]);
+
+  // ✅ FIX: Refresh sessions when user returns to page (visibility change)
+  // This ensures UI shows current session status when user navigates back
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Page became visible - reload sessions to get latest status
+        loadDataCollectionSessions();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
   // Debounced session update function for performance (reduced delay for snappier UI)
   const debouncedUpdateSession = useMemo(
     () => debounce((message: any) => {
@@ -620,7 +638,9 @@ export default function DataCollectionPage() {
         command_type: 'collect'
       };
 
-      setSessions([newSession]);
+      // ✅ FIX: Add new session to existing list instead of replacing entire list
+      // This preserves historical sessions (completed, stopped, or failed)
+      setSessions(prev => [newSession, ...prev]);
 
       setSnackbar({
         open: true,
