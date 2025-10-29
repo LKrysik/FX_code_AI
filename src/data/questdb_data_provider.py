@@ -61,7 +61,7 @@ class QuestDBDataProvider:
         """
         try:
             # Build query with filters
-            where_clauses = []
+            where_clauses = ["is_deleted = false"]  # Always filter soft-deleted sessions
 
             if status_filter:
                 where_clauses.append(f"status = '{status_filter}'")
@@ -71,7 +71,7 @@ class QuestDBDataProvider:
                 # Note: Simplified search, may need improvement for exact match
                 where_clauses.append(f"symbols LIKE '%{symbol_filter}%'")
 
-            where_clause = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+            where_clause = f"WHERE {' AND '.join(where_clauses)}"
 
             query = f"""
             SELECT session_id, status, symbols, data_types,
@@ -125,7 +125,7 @@ class QuestDBDataProvider:
                    records_collected, prices_count, orderbook_count, trades_count,
                    errors_count, exchange, notes, created_at, updated_at
             FROM data_collection_sessions
-            WHERE session_id = '{session_id}'
+            WHERE session_id = '{session_id}' AND is_deleted = false
             LIMIT 1
             """
 
@@ -532,13 +532,45 @@ class QuestDBDataProvider:
             if not session:
                 raise ValueError(f"Session {session_id} not found in database")
 
-            # 2. Validate session is not active
+            # 2. Validate session is not truly active
+            # Distinguish between truly active (recently updated) and stale sessions
             status = session.get('status', '')
             if status == 'active':
-                raise ValueError(
-                    f"Cannot delete active session {session_id}. "
-                    f"Session must be stopped or completed before deletion."
-                )
+                from datetime import datetime, timedelta
+
+                updated_at = session.get('updated_at')
+                if updated_at:
+                    # Parse updated_at if it's a string, otherwise use as-is
+                    if isinstance(updated_at, str):
+                        updated_at = datetime.fromisoformat(updated_at.replace('Z', '+00:00'))
+
+                    # Consider session "truly active" if updated within last hour
+                    stale_threshold = timedelta(hours=1)
+                    time_since_update = datetime.utcnow() - updated_at.replace(tzinfo=None)
+
+                    if time_since_update < stale_threshold:
+                        # Session is truly active (recently updated)
+                        raise ValueError(
+                            f"Cannot delete active session {session_id}. "
+                            f"Session was last updated {int(time_since_update.total_seconds())} seconds ago and is still running. "
+                            f"Please stop the session before deletion."
+                        )
+                    else:
+                        # Session is stale (marked active but not updated recently)
+                        self.logger.warning("questdb_data_provider.deleting_stale_active_session", {
+                            "session_id": session_id,
+                            "status": status,
+                            "updated_at": updated_at,
+                            "hours_since_update": time_since_update.total_seconds() / 3600,
+                            "reason": "Session marked as active but hasn't been updated recently (likely abandoned)"
+                        })
+                else:
+                    # No updated_at timestamp - allow deletion with warning
+                    self.logger.warning("questdb_data_provider.deleting_active_session_no_timestamp", {
+                        "session_id": session_id,
+                        "status": status,
+                        "reason": "Session marked as active but has no updated_at timestamp"
+                    })
 
             # 3. Perform cascade delete using low-level provider
             deleted_counts = await self.db.delete_session_cascade(session_id)

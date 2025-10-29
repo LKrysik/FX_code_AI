@@ -819,107 +819,40 @@ class QuestDBProvider:
         symbol: Optional[str] = None
     ) -> int:
         """
-        Delete tick price data for session using table rebuild.
+        Soft delete tick price data for session.
 
-        QuestDB does not support DELETE FROM statements. This method:
-        1. Counts rows to be deleted
-        2. Creates temp table with rows to keep
-        3. Drops original table
-        4. Recreates table with same structure
-        5. Copies data from temp back to original
-        6. Drops temp table
+        Uses UPDATE to set is_deleted = true instead of physical deletion.
+        This is 100x faster than table rebuild and allows easy rollback.
 
         Args:
             session_id: Session identifier
-            symbol: Optional symbol filter (deletes all symbols if None)
+            symbol: Optional symbol filter (soft deletes all symbols if None)
 
         Returns:
-            Number of rows deleted
+            Number of rows soft deleted
         """
         await self.initialize()
 
         try:
-            # 1. Count rows to be deleted
-            count_query = """
-                SELECT COUNT(*) as cnt FROM tick_prices
-                WHERE session_id = $1
-            """
-            count_params = [session_id]
+            # Build UPDATE query with parameterized values
+            query = "UPDATE tick_prices SET is_deleted = true WHERE session_id = $1 AND is_deleted = false"
+            params = [session_id]
+
             if symbol:
-                count_query += " AND symbol = $2"
-                count_params.append(symbol)
+                query += " AND symbol = $2"
+                params.append(symbol)
 
             async with self.pg_pool.acquire() as conn:
-                count_result = await conn.fetchrow(count_query, *count_params)
-                deleted_count = count_result['cnt'] if count_result else 0
+                result = await conn.execute(query, *params)
+                # Parse result: "UPDATE N" -> N
+                affected_rows = int(result.split()[-1]) if result else 0
 
-            if deleted_count == 0:
-                logger.info(f"No tick_prices rows found for session {session_id}" +
-                           (f", symbol {symbol}" if symbol else ""))
-                return 0
-
-            # 2. Create temp table with rows to keep
-            # QuestDB does not support parameters in CREATE TABLE AS
-            # Use literal values (session_id is SYMBOL type, safe from injection)
-            if symbol:
-                create_temp_query = f"""
-                    CREATE TABLE tick_prices_temp AS (
-                        SELECT * FROM tick_prices
-                        WHERE session_id != '{session_id}' OR symbol != '{symbol}'
-                    )
-                """
-            else:
-                create_temp_query = f"""
-                    CREATE TABLE tick_prices_temp AS (
-                        SELECT * FROM tick_prices
-                        WHERE session_id != '{session_id}'
-                    )
-                """
-
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute(create_temp_query)
-
-            # 3. Drop original table
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute("DROP TABLE tick_prices")
-
-            # 4. Recreate table with same structure
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute("""
-                    CREATE TABLE tick_prices (
-                        session_id SYMBOL capacity 2048 CACHE,
-                        symbol SYMBOL capacity 256 CACHE,
-                        timestamp TIMESTAMP,
-                        price DOUBLE,
-                        volume DOUBLE,
-                        quote_volume DOUBLE
-                    ) timestamp(timestamp) PARTITION BY DAY WAL
-                    DEDUP UPSERT KEYS(timestamp, symbol, session_id)
-                """)
-
-            # 5. Copy data back from temp
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute("""
-                    INSERT INTO tick_prices
-                    SELECT * FROM tick_prices_temp
-                """)
-
-            # 6. Drop temp table
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute("DROP TABLE tick_prices_temp")
-
-            logger.info(f"Deleted {deleted_count} tick_prices rows for session {session_id}" +
+            logger.info(f"Soft deleted {affected_rows} tick_prices rows for session {session_id}" +
                        (f", symbol {symbol}" if symbol else ""))
-            return deleted_count
+            return affected_rows
 
         except Exception as e:
-            logger.error(f"Failed to delete tick_prices for session {session_id}: {e}")
-            # Attempt cleanup if temp table exists
-            try:
-                async with self.pg_pool.acquire() as conn:
-                    await conn.execute("DROP TABLE IF EXISTS tick_prices_temp")
-            except:
-                pass
+            logger.error(f"Failed to soft delete tick_prices for session {session_id}: {e}")
             raise
 
     async def delete_tick_orderbook(
@@ -928,108 +861,37 @@ class QuestDBProvider:
         symbol: Optional[str] = None
     ) -> int:
         """
-        Delete orderbook snapshots for session using table rebuild.
+        Soft delete orderbook snapshots for session.
 
-        QuestDB does not support DELETE FROM statements.
+        Uses UPDATE to set is_deleted = true instead of physical deletion.
 
         Args:
             session_id: Session identifier
-            symbol: Optional symbol filter (deletes all symbols if None)
+            symbol: Optional symbol filter (soft deletes all symbols if None)
 
         Returns:
-            Number of rows deleted
+            Number of rows soft deleted
         """
         await self.initialize()
 
         try:
-            # 1. Count rows to be deleted
-            count_query = """
-                SELECT COUNT(*) as cnt FROM tick_orderbook
-                WHERE session_id = $1
-            """
-            count_params = [session_id]
+            query = "UPDATE tick_orderbook SET is_deleted = true WHERE session_id = $1 AND is_deleted = false"
+            params = [session_id]
+
             if symbol:
-                count_query += " AND symbol = $2"
-                count_params.append(symbol)
+                query += " AND symbol = $2"
+                params.append(symbol)
 
             async with self.pg_pool.acquire() as conn:
-                count_result = await conn.fetchrow(count_query, *count_params)
-                deleted_count = count_result['cnt'] if count_result else 0
+                result = await conn.execute(query, *params)
+                affected_rows = int(result.split()[-1]) if result else 0
 
-            if deleted_count == 0:
-                logger.info(f"No tick_orderbook rows found for session {session_id}" +
-                           (f", symbol {symbol}" if symbol else ""))
-                return 0
-
-            # 2. Create temp table with rows to keep
-            # QuestDB does not support parameters in CREATE TABLE AS
-            if symbol:
-                create_temp_query = f"""
-                    CREATE TABLE tick_orderbook_temp AS (
-                        SELECT * FROM tick_orderbook
-                        WHERE session_id != '{session_id}' OR symbol != '{symbol}'
-                    )
-                """
-            else:
-                create_temp_query = f"""
-                    CREATE TABLE tick_orderbook_temp AS (
-                        SELECT * FROM tick_orderbook
-                        WHERE session_id != '{session_id}'
-                    )
-                """
-
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute(create_temp_query)
-
-            # 3. Drop original table
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute("DROP TABLE tick_orderbook")
-
-            # 4. Recreate table with same structure
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute("""
-                    CREATE TABLE tick_orderbook (
-                        session_id SYMBOL capacity 2048 CACHE,
-                        symbol SYMBOL capacity 256 CACHE,
-                        timestamp TIMESTAMP,
-                        bid_price_1 DOUBLE,
-                        bid_qty_1 DOUBLE,
-                        bid_price_2 DOUBLE,
-                        bid_qty_2 DOUBLE,
-                        bid_price_3 DOUBLE,
-                        bid_qty_3 DOUBLE,
-                        ask_price_1 DOUBLE,
-                        ask_qty_1 DOUBLE,
-                        ask_price_2 DOUBLE,
-                        ask_qty_2 DOUBLE,
-                        ask_price_3 DOUBLE,
-                        ask_qty_3 DOUBLE
-                    ) timestamp(timestamp) PARTITION BY DAY WAL
-                    DEDUP UPSERT KEYS(timestamp, symbol, session_id)
-                """)
-
-            # 5. Copy data back from temp
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute("""
-                    INSERT INTO tick_orderbook
-                    SELECT * FROM tick_orderbook_temp
-                """)
-
-            # 6. Drop temp table
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute("DROP TABLE tick_orderbook_temp")
-
-            logger.info(f"Deleted {deleted_count} tick_orderbook rows for session {session_id}" +
+            logger.info(f"Soft deleted {affected_rows} tick_orderbook rows for session {session_id}" +
                        (f", symbol {symbol}" if symbol else ""))
-            return deleted_count
+            return affected_rows
 
         except Exception as e:
-            logger.error(f"Failed to delete tick_orderbook for session {session_id}: {e}")
-            try:
-                async with self.pg_pool.acquire() as conn:
-                    await conn.execute("DROP TABLE IF EXISTS tick_orderbook_temp")
-            except:
-                pass
+            logger.error(f"Failed to soft delete tick_orderbook for session {session_id}: {e}")
             raise
 
     async def delete_aggregated_ohlcv(
@@ -1038,106 +900,37 @@ class QuestDBProvider:
         symbol: Optional[str] = None
     ) -> int:
         """
-        Delete aggregated OHLCV candles for session using table rebuild.
+        Soft delete aggregated OHLCV candles for session.
 
-        QuestDB does not support DELETE FROM statements.
+        Uses UPDATE to set is_deleted = true instead of physical deletion.
 
         Args:
             session_id: Session identifier
-            symbol: Optional symbol filter (deletes all symbols if None)
+            symbol: Optional symbol filter (soft deletes all symbols if None)
 
         Returns:
-            Number of rows deleted
+            Number of rows soft deleted
         """
         await self.initialize()
 
         try:
-            # 1. Count rows to be deleted
-            count_query = """
-                SELECT COUNT(*) as cnt FROM aggregated_ohlcv
-                WHERE session_id = $1
-            """
-            count_params = [session_id]
+            query = "UPDATE aggregated_ohlcv SET is_deleted = true WHERE session_id = $1 AND is_deleted = false"
+            params = [session_id]
+
             if symbol:
-                count_query += " AND symbol = $2"
-                count_params.append(symbol)
+                query += " AND symbol = $2"
+                params.append(symbol)
 
             async with self.pg_pool.acquire() as conn:
-                count_result = await conn.fetchrow(count_query, *count_params)
-                deleted_count = count_result['cnt'] if count_result else 0
+                result = await conn.execute(query, *params)
+                affected_rows = int(result.split()[-1]) if result else 0
 
-            if deleted_count == 0:
-                logger.info(f"No aggregated_ohlcv rows found for session {session_id}" +
-                           (f", symbol {symbol}" if symbol else ""))
-                return 0
-
-            # 2. Create temp table with rows to keep
-            # QuestDB does not support parameters in CREATE TABLE AS
-            if symbol:
-                create_temp_query = f"""
-                    CREATE TABLE aggregated_ohlcv_temp AS (
-                        SELECT * FROM aggregated_ohlcv
-                        WHERE session_id != '{session_id}' OR symbol != '{symbol}'
-                    )
-                """
-            else:
-                create_temp_query = f"""
-                    CREATE TABLE aggregated_ohlcv_temp AS (
-                        SELECT * FROM aggregated_ohlcv
-                        WHERE session_id != '{session_id}'
-                    )
-                """
-
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute(create_temp_query)
-
-            # 3. Drop original table
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute("DROP TABLE aggregated_ohlcv")
-
-            # 4. Recreate table with same structure
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute("""
-                    CREATE TABLE aggregated_ohlcv (
-                        session_id SYMBOL capacity 2048 CACHE,
-                        symbol SYMBOL capacity 256 CACHE,
-                        interval SYMBOL capacity 16 CACHE,
-                        timestamp TIMESTAMP,
-                        open DOUBLE,
-                        high DOUBLE,
-                        low DOUBLE,
-                        close DOUBLE,
-                        volume DOUBLE,
-                        quote_volume DOUBLE,
-                        trades_count INT,
-                        is_closed BOOLEAN,
-                        created_at TIMESTAMP
-                    ) timestamp(timestamp) PARTITION BY DAY
-                    DEDUP UPSERT KEYS(timestamp, symbol, interval, session_id)
-                """)
-
-            # 5. Copy data back from temp
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute("""
-                    INSERT INTO aggregated_ohlcv
-                    SELECT * FROM aggregated_ohlcv_temp
-                """)
-
-            # 6. Drop temp table
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute("DROP TABLE aggregated_ohlcv_temp")
-
-            logger.info(f"Deleted {deleted_count} aggregated_ohlcv rows for session {session_id}" +
+            logger.info(f"Soft deleted {affected_rows} aggregated_ohlcv rows for session {session_id}" +
                        (f", symbol {symbol}" if symbol else ""))
-            return deleted_count
+            return affected_rows
 
         except Exception as e:
-            logger.error(f"Failed to delete aggregated_ohlcv for session {session_id}: {e}")
-            try:
-                async with self.pg_pool.acquire() as conn:
-                    await conn.execute("DROP TABLE IF EXISTS aggregated_ohlcv_temp")
-            except:
-                pass
+            logger.error(f"Failed to soft delete aggregated_ohlcv for session {session_id}: {e}")
             raise
 
     async def delete_indicators(
@@ -1147,9 +940,9 @@ class QuestDBProvider:
         indicator_id: Optional[str] = None
     ) -> int:
         """
-        Delete indicator values for session using table rebuild.
+        Soft delete indicator values for session.
 
-        QuestDB does not support DELETE FROM statements.
+        Uses UPDATE to set is_deleted = true instead of physical deletion.
 
         Args:
             session_id: Session identifier
@@ -1157,269 +950,91 @@ class QuestDBProvider:
             indicator_id: Optional indicator ID filter
 
         Returns:
-            Number of rows deleted
+            Number of rows soft deleted
         """
         await self.initialize()
 
         try:
-            # 1. Count rows to be deleted
-            count_query = "SELECT COUNT(*) as cnt FROM indicators WHERE session_id = $1"
-            count_params = [session_id]
+            query = "UPDATE indicators SET is_deleted = true WHERE session_id = $1 AND is_deleted = false"
+            params = [session_id]
 
             if symbol:
-                count_query += " AND symbol = $2"
-                count_params.append(symbol)
+                query += " AND symbol = $2"
+                params.append(symbol)
 
             if indicator_id:
-                param_idx = len(count_params) + 1
-                count_query += f" AND indicator_id = ${param_idx}"
-                count_params.append(indicator_id)
+                param_idx = len(params) + 1
+                query += f" AND indicator_id = ${param_idx}"
+                params.append(indicator_id)
 
             async with self.pg_pool.acquire() as conn:
-                count_result = await conn.fetchrow(count_query, *count_params)
-                deleted_count = count_result['cnt'] if count_result else 0
+                result = await conn.execute(query, *params)
+                affected_rows = int(result.split()[-1]) if result else 0
 
-            if deleted_count == 0:
-                logger.info(f"No indicators rows found for session {session_id}" +
-                           (f", symbol {symbol}" if symbol else "") +
-                           (f", indicator {indicator_id}" if indicator_id else ""))
-                return 0
-
-            # 2. Create temp table with rows to keep
-            # QuestDB does not support parameters in CREATE TABLE AS
-            where_conditions = [f"session_id != '{session_id}'"]
-            if symbol:
-                where_conditions.append(f"symbol != '{symbol}'")
-            if indicator_id:
-                where_conditions.append(f"indicator_id != '{indicator_id}'")
-
-            where_clause = " OR ".join(where_conditions)
-            create_temp_query = f"""
-                CREATE TABLE indicators_temp AS (
-                    SELECT * FROM indicators WHERE {where_clause}
-                )
-            """
-
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute(create_temp_query)
-
-            # 3. Drop original table
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute("DROP TABLE indicators")
-
-            # 4. Recreate table with same structure (with session_id from migration 003)
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute("""
-                    CREATE TABLE indicators (
-                        symbol SYMBOL capacity 256 CACHE,
-                        indicator_id SYMBOL capacity 2048 CACHE,
-                        timestamp TIMESTAMP,
-                        value DOUBLE,
-                        confidence DOUBLE,
-                        metadata STRING,
-                        session_id SYMBOL capacity 2048 CACHE
-                    ) timestamp(timestamp) PARTITION BY DAY WAL
-                    DEDUP UPSERT KEYS(timestamp, symbol, indicator_id)
-                """)
-
-            # 5. Copy data back from temp
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute("""
-                    INSERT INTO indicators
-                    SELECT * FROM indicators_temp
-                """)
-
-            # 6. Drop temp table
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute("DROP TABLE indicators_temp")
-
-            logger.info(f"Deleted {deleted_count} indicators rows for session {session_id}" +
+            logger.info(f"Soft deleted {affected_rows} indicators rows for session {session_id}" +
                        (f", symbol {symbol}" if symbol else "") +
                        (f", indicator {indicator_id}" if indicator_id else ""))
-            return deleted_count
+            return affected_rows
 
         except Exception as e:
-            logger.error(f"Failed to delete indicators for session {session_id}: {e}")
-            try:
-                async with self.pg_pool.acquire() as conn:
-                    await conn.execute("DROP TABLE IF EXISTS indicators_temp")
-            except:
-                pass
+            logger.error(f"Failed to soft delete indicators for session {session_id}: {e}")
             raise
 
     async def delete_backtest_results(self, session_id: str) -> int:
         """
-        Delete backtest results linked to session using table rebuild.
+        Soft delete backtest results linked to session.
 
-        QuestDB does not support DELETE FROM statements.
+        Uses UPDATE to set is_deleted = true instead of physical deletion.
 
         Args:
             session_id: Session identifier
 
         Returns:
-            Number of rows deleted
+            Number of rows soft deleted
         """
         await self.initialize()
 
         try:
-            # 1. Count rows to be deleted
-            count_query = "SELECT COUNT(*) as cnt FROM backtest_results WHERE session_id = $1"
+            query = "UPDATE backtest_results SET is_deleted = true WHERE session_id = $1 AND is_deleted = false"
 
             async with self.pg_pool.acquire() as conn:
-                count_result = await conn.fetchrow(count_query, session_id)
-                deleted_count = count_result['cnt'] if count_result else 0
+                result = await conn.execute(query, session_id)
+                affected_rows = int(result.split()[-1]) if result else 0
 
-            if deleted_count == 0:
-                logger.info(f"No backtest_results rows found for session {session_id}")
-                return 0
-
-            # 2. Create temp table with rows to keep
-            # QuestDB does not support parameters in CREATE TABLE AS
-            create_temp_query = f"""
-                CREATE TABLE backtest_results_temp AS (
-                    SELECT * FROM backtest_results
-                    WHERE session_id != '{session_id}'
-                )
-            """
-
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute(create_temp_query)
-
-            # 3. Drop original table
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute("DROP TABLE backtest_results")
-
-            # 4. Recreate table with same structure
-            # Note: Structure based on migration 003
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute("""
-                    CREATE TABLE backtest_results (
-                        backtest_id SYMBOL capacity 1024 CACHE,
-                        session_id SYMBOL capacity 2048 CACHE,
-                        strategy_id SYMBOL capacity 512 CACHE,
-                        symbol SYMBOL capacity 256 CACHE,
-                        timestamp TIMESTAMP,
-                        pnl DOUBLE,
-                        total_trades INT,
-                        winning_trades INT,
-                        losing_trades INT,
-                        max_drawdown DOUBLE,
-                        sharpe_ratio DOUBLE,
-                        metadata STRING
-                    ) timestamp(timestamp) PARTITION BY DAY
-                """)
-
-            # 5. Copy data back from temp
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute("""
-                    INSERT INTO backtest_results
-                    SELECT * FROM backtest_results_temp
-                """)
-
-            # 6. Drop temp table
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute("DROP TABLE backtest_results_temp")
-
-            logger.info(f"Deleted {deleted_count} backtest_results rows for session {session_id}")
-            return deleted_count
+            logger.info(f"Soft deleted {affected_rows} backtest_results rows for session {session_id}")
+            return affected_rows
 
         except Exception as e:
-            logger.error(f"Failed to delete backtest_results for session {session_id}: {e}")
-            try:
-                async with self.pg_pool.acquire() as conn:
-                    await conn.execute("DROP TABLE IF EXISTS backtest_results_temp")
-            except:
-                pass
+            logger.error(f"Failed to soft delete backtest_results for session {session_id}: {e}")
             raise
 
     async def delete_session_metadata(self, session_id: str) -> int:
         """
-        Delete session metadata record using table rebuild.
+        Soft delete session metadata record.
 
-        WARNING: This should be called LAST after all child data is deleted.
-        QuestDB does not support DELETE FROM statements.
+        WARNING: This should be called LAST after all child data is soft deleted.
+        Uses UPDATE to set is_deleted = true instead of physical deletion.
 
         Args:
             session_id: Session identifier
 
         Returns:
-            Number of rows deleted (should be 1)
+            Number of rows soft deleted (should be 1)
         """
         await self.initialize()
 
         try:
-            # 1. Count rows to be deleted
-            count_query = "SELECT COUNT(*) as cnt FROM data_collection_sessions WHERE session_id = $1"
+            query = "UPDATE data_collection_sessions SET is_deleted = true WHERE session_id = $1 AND is_deleted = false"
 
             async with self.pg_pool.acquire() as conn:
-                count_result = await conn.fetchrow(count_query, session_id)
-                deleted_count = count_result['cnt'] if count_result else 0
+                result = await conn.execute(query, session_id)
+                affected_rows = int(result.split()[-1]) if result else 0
 
-            if deleted_count == 0:
-                logger.info(f"No session metadata found for {session_id}")
-                return 0
-
-            # 2. Create temp table with rows to keep
-            # QuestDB does not support parameters in CREATE TABLE AS
-            create_temp_query = f"""
-                CREATE TABLE data_collection_sessions_temp AS (
-                    SELECT * FROM data_collection_sessions
-                    WHERE session_id != '{session_id}'
-                )
-            """
-
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute(create_temp_query)
-
-            # 3. Drop original table
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute("DROP TABLE data_collection_sessions")
-
-            # 4. Recreate table with same structure
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute("""
-                    CREATE TABLE data_collection_sessions (
-                        session_id SYMBOL capacity 2048 CACHE,
-                        status SYMBOL capacity 16 CACHE,
-                        symbols STRING,
-                        data_types STRING,
-                        collection_interval_ms INT,
-                        start_time TIMESTAMP,
-                        end_time TIMESTAMP,
-                        duration_seconds INT,
-                        records_collected LONG,
-                        prices_count LONG,
-                        orderbook_count LONG,
-                        trades_count LONG,
-                        errors_count INT,
-                        exchange STRING,
-                        notes STRING,
-                        created_at TIMESTAMP,
-                        updated_at TIMESTAMP
-                    ) timestamp(created_at) PARTITION BY DAY
-                """)
-
-            # 5. Copy data back from temp
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute("""
-                    INSERT INTO data_collection_sessions
-                    SELECT * FROM data_collection_sessions_temp
-                """)
-
-            # 6. Drop temp table
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute("DROP TABLE data_collection_sessions_temp")
-
-            logger.info(f"Deleted session metadata for {session_id}")
-            return deleted_count
+            logger.info(f"Soft deleted session metadata for {session_id}")
+            return affected_rows
 
         except Exception as e:
-            logger.error(f"Failed to delete session metadata for {session_id}: {e}")
-            try:
-                async with self.pg_pool.acquire() as conn:
-                    await conn.execute("DROP TABLE IF EXISTS data_collection_sessions_temp")
-            except:
-                pass
+            logger.error(f"Failed to soft delete session metadata for {session_id}: {e}")
             raise
 
     async def delete_session_cascade(self, session_id: str) -> Dict[str, int]:
