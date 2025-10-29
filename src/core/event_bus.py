@@ -158,11 +158,12 @@ class EventBus:
         self._subscribers: Dict[str, Set[WeakSubscriber]] = {}  # Changed to set for O(1) operations
 
         # ✅ CRITICAL FIX: Bucketed queues per priority instead of single heap
+        # ✅ PERF FIX: Further increased queue sizes for multi-symbol data collection
         self._priority_queues = {
-            EventPriority.CRITICAL: asyncio.Queue(maxsize=1000),
-            EventPriority.HIGH: asyncio.Queue(maxsize=5000),  # Increased from 2000 for better backpressure handling
-            EventPriority.NORMAL: asyncio.Queue(maxsize=5000),
-            EventPriority.LOW: asyncio.Queue(maxsize=2000)
+            EventPriority.CRITICAL: asyncio.Queue(maxsize=2000),   # Doubled for trading events
+            EventPriority.HIGH: asyncio.Queue(maxsize=20000),      # 4x increase for market data flood
+            EventPriority.NORMAL: asyncio.Queue(maxsize=10000),    # 2x increase for normal events
+            EventPriority.LOW: asyncio.Queue(maxsize=5000)         # 2.5x increase for low priority
         }
 
         # ✅ CRITICAL FIX: Worker pool per priority for true parallel processing
@@ -693,7 +694,12 @@ class EventBus:
     
     async def _rate_limit_check(self, event_type: str, publisher_id: Optional[str] = None) -> bool:
         """
-        ✅ IMPORTANT FIX: Publisher-based rate limiting for fairness.
+        ✅ PERFORMANCE FIX: Optimized rate limiting with higher limits for data collection.
+
+        Changes:
+        - Global limit: 1000/s → 10000/s (10x increase for multi-symbol collection)
+        - Per-publisher limit: 100/s → 2000/s (20x increase)
+        - O(n) cleanup replaced with O(1) timestamp-based window reset
 
         Args:
             event_type: Event type to check
@@ -712,16 +718,18 @@ class EventBus:
                 # Only create if we have active subscribers for this event type
                 if event_type not in self._subscribers:
                     return True  # No subscribers = no rate limiting needed
-                rate_limiter = deque(maxlen=1000)  # Global limit: 1000/second
+                rate_limiter = deque(maxlen=10000)  # ✅ PERF FIX: Increased from 1000 to 10000/second
                 self._rate_limiters[event_type] = rate_limiter
                 self._rate_limiter_ttl[event_type] = now
 
-            # Remove old entries from global limiter
-            while rate_limiter and rate_limiter[0] < now - 1.0:
-                rate_limiter.popleft()
+            # ✅ PERF FIX: O(1) cleanup - check if window expired, if so clear entire deque
+            # This is much faster than O(n) popleft() loop for each publish
+            if rate_limiter and rate_limiter[0] < now - 1.0:
+                # Window expired - clear entire deque for O(1) reset
+                rate_limiter.clear()
 
             # Check global limit first
-            if len(rate_limiter) >= 1000:
+            if len(rate_limiter) >= 10000:  # ✅ PERF FIX: Increased from 1000 to 10000
                 self.logger.warning("eventbus.global_rate_limit_exceeded", {"event_type": event_type})
                 return False
 
@@ -732,15 +740,15 @@ class EventBus:
                 if publisher_key in self._publisher_rate_limits:
                     publisher_limiter = self._publisher_rate_limits[publisher_key]
                 else:
-                    publisher_limiter = deque(maxlen=100)  # Per-publisher limit: 100/second
+                    publisher_limiter = deque(maxlen=2000)  # ✅ PERF FIX: Increased from 100 to 2000/second
                     self._publisher_rate_limits[publisher_key] = publisher_limiter
 
-                # Remove old entries from publisher limiter
-                while publisher_limiter and publisher_limiter[0] < now - 1.0:
-                    publisher_limiter.popleft()
+                # ✅ PERF FIX: O(1) cleanup for publisher limiter
+                if publisher_limiter and publisher_limiter[0] < now - 1.0:
+                    publisher_limiter.clear()
 
                 # Check publisher-specific limit
-                if len(publisher_limiter) >= 100:
+                if len(publisher_limiter) >= 2000:  # ✅ PERF FIX: Increased from 100 to 2000
                     self.logger.warning("eventbus.publisher_rate_limit_exceeded", {"publisher_key": publisher_key})
                     return False
 

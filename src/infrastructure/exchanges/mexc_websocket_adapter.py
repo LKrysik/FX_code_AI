@@ -181,7 +181,18 @@ class MexcWebSocketAdapter(IMarketDataProvider):
         # Periodic snapshot refresh to prevent drift from deltas
         self._snapshot_refresh_interval = self.config.get("snapshot_refresh_interval", 300)  # 5 minutes default
         self._snapshot_refresh_tasks = {}  # symbol -> asyncio.Task for periodic refresh
-        
+
+        # ✅ PERF FIX: Event batching to reduce EventBus overhead
+        self._event_batching_enabled = self.config.get("event_batching_enabled", True)
+        self._batch_size = self.config.get("batch_size", 100)  # Max events per batch
+        self._batch_flush_interval = self.config.get("batch_flush_interval", 0.1)  # 100ms default
+
+        # Event buffers for batching
+        self._price_update_buffer: List[Dict[str, Any]] = []
+        self._orderbook_update_buffer: List[Dict[str, Any]] = []
+        self._batch_lock = asyncio.Lock()  # Protect batch buffers
+        self._batch_flush_task = None  # Background flush task
+
         self.logger.info("mexc_adapter.initialized", {
             "ws_url": self.ws_url,
             "exchange": "mexc",
@@ -189,7 +200,10 @@ class MexcWebSocketAdapter(IMarketDataProvider):
             "max_connections": self.max_connections,
             "circuit_breaker_enabled": True,
             "rate_limiting_enabled": True,
-            "cache_config": self.cache_config
+            "cache_config": self.cache_config,
+            "event_batching_enabled": self._event_batching_enabled,
+            "batch_size": self._batch_size,
+            "batch_flush_interval_ms": self._batch_flush_interval * 1000
         })
     
     def get_exchange_name(self) -> str:
@@ -227,6 +241,10 @@ class MexcWebSocketAdapter(IMarketDataProvider):
 
             # ✅ START: Orderbook refresh task for cache freshness
             self._orderbook_refresh_task = self._create_tracked_task(self._start_orderbook_refresh_task(), "orderbook_refresh")
+
+            # ✅ PERF FIX: Start event batch flushing task
+            if self._event_batching_enabled:
+                self._batch_flush_task = self._create_tracked_task(self._batch_flush_loop(), "batch_flush")
 
             # CRITICAL FIX: Disable access update processor to reduce CPU usage
             # await self._start_access_update_processor()
@@ -432,7 +450,7 @@ class MexcWebSocketAdapter(IMarketDataProvider):
         """Handle backpressure in event publishing system - TRADING OPTIMIZED"""
         # Check if this is a trading-critical event
         is_trading_critical = any(keyword in event_type for keyword in ["deal", "trade", "order", "position"])
-        
+
         if is_trading_critical:
             # NEVER drop trading events - log as ERROR
             self.logger.error("mexc_adapter.trading_event_backpressure_critical", {
@@ -450,6 +468,68 @@ class MexcWebSocketAdapter(IMarketDataProvider):
             })
 
         # Could implement: increase worker threads, expand queue sizes for trading events
+
+    async def _batch_flush_loop(self) -> None:
+        """✅ PERF FIX: Background task to periodically flush event batches"""
+        try:
+            while self._running:
+                await asyncio.sleep(self._batch_flush_interval)
+                await self._flush_event_batches()
+        except asyncio.CancelledError:
+            # Final flush before shutdown
+            await self._flush_event_batches()
+            raise
+        except Exception as e:
+            self.logger.error("mexc_adapter.batch_flush_loop_error", {"error": str(e)})
+
+    async def _flush_event_batches(self) -> None:
+        """✅ PERF FIX: Flush all pending event batches"""
+        async with self._batch_lock:
+            # Flush price updates
+            if self._price_update_buffer:
+                batch = list(self._price_update_buffer)
+                self._price_update_buffer.clear()
+
+                # Publish as single batch event
+                await self._safe_publish_event("market.price_batch_update", {
+                    "exchange": "mexc",
+                    "updates": batch,
+                    "count": len(batch),
+                    "timestamp": time.time()
+                }, max_retries=1)  # Lower retries for batch events
+
+            # Flush orderbook updates
+            if self._orderbook_update_buffer:
+                batch = list(self._orderbook_update_buffer)
+                self._orderbook_update_buffer.clear()
+
+                # Publish as single batch event
+                await self._safe_publish_event("market.orderbook_batch_update", {
+                    "exchange": "mexc",
+                    "updates": batch,
+                    "count": len(batch),
+                    "timestamp": time.time()
+                }, max_retries=1)  # Lower retries for batch events
+
+    async def _add_to_price_batch(self, event_data: Dict[str, Any]) -> None:
+        """✅ PERF FIX: Add price update to batch buffer"""
+        async with self._batch_lock:
+            self._price_update_buffer.append(event_data)
+
+            # Check if we need to flush early (size-based flush)
+            if len(self._price_update_buffer) >= self._batch_size:
+                # Flush immediately if buffer is full
+                await self._flush_event_batches()
+
+    async def _add_to_orderbook_batch(self, event_data: Dict[str, Any]) -> None:
+        """✅ PERF FIX: Add orderbook update to batch buffer"""
+        async with self._batch_lock:
+            self._orderbook_update_buffer.append(event_data)
+
+            # Check if we need to flush early (size-based flush)
+            if len(self._orderbook_update_buffer) >= self._batch_size:
+                # Flush immediately if buffer is full
+                await self._flush_event_batches()
 
     def _remove_from_cache(self, symbol: str) -> None:
         """Remove a symbol from all cache structures - MUST be called with _cache_lock held"""
@@ -1604,8 +1684,8 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                         self._debug_log_rates[publish_log_key] = current_time
                         self._update_tracking_expiry(publish_log_key)
                     
-                    # Publish price update event via EventBus (moved after logging for performance)
-                    await self._safe_publish_event("market.price_update", {
+                    # ✅ PERF FIX: Use batching for price updates instead of individual events
+                    event_data = {
                         "exchange": "mexc",
                         "symbol": symbol,
                         "price": price,
@@ -1617,7 +1697,14 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                         "market_data": market_data_obj,
                         "mexc_timestamp": timestamp,  # Original MEXC timestamp in ms
                         "system_timestamp": time.time()  # Our system timestamp for comparison
-                    })
+                    }
+
+                    if self._event_batching_enabled:
+                        # Add to batch buffer - will be flushed automatically
+                        await self._add_to_price_batch(event_data)
+                    else:
+                        # Fallback to individual publish if batching disabled
+                        await self._safe_publish_event("market.price_update", event_data)
                     
                     # Rate-limited debug logging for price updates (max once per minute per symbol)
                     current_time = time.time()
@@ -2092,9 +2179,9 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                 
                 if not bids and not asks:
                     return
-                
-                # Publish orderbook update event
-                await self._safe_publish_event("market.orderbook_update", {
+
+                # ✅ PERF FIX: Use batching for orderbook updates
+                event_data = {
                     "exchange": "mexc",
                     "symbol": symbol,
                     "bids": bids,
@@ -2110,7 +2197,14 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                         "total_bids": len(cache_entry["bids"]),
                         "total_asks": len(cache_entry["asks"])
                     }
-                })
+                }
+
+                if self._event_batching_enabled:
+                    # Add to batch buffer - will be flushed automatically
+                    await self._add_to_orderbook_batch(event_data)
+                else:
+                    # Fallback to individual publish if batching disabled
+                    await self._safe_publish_event("market.orderbook_update", event_data)
                 
         except Exception as e:
             self.logger.error("mexc_adapter.orderbook_publish_error", {

@@ -67,49 +67,85 @@ class MetricSeries:
 
 
 class MetricsCollector:
-    """Central metrics collection system"""
+    """✅ PERF FIX: Central metrics collection system with bounded structures to prevent memory leaks"""
+
+    # ✅ PERF FIX: Maximum sizes to prevent unbounded growth
+    MAX_SERIES = 1000
+    MAX_COUNTERS = 10000
+    MAX_GAUGES = 5000
+    MAX_HISTOGRAMS = 1000
+    MAX_HISTOGRAM_VALUES = 1000
 
     def __init__(self):
         self.series: Dict[str, MetricSeries] = {}
-        self.counters: Dict[str, int] = defaultdict(int)
+        self.counters: Dict[str, int] = {}  # ✅ PERF FIX: Removed defaultdict, using explicit dict
         self.gauges: Dict[str, float] = {}
-        self.histograms: Dict[str, List[float]] = defaultdict(list)
+        self.histograms: Dict[str, List[float]] = {}  # ✅ PERF FIX: Removed defaultdict
         self._lock = threading.Lock()
         self._system_monitoring = False
 
     def create_series(self, name: str, tags: Dict[str, str] = None) -> MetricSeries:
-        """Create a new metric series"""
+        """✅ PERF FIX: Create a new metric series with bounded limit"""
         if name not in self.series:
+            # ✅ PERF FIX: Enforce max series limit
+            if len(self.series) >= self.MAX_SERIES:
+                # Remove oldest series (simple FIFO)
+                oldest_key = next(iter(self.series))
+                del self.series[oldest_key]
             self.series[name] = MetricSeries(name, tags=tags or {})
         return self.series[name]
 
     def record(self, name: str, value: float, tags: Dict[str, str] = None):
-        """Record a metric value"""
+        """✅ PERF FIX: Record a metric value with bounded series limit"""
         with self._lock:
             if name not in self.series:
+                # ✅ PERF FIX: Enforce max series limit
+                if len(self.series) >= self.MAX_SERIES:
+                    oldest_key = next(iter(self.series))
+                    del self.series[oldest_key]
                 self.series[name] = MetricSeries(name, tags=tags or {})
             self.series[name].add_value(value)
 
     def increment_counter(self, name: str, value: int = 1, tags: Dict[str, str] = None):
-        """Increment a counter metric"""
+        """✅ PERF FIX: Increment a counter metric with bounded limit"""
         with self._lock:
             key = f"{name}:{json.dumps(tags or {}, sort_keys=True)}"
+            # ✅ PERF FIX: Enforce max counters limit
+            if key not in self.counters:
+                if len(self.counters) >= self.MAX_COUNTERS:
+                    # Remove oldest counter (simple FIFO)
+                    oldest_key = next(iter(self.counters))
+                    del self.counters[oldest_key]
+                self.counters[key] = 0
             self.counters[key] += value
 
     def set_gauge(self, name: str, value: float, tags: Dict[str, str] = None):
-        """Set a gauge metric"""
+        """✅ PERF FIX: Set a gauge metric with bounded limit"""
         with self._lock:
             key = f"{name}:{json.dumps(tags or {}, sort_keys=True)}"
+            # ✅ PERF FIX: Enforce max gauges limit
+            if key not in self.gauges and len(self.gauges) >= self.MAX_GAUGES:
+                # Remove oldest gauge (simple FIFO)
+                oldest_key = next(iter(self.gauges))
+                del self.gauges[oldest_key]
             self.gauges[key] = value
 
     def record_histogram(self, name: str, value: float, tags: Dict[str, str] = None):
-        """Record a value in a histogram"""
+        """✅ PERF FIX: Record a value in a histogram with bounded limits"""
         with self._lock:
             key = f"{name}:{json.dumps(tags or {}, sort_keys=True)}"
+            # ✅ PERF FIX: Enforce max histograms limit
+            if key not in self.histograms:
+                if len(self.histograms) >= self.MAX_HISTOGRAMS:
+                    # Remove oldest histogram
+                    oldest_key = next(iter(self.histograms))
+                    del self.histograms[oldest_key]
+                self.histograms[key] = []
+
             self.histograms[key].append(value)
-            # Keep only last 1000 values
-            if len(self.histograms[key]) > 1000:
-                self.histograms[key] = self.histograms[key][-1000:]
+            # ✅ PERF FIX: Keep only last MAX_HISTOGRAM_VALUES
+            if len(self.histograms[key]) > self.MAX_HISTOGRAM_VALUES:
+                self.histograms[key] = self.histograms[key][-self.MAX_HISTOGRAM_VALUES:]
 
     def get_metrics_summary(self) -> Dict[str, Any]:
         """Get comprehensive metrics summary"""
