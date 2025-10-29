@@ -117,6 +117,10 @@ export default function DataCollectionPage() {
     message: '',
     severity: 'info'
   });
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [sessionToDelete, setSessionToDelete] = useState<string | null>(null);
+  // Track deleted sessions to prevent them from reappearing from getExecutionStatus()
+  const [deletedSessionIds, setDeletedSessionIds] = useState<Set<string>>(new Set());
 
   // Backend health check - only as backup (WebSocket provides real-time status)
   const checkBackendConnection = useCallback(async () => {
@@ -476,49 +480,56 @@ export default function DataCollectionPage() {
 
       const allSessions: DataCollectionSession[] = [];
 
-      // Add current active session if exists
+      // Add current active session if exists AND not in deleted list
       if (sessionStatus && sessionStatus.session_id && sessionStatus.mode === 'collect') {
-        const currentSession: DataCollectionSession = {
-          session_id: sessionStatus.session_id,
-          status: sessionStatus.status || 'unknown',
-          symbols: sessionStatus.symbols || [],
-          data_types: sessionStatus.data_types || ['price', 'orderbook'],
-          duration: sessionStatus.duration || 'continuous',
-          start_time: sessionStatus.start_time,
-          records_collected: sessionStatus.records_collected || 0,
-          storage_path: sessionStatus.storage_path || 'data/historical',
-          created_at: sessionStatus.start_time || new Date().toISOString(),
-          error_message: sessionStatus.error_message || undefined,
-          progress_percentage: typeof sessionStatus.progress === 'object'
-            ? sessionStatus.progress?.percentage
-            : (typeof sessionStatus.progress === 'number' ? sessionStatus.progress : undefined),
-          eta_seconds: typeof sessionStatus.progress === 'object'
-            ? sessionStatus.progress?.eta_seconds
-            : undefined,
-          current_date: typeof sessionStatus.progress === 'object'
-            ? sessionStatus.progress?.current_date
-            : undefined,
-          command_type: sessionStatus.command_type || 'collect'
-        };
-        allSessions.push(currentSession);
+        // CRITICAL FIX: Filter out deleted sessions from execution status
+        if (!deletedSessionIds.has(sessionStatus.session_id)) {
+          const currentSession: DataCollectionSession = {
+            session_id: sessionStatus.session_id,
+            status: sessionStatus.status || 'unknown',
+            symbols: sessionStatus.symbols || [],
+            data_types: sessionStatus.data_types || ['price', 'orderbook'],
+            duration: sessionStatus.duration || 'continuous',
+            start_time: sessionStatus.start_time,
+            records_collected: sessionStatus.records_collected || 0,
+            storage_path: sessionStatus.storage_path || 'data/historical',
+            created_at: sessionStatus.start_time || new Date().toISOString(),
+            error_message: sessionStatus.error_message || undefined,
+            progress_percentage: typeof sessionStatus.progress === 'object'
+              ? sessionStatus.progress?.percentage
+              : (typeof sessionStatus.progress === 'number' ? sessionStatus.progress : undefined),
+            eta_seconds: typeof sessionStatus.progress === 'object'
+              ? sessionStatus.progress?.eta_seconds
+              : undefined,
+            current_date: typeof sessionStatus.progress === 'object'
+              ? sessionStatus.progress?.current_date
+              : undefined,
+            command_type: sessionStatus.command_type || 'collect'
+          };
+          allSessions.push(currentSession);
+        } else {
+          console.log(`[loadDataCollectionSessions] Filtered out deleted session from execution status: ${sessionStatus.session_id}`);
+        }
       }
 
-      // Add historical sessions
+      // Add historical sessions (already filtered by backend WHERE is_deleted = false)
       if (historicalSessions.sessions) {
-        const historicalSessionsFormatted = historicalSessions.sessions.map((session: any) => ({
-          session_id: session.session_id || session.id,
-          status: session.status || 'completed',
-          symbols: session.symbols || [],
-          data_types: session.data_types || ['price', 'orderbook'],
-          duration: session.duration || 'unknown',
-          start_time: session.start_time || session.created_at,
-          end_time: session.end_time,
-          records_collected: session.records_collected || session.total_records || 0,
-          storage_path: session.storage_path || session.path || 'data/historical',
-          created_at: session.created_at || session.start_time || new Date().toISOString(),
-          error_message: session.error_message || undefined,
-          command_type: 'collect'
-        }));
+        const historicalSessionsFormatted = historicalSessions.sessions
+          .filter((session: any) => !deletedSessionIds.has(session.session_id || session.id))
+          .map((session: any) => ({
+            session_id: session.session_id || session.id,
+            status: session.status || 'completed',
+            symbols: session.symbols || [],
+            data_types: session.data_types || ['price', 'orderbook'],
+            duration: session.duration || 'unknown',
+            start_time: session.start_time || session.created_at,
+            end_time: session.end_time,
+            records_collected: session.records_collected || session.total_records || 0,
+            storage_path: session.storage_path || session.path || 'data/historical',
+            created_at: session.created_at || session.start_time || new Date().toISOString(),
+            error_message: session.error_message || undefined,
+            command_type: 'collect'
+          }));
         allSessions.push(...historicalSessionsFormatted);
       }
 
@@ -642,6 +653,15 @@ export default function DataCollectionPage() {
   };
 
   const handleDeleteSession = async (sessionId: string) => {
+    // Optimistic UI update: immediately remove from local state
+    const sessionToRemove = sessions.find(s => s.session_id === sessionId);
+    setSessions(prev => prev.filter(s => s.session_id !== sessionId));
+    setDeleteDialogOpen(false);
+    setSessionToDelete(null);
+
+    // Add to deleted sessions blocklist to prevent reappearance from getExecutionStatus()
+    setDeletedSessionIds(prev => new Set(prev).add(sessionId));
+
     try {
       const result = await apiService.deleteDataCollectionSession(sessionId);
       if (result.success) {
@@ -650,19 +670,65 @@ export default function DataCollectionPage() {
           message: `Session ${sessionId} deleted successfully`,
           severity: 'success'
         });
-        // Refresh the sessions list
+        // Double-check by refreshing from backend (with blocklist active)
         await loadDataCollectionSessions();
+
+        // Clean up blocklist after 30 seconds (enough time for backend state to sync)
+        setTimeout(() => {
+          setDeletedSessionIds(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(sessionId);
+            return newSet;
+          });
+        }, 30000);
       } else {
         throw new Error(result.message || 'Failed to delete session');
       }
     } catch (error: any) {
       console.error('Failed to delete session:', error);
+
+      // Rollback: remove from blocklist and restore the session to the list
+      setDeletedSessionIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(sessionId);
+        return newSet;
+      });
+
+      if (sessionToRemove) {
+        setSessions(prev => {
+          const restored = [...prev, sessionToRemove];
+          // Re-sort by created_at
+          restored.sort((a, b) => {
+            const timeA = new Date(a.start_time || a.created_at).getTime();
+            const timeB = new Date(b.start_time || b.created_at).getTime();
+            return timeB - timeA;
+          });
+          return restored;
+        });
+      }
+
       setSnackbar({
         open: true,
         message: `Failed to delete session: ${error.message}`,
         severity: 'error'
       });
     }
+  };
+
+  const handleDeleteSessionClick = (sessionId: string) => {
+    setSessionToDelete(sessionId);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = () => {
+    if (sessionToDelete) {
+      handleDeleteSession(sessionToDelete);
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    setDeleteDialogOpen(false);
+    setSessionToDelete(null);
   };
 
 
@@ -931,7 +997,7 @@ export default function DataCollectionPage() {
                         <IconButton
                           size="small"
                           color="error"
-                          onClick={() => handleDeleteSession(session.session_id)}
+                          onClick={() => handleDeleteSessionClick(session.session_id)}
                         >
                           <DeleteIcon fontSize="small" />
                         </IconButton>
@@ -1128,6 +1194,30 @@ export default function DataCollectionPage() {
           <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
           <Button onClick={handleCreateDataCollection} variant="contained" color="success">
             Start Collection
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={handleDeleteCancel}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Confirm Session Deletion</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to delete session <strong>{sessionToDelete}</strong>?
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            This action will soft-delete the session and all its related data (tick prices, orderbook snapshots, indicators, etc.).
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleDeleteCancel}>Cancel</Button>
+          <Button onClick={handleDeleteConfirm} variant="contained" color="error">
+            Delete
           </Button>
         </DialogActions>
       </Dialog>
