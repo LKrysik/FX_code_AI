@@ -182,13 +182,31 @@ class BroadcastProvider:
             # Create standardized message
             message = self._create_standard_message(stream_type, message_type, data)
 
-            # Add to queue for async processing
-            await self.broadcast_queue.put({
-                "message": message,
-                "stream_type": stream_type,
-                "exclude_client": exclude_client,
-                "queue_time": start_time
-            })
+            # ✅ PERF FIX: Add to queue with timeout - fail fast instead of indefinite blocking
+            # This prevents EventBridge handlers from blocking when broadcast queue is full
+            try:
+                await asyncio.wait_for(
+                    self.broadcast_queue.put({
+                        "message": message,
+                        "stream_type": stream_type,
+                        "exclude_client": exclude_client,
+                        "queue_time": start_time
+                    }),
+                    timeout=0.01  # 10ms max - fail fast for real-time trading
+                )
+            except asyncio.TimeoutError:
+                # Broadcast queue overloaded - drop event (best effort delivery)
+                async with self._stats_lock:
+                    self._total_errors += 1
+
+                if self.logger:
+                    self.logger.warning("broadcast_provider.queue_full_event_dropped", {
+                        "stream_type": stream_type,
+                        "message_type": message_type,
+                        "queue_size": self.broadcast_queue.qsize(),
+                        "max_queue_size": self.max_queue_size
+                    })
+                return False
 
             # Track message type statistics
             async with self._stats_lock:
@@ -495,9 +513,11 @@ class BroadcastProvider:
                             "threshold_ms": self.latency_threshold_ms
                         })
 
-                # Apply backpressure control - bypass for trading events
-                is_trading_stream = stream_type in ["trading_signals", "order_updates", "position_updates"]
-                if not is_trading_stream:
+                # ✅ PERF FIX: Bypass rate limiting for high-frequency streams
+                # Market data and indicators generate 1000+ msgs/sec - rate limiting causes backpressure
+                # Rate limiting only for low-frequency streams to prevent abuse
+                is_high_frequency = stream_type in ["market_data", "indicators", "trading_signals", "order_updates", "position_updates"]
+                if not is_high_frequency:
                     await self._output_rate_limiter.acquire_wait(tokens=1, timeout=0.05)  # Shorter timeout
 
                 # Broadcast message
