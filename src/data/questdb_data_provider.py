@@ -116,29 +116,43 @@ class QuestDBDataProvider:
             })
             raise
 
-    async def get_session_metadata(self, session_id: str) -> Optional[Dict[str, Any]]:
+    async def get_session_metadata(
+        self,
+        session_id: str,
+        include_deleted: bool = False
+    ) -> Optional[Dict[str, Any]]:
         """
         Get metadata for specific session.
 
         Args:
             session_id: Session identifier
+            include_deleted: If True, returns session even if soft-deleted.
+                           If False (default), only returns active sessions.
+                           Use True when checking if session was explicitly deleted.
 
         Returns:
-            Session metadata dictionary or None if not found
+            Session metadata dictionary or None if not found.
+            Dictionary includes 'is_deleted' field for explicit deletion check.
         """
         try:
+            # Build WHERE clause based on include_deleted parameter
+            where_clause = f"session_id = '{session_id}'"
+            if not include_deleted:
+                where_clause += " AND is_deleted = false"
+
             query = f"""
             SELECT session_id, status, symbols, data_types,
                    start_time, end_time, duration_seconds,
                    records_collected, prices_count, orderbook_count, trades_count,
-                   errors_count, exchange, notes, created_at, updated_at
+                   errors_count, exchange, notes, created_at, updated_at, is_deleted
             FROM data_collection_sessions
-            WHERE session_id = '{session_id}' AND is_deleted = false
+            WHERE {where_clause}
             LIMIT 1
             """
 
             self.logger.debug("questdb_data_provider.get_session_metadata", {
                 "session_id": session_id,
+                "include_deleted": include_deleted,
                 "query": query
             })
 
@@ -146,7 +160,8 @@ class QuestDBDataProvider:
 
             if not results:
                 self.logger.warning("questdb_data_provider.session_not_found", {
-                    "session_id": session_id
+                    "session_id": session_id,
+                    "include_deleted": include_deleted
                 })
                 return None
 
@@ -161,6 +176,7 @@ class QuestDBDataProvider:
         except Exception as e:
             self.logger.error("questdb_data_provider.get_session_metadata_failed", {
                 "session_id": session_id,
+                "include_deleted": include_deleted,
                 "error": str(e),
                 "error_type": type(e).__name__
             })

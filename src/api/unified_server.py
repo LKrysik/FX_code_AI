@@ -1162,9 +1162,14 @@ def create_unified_app():
         controller = await app.state.rest_service.get_controller()
         status = controller.get_execution_status() or {"status": "idle"}
 
-        # DEFENSE IN DEPTH LAYER 2: Filter out soft-deleted sessions
+        # DEFENSE IN DEPTH LAYER 2: Filter out explicitly soft-deleted sessions
         # If controller has a session in memory that was deleted from database,
         # return idle status instead to prevent UI from showing deleted session
+        #
+        # CRITICAL FIX: Now checks for EXPLICIT deletion (is_deleted = true)
+        # instead of "not found in DB", which caused false positives for:
+        # - New sessions not yet persisted (race condition)
+        # - Sessions with is_deleted = NULL (INSERT bug, now fixed)
         session_id = status.get('session_id')
         if session_id:
             try:
@@ -1188,16 +1193,22 @@ def create_unified_app():
                     )
                     questdb_data_provider = QuestDBDataProvider(questdb_provider, logger)
 
-                # Query database to check if session is deleted
-                session_meta = await questdb_data_provider.get_session_metadata(session_id)
+                # Query database - include_deleted=True to check explicit deletion
+                session_meta = await questdb_data_provider.get_session_metadata(
+                    session_id,
+                    include_deleted=True
+                )
 
-                # If session not found (deleted or never existed), return idle status
-                if not session_meta:
-                    logger.warning("execution_status_filtered_deleted_session", {
+                # Check for EXPLICIT deletion (is_deleted = true)
+                # If session not in DB (None) → it's new, allow it
+                # If session exists but is_deleted = true → filter it out
+                if session_meta and session_meta.get('is_deleted') == True:
+                    logger.warning("execution_status_filtered_explicitly_deleted_session", {
                         "session_id": session_id,
                         "controller_status": status.get('status'),
                         "mode": status.get('mode'),
-                        "reason": "Session not found in database (soft-deleted or never persisted)"
+                        "is_deleted": True,
+                        "reason": "Session was explicitly deleted via DELETE endpoint"
                     })
                     # Return idle status instead of deleted session
                     return _json_ok({
@@ -1209,6 +1220,11 @@ def create_unified_app():
                             "records_collected": 0
                         }
                     })
+
+                # Session is either:
+                # - Not in DB yet (new session, race condition) → OK, return controller state
+                # - In DB with is_deleted = false → OK, return controller state
+                # Both cases are valid running sessions
 
             except Exception as e:
                 # Log but don't fail - if database check fails, return controller state as-is

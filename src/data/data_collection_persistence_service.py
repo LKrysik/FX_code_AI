@@ -362,7 +362,13 @@ class DataCollectionPersistenceService:
             return None
 
     async def _insert_session_metadata(self, session: Dict[str, Any]) -> None:
-        """Insert session metadata into database using parameterized query."""
+        """
+        Insert session metadata into database using parameterized query.
+
+        CRITICAL FIX: Explicitly sets is_deleted = false to prevent NULL values.
+        Without explicit value, QuestDB may not apply DEFAULT, causing sessions
+        to be filtered out by 'WHERE is_deleted = false' queries.
+        """
         import json
 
         # Parameterized query prevents SQL injection
@@ -371,12 +377,12 @@ class DataCollectionPersistenceService:
             session_id, status, symbols, data_types, collection_interval_ms,
             start_time, end_time, duration_seconds,
             records_collected, prices_count, orderbook_count, trades_count, errors_count,
-            exchange, notes, created_at, updated_at
+            exchange, notes, created_at, updated_at, is_deleted
         ) VALUES (
             $1, $2, $3, $4, $5,
             cast($6 as timestamp), NULL, 0,
             0, 0, 0, 0, 0,
-            $7, $8, cast($9 as timestamp), cast($10 as timestamp)
+            $7, $8, cast($9 as timestamp), cast($10 as timestamp), $11
         )
         """
 
@@ -395,7 +401,8 @@ class DataCollectionPersistenceService:
             session.get('exchange', 'mexc'),
             session.get('notes', ''),
             created_at_us,
-            updated_at_us
+            updated_at_us,
+            False  # is_deleted - explicit false to ensure proper filtering
         ]
 
         await self.db_provider.execute_query(query, params)

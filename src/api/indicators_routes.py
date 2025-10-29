@@ -325,14 +325,47 @@ async def _compute_indicator_series(
 async def get_streaming_indicator_engine() -> StreamingIndicatorEngine:
     """
     Dependency to get StreamingIndicatorEngine instance.
-    This will be properly injected via dependency injection in production.
+    ✅ UPDATED: Now creates IndicatorVariantRepository for database persistence.
     """
     global _streaming_engine, _event_bus, _persistence_service, _offline_indicator_engine
-    
+
     if _streaming_engine is None:
         logger = get_logger(__name__)
         _event_bus = SimpleEventBus()
-        _streaming_engine = StreamingIndicatorEngine(_event_bus, logger)
+
+        # ✅ NEW: Create repository dependencies
+        from ..data_feed.questdb_provider import QuestDBProvider
+        from ..domain.services.indicators.algorithm_registry import IndicatorAlgorithmRegistry
+        from ..domain.repositories.indicator_variant_repository import IndicatorVariantRepository
+
+        # Create QuestDB provider
+        questdb_provider = QuestDBProvider(
+            host="localhost",
+            port=8812,
+            user="admin",
+            password="quest",
+            database="qdb",
+            logger=logger
+        )
+
+        # Create algorithm registry
+        algorithm_registry = IndicatorAlgorithmRegistry(logger)
+        algorithm_registry.auto_discover_algorithms()
+
+        # Create variant repository
+        variant_repository = IndicatorVariantRepository(
+            questdb_provider=questdb_provider,
+            algorithm_registry=algorithm_registry,
+            logger=logger
+        )
+
+        # Create streaming engine with repository
+        _streaming_engine = StreamingIndicatorEngine(
+            event_bus=_event_bus,
+            logger=logger,
+            variant_repository=variant_repository
+        )
+
         _persistence_service = IndicatorPersistenceService(
             _event_bus,
             logger,
@@ -340,7 +373,7 @@ async def get_streaming_indicator_engine() -> StreamingIndicatorEngine:
         )
         _offline_indicator_engine = OfflineIndicatorEngine(str(DATA_BASE_PATH))
 
-        # Start the engine
+        # Start the engine (loads variants from database)
         await _streaming_engine.start()
     
     return _streaming_engine
@@ -1298,7 +1331,7 @@ async def create_variant(
         base_indicator_type_upper = str(base_indicator_type).upper()
 
         try:
-            variant_id = engine.create_variant(
+            variant_id = await engine.create_variant(
                 name=name,
                 base_indicator_type=base_indicator_type_upper,
                 variant_type=variant_type,
@@ -1375,8 +1408,8 @@ async def update_variant(
         logger.info("indicators_routes.update_variant.start", {
             "variant_id": variant_id
         })
-        
-        success = engine.update_variant_parameters(variant_id, normalized_parameters)
+
+        success = await engine.update_variant_parameters(variant_id, normalized_parameters)
         
         if not success:
             logger.warning("indicators_routes.update_variant.validation_failed", {
@@ -1421,8 +1454,8 @@ async def delete_variant(
         logger.info("indicators_routes.delete_variant.start", {
             "variant_id": variant_id
         })
-        
-        success = engine.delete_variant(variant_id)
+
+        success = await engine.delete_variant(variant_id)
         
         if not success:
             logger.warning("indicators_routes.delete_variant.not_found", {

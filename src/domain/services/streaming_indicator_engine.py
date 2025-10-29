@@ -290,9 +290,10 @@ class StreamingIndicatorEngine:
     Event-driven with efficient sliding window algorithms.
     """
     
-    def __init__(self, event_bus: EventBus, logger: StructuredLogger):
+    def __init__(self, event_bus: EventBus, logger: StructuredLogger, variant_repository=None):
         self.event_bus = event_bus
         self.logger = logger
+        self._variant_repository = variant_repository  # ✅ NEW: Repository for variant persistence
 
         # ✅ CRITICAL FIX: Thread-safe synchronization
         self._data_lock = RLock()  # Reentrant lock for nested operations
@@ -454,16 +455,20 @@ class StreamingIndicatorEngine:
         self._session_indicators: Dict[str, Dict[str, List[str]]] = {}  # session_id -> symbol -> indicator_ids
         self._session_preferences: Dict[str, Dict[str, Dict[str, Any]]] = {}  # session_id -> symbol -> preferences
 
-        # Load variants from algorithm registry
-        self.load_variants_from_files()
-        
+        # ✅ NEW: Variants will be loaded from database during start() (async operation)
+        # self.load_variants_from_files()  # REMOVED - using database now
+
         self.logger.info("streaming_indicator_engine.unified_registry_initialized", {
             "total_algorithms": len(self._algorithm_registry.get_all_algorithms()),
-            "note": "Unified algorithm system - no legacy fallbacks"
+            "variant_repository_configured": self._variant_repository is not None,
+            "note": "Unified algorithm system - variants loaded from database on start()"
         })
 
     async def start(self) -> None:
         """Start the indicator engine and subscribe to events"""
+        # ✅ NEW: Load variants from database (async operation)
+        await self._load_variants_from_database()
+
         if self._subscription_task is None:
             await self.event_bus.subscribe("market.data_update", self._on_market_data)
             self._subscription_task = True  # Mark as subscribed
@@ -4022,16 +4027,99 @@ class StreamingIndicatorEngine:
 
     # ===== VARIANT MANAGEMENT METHODS =====
 
-    def create_variant(self,
+    async def _load_variants_from_database(self):
+        """
+        Load all variants from database into memory cache (async startup operation).
+
+        Process:
+        1. Check if repository is configured
+        2. Load all active variants from database
+        3. Populate memory cache (_variants, _variants_by_type, _variant_parameters)
+        4. Auto-generate parameter definitions from algorithms
+
+        Called during start() for engine initialization.
+        """
+        if not self._variant_repository:
+            self.logger.warning("variant_repository_not_configured", {
+                "action": "skipping_database_load",
+                "reason": "repository_is_none"
+            })
+            return
+
+        try:
+            # Load all active variants from database
+            variants = await self._variant_repository.load_all_variants()
+
+            loaded_count = 0
+            for variant in variants:
+                # Store in memory cache
+                self._variants[variant.id] = variant
+
+                # Add to type index
+                if variant.variant_type not in self._variants_by_type:
+                    self._variants_by_type[variant.variant_type] = []
+                self._variants_by_type[variant.variant_type].append(variant.id)
+
+                # Auto-generate parameter definitions from system indicator
+                param_defs = self._get_system_indicator_parameters(variant.base_indicator_type)
+                if param_defs:
+                    self._variant_parameters[variant.id] = list(param_defs)
+
+                loaded_count += 1
+
+            self.logger.info("variants_loaded_from_database", {
+                "variants_loaded": loaded_count,
+                "variants_by_type": {
+                    vtype: len(vids) for vtype, vids in self._variants_by_type.items()
+                }
+            })
+
+        except Exception as e:
+            self.logger.error("variants_load_from_database_failed", {
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            # Don't raise - engine can continue without pre-loaded variants
+            # Variants can be created via API later
+
+    async def create_variant(self,
                        name: str,
                        base_indicator_type: str,
                        variant_type: str,
                        description: str,
                        parameters: Dict[str, Any],
                        created_by: str,
-                       parameter_definitions: List[VariantParameter] = None) -> str:
-        """Create a new indicator variant with parameter validation and file storage per user_feedback.md"""
+                       parameter_definitions: List[VariantParameter] = None,
+                       user_id: str = None,
+                       scope: str = None) -> str:
+        """
+        Create a new indicator variant with parameter validation and database storage.
+
+        ✅ UPDATED: Now uses IndicatorVariantRepository for database persistence instead of JSON files.
+
+        Args:
+            name: Variant display name
+            base_indicator_type: System indicator type (e.g., "TWPA", "VELOCITY")
+            variant_type: UI category (e.g., "general", "price")
+            description: Variant description
+            parameters: Indicator parameters (validated by repository)
+            created_by: Creator username
+            parameter_definitions: Optional parameter definitions (deprecated, auto-generated now)
+            user_id: Owner user ID (defaults to created_by)
+            scope: Visibility scope (defaults to "user_{user_id}")
+
+        Returns:
+            Variant ID (UUID string)
+
+        Raises:
+            ValueError: If validation fails
+            RuntimeError: If repository is not configured
+        """
         with self._data_lock:
+            # Check repository configuration
+            if not self._variant_repository:
+                raise RuntimeError("Variant repository not configured - cannot create variant")
+
             # Validate variant type using enum
             valid_types = VariantType.get_valid_types()
             if variant_type not in valid_types:
@@ -4043,34 +4131,25 @@ class StreamingIndicatorEngine:
             except ValueError:
                 raise ValueError(f"Invalid base indicator type: {base_indicator_type}")
 
-            # Validate parameters against system indicator definitions
-            validation_result = self._validate_variant_against_system_indicator_type(base_indicator_type.upper(), parameters)
-            if not validation_result["is_valid"]:
-                raise ValueError(f"Parameter validation failed: {', '.join(validation_result['errors'])}")
+            # ✅ NEW: Save to database (repository handles validation and ID generation)
+            variant_id = await self._variant_repository.create_variant({
+                "name": name,
+                "base_indicator_type": base_indicator_type.upper(),
+                "variant_type": variant_type,
+                "description": description,
+                "parameters": parameters,
+                "created_by": created_by,
+                "user_id": user_id or created_by,
+                "scope": scope or f"user_{user_id or created_by}",
+                "is_system": False
+            })
 
-            # Generate variant ID
-            import uuid
-            variant_id = str(uuid.uuid4())
+            # ✅ NEW: Load variant from database into memory cache
+            variant = await self._variant_repository.get_variant(variant_id)
+            if not variant:
+                raise RuntimeError(f"Variant {variant_id} not found after creation")
 
-            # Create variant
-            variant = IndicatorVariant(
-                id=variant_id,
-                name=name,
-                base_indicator_type=base_indicator_type.upper(),
-                variant_type=variant_type,
-                description=description,
-                parameters=parameters.copy(),
-                is_system=False,
-                created_by=created_by,
-                created_at=time.time(),
-                updated_at=time.time()
-            )
-
-            # Save to file first
-            if not self._save_variant_to_file(variant):
-                raise RuntimeError(f"Failed to save variant {variant_id} to file")
-
-            # Store in memory
+            # Store in memory cache
             self._variants[variant_id] = variant
 
             # Add to type index
@@ -4078,28 +4157,10 @@ class StreamingIndicatorEngine:
                 self._variants_by_type[variant_type] = []
             self._variants_by_type[variant_type].append(variant_id)
 
-            # Store parameter definitions
-            if parameter_definitions:
-                self._variant_parameters[variant_id] = parameter_definitions.copy()
-                self.logger.info("indicator_variant.parameters_set_from_input", {
-                    "variant_id": variant_id,
-                    "param_count": len(parameter_definitions)
-                })
-            else:
-                # Auto-generate parameter definitions from system indicator
-                auto_param_definitions = self._get_system_indicator_parameters(base_indicator_type.upper())
-                if auto_param_definitions:
-                    self._variant_parameters[variant_id] = list(auto_param_definitions)
-                    self.logger.info("indicator_variant.parameters_auto_generated", {
-                        "variant_id": variant_id,
-                        "base_indicator_type": base_indicator_type.upper(),
-                        "param_count": len(auto_param_definitions)
-                    })
-                else:
-                    self.logger.warning("indicator_variant.no_parameters_found", {
-                        "variant_id": variant_id,
-                        "base_indicator_type": base_indicator_type.upper()
-                    })
+            # Auto-generate parameter definitions from system indicator
+            auto_param_definitions = self._get_system_indicator_parameters(base_indicator_type.upper())
+            if auto_param_definitions:
+                self._variant_parameters[variant_id] = list(auto_param_definitions)
 
             self.logger.info("indicator_variant.created", {
                 "variant_id": variant_id,
@@ -4107,7 +4168,7 @@ class StreamingIndicatorEngine:
                 "base_type": base_indicator_type,
                 "variant_type": variant_type,
                 "created_by": created_by,
-                "file_saved": True
+                "storage": "database"
             })
 
             return variant_id
@@ -4128,57 +4189,83 @@ class StreamingIndicatorEngine:
         """Get parameter definitions for a variant"""
         return self._variant_parameters.get(variant_id, [])
 
-    def update_variant_parameters(self, variant_id: str, parameters: Dict[str, Any]) -> bool:
-        """Update variant parameters with validation and file persistence per user_feedback.md"""
+    async def update_variant_parameters(self, variant_id: str, parameters: Dict[str, Any]) -> bool:
+        """
+        Update variant parameters with validation and database persistence.
+
+        ✅ UPDATED: Now uses IndicatorVariantRepository for database persistence instead of JSON files.
+
+        Args:
+            variant_id: Variant identifier (UUID)
+            parameters: New parameters (validated by repository)
+
+        Returns:
+            True if updated successfully, False if variant not found
+
+        Raises:
+            RuntimeError: If repository is not configured
+            ValueError: If parameter validation fails
+        """
         with self._data_lock:
+            if not self._variant_repository:
+                raise RuntimeError("Variant repository not configured - cannot update variant")
+
             if variant_id not in self._variants:
                 return False
 
-            variant = self._variants[variant_id]
+            # ✅ NEW: Update in database (repository handles validation)
+            success = await self._variant_repository.update_variant(variant_id, {
+                "parameters": parameters
+            })
 
-            # Validate parameters against system indicator
-            validation_result = self._validate_variant_against_system_indicator_type(variant.base_indicator_type, parameters)
-            if not validation_result["is_valid"]:
-                self.logger.error("indicator_variant.parameter_validation_failed", {
-                    "variant_id": variant_id,
-                    "errors": validation_result["errors"]
-                })
+            if not success:
                 return False
 
-            # Update parameters
-            variant.parameters = parameters.copy()
-            variant.updated_at = time.time()
-
-            # Save to file
-            if not self._save_variant_to_file(variant):
-                self.logger.error("indicator_variant.file_update_failed", {
-                    "variant_id": variant_id
-                })
-                return False
+            # ✅ NEW: Reload variant from database to sync memory cache
+            variant = await self._variant_repository.get_variant(variant_id)
+            if variant:
+                self._variants[variant_id] = variant
 
             self.logger.info("indicator_variant.parameters_updated", {
                 "variant_id": variant_id,
                 "parameter_count": len(parameters),
-                "file_updated": True
+                "storage": "database"
             })
 
             return True
 
-    def delete_variant(self, variant_id: str) -> bool:
-        """Delete a variant and its file per user_feedback.md"""
+    async def delete_variant(self, variant_id: str) -> bool:
+        """
+        Soft delete a variant (database) and remove from memory cache.
+
+        ✅ UPDATED: Now uses IndicatorVariantRepository for soft delete in database instead of file deletion.
+
+        Args:
+            variant_id: Variant identifier (UUID)
+
+        Returns:
+            True if deleted successfully, False if variant not found
+
+        Raises:
+            RuntimeError: If repository is not configured
+        """
         with self._data_lock:
+            if not self._variant_repository:
+                raise RuntimeError("Variant repository not configured - cannot delete variant")
+
             if variant_id not in self._variants:
                 return False
 
             variant = self._variants[variant_id]
 
-            # Delete file first
-            if not self._delete_variant_file(variant_id, variant.variant_type):
-                self.logger.warning("indicator_variant.file_delete_failed", {
-                    "variant_id": variant_id,
-                    "variant_type": variant.variant_type
+            # ✅ NEW: Soft delete in database
+            success = await self._variant_repository.delete_variant(variant_id)
+
+            if not success:
+                self.logger.warning("indicator_variant.database_delete_failed", {
+                    "variant_id": variant_id
                 })
-                # Continue with memory cleanup even if file delete fails
+                return False
 
             # Remove from type index
             if variant.variant_type in self._variants_by_type:
@@ -4187,14 +4274,14 @@ class StreamingIndicatorEngine:
                 if not self._variants_by_type[variant.variant_type]:
                     del self._variants_by_type[variant.variant_type]
 
-            # Remove variant and parameters
+            # Remove from memory cache
             del self._variants[variant_id]
             self._variant_parameters.pop(variant_id, None)
 
             self.logger.info("indicator_variant.deleted", {
                 "variant_id": variant_id,
                 "name": variant.name,
-                "file_deleted": True
+                "storage": "database_soft_deleted"
             })
 
             return True
@@ -4317,187 +4404,9 @@ class StreamingIndicatorEngine:
             "key": key
         })
 
-    # ===== FILE-BASED VARIANT STORAGE METHODS =====
-
-    def _ensure_config_directory(self) -> None:
-        """Ensure the config/indicators directory structure exists"""
-        variant_types = VariantType.get_valid_types()
-        for variant_type in variant_types:
-            type_dir = INDICATORS_CONFIG_DIR / variant_type
-            type_dir.mkdir(parents=True, exist_ok=True)
-
-    def _save_variant_to_file(self, variant: IndicatorVariant) -> bool:
-        """Save a variant to its appropriate JSON file"""
-        try:
-            self._ensure_config_directory()
-
-            # Create file path
-            file_path = INDICATORS_CONFIG_DIR / variant.variant_type / f"{variant.id}.json"
-
-            # Convert variant to dict for JSON serialization
-            variant_data = {
-                "id": variant.id,
-                "name": variant.name,
-                "base_indicator_type": variant.base_indicator_type,
-                "variant_type": variant.variant_type,
-                "description": variant.description,
-                "parameters": variant.parameters,
-                "is_system": variant.is_system,
-                "created_by": variant.created_by,
-                "created_at": variant.created_at,
-                "updated_at": variant.updated_at
-            }
-
-            # Write to file
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(variant_data, f, indent=2, ensure_ascii=False)
-
-            self.logger.debug("indicator_variant.saved_to_file", {
-                "variant_id": variant.id,
-                "file_path": str(file_path),
-                "variant_type": variant.variant_type
-            })
-
-            return True
-
-        except Exception as e:
-            self.logger.error("indicator_variant.save_failed", {
-                "variant_id": variant.id,
-                "error": str(e),
-                "error_type": type(e).__name__
-            })
-            return False
-
-    def _load_variant_from_file(self, file_path: Path) -> Optional[IndicatorVariant]:
-        """Load a variant from a JSON file"""
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-
-            # Create IndicatorVariant from data
-            variant = IndicatorVariant(
-                id=data["id"],
-                name=data["name"],
-                base_indicator_type=data["base_indicator_type"],
-                variant_type=data["variant_type"],
-                description=data["description"],
-                parameters=data["parameters"],
-                is_system=data.get("is_system", False),
-                created_by=data["created_by"],
-                created_at=data["created_at"],
-                updated_at=data["updated_at"]
-            )
-
-            return variant
-
-        except Exception as e:
-            self.logger.error("indicator_variant.load_failed", {
-                "file_path": str(file_path),
-                "error": str(e),
-                "error_type": type(e).__name__
-            })
-            return None
-
-    def _delete_variant_file(self, variant_id: str, variant_type: str) -> bool:
-        """Delete a variant's JSON file"""
-        try:
-            file_path = INDICATORS_CONFIG_DIR / variant_type / f"{variant_id}.json"
-            if file_path.exists():
-                file_path.unlink()
-                self.logger.debug("indicator_variant.file_deleted", {
-                    "variant_id": variant_id,
-                    "file_path": str(file_path)
-                })
-                return True
-            else:
-                self.logger.warning("indicator_variant.file_not_found", {
-                    "variant_id": variant_id,
-                    "expected_path": str(file_path)
-                })
-                return False
-
-        except Exception as e:
-            self.logger.error("indicator_variant.delete_failed", {
-                "variant_id": variant_id,
-                "error": str(e),
-                "error_type": type(e).__name__
-            })
-            return False
-
-    def load_variants_from_files(self) -> List[Dict[str, Any]]:
-        """Load all variants from config/indicators/ directory structure per user_feedback.md"""
-        loaded_variants = []
-
-        try:
-            if not INDICATORS_CONFIG_DIR.exists():
-                self.logger.info("indicator_variant.no_config_directory", {
-                    "path": str(INDICATORS_CONFIG_DIR)
-                })
-                return loaded_variants
-
-            # Iterate through all type directories
-            for type_dir in INDICATORS_CONFIG_DIR.iterdir():
-                if not type_dir.is_dir():
-                    continue
-
-                variant_type = type_dir.name
-                if variant_type not in VariantType.get_valid_types():
-                    continue
-
-                # Load all JSON files in this type directory
-                for json_file in type_dir.glob("*.json"):
-                    variant = self._load_variant_from_file(json_file)
-                    if variant:
-                        # Validate variant parameters against system indicators
-                        validation_result = self._validate_variant_against_system_indicator(variant)
-
-                        # Add validation status to the variant data
-                        variant_data = {
-                            "id": variant.id,
-                            "name": variant.name,
-                            "base_indicator_type": variant.base_indicator_type,
-                            "variant_type": variant.variant_type,
-                            "description": variant.description,
-                            "parameters": variant.parameters,
-                            "is_system": variant.is_system,
-                            "created_by": variant.created_by,
-                            "created_at": variant.created_at,
-                            "updated_at": variant.updated_at,
-                            "validation_status": validation_result
-                        }
-
-                        loaded_variants.append(variant_data)
-
-                        # Store in memory if valid
-                        if validation_result["is_valid"]:
-                            self._variants[variant.id] = variant
-                            definitions = self._get_system_indicator_parameters(variant.base_indicator_type)
-                            if definitions:
-                                self._variant_parameters[variant.id] = list(definitions)
-
-                            if variant_type not in self._variants_by_type:
-                                self._variants_by_type[variant_type] = []
-                            if variant.id not in self._variants_by_type[variant_type]:
-                                self._variants_by_type[variant_type].append(variant.id)
-                        else:
-                            self.logger.warning("indicator_variant.invalid_loaded", {
-                                "variant_id": variant.id,
-                                "validation_errors": validation_result["errors"]
-                            })
-
-            self.logger.info("indicator_variant.files_loaded", {
-                "total_loaded": len(loaded_variants),
-                "config_path": str(INDICATORS_CONFIG_DIR)
-            })
-
-        except Exception as e:
-            self.logger.error("indicator_variant.bulk_load_failed", {
-                "error": str(e),
-                "error_type": type(e).__name__,
-                "config_path": str(INDICATORS_CONFIG_DIR)
-            })
-
-        return loaded_variants
+    # ===== FILE-BASED VARIANT STORAGE METHODS REMOVED =====
+    # ✅ All file-based storage methods have been removed in favor of QuestDB persistence
+    # See IndicatorVariantRepository for database operations
 
     def _validate_variant_against_system_indicator_type(self, base_indicator_type: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
         """Validate variant parameters against the corresponding system indicator definition"""
