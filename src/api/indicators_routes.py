@@ -326,6 +326,7 @@ async def get_streaming_indicator_engine() -> StreamingIndicatorEngine:
     """
     Dependency to get StreamingIndicatorEngine instance.
     ✅ UPDATED: Now creates IndicatorVariantRepository for database persistence.
+    ✅ FIXED: Reuses _ensure_questdb_providers() to eliminate code duplication.
     """
     global _streaming_engine, _event_bus, _persistence_service, _offline_indicator_engine
 
@@ -333,20 +334,12 @@ async def get_streaming_indicator_engine() -> StreamingIndicatorEngine:
         logger = get_logger(__name__)
         _event_bus = SimpleEventBus()
 
-        # ✅ NEW: Create repository dependencies
-        from ..data_feed.questdb_provider import QuestDBProvider
+        # ✅ FIXED: Reuse existing correct QuestDB initialization (single source of truth)
+        questdb_provider, _ = _ensure_questdb_providers()
+
+        # ✅ NEW: Create algorithm registry and variant repository
         from ..domain.services.indicators.algorithm_registry import IndicatorAlgorithmRegistry
         from ..domain.repositories.indicator_variant_repository import IndicatorVariantRepository
-
-        # Create QuestDB provider
-        questdb_provider = QuestDBProvider(
-            host="localhost",
-            port=8812,
-            user="admin",
-            password="quest",
-            database="qdb",
-            logger=logger
-        )
 
         # Create algorithm registry
         algorithm_registry = IndicatorAlgorithmRegistry(logger)
