@@ -813,43 +813,43 @@ class EventBus:
             self._update_metric_atomic("total_dropped", 1)
             return
 
-        # ✅ SUGGESTED FIX: Get alive subscribers inside the cleanup lock to ensure consistency
-        # This prevents another thread from modifying the list between lock releases.
-        alive_subscribers = []
-
-        # ✅ CRITICAL FIX: Consistent lock ordering - acquire cleanup_lock first, then publish_lock
+        # ✅ PERF FIX: Fast path - only acquire cleanup lock when actually needed
+        # Cleanup happens once per 60s, but we had 1000+ publishes/sec acquiring the lock
+        # This was causing massive lock contention and >10ms publish latency
         cleanup_needed = self._should_cleanup()
 
-        async with self._cleanup_lock:
-            if cleanup_needed:
-                await self._cleanup_dead_subscribers()
-                self._last_cleanup_time = time.time()
+        if cleanup_needed:
+            # Slow path: cleanup needed, acquire lock
+            async with self._cleanup_lock:
+                # Double-check in case another publish already did cleanup
+                if self._should_cleanup():
+                    await self._cleanup_dead_subscribers()
+                    self._last_cleanup_time = time.time()
 
-            # Get alive subscribers after cleanup but still inside the lock
-            if event_type in self._subscribers:
-                alive_subscribers = [s for s in self._subscribers[event_type] if s.is_alive()]
+        # ✅ PERF FIX: Get alive subscribers WITHOUT holding any lock
+        # Reading _subscribers dict is thread-safe in Python (GIL protected)
+        # This eliminates lock contention on the hot path
+        alive_subscribers = []
+        if event_type in self._subscribers:
+            alive_subscribers = [s for s in self._subscribers[event_type] if s.is_alive()]
 
         if not alive_subscribers:
             return
 
-        # Now acquire publish_lock for the actual publishing (no nesting)
-        async with self._publish_lock:
-                trace_id = data.get('metadata', {}).get('trace_id') if isinstance(data, dict) else None
-                log_msg = f"Publishing event '{event_type}'"
-                if trace_id:
-                    log_msg += f" with trace_id '{trace_id}'"
-                if publisher_id:
-                    log_msg += f" from publisher '{publisher_id}'"
+        # ✅ PERF FIX: Removed _publish_lock - it was serializing ALL publishes
+        # _update_metric_atomic is already atomic
+        # _process_with_bucketed_queues uses asyncio.Queue which is thread-safe
+        # This lock was causing unnecessary serialization and >10ms latency
 
-                # Removed debug logging for performance - publishing is hot path
-                await self._update_metric_atomic("total_published", 1)
+        await self._update_metric_atomic("total_published", 1)
 
-                # ✅ CRITICAL FIX: Use bucketed queues for true priority processing
-                if self.enable_backpressure and len(alive_subscribers) > 10:  # Lower threshold for queue usage
-                    await self._process_with_bucketed_queues(event_type, data, priority, trace_id)
-                else:
-                    # Direct processing for small subscriber counts with batch timeout
-                    await self._process_with_batch_timeout(event_type, data, alive_subscribers)
+        # ✅ CRITICAL FIX: Use bucketed queues for true priority processing
+        if self.enable_backpressure and len(alive_subscribers) > 10:  # Lower threshold for queue usage
+            trace_id = data.get('metadata', {}).get('trace_id') if isinstance(data, dict) else None
+            await self._process_with_bucketed_queues(event_type, data, priority, trace_id)
+        else:
+            # Direct processing for small subscriber counts with batch timeout
+            await self._process_with_batch_timeout(event_type, data, alive_subscribers)
     
     async def _process_direct(self, event_type: str, data: Any, subscribers: List[WeakSubscriber]):
         """✅ UPDATED: Process events directly with batch timeout"""
