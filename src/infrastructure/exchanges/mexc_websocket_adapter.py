@@ -182,17 +182,6 @@ class MexcWebSocketAdapter(IMarketDataProvider):
         self._snapshot_refresh_interval = self.config.get("snapshot_refresh_interval", 300)  # 5 minutes default
         self._snapshot_refresh_tasks = {}  # symbol -> asyncio.Task for periodic refresh
 
-        # ✅ PERF FIX: Event batching to reduce EventBus overhead
-        self._event_batching_enabled = self.config.get("event_batching_enabled", True)
-        self._batch_size = self.config.get("batch_size", 100)  # Max events per batch
-        self._batch_flush_interval = self.config.get("batch_flush_interval", 0.1)  # 100ms default
-
-        # Event buffers for batching
-        self._price_update_buffer: List[Dict[str, Any]] = []
-        self._orderbook_update_buffer: List[Dict[str, Any]] = []
-        self._batch_lock = asyncio.Lock()  # Protect batch buffers
-        self._batch_flush_task = None  # Background flush task
-
         self.logger.info("mexc_adapter.initialized", {
             "ws_url": self.ws_url,
             "exchange": "mexc",
@@ -200,10 +189,7 @@ class MexcWebSocketAdapter(IMarketDataProvider):
             "max_connections": self.max_connections,
             "circuit_breaker_enabled": True,
             "rate_limiting_enabled": True,
-            "cache_config": self.cache_config,
-            "event_batching_enabled": self._event_batching_enabled,
-            "batch_size": self._batch_size,
-            "batch_flush_interval_ms": self._batch_flush_interval * 1000
+            "cache_config": self.cache_config
         })
     
     def get_exchange_name(self) -> str:
@@ -241,10 +227,6 @@ class MexcWebSocketAdapter(IMarketDataProvider):
 
             # ✅ START: Orderbook refresh task for cache freshness
             self._orderbook_refresh_task = self._create_tracked_task(self._start_orderbook_refresh_task(), "orderbook_refresh")
-
-            # ✅ PERF FIX: Start event batch flushing task
-            if self._event_batching_enabled:
-                self._batch_flush_task = self._create_tracked_task(self._batch_flush_loop(), "batch_flush")
 
             # CRITICAL FIX: Disable access update processor to reduce CPU usage
             # await self._start_access_update_processor()
@@ -468,68 +450,6 @@ class MexcWebSocketAdapter(IMarketDataProvider):
             })
 
         # Could implement: increase worker threads, expand queue sizes for trading events
-
-    async def _batch_flush_loop(self) -> None:
-        """✅ PERF FIX: Background task to periodically flush event batches"""
-        try:
-            while self._running:
-                await asyncio.sleep(self._batch_flush_interval)
-                await self._flush_event_batches()
-        except asyncio.CancelledError:
-            # Final flush before shutdown
-            await self._flush_event_batches()
-            raise
-        except Exception as e:
-            self.logger.error("mexc_adapter.batch_flush_loop_error", {"error": str(e)})
-
-    async def _flush_event_batches(self) -> None:
-        """✅ PERF FIX: Flush all pending event batches"""
-        async with self._batch_lock:
-            # Flush price updates
-            if self._price_update_buffer:
-                batch = list(self._price_update_buffer)
-                self._price_update_buffer.clear()
-
-                # Publish as single batch event
-                await self._safe_publish_event("market.price_batch_update", {
-                    "exchange": "mexc",
-                    "updates": batch,
-                    "count": len(batch),
-                    "timestamp": time.time()
-                }, max_retries=1)  # Lower retries for batch events
-
-            # Flush orderbook updates
-            if self._orderbook_update_buffer:
-                batch = list(self._orderbook_update_buffer)
-                self._orderbook_update_buffer.clear()
-
-                # Publish as single batch event
-                await self._safe_publish_event("market.orderbook_batch_update", {
-                    "exchange": "mexc",
-                    "updates": batch,
-                    "count": len(batch),
-                    "timestamp": time.time()
-                }, max_retries=1)  # Lower retries for batch events
-
-    async def _add_to_price_batch(self, event_data: Dict[str, Any]) -> None:
-        """✅ PERF FIX: Add price update to batch buffer"""
-        async with self._batch_lock:
-            self._price_update_buffer.append(event_data)
-
-            # Check if we need to flush early (size-based flush)
-            if len(self._price_update_buffer) >= self._batch_size:
-                # Flush immediately if buffer is full
-                await self._flush_event_batches()
-
-    async def _add_to_orderbook_batch(self, event_data: Dict[str, Any]) -> None:
-        """✅ PERF FIX: Add orderbook update to batch buffer"""
-        async with self._batch_lock:
-            self._orderbook_update_buffer.append(event_data)
-
-            # Check if we need to flush early (size-based flush)
-            if len(self._orderbook_update_buffer) >= self._batch_size:
-                # Flush immediately if buffer is full
-                await self._flush_event_batches()
 
     def _remove_from_cache(self, symbol: str) -> None:
         """Remove a symbol from all cache structures - MUST be called with _cache_lock held"""
@@ -1202,54 +1122,36 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                 await self._close_connection(connection_id)
                 break
 
-    async def _safe_publish_event(self, event_type: str, data: dict, max_retries: int = 2) -> None:
+    async def _safe_publish_event(self, event_type: str, data: dict, max_retries: int = 0) -> None:
         """
-        Improved event publishing with trading-optimized latency management.
-        Trading events bypass normal backpressure controls for zero-loss delivery.
+        ✅ PERF FIX: Fire-and-forget event publishing for real-time trading.
+
+        No retries by default - high-frequency events are published once and dropped on failure.
+        This ensures zero latency for trading systems that require real-time data delivery.
         """
         # Determine if this is a trading-critical event
         is_trading_critical = any(keyword in event_type for keyword in ["deal", "trade", "order", "position"])
         is_high_frequency = any(keyword in event_type for keyword in ["price_update", "orderbook_update", "depth_update"])
 
-        # Trading events get priority path with minimal latency
+        # ✅ PERF FIX: Ultra-low timeout for fire-and-forget publishing
         if is_trading_critical:
-            timeout = 0.05  # 50ms max for trading events
-            max_retries = 1  # One fast attempt for trading (was 0 - causing no execution!)
+            timeout = 0.01  # 10ms max for trading events (was 50ms)
+            max_retries = 0  # No retries - fail fast
         elif is_high_frequency:
-            # Get queue depth for adaptive timeout (if available)
-            try:
-                queue_depth = await self.event_bus.get_queue_depth(event_type)
-            except:
-                queue_depth = 0
-
-            # Market data events: fast but allow some queuing
-            if queue_depth > 100:
-                timeout = 0.1  # Very short timeout under high backpressure
-                max_retries = 1  # One fast attempt (was 0 - causing no execution!)
-            elif queue_depth > 50:
-                timeout = 0.2
-                max_retries = 1  # One fast attempt (was 0 - causing no execution!)
-            else:
-                timeout = 0.5
-                max_retries = 1
-                timeout = 1.0
-                max_retries = 1
+            # ✅ PERF FIX: No queue depth check - too expensive for hot path
+            # Just use fixed low timeout
+            timeout = 0.01  # 10ms max for high-frequency events
+            max_retries = 0  # No retries - drop event if EventBus overloaded
         else:
             # Low-frequency events: more tolerant
-            # Get queue depth for timeout decision
-            try:
-                queue_depth = await self.event_bus.get_queue_depth(event_type)
-            except:
-                queue_depth = 0
-            
-            timeout = 2.0 if queue_depth < 10 else 1.0
-            max_retries = max_retries
+            timeout = 2.0
+            max_retries = max_retries if max_retries > 0 else 1
         
-        # Track dropped events for monitoring
-        for attempt in range(max_retries):
+        # ✅ PERF FIX: Single attempt for high-frequency events (max_retries + 1)
+        for attempt in range(max_retries + 1):
             try:
                 await asyncio.wait_for(
-                    self.event_bus.publish(event_type, data), 
+                    self.event_bus.publish(event_type, data),
                     timeout=timeout
                 )
                 return  # Success - exit immediately
@@ -1684,8 +1586,9 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                         self._debug_log_rates[publish_log_key] = current_time
                         self._update_tracking_expiry(publish_log_key)
                     
-                    # ✅ PERF FIX: Use batching for price updates instead of individual events
-                    event_data = {
+                    # ✅ PERF FIX: Fire-and-forget async publishing for zero latency
+                    # No batching - trading requires real-time data delivery
+                    asyncio.create_task(self._safe_publish_event("market.price_update", {
                         "exchange": "mexc",
                         "symbol": symbol,
                         "price": price,
@@ -1697,14 +1600,7 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                         "market_data": market_data_obj,
                         "mexc_timestamp": timestamp,  # Original MEXC timestamp in ms
                         "system_timestamp": time.time()  # Our system timestamp for comparison
-                    }
-
-                    if self._event_batching_enabled:
-                        # Add to batch buffer - will be flushed automatically
-                        await self._add_to_price_batch(event_data)
-                    else:
-                        # Fallback to individual publish if batching disabled
-                        await self._safe_publish_event("market.price_update", event_data)
+                    }))
                     
                     # Rate-limited debug logging for price updates (max once per minute per symbol)
                     current_time = time.time()
@@ -2180,8 +2076,9 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                 if not bids and not asks:
                     return
 
-                # ✅ PERF FIX: Use batching for orderbook updates
-                event_data = {
+                # ✅ PERF FIX: Fire-and-forget async publishing for zero latency
+                # No batching - trading requires real-time orderbook data
+                asyncio.create_task(self._safe_publish_event("market.orderbook_update", {
                     "exchange": "mexc",
                     "symbol": symbol,
                     "bids": bids,
@@ -2197,14 +2094,7 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                         "total_bids": len(cache_entry["bids"]),
                         "total_asks": len(cache_entry["asks"])
                     }
-                }
-
-                if self._event_batching_enabled:
-                    # Add to batch buffer - will be flushed automatically
-                    await self._add_to_orderbook_batch(event_data)
-                else:
-                    # Fallback to individual publish if batching disabled
-                    await self._safe_publish_event("market.orderbook_update", event_data)
+                }))
                 
         except Exception as e:
             self.logger.error("mexc_adapter.orderbook_publish_error", {
