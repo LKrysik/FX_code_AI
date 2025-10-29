@@ -167,11 +167,12 @@ class EventBus:
         }
 
         # ✅ CRITICAL FIX: Worker pool per priority for true parallel processing
+        # ✅ PERF FIX: Increased HIGH priority workers for real-time market data throughput
         self._worker_counts = worker_counts or {
-            EventPriority.CRITICAL: 4,  # 4 workers for critical events
-            EventPriority.HIGH: 6,      # 6 workers for high priority (increased from 2 for better throughput)
-            EventPriority.NORMAL: 1,    # 1 worker for normal
-            EventPriority.LOW: 1        # 1 worker for low priority
+            EventPriority.CRITICAL: 8,   # 8 workers for critical trading events (doubled)
+            EventPriority.HIGH: 16,      # 16 workers for high-frequency market data (fire-and-forget needs high parallelism)
+            EventPriority.NORMAL: 2,     # 2 workers for normal events
+            EventPriority.LOW: 1         # 1 worker for low priority
         }
 
         # Legacy priority queue removed - using bucketed queues only
