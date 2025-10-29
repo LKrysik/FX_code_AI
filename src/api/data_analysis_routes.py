@@ -13,7 +13,7 @@ Provides REST endpoints for:
 import logging
 import json
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, HTTPException, Query, Response, Request, Depends
 from fastapi.responses import StreamingResponse
 
 from ..data.data_analysis_service import DataAnalysisService
@@ -28,27 +28,32 @@ logger = get_logger(__name__)
 # Create router
 router = APIRouter(prefix="/api/data-collection", tags=["data-analysis"])
 
-# ✅ STEP 3.3: Initialize QuestDB provider and data provider
-# ✅ LOGGER FIX: Removed duplicate StructuredLogger, using logger from line 26
-questdb_provider = QuestDBProvider(
-    ilp_host='127.0.0.1',
-    ilp_port=9009,
-    pg_host='127.0.0.1',
-    pg_port=8812
-)
-questdb_data_provider = QuestDBDataProvider(questdb_provider, logger)
+# ✅ DEPENDENCY INJECTION FIX: Providers are now initialized in unified_server.py lifespan
+# and stored in app.state. Services are created per-request using Depends() pattern.
+# This eliminates module-level global state and enables proper testing.
 
-# Initialize services with QuestDB provider
-# ✅ BUG-003 FIX: Pass db_provider to DataExportService
-# ✅ BUG-005 FIX: Pass db_provider to DataQualityService
-analysis_service = DataAnalysisService(db_provider=questdb_data_provider)
-export_service = DataExportService(db_provider=questdb_data_provider)
-quality_service = DataQualityService(db_provider=questdb_data_provider)
+# Helper function to get services from app.state (Dependency Injection)
+def get_analysis_service(request: Request) -> DataAnalysisService:
+    """Get DataAnalysisService with injected dependencies from app.state"""
+    questdb_data_provider = request.app.state.questdb_data_provider
+    return DataAnalysisService(db_provider=questdb_data_provider)
+
+def get_export_service(request: Request) -> DataExportService:
+    """Get DataExportService with injected dependencies from app.state"""
+    questdb_data_provider = request.app.state.questdb_data_provider
+    return DataExportService(db_provider=questdb_data_provider)
+
+def get_quality_service(request: Request) -> DataQualityService:
+    """Get DataQualityService with injected dependencies from app.state"""
+    questdb_data_provider = request.app.state.questdb_data_provider
+    return DataQualityService(db_provider=questdb_data_provider)
 
 @router.get("/{session_id}/analysis")
 async def get_session_analysis(
     session_id: str,
-    include_quality: bool = Query(True, description="Include quality metrics in analysis")
+    include_quality: bool = Query(True, description="Include quality metrics in analysis"),
+    analysis_service: DataAnalysisService = Depends(get_analysis_service),
+    quality_service: DataQualityService = Depends(get_quality_service)
 ):
     """
     Get comprehensive analysis for a data collection session
@@ -103,7 +108,8 @@ async def get_session_analysis(
 async def get_chart_data(
     session_id: str,
     symbol: str = Query(..., description="Trading symbol to analyze"),
-    max_points: int = Query(10000, description="Maximum data points to return", ge=100, le=50000)
+    max_points: int = Query(10000, description="Maximum data points to return", ge=100, le=50000),
+    analysis_service: DataAnalysisService = Depends(get_analysis_service)
 ):
     """
     Get time-series data formatted for frontend charting
@@ -146,7 +152,8 @@ async def get_chart_data(
 async def export_session_data(
     session_id: str,
     format: str = Query("csv", description="Export format: csv, json, or zip"),
-    symbol: Optional[str] = Query(None, description="Specific symbol to export (optional)")
+    symbol: Optional[str] = Query(None, description="Specific symbol to export (optional)"),
+    export_service: DataExportService = Depends(get_export_service)
 ):
     """
     Export session data in specified format
@@ -215,7 +222,9 @@ async def export_session_data(
 @router.get("/{session_id}/quality")
 async def get_data_quality(
     session_id: str,
-    symbol: Optional[str] = Query(None, description="Specific symbol to analyze (optional)")
+    symbol: Optional[str] = Query(None, description="Specific symbol to analyze (optional)"),
+    analysis_service: DataAnalysisService = Depends(get_analysis_service),
+    quality_service: DataQualityService = Depends(get_quality_service)
 ):
     """
     Get detailed data quality metrics for a session.
@@ -262,7 +271,8 @@ async def get_data_quality(
 async def get_export_estimate(
     session_id: str,
     format: str = Query("csv", description="Export format"),
-    symbol: Optional[str] = Query(None, description="Specific symbol to export")
+    symbol: Optional[str] = Query(None, description="Specific symbol to export"),
+    export_service: DataExportService = Depends(get_export_service)
 ):
     """
     Get export size and processing time estimate
@@ -292,7 +302,8 @@ async def get_export_estimate(
 @router.get("/sessions")
 async def list_sessions(
     limit: int = Query(50, description="Maximum sessions to return", ge=1, le=200),
-    include_stats: bool = Query(False, description="Include basic statistics for each session")
+    include_stats: bool = Query(False, description="Include basic statistics for each session"),
+    analysis_service: DataAnalysisService = Depends(get_analysis_service)
 ):
     """List available data collection sessions discovered on disk."""
     try:
@@ -313,7 +324,11 @@ async def list_sessions(
 
 
 @router.delete("/sessions/{session_id}")
-async def delete_session(session_id: str):
+async def delete_session(
+    session_id: str,
+    request: Request,
+    analysis_service: DataAnalysisService = Depends(get_analysis_service)
+):
     """
     Delete a data collection session and its associated data.
 
@@ -325,9 +340,52 @@ async def delete_session(session_id: str):
     - Indicators
     - Backtest results
 
+    CRITICAL FIX: Also stops the session if it's currently running in execution controller
+    to prevent reappearance from /sessions/execution-status endpoint.
+
     Returns 404 if session not found, 409 if session is active.
     """
     try:
+        # DEFENSE IN DEPTH LAYER 1: Check if session is active in execution controller
+        # If yes, stop it before deleting from database
+        try:
+            # Access controller via REST service (proper dependency injection)
+            rest_service = request.app.state.rest_service
+            controller = await rest_service.get_controller()
+
+            # Get current execution status
+            current_status = controller.get_execution_status()
+
+            # If the session to delete is the currently active session, stop it first
+            if current_status and current_status.get('session_id') == session_id:
+                logger.warning("delete_session_stopping_active_session", {
+                    "session_id": session_id,
+                    "current_status": current_status.get('status'),
+                    "mode": current_status.get('mode')
+                })
+
+                # Stop the active session before deleting from database
+                await controller.stop_execution()
+
+                # Wait briefly for controller to update state (allows clean shutdown)
+                import asyncio
+                await asyncio.sleep(0.5)
+
+                logger.info("delete_session_active_session_stopped", {
+                    "session_id": session_id,
+                    "stopped_successfully": True
+                })
+
+        except Exception as e:
+            # Log but don't fail - session may not be in controller
+            logger.warning("delete_session_controller_check_failed", {
+                "session_id": session_id,
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "continuing_with_database_delete": True
+            })
+
+        # Proceed with database deletion (validates session exists, not truly active, etc.)
         result = await analysis_service.delete_session(session_id)
 
         logger.info("session_deleted_successfully", {

@@ -162,6 +162,24 @@ def create_unified_app():
         # Start all the internal components of the WebSocket server
         await app.state.websocket_api_server.startup_embedded()
 
+        # Initialize QuestDB providers for data analysis routes (shared instances)
+        # This prevents creating new connections on every request
+        from ..data.questdb_data_provider import QuestDBDataProvider
+        from ..data_feed.questdb_provider import QuestDBProvider
+
+        questdb_provider = QuestDBProvider(
+            ilp_host='127.0.0.1',
+            ilp_port=9009,
+            pg_host='127.0.0.1',
+            pg_port=8812
+        )
+        questdb_data_provider = QuestDBDataProvider(questdb_provider, logger)
+
+        # Store in app.state for reuse across all endpoints
+        app.state.questdb_provider = questdb_provider
+        app.state.questdb_data_provider = questdb_data_provider
+        logger.info("QuestDB providers initialized and stored in app.state")
+
         # Initialize health monitoring
         global health_monitor
         if hasattr(container, 'event_bus'):
@@ -1143,6 +1161,64 @@ def create_unified_app():
         """Return the current execution status for the dashboard."""
         controller = await app.state.rest_service.get_controller()
         status = controller.get_execution_status() or {"status": "idle"}
+
+        # DEFENSE IN DEPTH LAYER 2: Filter out soft-deleted sessions
+        # If controller has a session in memory that was deleted from database,
+        # return idle status instead to prevent UI from showing deleted session
+        session_id = status.get('session_id')
+        if session_id:
+            try:
+                # Check if session is soft-deleted in database
+                from ..data.questdb_data_provider import QuestDBDataProvider
+                from ..data_feed.questdb_provider import QuestDBProvider
+
+                # Use existing providers from routes (avoid creating new instances)
+                # Access via app.state if available, otherwise create temporary instance
+                try:
+                    # Try to reuse existing provider from data_analysis_routes
+                    questdb_provider = app.state.questdb_provider
+                    questdb_data_provider = app.state.questdb_data_provider
+                except AttributeError:
+                    # Fallback: create temporary instance (should rarely happen)
+                    questdb_provider = QuestDBProvider(
+                        ilp_host='127.0.0.1',
+                        ilp_port=9009,
+                        pg_host='127.0.0.1',
+                        pg_port=8812
+                    )
+                    questdb_data_provider = QuestDBDataProvider(questdb_provider, logger)
+
+                # Query database to check if session is deleted
+                session_meta = await questdb_data_provider.get_session_metadata(session_id)
+
+                # If session not found (deleted or never existed), return idle status
+                if not session_meta:
+                    logger.warning("execution_status_filtered_deleted_session", {
+                        "session_id": session_id,
+                        "controller_status": status.get('status'),
+                        "mode": status.get('mode'),
+                        "reason": "Session not found in database (soft-deleted or never persisted)"
+                    })
+                    # Return idle status instead of deleted session
+                    return _json_ok({
+                        "status": "execution_status",
+                        "data": {
+                            "status": "idle",
+                            "storage_path": "data",
+                            "error_message": None,
+                            "records_collected": 0
+                        }
+                    })
+
+            except Exception as e:
+                # Log but don't fail - if database check fails, return controller state as-is
+                logger.warning("execution_status_database_check_failed", {
+                    "session_id": session_id,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "returning_controller_state": True
+                })
+
         # Enrich with collection-specific fields for the UI, if present
         try:
             params = (controller.execution_controller.get_current_session().parameters
