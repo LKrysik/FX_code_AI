@@ -13,6 +13,7 @@ import csv
 import json
 import math
 import os
+import traceback
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Set, Tuple, Callable
 from fastapi import APIRouter, HTTPException, Depends, Request
@@ -1423,10 +1424,12 @@ async def update_variant(
         raise
     except Exception as e:
         logger = get_logger(__name__)
+        # ✅ IMPROVED: Log full traceback for debugging
         logger.error("indicators_routes.update_variant.error", {
             "error": str(e),
             "error_type": type(e).__name__,
-            "variant_id": variant_id
+            "variant_id": variant_id,
+            "traceback": traceback.format_exc()
         })
         raise HTTPException(
             status_code=500,
@@ -1469,10 +1472,12 @@ async def delete_variant(
         raise
     except Exception as e:
         logger = get_logger(__name__)
+        # ✅ IMPROVED: Log full traceback for debugging
         logger.error("indicators_routes.delete_variant.error", {
             "error": str(e),
             "error_type": type(e).__name__,
-            "variant_id": variant_id
+            "variant_id": variant_id,
+            "traceback": traceback.format_exc()
         })
         raise HTTPException(
             status_code=500,

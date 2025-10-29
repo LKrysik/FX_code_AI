@@ -22,6 +22,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 import json
 import uuid
+import traceback
 
 from ...data_feed.questdb_provider import QuestDBProvider
 from ...domain.services.indicators.algorithm_registry import IndicatorAlgorithmRegistry
@@ -159,11 +160,14 @@ class IndicatorVariantRepository:
             return variant_id
 
         except Exception as e:
+            # ✅ IMPROVED: Log full traceback for debugging
             self.logger.error("indicator_variant_repository.create_failed", {
                 "variant_id": variant_id,
                 "name": name,
+                "base_indicator_type": base_indicator_type,
                 "error": str(e),
-                "error_type": type(e).__name__
+                "error_type": type(e).__name__,
+                "traceback": traceback.format_exc()
             })
             raise
 
@@ -197,9 +201,12 @@ class IndicatorVariantRepository:
             return self._row_to_variant(row)
 
         except Exception as e:
+            # ✅ IMPROVED: Log full traceback for debugging
             self.logger.error("indicator_variant_repository.get_failed", {
                 "variant_id": variant_id,
-                "error": str(e)
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "traceback": traceback.format_exc()
             })
             raise
 
@@ -279,8 +286,11 @@ class IndicatorVariantRepository:
             return variants
 
         except Exception as e:
+            # ✅ IMPROVED: Log full traceback for debugging
             self.logger.error("indicator_variant_repository.list_failed", {
-                "error": str(e)
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "traceback": traceback.format_exc()
             })
             raise
 
@@ -326,15 +336,16 @@ class IndicatorVariantRepository:
         if not existing:
             return False
 
-        # Build UPDATE query
+        # ✅ FIX: QuestDB doesn't support bind variables in UPDATE for TIMESTAMP
+        # Build UPDATE query with literal timestamp
         set_clauses = []
         params = []
         param_idx = 1
 
-        # Always update updated_at
-        set_clauses.append(f"updated_at = ${param_idx}")
-        params.append(datetime.utcnow())
-        param_idx += 1
+        # Always update updated_at - use literal value for QuestDB compatibility
+        updated_at = datetime.utcnow()
+        updated_at_str = updated_at.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+        set_clauses.append(f"updated_at = '{updated_at_str}'")
 
         # Process updates
         if 'name' in updates:
@@ -384,15 +395,21 @@ class IndicatorVariantRepository:
             if success:
                 self.logger.info("indicator_variant_repository.updated", {
                     "variant_id": variant_id,
-                    "fields": list(updates.keys())
+                    "fields": list(updates.keys()),
+                    "updated_at": updated_at_str
                 })
 
             return success
 
         except Exception as e:
+            # ✅ IMPROVED: Log full traceback for debugging
             self.logger.error("indicator_variant_repository.update_failed", {
                 "variant_id": variant_id,
-                "error": str(e)
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "traceback": traceback.format_exc(),
+                "query": query,
+                "params_count": len(params)
             })
             raise
 
@@ -412,16 +429,21 @@ class IndicatorVariantRepository:
         Returns:
             True if deleted, False if variant not found
         """
-        query = """
+        # ✅ FIX: QuestDB doesn't support bind variables in UPDATE for TIMESTAMP
+        # Use literal timestamp value instead
+        deleted_at = datetime.utcnow()
+        deleted_at_str = deleted_at.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+
+        query = f"""
             UPDATE indicator_variants
-            SET is_deleted = true, deleted_at = $1
-            WHERE id = $2 AND is_deleted = false
+            SET is_deleted = true, deleted_at = '{deleted_at_str}'
+            WHERE id = $1 AND is_deleted = false
         """
 
         try:
             await self.db.initialize()
             async with self.db.pg_pool.acquire() as conn:
-                result = await conn.execute(query, datetime.utcnow(), variant_id)
+                result = await conn.execute(query, variant_id)
 
             # Check if any rows were updated
             deleted = result.split()[-1] if result else "0"
@@ -429,7 +451,8 @@ class IndicatorVariantRepository:
 
             if success:
                 self.logger.info("indicator_variant_repository.deleted", {
-                    "variant_id": variant_id
+                    "variant_id": variant_id,
+                    "deleted_at": deleted_at_str
                 })
             else:
                 self.logger.warning("indicator_variant_repository.delete_not_found", {
@@ -439,9 +462,13 @@ class IndicatorVariantRepository:
             return success
 
         except Exception as e:
+            # ✅ IMPROVED: Log full traceback for debugging
             self.logger.error("indicator_variant_repository.delete_failed", {
                 "variant_id": variant_id,
-                "error": str(e)
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "traceback": traceback.format_exc(),
+                "query": query
             })
             raise
 
