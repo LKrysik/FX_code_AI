@@ -1133,15 +1133,16 @@ class MexcWebSocketAdapter(IMarketDataProvider):
         is_trading_critical = any(keyword in event_type for keyword in ["deal", "trade", "order", "position"])
         is_high_frequency = any(keyword in event_type for keyword in ["price_update", "orderbook_update", "depth_update"])
 
-        # ✅ PERF FIX: Ultra-low timeout for fire-and-forget publishing
+        # ✅ PERF FIX: Increased timeout now that EventBus uses non-blocking bucketed queues
+        # EventBus.publish() now returns in <1ms (queue.put() instead of waiting for handlers)
+        # Timeout is failsafe for extreme overload scenarios
         if is_trading_critical:
-            timeout = 0.01  # 10ms max for trading events (was 50ms)
+            timeout = 0.05  # 50ms max (was 10ms - too aggressive)
             max_retries = 0  # No retries - fail fast
         elif is_high_frequency:
-            # ✅ PERF FIX: No queue depth check - too expensive for hot path
-            # Just use fixed low timeout
-            timeout = 0.01  # 10ms max for high-frequency events
-            max_retries = 0  # No retries - drop event if EventBus overloaded
+            # High-frequency events: orderbook, price updates
+            timeout = 0.05  # 50ms max (was 10ms - caused false backpressure errors)
+            max_retries = 0  # No retries - drop event if EventBus severely overloaded
         else:
             # Low-frequency events: more tolerant
             timeout = 2.0

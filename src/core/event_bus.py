@@ -843,12 +843,16 @@ class EventBus:
 
         await self._update_metric_atomic("total_published", 1)
 
-        # ✅ CRITICAL FIX: Use bucketed queues for true priority processing
-        if self.enable_backpressure and len(alive_subscribers) > 10:  # Lower threshold for queue usage
+        # ✅ CRITICAL FIX: Always use bucketed queues for non-blocking publish when backpressure enabled
+        # Removed subscriber count condition - even 1 slow handler (100ms WebSocket broadcast)
+        # blocks entire publish() with batch timeout, causing backpressure in real-time trading
+        if self.enable_backpressure:
+            # Non-blocking: queue.put() returns immediately, workers process events asynchronously
             trace_id = data.get('metadata', {}).get('trace_id') if isinstance(data, dict) else None
             await self._process_with_bucketed_queues(event_type, data, priority, trace_id)
         else:
-            # Direct processing for small subscriber counts with batch timeout
+            # Blocking mode: only when backpressure disabled (non-trading systems)
+            # Direct processing waits for all handlers to complete with batch timeout
             await self._process_with_batch_timeout(event_type, data, alive_subscribers)
     
     async def _process_direct(self, event_type: str, data: Any, subscribers: List[WeakSubscriber]):
