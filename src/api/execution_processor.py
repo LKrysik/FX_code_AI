@@ -390,7 +390,11 @@ class ExecutionProcessor(IExecutionProcessor):
         progress.trading_stats["records_collected"] = records_int
         progress.status_message = f"Data collection active - {records_int:,} records collected"
 
-        print(f"[PROCESSOR DEBUG] Updated collect progress: percentage={progress.progress_percentage}%, records={records_int}")
+        # ✅ CLEANUP: Use structured logging instead of print()
+        self.logger.debug("execution_processor.progress_updated", {
+            "percentage": progress.progress_percentage,
+            "records": records_int
+        })
 
     async def _update_backtest_progress(self, progress: ExecutionProgress, payload: Dict[str, Any]):
         """Update progress for a 'backtest' or similar type session."""
