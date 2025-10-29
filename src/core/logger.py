@@ -16,8 +16,10 @@ if TYPE_CHECKING:
 # --- Custom JSON Formatter ---
 
 class CustomJsonEncoder(json.JSONEncoder):
-    """Custom JSON encoder to handle non-serializable types like Decimal and Enum."""
+    """Custom JSON encoder to handle non-serializable types like Decimal, Enum, and datetime."""
     def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
         if isinstance(obj, Decimal):
             return str(obj)
         if hasattr(obj, 'name') and hasattr(obj, 'value'): # Check for Enum-like objects
