@@ -860,16 +860,62 @@ async def add_indicator_for_session(
         questdb_provider, _ = _ensure_questdb_providers()
 
         # Convert IndicatorValue objects to QuestDB format
+        # Filter out None values (following IndicatorPersistenceService pattern)
         indicators_batch = []
+        none_count = 0
         for value in series:
             from datetime import datetime
+
+            # Skip None values (warm-up period, insufficient data, etc.)
+            if value.value is None:
+                none_count += 1
+                continue
+
             indicators_batch.append({
                 'session_id': session_id,
                 'symbol': symbol,
                 'indicator_id': indicator_id,
                 'timestamp': datetime.fromtimestamp(value.timestamp),
-                'value': float(value.value),
+                'value': float(value.value),  # Now safe - None values filtered above
                 'confidence': float(value.confidence) if value.confidence is not None else None
+            })
+
+        # Log filtering statistics
+        if none_count > 0:
+            logger = get_logger(__name__)
+            logger.debug("indicators_routes.filtered_none_values", {
+                "session_id": session_id,
+                "symbol": symbol,
+                "indicator_id": indicator_id,
+                "total_values": len(series),
+                "none_values_filtered": none_count,
+                "saved_values": len(indicators_batch),
+                "reason": "None values represent warm-up period or insufficient data"
+            })
+
+        # If all values were None, warn but don't fail
+        if not indicators_batch:
+            logger = get_logger(__name__)
+            logger.warning("indicators_routes.all_values_none", {
+                "session_id": session_id,
+                "symbol": symbol,
+                "indicator_id": indicator_id,
+                "variant_id": variant_id,
+                "total_values": len(series),
+                "reason": "All indicator values were None - likely insufficient data or warm-up period"
+            })
+            # Return success with warning - indicator registered but no data
+            return _json_ok({
+                "indicator_id": indicator_id,
+                "session_id": session_id,
+                "symbol": symbol,
+                "variant_id": variant_id,
+                "status": "added_no_data",
+                "parameters": parameters,
+                "file": {"path": "questdb://indicators", "rows": 0},
+                "recent_values": [],
+                "saved_to_questdb": False,
+                "warning": "No calculable values - insufficient data or warm-up period"
             })
 
         # Save to QuestDB
