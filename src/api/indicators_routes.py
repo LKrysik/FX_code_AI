@@ -877,7 +877,8 @@ async def add_indicator_for_session(
                 'indicator_id': indicator_id,
                 'timestamp': datetime.fromtimestamp(value.timestamp),
                 'value': float(value.value),  # Now safe - None values filtered above
-                'confidence': float(value.confidence) if value.confidence is not None else None
+                # Note: IndicatorValue doesn't have confidence attribute
+                # confidence can be computed from metadata if needed
             })
 
         # Log filtering statistics
