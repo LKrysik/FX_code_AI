@@ -38,6 +38,12 @@ from src.data.questdb_data_provider import QuestDBDataProvider
 # Create router
 router = APIRouter(prefix="/api/indicators", tags=["indicators"])
 
+# ✅ FIX #3: Module-level logger (Step 3/3 - Performance optimization)
+# Before: 42 calls to get_logger(__name__) inside functions
+# After: 1 call at module level, reused by all functions
+# Benefits: Performance, cleaner code, standard Python pattern
+logger = get_logger(__name__)
+
 # Global engine instance (will be properly injected in production)
 _streaming_engine: Optional[StreamingIndicatorEngine] = None
 _persistence_service: Optional[IndicatorPersistenceService] = None
@@ -78,7 +84,7 @@ class SimpleEventBus:
                     for _ in result.__await__():
                         pass
             except Exception as exc:
-                logger = get_logger(__name__)
+                # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
                 logger.error("indicators_routes.simple_event_bus_handler_error", {
                     "event_type": event_type,
                     "error": str(exc)
@@ -93,7 +99,7 @@ def _ensure_support_services() -> Tuple[IndicatorPersistenceService, OfflineIndi
     if _event_bus is None:
         _event_bus = SimpleEventBus()
     if _persistence_service is None:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         _persistence_service = IndicatorPersistenceService(
             _event_bus,
             logger,
@@ -187,7 +193,7 @@ async def _load_session_price_data(session_id: str, symbol: str) -> List[Dict[st
                 })
             except (TypeError, ValueError) as exc:
                 # Skip invalid rows instead of failing entire dataset
-                logger = get_logger(__name__)
+                # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
                 logger.warning("indicators_routes.invalid_price_row", {
                     "session_id": session_id,
                     "symbol": symbol,
@@ -210,7 +216,7 @@ async def _load_session_price_data(session_id: str, symbol: str) -> List[Dict[st
         # Re-raise HTTPException as-is
         raise
     except Exception as e:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         logger.error("indicators_routes.load_price_data_failed", {
             "session_id": session_id,
             "symbol": symbol,
@@ -333,7 +339,7 @@ async def get_streaming_indicator_engine() -> StreamingIndicatorEngine:
     global _streaming_engine, _event_bus, _persistence_service, _offline_indicator_engine
 
     if _streaming_engine is None:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         _event_bus = SimpleEventBus()
 
         # ✅ FIXED: Reuse existing correct QuestDB initialization (single source of truth)
@@ -843,7 +849,7 @@ async def add_indicator_for_session(
             # bubble up structured error (e.g. malformed data)
             raise
         except Exception as exc:
-            logger = get_logger(__name__)
+            # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
             logger.error("indicators_routes.add_indicator.compute_failed", {
                 "session_id": session_id,
                 "symbol": symbol,
@@ -883,7 +889,7 @@ async def add_indicator_for_session(
 
         # Log filtering statistics
         if none_count > 0:
-            logger = get_logger(__name__)
+            # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
             logger.debug("indicators_routes.filtered_none_values", {
                 "session_id": session_id,
                 "symbol": symbol,
@@ -896,7 +902,7 @@ async def add_indicator_for_session(
 
         # If all values were None, return 422 Unprocessable Entity
         if not indicators_batch:
-            logger = get_logger(__name__)
+            # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
             logger.error("indicators_routes.all_values_none", {
                 "session_id": session_id,
                 "symbol": symbol,
@@ -925,7 +931,7 @@ async def add_indicator_for_session(
         # Save to QuestDB
         try:
             inserted_count = await questdb_provider.insert_indicators_batch(indicators_batch)
-            logger = get_logger(__name__)
+            # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
             logger.info("indicators_routes.saved_to_questdb", {
                 "session_id": session_id,
                 "symbol": symbol,
@@ -934,7 +940,7 @@ async def add_indicator_for_session(
                 "count": inserted_count
             })
         except Exception as exc:
-            logger = get_logger(__name__)
+            # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
             logger.error("indicators_routes.questdb_save_failed", {
                 "session_id": session_id,
                 "symbol": symbol,
@@ -968,7 +974,7 @@ async def add_indicator_for_session(
     except HTTPException:
         raise
     except Exception as e:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         logger.error("indicators_routes.add_indicator_for_session_failed", {
             "session_id": session_id,
             "symbol": symbol,
@@ -1088,7 +1094,7 @@ async def get_session_indicator_values(
             for (indicator_id, _), result in zip(file_tasks.items(), results):
                 if isinstance(result, Exception):
                     # Log error but don't fail entire request
-                    logger = get_logger(__name__)
+                    # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
                     logger.warning("indicators_routes.get_file_info_failed", {
                         "session_id": session_id,
                         "symbol": symbol,
@@ -1114,7 +1120,7 @@ async def get_session_indicator_values(
         })
 
     except Exception as e:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         logger.error("indicators_routes.get_session_indicator_values_failed", {
             "session_id": session_id,
             "symbol": symbol,
@@ -1154,7 +1160,7 @@ async def get_indicator_history(
                If None, returns all available data.
                Default: None (all data)
     """
-    logger = get_logger(__name__)
+    # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
 
     try:
         # ✅ Validate indicator exists before attempting retry
@@ -1321,7 +1327,7 @@ async def get_indicator_history(
     except HTTPException:
         raise
     except Exception as e:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         logger.error("indicators_routes.history_fatal_error", {
             "session_id": session_id,
             "symbol": symbol,
@@ -1460,7 +1466,7 @@ async def create_variant(
     Create new indicator variant.
     """
     try:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         body_raw = await request.json()
         body = body_raw or {}
 
@@ -1529,7 +1535,7 @@ async def create_variant(
     except HTTPException:
         raise
     except Exception as e:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         logger.error("indicators_routes.create_variant.error", {
             "error": str(e),
             "error_type": type(e).__name__
@@ -1550,7 +1556,7 @@ async def update_variant(
     Update existing indicator variant.
     """
     try:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         body_raw = await request.json()
         body = body_raw or {}
 
@@ -1604,7 +1610,7 @@ async def update_variant(
     except HTTPException:
         raise
     except Exception as e:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         # ✅ IMPROVED: Log full traceback for debugging
         logger.error("indicators_routes.update_variant.error", {
             "error": str(e),
@@ -1627,7 +1633,7 @@ async def delete_variant(
     Delete indicator variant.
     """
     try:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         logger.info("indicators_routes.delete_variant.start", {
             "variant_id": variant_id
         })
@@ -1652,7 +1658,7 @@ async def delete_variant(
     except HTTPException:
         raise
     except Exception as e:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         # ✅ IMPROVED: Log full traceback for debugging
         logger.error("indicators_routes.delete_variant.error", {
             "error": str(e),
@@ -1675,7 +1681,7 @@ async def get_variant_details(
     Get details for specific variant.
     """
     try:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         logger.info("indicators_routes.get_variant_details.start", {
             "variant_id": variant_id
         })
@@ -1729,7 +1735,7 @@ async def get_variant_details(
     except HTTPException:
         raise
     except Exception as e:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         logger.error("indicators_routes.get_variant_details.error", {
             "error": str(e),
             "error_type": type(e).__name__,
@@ -1749,7 +1755,7 @@ async def load_variants_from_files(
     Load all variants from config/indicators/ directory with validation.
     """
     try:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         logger.info("indicators_routes.load_variants_from_files.start")
         
         if not hasattr(engine, 'load_variants_from_files'):
@@ -1770,7 +1776,7 @@ async def load_variants_from_files(
     except HTTPException:
         raise
     except Exception as e:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         logger.error("indicators_routes.load_variants_from_files.error", {
             "error": str(e),
             "error_type": type(e).__name__
@@ -1789,7 +1795,7 @@ async def get_indicator_types(
     Get list of available indicator types.
     """
     try:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         logger.info("indicators_routes.get_indicator_types.start")
         
         # Get indicator types from engine
@@ -1805,7 +1811,7 @@ async def get_indicator_types(
         })
 
     except Exception as e:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         logger.error("indicators_routes.get_indicator_types.error", {
             "error": str(e),
             "error_type": type(e).__name__
@@ -1827,7 +1833,7 @@ async def list_indicators(
     List all active indicators with optional filtering.
     """
     try:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         logger.info("indicators_routes.list_indicators.start", {
             "scope": scope,
             "symbol": symbol,
@@ -1855,7 +1861,7 @@ async def list_indicators(
         })
 
     except Exception as e:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         logger.error("indicators_routes.list_indicators.error", {
             "error": str(e),
             "error_type": type(e).__name__
@@ -1875,7 +1881,7 @@ async def add_indicators_bulk(
     Add multiple indicators in bulk operation.
     """
     try:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         body = await request.json()
         
         lst = (body or {}).get("indicators", [])
@@ -1920,7 +1926,7 @@ async def add_indicators_bulk(
     except HTTPException:
         raise
     except Exception as e:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         logger.error("indicators_routes.add_indicators_bulk.error", {
             "error": str(e),
             "error_type": type(e).__name__
@@ -1940,7 +1946,7 @@ async def delete_indicators_bulk(
     Delete multiple indicators in bulk operation.
     """
     try:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         body = await request.json()
         
         keys = (body or {}).get("keys", [])
@@ -1972,7 +1978,7 @@ async def delete_indicators_bulk(
     except HTTPException:
         raise
     except Exception as e:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         logger.error("indicators_routes.delete_indicators_bulk.error", {
             "error": str(e),
             "error_type": type(e).__name__
@@ -1992,7 +1998,7 @@ async def add_indicator(
     Add a single indicator.
     """
     try:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         body = await request.json()
         
         symbol = (body or {}).get("symbol")
@@ -2043,7 +2049,7 @@ async def add_indicator(
     except HTTPException:
         raise
     except Exception as e:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         logger.error("indicators_routes.add_indicator.error", {
             "error": str(e),
             "error_type": type(e).__name__
@@ -2063,7 +2069,7 @@ async def delete_indicator(
     Delete a single indicator by key.
     """
     try:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         logger.info("indicators_routes.delete_indicator.start", {
             "key": key
         })
@@ -2087,7 +2093,7 @@ async def delete_indicator(
     except HTTPException:
         raise
     except Exception as e:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         logger.error("indicators_routes.delete_indicator.error", {
             "error": str(e),
             "error_type": type(e).__name__,
@@ -2109,7 +2115,7 @@ async def update_indicator(
     Update an indicator (implemented as delete and re-add for MVP).
     """
     try:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         body = await request.json()
         
         logger.info("indicators_routes.update_indicator.start", {
@@ -2162,7 +2168,7 @@ async def update_indicator(
     except HTTPException:
         raise
     except Exception as e:
-        logger = get_logger(__name__)
+        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         logger.error("indicators_routes.update_indicator.error", {
             "error": str(e),
             "error_type": type(e).__name__,
