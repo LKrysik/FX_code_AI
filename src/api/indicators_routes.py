@@ -792,8 +792,8 @@ async def add_indicator_for_session(
     try:
         # Validate session exists before adding indicators
         # Prevents orphaned indicators in QuestDB (no FK constraints)
-        analysis_service, questdb_provider = _ensure_support_services()
-        session_metadata = await analysis_service.get_session_metadata(session_id)
+        _, questdb_data_provider = _ensure_questdb_providers()
+        session_metadata = await questdb_data_provider.get_session_metadata(session_id)
         if not session_metadata:
             raise HTTPException(
                 status_code=404,
@@ -917,6 +917,14 @@ async def add_indicator_for_session(
     except HTTPException:
         raise
     except Exception as e:
+        logger = get_logger(__name__)
+        logger.error("indicators_routes.add_indicator_for_session_failed", {
+            "session_id": session_id,
+            "symbol": symbol,
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "traceback": traceback.format_exc()
+        })
         raise HTTPException(
             status_code=500,
             detail=f"Failed to add indicator: {str(e)}"
