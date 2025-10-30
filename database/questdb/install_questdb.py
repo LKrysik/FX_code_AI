@@ -29,8 +29,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 import requests
-import psycopg2
-from psycopg2.extras import RealDictCursor
+
+# psycopg2 is optional - only needed for PostgreSQL wire protocol
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    HAS_PSYCOPG2 = True
+except ImportError:
+    HAS_PSYCOPG2 = False
 
 # ============================================================================
 # CONFIGURATION
@@ -107,6 +113,9 @@ def execute_query_http(query: str, host: str, port: int) -> Dict:
 
 def execute_query_pg(query: str, host: str, port: int) -> List[Dict]:
     """Execute query via PostgreSQL wire protocol"""
+    if not HAS_PSYCOPG2:
+        raise Exception("psycopg2 not installed. Use HTTP API instead or: pip install psycopg2-binary")
+
     try:
         conn = psycopg2.connect(
             host=host,
