@@ -22,20 +22,16 @@
 DROP TABLE IF EXISTS indicators;
 
 -- Create indicators table with final schema
+-- SYMBOL fields: session_id, symbol, indicator_id (indexed, cached)
+-- Data fields: value (REQUIRED), confidence (optional), metadata (optional)
 CREATE TABLE indicators (
-    -- SYMBOL fields (must be in CREATE TABLE for ILP)
-    session_id SYMBOL capacity 2048 CACHE,   -- REQUIRED: Links to data_collection_sessions
-    symbol SYMBOL capacity 256 CACHE,        -- REQUIRED: Trading pair (BTC_USDT, ETH_USDT, etc.)
-    indicator_id SYMBOL capacity 2048 CACHE, -- REQUIRED: Indicator variant ID
-
-    -- Timestamp (designated timestamp column)
-    timestamp TIMESTAMP,                     -- REQUIRED: Calculation timestamp
-
-    -- Data columns
-    value DOUBLE,                            -- REQUIRED: Indicator value
-    confidence DOUBLE,                       -- OPTIONAL: Confidence score (0-1)
-    metadata STRING                          -- OPTIONAL: JSON metadata
-
+    session_id SYMBOL capacity 2048 CACHE,
+    symbol SYMBOL capacity 256 CACHE,
+    indicator_id SYMBOL capacity 2048 CACHE,
+    timestamp TIMESTAMP,
+    value DOUBLE,
+    confidence DOUBLE,
+    metadata STRING
 ) timestamp(timestamp) PARTITION BY DAY WAL
 DEDUP UPSERT KEYS(timestamp, session_id, symbol, indicator_id);
 
