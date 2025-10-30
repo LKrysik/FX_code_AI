@@ -9,6 +9,7 @@ Provides REST endpoints for:
 - NEW: Algorithm registry endpoints for enhanced indicator system
 """
 
+import asyncio
 import csv
 import json
 import math
@@ -1017,17 +1018,40 @@ async def get_session_indicator_values(
 
         persistence_service, _ = _ensure_support_services()
         files: Dict[str, Dict[str, Any]] = {}
+
+        # Prepare all async tasks for parallel execution
+        file_tasks = {}
         for indicator_id, details in indicator_map.items():
             variant_id = details.get("variant_id")
-            variant_type = str(details.get("variant_type") or "general").lower()
             if variant_id:
-                files[indicator_id] = persistence_service.get_file_info(
+                variant_type = str(details.get("variant_type") or "general").lower()
+                file_tasks[indicator_id] = persistence_service.get_file_info(
                     session_id,
                     symbol,
                     variant_id,
                     variant_type=variant_type
                 )
-            else:
+
+        # Execute all tasks in parallel (if any exist)
+        if file_tasks:
+            results = await asyncio.gather(*file_tasks.values(), return_exceptions=True)
+            for (indicator_id, _), result in zip(file_tasks.items(), results):
+                if isinstance(result, Exception):
+                    # Log error but don't fail entire request
+                    logger = get_logger(__name__)
+                    logger.warning("indicators_routes.get_file_info_failed", {
+                        "session_id": session_id,
+                        "symbol": symbol,
+                        "indicator_id": indicator_id,
+                        "error": str(result)
+                    })
+                    files[indicator_id] = {"exists": False, "error": str(result)}
+                else:
+                    files[indicator_id] = result
+
+        # Add {"exists": False} for indicators without variant_id
+        for indicator_id in indicator_map:
+            if indicator_id not in files:
                 files[indicator_id] = {"exists": False}
 
         return _json_ok({
@@ -1040,6 +1064,14 @@ async def get_session_indicator_values(
         })
 
     except Exception as e:
+        logger = get_logger(__name__)
+        logger.error("indicators_routes.get_session_indicator_values_failed", {
+            "session_id": session_id,
+            "symbol": symbol,
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "traceback": traceback.format_exc()
+        })
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get indicator values: {str(e)}"
