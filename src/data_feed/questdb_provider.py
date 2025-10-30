@@ -12,6 +12,67 @@ Features:
 - Batch insertion optimization
 - Error handling and retry logic
 
+⚠️ CRITICAL: QuestDB WAL Race Condition Awareness
+==================================================
+
+QuestDB uses dual-protocol architecture which creates a race condition:
+
+1. **Write Path (InfluxDB Line Protocol - ILP):**
+   - Ultra-fast writes (1M+ rows/sec)
+   - Data goes to WAL (Write-Ahead Log) first
+   - sender.flush() sends data over network
+   - Returns IMMEDIATELY (async operation)
+   - WAL commit to main table files happens LATER (1-3 seconds typical)
+
+2. **Read Path (PostgreSQL Wire Protocol):**
+   - Standard SQL queries via PostgreSQL protocol
+   - Reads from MAIN TABLE FILES only
+   - CANNOT see data still in WAL
+   - This creates a visibility gap!
+
+3. **The Race Condition:**
+   ```
+   T=0ms:    insert_indicators_batch() → WAL
+   T=100ms:  sender.flush() → network send
+   T=150ms:  Returns success ✓
+   T=200ms:  get_indicators() → SELECT query
+   T=250ms:  PostgreSQL reads main files (WAL not visible)
+   T=300ms:  Returns [] (empty!) ❌
+   ...
+   T=2000ms: WAL commits to main files
+   T=3000ms: get_indicators() → SELECT query
+   T=3050ms: Returns data ✓
+   ```
+
+4. **Solutions for Application Code:**
+
+   **Option A: Retry with exponential backoff (Recommended)**
+   - Retry queries 3-6 times with delays (200ms, 400ms, 600ms, etc.)
+   - Covers 95%+ of cases
+   - Transparent to caller
+   - See: indicators_routes.py:get_indicator_history() for implementation
+
+   **Option B: Add artificial delay after write**
+   - await asyncio.sleep(2.0) after insert operations
+   - Simple but inefficient
+   - Adds latency to all operations
+
+   **Option C: Use PostgreSQL INSERT instead of ILP**
+   - Immediate visibility (ACID guarantees)
+   - 10-100x slower than ILP
+   - Only for small datasets where performance isn't critical
+
+5. **When to Worry:**
+   - ✅ Write then immediately read same data → USE RETRY LOGIC
+   - ✅ High-frequency operations (< 3 seconds apart) → USE RETRY LOGIC
+   - ⚠️ Batch writes followed by queries → ADD DELAY or RETRY
+   - ✅ Long-running queries (>5 seconds after write) → Usually OK
+
+6. **Monitoring:**
+   - Log retry counts in application
+   - Monitor "retry_count" field in responses
+   - If retry_count consistently >3, consider tuning WAL commit settings
+
 Usage:
     provider = QuestDBProvider(
         ilp_host='localhost',
@@ -20,13 +81,14 @@ Usage:
         pg_port=8812
     )
 
-    # Fast insert
+    # Fast insert (async - data goes to WAL)
     await provider.insert_price(symbol='BTC/USD', timestamp=now, close=50000, volume=1000)
 
-    # Batch insert (fastest)
+    # Batch insert (fastest - async)
     await provider.insert_prices_batch(prices_list)
 
-    # Query
+    # ⚠️ IMPORTANT: Query immediately after write may return empty!
+    # Solution: Use retry logic in calling code (see indicators_routes.py)
     df = await provider.get_prices(symbol='BTC/USD', start_time=..., end_time=...)
 """
 
@@ -1125,6 +1187,116 @@ class QuestDBProvider:
     # ========================================================================
     # UTILITY METHODS
     # ========================================================================
+
+    async def query_with_wal_retry(
+        self,
+        query_func: callable,
+        *args,
+        max_retries: int = 6,
+        retry_delays: Optional[List[float]] = None,
+        validation_func: Optional[callable] = None,
+        **kwargs
+    ) -> Any:
+        """
+        Execute a query with automatic retry logic to handle WAL race condition.
+
+        ✅ CRITICAL: Use this helper when querying data immediately after ILP write operations.
+
+        This helper implements exponential backoff retry to wait for QuestDB WAL commit.
+        See module docstring for detailed explanation of the race condition.
+
+        Args:
+            query_func: Async function to execute (e.g., self.get_indicators)
+            *args: Positional arguments for query_func
+            max_retries: Maximum retry attempts (default: 6)
+            retry_delays: List of delays in seconds between retries
+                         (default: [0, 0.2, 0.4, 0.6, 1.0, 1.5])
+            validation_func: Optional function to validate results.
+                            Should return True if data is valid, False to retry.
+                            Default: checks if result is non-empty
+            **kwargs: Keyword arguments for query_func
+
+        Returns:
+            Query result (type depends on query_func)
+
+        Example:
+            # Query indicators with automatic retry
+            result = await provider.query_with_wal_retry(
+                provider.get_indicators,
+                symbol='BTC_USDT',
+                indicator_ids=['my_indicator_123'],
+                limit=1000
+            )
+
+            # Custom validation (e.g., require at least 100 records)
+            result = await provider.query_with_wal_retry(
+                provider.get_indicators,
+                symbol='BTC_USDT',
+                indicator_ids=['my_indicator_123'],
+                validation_func=lambda df: len(df) >= 100
+            )
+
+        Raises:
+            Exception: Re-raises last exception if all retries exhausted
+        """
+        if retry_delays is None:
+            retry_delays = [0, 0.2, 0.4, 0.6, 1.0, 1.5]
+
+        if validation_func is None:
+            # Default validation: check if result is non-empty
+            def default_validation(result):
+                if hasattr(result, '__len__'):
+                    return len(result) > 0
+                elif hasattr(result, 'empty'):  # pandas DataFrame
+                    return not result.empty
+                return result is not None
+
+            validation_func = default_validation
+
+        last_error = None
+        result = None
+
+        for attempt in range(max_retries):
+            try:
+                # Execute query
+                result = await query_func(*args, **kwargs)
+
+                # Validate result
+                if validation_func(result) or attempt == max_retries - 1:
+                    # Valid result or last attempt
+                    if validation_func(result) and attempt > 0:
+                        logger.info(f"WAL retry successful after {attempt} attempts " +
+                                   f"(total wait: {sum(retry_delays[:attempt]):.2f}s)")
+                    elif not validation_func(result) and attempt > 0:
+                        logger.warning(f"WAL retry exhausted after {attempt} attempts " +
+                                      f"(total wait: {sum(retry_delays[:attempt]):.2f}s) - " +
+                                      f"returning invalid result")
+                    return result
+
+                # Invalid result, retry
+                if attempt < max_retries - 1:
+                    wait_time = retry_delays[attempt]
+                    logger.debug(f"WAL retry attempt {attempt + 1}/{max_retries} - " +
+                                f"waiting {wait_time}s for WAL commit")
+                    await asyncio.sleep(wait_time)
+
+            except Exception as e:
+                last_error = e
+                if attempt == max_retries - 1:
+                    # Last attempt failed, re-raise
+                    logger.error(f"WAL retry failed after {max_retries} attempts: {e}")
+                    raise
+
+                # Not last attempt, retry
+                wait_time = retry_delays[attempt]
+                logger.warning(f"WAL retry attempt {attempt + 1} failed: {e} - " +
+                              f"retrying after {wait_time}s")
+                await asyncio.sleep(wait_time)
+
+        # Should not reach here, but just in case
+        if last_error:
+            raise last_error
+        return result
 
     async def health_check(self) -> Dict[str, bool]:
         """

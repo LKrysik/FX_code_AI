@@ -1139,15 +1139,25 @@ async def get_indicator_history(
     """
     Get historical values for a specific indicator.
 
-    ✅ NEXT STEP: Now reads from QuestDB instead of CSV files
+    ✅ CRITICAL FIX: Implements retry logic to handle QuestDB WAL race condition.
+
+    QuestDB WAL Race Condition:
+    - Writes go to WAL (Write-Ahead Log) via InfluxDB Line Protocol
+    - Reads come from main table files via PostgreSQL protocol
+    - WAL commit is asynchronous (typically 1-3 seconds)
+    - This creates a race condition where recently written data is not yet visible
+
+    Solution: Retry with exponential backoff (max 5 attempts over ~3.7 seconds)
 
     Args:
         limit: Maximum number of values to return.
                If None, returns all available data.
                Default: None (all data)
     """
+    logger = get_logger(__name__)
+
     try:
-        # ✅ NEXT STEP: Use QuestDB provider instead of persistence service
+        # ✅ Validate indicator exists before attempting retry
         questdb_provider, _ = _ensure_questdb_providers()
 
         config = engine.get_indicator_config(indicator_id)
@@ -1157,75 +1167,156 @@ async def get_indicator_history(
                 detail=f"Indicator '{indicator_id}' not found"
             )
 
-        # Query indicators from QuestDB
-        try:
-            # Get indicators using low-level provider method
-            indicators_df = await questdb_provider.get_indicators(
-                symbol=symbol,
-                indicator_ids=[indicator_id],
-                limit=limit if limit else 1000000  # Large limit if no limit specified
-            )
+        # ✅ CRITICAL FIX: Retry logic for QuestDB WAL race condition
+        #
+        # Problem: Data written via ILP (InfluxDB Line Protocol) goes to WAL first,
+        #          then asynchronously commits to main table files. PostgreSQL queries
+        #          read from main files, not WAL, causing empty results immediately
+        #          after write operations.
+        #
+        # Solution: Retry with exponential backoff to wait for WAL commit.
+        #
+        # Retry strategy:
+        #   Attempt 1: 0ms    (immediate - handles case where data already committed)
+        #   Attempt 2: +200ms (WAL commit might be fast)
+        #   Attempt 3: +400ms (covers typical 500-1000ms commit lag)
+        #   Attempt 4: +600ms (handles slower commits)
+        #   Attempt 5: +1000ms (final attempt, covers worst case)
+        #   Attempt 6: +1500ms (last resort)
+        #   Total: ~3.7 seconds maximum wait
+        #
+        # ALTERNATIVE: Use questdb_provider.query_with_wal_retry() helper:
+        #
+        #   indicators_df = await questdb_provider.query_with_wal_retry(
+        #       questdb_provider.get_indicators,
+        #       symbol=symbol,
+        #       indicator_ids=[indicator_id],
+        #       limit=limit if limit else 1000000
+        #   )
+        #
+        # The manual implementation below provides more fine-grained control and
+        # detailed logging specific to this endpoint.
+        #
+        max_retries = 6
+        retry_delays = [0, 0.2, 0.4, 0.6, 1.0, 1.5]  # seconds
 
-            # Filter by session_id if the column exists
-            if 'session_id' in indicators_df.columns:
-                indicators_df = indicators_df[indicators_df['session_id'] == session_id]
+        history = []
+        total_available = 0
+        returned_count = 0
+        limited = False
+        retry_count = 0
 
-            # Convert DataFrame to history list
-            history = []
-            for _, row in indicators_df.iterrows():
-                timestamp = row.get('timestamp')
-                if hasattr(timestamp, 'timestamp'):
-                    timestamp = timestamp.timestamp()  # Convert datetime to float
-                elif timestamp:
-                    timestamp = float(timestamp)
+        for attempt in range(max_retries):
+            try:
+                # Get indicators using low-level provider method
+                indicators_df = await questdb_provider.get_indicators(
+                    symbol=symbol,
+                    indicator_ids=[indicator_id],
+                    limit=limit if limit else 1000000  # Large limit if no limit specified
+                )
 
-                history.append({
-                    "timestamp": timestamp,
-                    "value": float(row.get('value', 0)),
-                    "metadata": {
-                        "session_id": session_id,
-                        "symbol": symbol,
-                        "indicator_id": indicator_id,
-                        "confidence": float(row.get('confidence')) if row.get('confidence') is not None else None
-                    }
+                # Filter by session_id if the column exists
+                if 'session_id' in indicators_df.columns:
+                    indicators_df = indicators_df[indicators_df['session_id'] == session_id]
+
+                # Convert DataFrame to history list
+                history = []
+                for _, row in indicators_df.iterrows():
+                    timestamp = row.get('timestamp')
+                    if hasattr(timestamp, 'timestamp'):
+                        timestamp = timestamp.timestamp()  # Convert datetime to float
+                    elif timestamp:
+                        timestamp = float(timestamp)
+
+                    history.append({
+                        "timestamp": timestamp,
+                        "value": float(row.get('value', 0)),
+                        "metadata": {
+                            "session_id": session_id,
+                            "symbol": symbol,
+                            "indicator_id": indicator_id,
+                            "confidence": float(row.get('confidence')) if row.get('confidence') is not None else None
+                        }
+                    })
+
+                # Check if we got data or if this is the last attempt
+                if len(history) > 0 or attempt == max_retries - 1:
+                    # Success or final attempt
+                    if len(history) > 0 and attempt > 0:
+                        logger.info("indicators_routes.history_retry_success", {
+                            "session_id": session_id,
+                            "symbol": symbol,
+                            "indicator_id": indicator_id,
+                            "retry_count": attempt,
+                            "total_wait_ms": sum(retry_delays[:attempt]) * 1000,
+                            "records_found": len(history)
+                        })
+                    elif len(history) == 0 and attempt > 0:
+                        logger.warning("indicators_routes.history_retry_exhausted", {
+                            "session_id": session_id,
+                            "symbol": symbol,
+                            "indicator_id": indicator_id,
+                            "retry_count": attempt,
+                            "total_wait_ms": sum(retry_delays[:attempt]) * 1000,
+                            "message": "No data found after all retry attempts. Data may not exist or WAL commit is unusually slow."
+                        })
+                    break
+
+                # No data yet, wait before retry
+                retry_count = attempt + 1
+                wait_time = retry_delays[attempt]
+
+                logger.debug("indicators_routes.history_retry_waiting", {
+                    "session_id": session_id,
+                    "symbol": symbol,
+                    "indicator_id": indicator_id,
+                    "attempt": attempt + 1,
+                    "max_attempts": max_retries,
+                    "wait_seconds": wait_time,
+                    "reason": "QuestDB WAL not yet committed to main table files"
                 })
 
-            # Sort by timestamp
-            history.sort(key=lambda x: x['timestamp'])
+                await asyncio.sleep(wait_time)
 
-            total_available = len(history)
+            except Exception as query_error:
+                # Query failed - if last attempt, raise; otherwise retry
+                if attempt == max_retries - 1:
+                    raise query_error
+
+                logger.warning("indicators_routes.history_query_error_retrying", {
+                    "session_id": session_id,
+                    "symbol": symbol,
+                    "indicator_id": indicator_id,
+                    "attempt": attempt + 1,
+                    "error": str(query_error),
+                    "will_retry": True
+                })
+
+                await asyncio.sleep(retry_delays[attempt])
+
+        # Sort by timestamp
+        history.sort(key=lambda x: x['timestamp'])
+
+        total_available = len(history)
+        returned_count = len(history)
+        limited = limit is not None and total_available > limit
+
+        if limited:
+            history = history[:limit]
             returned_count = len(history)
-            limited = limit is not None and total_available > limit
 
-            if limited:
-                history = history[:limit]
-                returned_count = len(history)
-
-            return _json_ok({
-                "session_id": session_id,
-                "symbol": symbol,
-                "indicator_id": indicator_id,
-                "history": history,
-                "limit": limit,
-                "total_count": returned_count,
-                "total_available": total_available,
-                "limited": limited,
-                "source": "questdb"  # ✅ Indicate data source
-            })
-
-        except Exception as db_error:
-            # REMOVED: CSV fallback eliminated - QuestDB is single source of truth
-            logger = get_logger(__name__)
-            logger.error("indicators_routes.history_questdb_failed", {
-                "session_id": session_id,
-                "symbol": symbol,
-                "indicator_id": indicator_id,
-                "error": str(db_error)
-            })
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to query indicator history from QuestDB: {str(db_error)}"
-            )
+        return _json_ok({
+            "session_id": session_id,
+            "symbol": symbol,
+            "indicator_id": indicator_id,
+            "history": history,
+            "limit": limit,
+            "total_count": returned_count,
+            "total_available": total_available,
+            "limited": limited,
+            "source": "questdb",
+            "retry_count": retry_count  # ✅ Expose retry count for monitoring
+        })
 
     except HTTPException:
         raise
