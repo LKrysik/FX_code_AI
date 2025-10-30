@@ -570,6 +570,34 @@ class ApiService {
           max_points: maxPoints
         }
       });
+
+      // ✅ CRITICAL FIX: Convert ISO timestamp strings to Unix timestamps (seconds)
+      // Backend returns datetime objects serialized as ISO strings by FastAPI
+      // Frontend chart (uPlot) requires numeric Unix timestamps in seconds
+      // This transformation ensures data compatibility across the stack
+      if (response.data?.data && Array.isArray(response.data.data)) {
+        response.data.data = response.data.data.map((point: any) => {
+          // Parse ISO string timestamp to Unix timestamp (seconds)
+          const timestamp = typeof point.timestamp === 'string'
+            ? new Date(point.timestamp).getTime() / 1000  // Convert ms to seconds
+            : point.timestamp;  // Already numeric, pass through
+
+          return {
+            ...point,
+            timestamp
+          };
+        });
+
+        console.log('[API] Transformed chart data:', {
+          session_id: response.data.session_id,
+          symbol: response.data.symbol,
+          data_points: response.data.data_points,
+          first_timestamp: response.data.data[0]?.timestamp,
+          first_timestamp_type: typeof response.data.data[0]?.timestamp,
+          sample_point: response.data.data[0]
+        });
+      }
+
       return response.data;
     } catch (error: any) {
       const errorMessage = error?.response?.data?.detail || error?.message || 'Unknown error';
