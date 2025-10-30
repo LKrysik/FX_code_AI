@@ -893,30 +893,33 @@ async def add_indicator_for_session(
                 "reason": "None values represent warm-up period or insufficient data"
             })
 
-        # If all values were None, warn but don't fail
+        # If all values were None, return 422 Unprocessable Entity
         if not indicators_batch:
             logger = get_logger(__name__)
-            logger.warning("indicators_routes.all_values_none", {
+            logger.error("indicators_routes.all_values_none", {
                 "session_id": session_id,
                 "symbol": symbol,
                 "indicator_id": indicator_id,
                 "variant_id": variant_id,
                 "total_values": len(series),
-                "reason": "All indicator values were None - likely insufficient data or warm-up period"
+                "none_count": none_count,
+                "reason": "All indicator values were None - insufficient data for calculation"
             })
-            # Return success with warning - indicator registered but no data
-            return _json_ok({
-                "indicator_id": indicator_id,
-                "session_id": session_id,
-                "symbol": symbol,
-                "variant_id": variant_id,
-                "status": "added_no_data",
-                "parameters": parameters,
-                "file": {"path": "questdb://indicators", "rows": 0},
-                "recent_values": [],
-                "saved_to_questdb": False,
-                "warning": "No calculable values - insufficient data or warm-up period"
-            })
+            # Return 422: Client request understood but cannot be processed
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "insufficient_data",
+                    "message": f"Indicator calculation requires more data. All {len(series)} values returned None (warm-up period).",
+                    "indicator_id": indicator_id,
+                    "variant_id": variant_id,
+                    "session_id": session_id,
+                    "symbol": symbol,
+                    "total_values": len(series),
+                    "none_count": none_count,
+                    "suggestion": "Collect more market data before calculating this indicator, or adjust indicator parameters to reduce warm-up period."
+                }
+            )
 
         # Save to QuestDB
         try:

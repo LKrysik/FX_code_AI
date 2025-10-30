@@ -295,19 +295,36 @@ class QuestDBProvider:
         """
         Insert batch of indicator values (fastest method).
 
+        CRITICAL: session_id is REQUIRED - no backward compatibility with NULL values.
+        All indicators must be associated with a data collection session.
+
         Args:
-            indicators: List of indicator dictionaries with keys:
-                - symbol: str
-                - indicator_id: str
-                - timestamp: datetime
-                - value: float
+            indicators: List of indicator dictionaries with REQUIRED keys:
+                - session_id: str (REQUIRED)
+                - symbol: str (REQUIRED)
+                - indicator_id: str (REQUIRED)
+                - timestamp: datetime (REQUIRED)
+                - value: float (REQUIRED)
                 - confidence: float (optional)
 
         Returns:
             Number of successfully inserted rows
+
+        Raises:
+            ValueError: If any required field is missing
         """
         if not indicators:
             return 0
+
+        # VALIDATION: Enforce required fields (no backward compatibility)
+        required_fields = ['session_id', 'symbol', 'indicator_id', 'timestamp', 'value']
+
+        for idx, indicator in enumerate(indicators):
+            missing = [field for field in required_fields if field not in indicator]
+            if missing:
+                error_msg = f"Indicator at index {idx} missing required fields: {missing}"
+                logger.error(f"insert_indicators_batch.validation_failed: {error_msg}")
+                raise ValueError(error_msg)
 
         inserted = 0
 
@@ -319,9 +336,12 @@ class QuestDBProvider:
                     if 'confidence' in indicator and indicator['confidence'] is not None:
                         columns['confidence'] = indicator['confidence']
 
+                    # CRITICAL FIX: Include session_id in SYMBOL fields
+                    # session_id is a SYMBOL column in QuestDB schema, not a regular column
                     sender.row(
                         'indicators',
                         symbols={
+                            'session_id': indicator['session_id'],  # ✅ ADDED
                             'symbol': indicator['symbol'],
                             'indicator_id': indicator['indicator_id'],
                         },
@@ -332,7 +352,7 @@ class QuestDBProvider:
 
                 sender.flush()
 
-            logger.info(f"Inserted {inserted} indicator records")
+            logger.info(f"Inserted {inserted} indicator records with session_id tracking")
             return inserted
 
         except IngressError as e:

@@ -38,19 +38,21 @@ except Exception:
 
 class IndicatorPersistenceService:
     """
-    Service responsible for CSV read/write operations with unified format.
-    
+    QuestDB-based indicator persistence service.
+
     Features:
-    - Unified CSV format across all indicator types
-    - Real-time append operations (mode='a')
-    - Batch simulation overwrite operations (mode='w')
+    - QuestDB native storage with ILP (InfluxDB Line Protocol) for high-speed writes
+    - Real-time indicator value streaming
+    - Batch insert optimization (10x faster than CSV)
     - Event-driven architecture
-    - Thread-safe operations with file locking
-    - Race condition prevention through atomic operations
-    - Proper error handling and logging
-    
-    CRITICAL: This is the ONLY service that should write CSV files.
-    Engines must delegate all persistence operations to this service.
+    - ACID transactions with automatic indexing
+    - Session-based data isolation (session_id required)
+    - Proper error handling and structured logging
+
+    CRITICAL:
+    - This is the ONLY service for indicator persistence
+    - All indicators MUST have session_id (no backward compatibility)
+    - Engines must delegate all persistence operations to this service
     """
 
     def __init__(
@@ -58,23 +60,19 @@ class IndicatorPersistenceService:
         event_bus: EventBus,
         logger: StructuredLogger,
         questdb_provider: Optional[QuestDBProvider] = None,
-        base_data_dir: str = "data"
+        base_data_dir: str = "data"  # Unused - kept for API compatibility
     ):
         """
-        Initialize IndicatorPersistenceService with QuestDB support.
-
-        🔄 MIGRATED: Now uses QuestDB as primary storage instead of CSV files.
+        Initialize IndicatorPersistenceService with QuestDB.
 
         Args:
             event_bus: EventBus for listening to indicator events
             logger: StructuredLogger for logging operations
             questdb_provider: QuestDBProvider for database operations (auto-initialized if None)
-            base_data_dir: Legacy base directory (kept for backward compatibility)
+            base_data_dir: Unused parameter kept for API compatibility
         """
         self.event_bus = event_bus
         self.logger = logger
-        self.base_data_dir = Path(base_data_dir)  # Kept for backward compatibility
-        self._operation_lock = RLock()  # Thread-safe operations
 
         # QuestDB provider for database operations
         self.questdb_provider = questdb_provider
@@ -98,9 +96,9 @@ class IndicatorPersistenceService:
         self.logger.info("indicator_persistence_service.initialized", {
             "storage_backend": "QuestDB",
             "features": [
-                "questdb_storage",
+                "questdb_ilp_writes",
                 "acid_transactions",
-                "batch_insert_optimization",
+                "session_isolation",
                 "automatic_indexing",
                 "10x_faster_than_csv"
             ],
@@ -124,152 +122,6 @@ class IndicatorPersistenceService:
         )
         
         self.logger.debug("indicator_persistence_service.event_listeners_setup")
-
-    def _get_file_lock_key(self, csv_file_path: Path) -> str:
-        """Generate unique lock key for file path."""
-        return str(csv_file_path.resolve())
-    
-    def _acquire_file_lock(self, csv_file_path: Path):
-        """Acquire per-file lock to prevent race conditions."""
-        lock_key = self._get_file_lock_key(csv_file_path)
-        if lock_key not in self._active_file_locks:
-            self._active_file_locks[lock_key] = RLock()
-        return self._active_file_locks[lock_key]
-    
-    def _atomic_csv_write(self, csv_file_path: Path, write_mode: str, 
-                         data_rows: List[List[str]], header: List[str] = None) -> bool:
-        """
-        Perform atomic CSV write operation to prevent corruption.
-        
-        Args:
-            csv_file_path: Target CSV file path
-            write_mode: 'w' for overwrite, 'a' for append
-            data_rows: List of data rows to write
-            header: Optional header row for new files
-            
-        Returns:
-            bool: True if successful, False otherwise
-        """
-        file_lock = self._acquire_file_lock(csv_file_path)
-        
-        try:
-            with file_lock:
-                if write_mode == 'w':
-                    # For overwrite mode, use atomic temp file operation
-                    return self._atomic_overwrite(csv_file_path, data_rows, header)
-                else:
-                    # For append mode, use direct append with locking
-                    return self._atomic_append(csv_file_path, data_rows, header)
-                    
-        except Exception as e:
-            self.logger.error("indicator_persistence_service.atomic_write_failed", {
-                "file_path": str(csv_file_path),
-                "write_mode": write_mode,
-                "error": str(e)
-            })
-            return False
-    
-    def _atomic_overwrite(self, csv_file_path: Path, data_rows: List[List[str]], 
-                         header: List[str] = None) -> bool:
-        """Atomic overwrite using temporary file and move."""
-        try:
-            # Ensure directory exists
-            csv_file_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Create temporary file in same directory for atomic move
-            temp_fd, temp_path = tempfile.mkstemp(
-                suffix='.csv.tmp',
-                dir=csv_file_path.parent,
-                prefix=csv_file_path.stem + '_'
-            )
-            
-            try:
-                with os.fdopen(temp_fd, 'w', newline='', encoding='utf-8') as temp_file:
-                    writer = csv.writer(temp_file)
-                    
-                    # Write header if provided
-                    if header:
-                        writer.writerow(header)
-                    
-                    # Write all data rows
-                    writer.writerows(data_rows)
-                    
-                    # Ensure data is written to disk
-                    temp_file.flush()
-                    os.fsync(temp_file.fileno())
-                
-                # Atomic move from temp to target
-                shutil.move(temp_path, csv_file_path)
-                
-                self.logger.debug("indicator_persistence_service.atomic_overwrite_success", {
-                    "file_path": str(csv_file_path),
-                    "rows_written": len(data_rows)
-                })
-                
-                return True
-                
-            except Exception:
-                # Clean up temp file on error
-                try:
-                    os.unlink(temp_path)
-                except:
-                    pass
-                raise
-                
-        except Exception as e:
-            self.logger.error("indicator_persistence_service.atomic_overwrite_failed", {
-                "file_path": str(csv_file_path),
-                "error": str(e)
-            })
-            return False
-    
-    def _atomic_append(self, csv_file_path: Path, data_rows: List[List[str]], 
-                      header: List[str] = None) -> bool:
-        """Atomic append with file existence check."""
-        try:
-            # Ensure directory exists
-            csv_file_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Check if file exists to determine if header is needed
-            file_exists = csv_file_path.exists()
-            
-            # Write to CSV in append mode with file locking
-            with open(csv_file_path, 'a', newline='', encoding='utf-8') as csvfile:
-                # Apply file-level locking on Unix systems
-                if HAS_FCNTL:
-                    try:
-                        fcntl.flock(csvfile.fileno(), fcntl.LOCK_EX)
-                    except OSError:
-                        # File locking failed, rely on thread locks
-                        pass
-                
-                writer = csv.writer(csvfile)
-                
-                # Write header if file is new and header provided
-                if not file_exists and header:
-                    writer.writerow(header)
-                
-                # Write all data rows
-                writer.writerows(data_rows)
-                
-                # Ensure data is written to disk
-                csvfile.flush()
-                os.fsync(csvfile.fileno())
-            
-            self.logger.debug("indicator_persistence_service.atomic_append_success", {
-                "file_path": str(csv_file_path),
-                "rows_written": len(data_rows),
-                "file_existed": file_exists
-            })
-            
-            return True
-            
-        except Exception as e:
-            self.logger.error("indicator_persistence_service.atomic_append_failed", {
-                "file_path": str(csv_file_path),
-                "error": str(e)
-            })
-            return False
 
     async def save_single_value(
         self,
@@ -740,108 +592,6 @@ class IndicatorPersistenceService:
             'created_by': getattr(indicator_value, 'created_by', None)
         }
 
-    def _get_csv_file_path(self, session_id: str, symbol: str, variant_type: str, variant_id: str) -> Path:
-        """
-        Get CSV file path for indicator data.
-
-        ⚠️ DEPRECATED: This method is kept for backward compatibility only.
-
-        Format: data/{session_id}/{symbol}/indicators/{variant_type}_{variant_id}.csv
-
-        Args:
-            session_id: Session identifier
-            symbol: Trading symbol
-            variant_type: Indicator variant type
-            variant_id: Indicator variant ID
-
-        Returns:
-            Path: Full path to CSV file
-        """
-        return self.base_data_dir / session_id / symbol / "indicators" / f"{variant_type}_{variant_id}.csv"
-
-    def _indicator_value_to_csv_row(self, indicator_value: IndicatorValue) -> List[str]:
-        """
-        Convert IndicatorValue to CSV row.
-        
-        Unified format: [timestamp, value]
-        
-        Args:
-            indicator_value: IndicatorValue object
-            
-        Returns:
-            List[str]: CSV row data
-        """
-        timestamp_str = f"{indicator_value.timestamp:.6f}"
-
-        value = indicator_value.value
-        if value is None:
-            value_str = ""
-        elif isinstance(value, (dict, list)):
-            value_str = json.dumps(value)
-        elif isinstance(value, (int, float)):
-            value_str = f"{float(value):.6f}"
-        else:
-            value_str = str(value)
-
-        return [timestamp_str, value_str]
-
-    def _csv_row_to_indicator_value(self, row: Dict[str, str], symbol: str, indicator_id: str) -> Optional[IndicatorValue]:
-        """
-        Convert CSV row to IndicatorValue.
-        
-        Args:
-            row: CSV row as dictionary
-            symbol: Trading symbol
-            indicator_id: Indicator ID
-            
-        Returns:
-            IndicatorValue: Converted indicator value or None if invalid
-        """
-        try:
-            # Parse timestamp
-            timestamp_raw = row.get("timestamp") or row.get("Timestamp")
-            if timestamp_raw is None:
-                raise KeyError("timestamp")
-            timestamp = float(timestamp_raw)
-            
-            # Parse value
-            value_str = row.get("value") or row.get("Value") or ""
-            if value_str == "":
-                value = None
-            else:
-                try:
-                    # Try to parse as JSON first (for dict/list values)
-                    value = json.loads(value_str)
-                except json.JSONDecodeError:
-                    # If not JSON, try as float
-                    try:
-                        value = float(value_str)
-                    except ValueError:
-                        # If not float, keep as string
-                        value = value_str
-            
-            # Parse metadata
-            metadata_str = row.get("metadata") or "{}"
-            try:
-                metadata = json.loads(metadata_str) if metadata_str else {}
-            except json.JSONDecodeError:
-                metadata = {"raw": metadata_str}
-            
-            return IndicatorValue(
-                timestamp=timestamp,
-                symbol=symbol,
-                indicator_id=indicator_id,
-                value=value,
-                metadata=metadata
-            )
-            
-        except (KeyError, ValueError, TypeError) as e:
-            self.logger.warning("indicator_persistence_service.invalid_csv_row_conversion", {
-                "row": row,
-                "error": str(e)
-            })
-            return None
-
     def _handle_single_value_event(self, event_data: Dict[str, Any]):
         """
         Handle single indicator value calculated event.
@@ -1000,53 +750,3 @@ class IndicatorPersistenceService:
                 "storage": "questdb",
                 "error": str(e)
             }
-
-    def cleanup_old_files(self, max_age_days: int = 30) -> int:
-        """
-        Clean up old CSV files older than specified days.
-        
-        Args:
-            max_age_days: Maximum age in days for files to keep
-            
-        Returns:
-            int: Number of files deleted
-        """
-        try:
-            current_time = time.time()
-            max_age_seconds = max_age_days * 24 * 60 * 60
-            deleted_count = 0
-            
-            # Recursively find all CSV files
-            for csv_file in self.base_data_dir.rglob("*.csv"):
-                try:
-                    file_age = current_time - csv_file.stat().st_mtime
-                    
-                    if file_age > max_age_seconds:
-                        csv_file.unlink()
-                        deleted_count += 1
-                        
-                        self.logger.debug("indicator_persistence_service.old_file_deleted", {
-                            "file_path": str(csv_file),
-                            "age_days": file_age / (24 * 60 * 60)
-                        })
-                        
-                except Exception as e:
-                    self.logger.warning("indicator_persistence_service.cleanup_file_failed", {
-                        "file_path": str(csv_file),
-                        "error": str(e)
-                    })
-                    continue
-            
-            self.logger.info("indicator_persistence_service.cleanup_completed", {
-                "deleted_count": deleted_count,
-                "max_age_days": max_age_days
-            })
-            
-            return deleted_count
-            
-        except Exception as e:
-            self.logger.error("indicator_persistence_service.cleanup_old_files_failed", {
-                "max_age_days": max_age_days,
-                "error": str(e)
-            })
-            return 0
