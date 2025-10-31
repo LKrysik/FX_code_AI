@@ -1198,62 +1198,17 @@ class QuestDBProvider:
 
         return await self._execute_ilp_with_retry("insert_orderbook_snapshots_batch", write_batch)
 
-    async def insert_ohlcv_candles_batch(self, candles: List[Dict[str, Any]]) -> int:
-        """
-        Insert batch of pre-aggregated OHLCV candles with automatic retry logic.
-
-        This method uses exponential backoff retry to handle transient connection
-        failures to QuestDB.
-
-        Args:
-            candles: List of candle dictionaries with keys:
-                - session_id: str
-                - symbol: str
-                - interval: str ('1m', '5m', '15m', '1h', etc.)
-                - timestamp: float (candle start time in seconds)
-                - open, high, low, close, volume, quote_volume: float
-                - trades_count: int
-                - is_closed: bool
-
-        Returns:
-            Number of successfully inserted rows
-
-        Raises:
-            Exception: If all retry attempts fail
-        """
-        if not candles:
-            return 0
-
-        def write_batch(sender):
-            """Inner function that performs the actual write."""
-            inserted = 0
-            for candle in candles:
-                timestamp_seconds = float(candle['timestamp'])
-                timestamp_ns = int(timestamp_seconds * 1_000_000_000)
-
-                sender.row(
-                    'aggregated_ohlcv',
-                    symbols={
-                        'session_id': candle['session_id'],
-                        'symbol': candle['symbol'],
-                        'interval': candle['interval'],
-                    },
-                    columns={
-                        'open': float(candle['open']),
-                        'high': float(candle['high']),
-                        'low': float(candle['low']),
-                        'close': float(candle['close']),
-                        'volume': float(candle['volume']),
-                        'quote_volume': float(candle['quote_volume']),
-                        'trades_count': int(candle['trades_count']),
-                        'is_closed': bool(candle.get('is_closed', False)),
-                    },
-                    at=TimestampNanos(timestamp_ns)
-                )
-                inserted += 1
-            return inserted
-
-        return await self._execute_ilp_with_retry("insert_ohlcv_candles_batch", write_batch)
+    # ========================================================================
+    # OHLCV AGGREGATION REMOVED
+    # ========================================================================
+    # insert_ohlcv_candles_batch() removed - aggregated_ohlcv table not used
+    # Rationale:
+    # - OHLCV aggregation was premature optimization (450+ lines of overhead)
+    # - QuestDB has built-in SAMPLE BY for on-demand aggregation
+    # - Example: SELECT timestamp, first(price) as open, max(price) as high,
+    #            min(price) as low, last(price) as close, sum(volume) as volume
+    #            FROM tick_prices SAMPLE BY 1m
+    # - Faster, simpler, no pre-aggregation overhead during data collection
 
     async def execute_query(self, query: str, params: Optional[List[Any]] = None) -> List[Dict[str, Any]]:
         """
@@ -1416,44 +1371,8 @@ class QuestDBProvider:
             logger.error(f"Failed to soft delete tick_orderbook for session {session_id}: {e}")
             raise
 
-    async def delete_aggregated_ohlcv(
-        self,
-        session_id: str,
-        symbol: Optional[str] = None
-    ) -> int:
-        """
-        Soft delete aggregated OHLCV candles for session.
-
-        Uses UPDATE to set is_deleted = true instead of physical deletion.
-
-        Args:
-            session_id: Session identifier
-            symbol: Optional symbol filter (soft deletes all symbols if None)
-
-        Returns:
-            Number of rows soft deleted
-        """
-        await self.initialize()
-
-        try:
-            query = "UPDATE aggregated_ohlcv SET is_deleted = true WHERE session_id = $1 AND is_deleted = false"
-            params = [session_id]
-
-            if symbol:
-                query += " AND symbol = $2"
-                params.append(symbol)
-
-            async with self.pg_pool.acquire() as conn:
-                result = await conn.execute(query, *params)
-                affected_rows = int(result.split()[-1]) if result else 0
-
-            logger.info(f"Soft deleted {affected_rows} aggregated_ohlcv rows for session {session_id}" +
-                       (f", symbol {symbol}" if symbol else ""))
-            return affected_rows
-
-        except Exception as e:
-            logger.error(f"Failed to soft delete aggregated_ohlcv for session {session_id}: {e}")
-            raise
+    # delete_aggregated_ohlcv() removed - aggregated_ohlcv table not used
+    # See OHLCV AGGREGATION REMOVED comment above for rationale
 
     async def delete_indicators(
         self,
@@ -1655,10 +1574,9 @@ class QuestDBProvider:
         Deletes in correct order:
         1. Backtest results (most dispensable)
         2. Indicators (computed from prices)
-        3. Aggregated OHLCV (derived data)
-        4. Orderbook snapshots
-        5. Tick prices
-        6. Session metadata (parent record)
+        3. Orderbook snapshots
+        4. Tick prices
+        5. Session metadata (parent record)
 
         Args:
             session_id: Session identifier
@@ -1668,7 +1586,6 @@ class QuestDBProvider:
             {
                 'backtest_results': N,
                 'indicators': N,
-                'aggregated_ohlcv': N,
                 'tick_orderbook': N,
                 'tick_prices': N,
                 'data_collection_sessions': N,
@@ -1686,8 +1603,7 @@ class QuestDBProvider:
             # 2. Delete indicators
             deleted_counts['indicators'] = await self.delete_indicators(session_id)
 
-            # 3. Delete aggregated OHLCV
-            deleted_counts['aggregated_ohlcv'] = await self.delete_aggregated_ohlcv(session_id)
+            # 3. aggregated_ohlcv deletion removed (table not used)
 
             # 4. Delete orderbook snapshots
             deleted_counts['tick_orderbook'] = await self.delete_tick_orderbook(session_id)
