@@ -201,6 +201,7 @@ class QuestDBProvider:
                 for i in range(self.ilp_sender_pool_size):
                     try:
                         sender = Sender(Protocol.Tcp, self.ilp_host, self.ilp_port)
+                        sender.__enter__()  # ✅ CRITICAL FIX: Open sender context (required by QuestDB client)
                         self._sender_pool.append(sender)
                         logger.debug(f"ILP Sender #{i+1} created")
                     except IngressError as e:
@@ -208,7 +209,7 @@ class QuestDBProvider:
                         # Close any senders that were created
                         for s in self._sender_pool:
                             try:
-                                s.close()
+                                s.__exit__(None, None, None)  # ✅ CRITICAL FIX: Properly close sender context
                             except:
                                 pass
                         self._sender_pool.clear()
@@ -232,7 +233,7 @@ class QuestDBProvider:
         async with self._sender_pool_lock:
             for i, sender in enumerate(self._sender_pool):
                 try:
-                    sender.close()
+                    sender.__exit__(None, None, None)  # ✅ CRITICAL FIX: Properly close sender context
                     logger.debug(f"ILP Sender #{i+1} closed")
                 except Exception as e:
                     logger.warning(f"Error closing ILP Sender #{i+1}: {e}")
@@ -321,6 +322,7 @@ class QuestDBProvider:
 
                 try:
                     new_sender = Sender(Protocol.Tcp, self.ilp_host, self.ilp_port)
+                    new_sender.__enter__()  # ✅ CRITICAL FIX: Open sender context (required by QuestDB client)
                     logger.info(f"Emergency sender created (pool was empty, self-healing activated)")
                     return new_sender
                 except IngressError as e:
@@ -368,9 +370,9 @@ class QuestDBProvider:
         """
         async with self._sender_available:
             if is_broken:
-                # Close broken sender
+                # Close broken sender (properly exit context)
                 try:
-                    sender.close()
+                    sender.__exit__(None, None, None)  # ✅ CRITICAL FIX: Properly close sender context
                     logger.debug("Broken sender closed")
                 except Exception as e:
                     logger.warning(f"Error closing broken sender: {e}")
@@ -378,6 +380,7 @@ class QuestDBProvider:
                 # Try to create a replacement (best effort)
                 try:
                     new_sender = Sender(Protocol.Tcp, self.ilp_host, self.ilp_port)
+                    new_sender.__enter__()  # ✅ CRITICAL FIX: Open sender context (required by QuestDB client)
                     self._sender_pool.append(new_sender)
                     logger.info(f"Broken sender replaced (pool size: {len(self._sender_pool)})")
                 except IngressError as e:
