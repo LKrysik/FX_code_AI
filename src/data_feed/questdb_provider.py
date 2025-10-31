@@ -95,6 +95,7 @@ Usage:
 import logging
 import asyncio
 import time
+from contextlib import asynccontextmanager
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
 import pandas as pd
@@ -347,6 +348,58 @@ class QuestDBProvider:
             # Notify waiting coroutines that a sender is available
             self._sender_available.notify()
 
+    @asynccontextmanager
+    async def _get_pooled_sender(self):
+        """
+        ✅ CRITICAL FIX: Async context manager for acquiring/releasing pooled Senders.
+
+        This replaces the old non-existent _get_sender() method with proper async pool
+        integration. Automatically handles acquisition, release, and error recovery.
+
+        Usage:
+            async with self._get_pooled_sender() as sender:
+                sender.row(...)
+                sender.flush()
+
+        Yields:
+            Sender instance from the pool
+
+        Raises:
+            RuntimeError: If pool is not initialized
+        """
+        sender = None
+        sender_acquired = False
+
+        try:
+            # Acquire sender from pool
+            sender = await self._acquire_sender()
+            sender_acquired = True
+
+            # Yield sender for use in 'with' block
+            yield sender
+
+        except IngressError as e:
+            # ILP error - mark sender as broken
+            logger.warning(f"ILP error in context manager: {e}")
+            if sender_acquired and sender is not None:
+                await self._release_sender(sender, is_broken=True)
+                sender_acquired = False
+            raise
+
+        except Exception as e:
+            # Unexpected error - mark sender as broken
+            logger.error(f"Unexpected error in pooled sender context: {e}")
+            if sender_acquired and sender is not None:
+                await self._release_sender(sender, is_broken=True)
+                sender_acquired = False
+            raise
+
+        else:
+            # Success - return healthy sender to pool
+            if sender_acquired and sender is not None:
+                await self._release_sender(sender, is_broken=False)
+                sender_acquired = False
+
     @staticmethod
     def _is_permanent_failure(error: IngressError) -> bool:
         """
@@ -502,6 +555,8 @@ class QuestDBProvider:
         """
         Insert single price record (InfluxDB line protocol).
 
+        ✅ CRITICAL FIX: Now uses connection pool via async context manager.
+
         Args:
             symbol: Trading pair (e.g., 'BTC/USD')
             timestamp: Price timestamp
@@ -517,7 +572,7 @@ class QuestDBProvider:
             True if successful
         """
         try:
-            with self._get_sender() as sender:
+            async with self._get_pooled_sender() as sender:
                 columns = {
                     'open': open_price,
                     'high': high,
@@ -551,6 +606,8 @@ class QuestDBProvider:
         """
         Insert batch of price records (fastest method).
 
+        ✅ CRITICAL FIX: Now uses connection pool via async context manager.
+
         Args:
             prices: List of price dictionaries with keys:
                 - symbol: str
@@ -567,7 +624,7 @@ class QuestDBProvider:
         inserted = 0
 
         try:
-            with self._get_sender() as sender:
+            async with self._get_pooled_sender() as sender:
                 for price in prices:
                     columns = {
                         'open': price['open'],
@@ -613,6 +670,8 @@ class QuestDBProvider:
         """
         Insert single indicator value (InfluxDB line protocol).
 
+        ✅ CRITICAL FIX: Now uses connection pool via async context manager.
+
         Args:
             symbol: Trading pair
             indicator_id: Indicator identifier (e.g., 'RSI_14')
@@ -625,7 +684,7 @@ class QuestDBProvider:
             True if successful
         """
         try:
-            with self._get_sender() as sender:
+            async with self._get_pooled_sender() as sender:
                 columns = {'value': value}
 
                 if confidence is not None:
@@ -1684,6 +1743,8 @@ class QuestDBProvider:
         """
         Check QuestDB connection health.
 
+        ✅ CRITICAL FIX: Now uses connection pool via async context manager.
+
         Returns:
             Dictionary with status of ILP and PostgreSQL
         """
@@ -1694,7 +1755,7 @@ class QuestDBProvider:
 
         # Test InfluxDB line protocol
         try:
-            with self._get_sender() as sender:
+            async with self._get_pooled_sender() as sender:
                 sender.row(
                     'health_check',
                     symbols={'test': 'test'},
