@@ -2984,9 +2984,18 @@ class MexcWebSocketAdapter(IMarketDataProvider):
         }
     
     async def _refresh_orderbook_from_rest(self, symbol: str) -> None:
-        """Refresh orderbook cache from MEXC REST API"""
+        """
+        Refresh orderbook cache from MEXC REST API.
+
+        CRITICAL: MEXC Spot API (/api/v3/depth) requires symbols WITHOUT underscore.
+        Internal format: BTC_USDT → MEXC format: BTCUSDT
+        """
         try:
-            rest_url = f"https://api.mexc.com/api/v3/depth?symbol={symbol}&limit=20"
+            # Transform symbol format: BTC_USDT → BTCUSDT (remove underscore)
+            # MEXC Spot API expects concatenated format without underscore
+            mexc_symbol = symbol.replace('_', '')
+
+            rest_url = f"https://api.mexc.com/api/v3/depth?symbol={mexc_symbol}&limit=20"
             
             async with aiohttp.ClientSession() as session:
                 async with session.get(rest_url, timeout=aiohttp.ClientTimeout(total=5.0)) as response:
@@ -3037,13 +3046,15 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                                 cache_entry["timestamp"] = time.time()
                                 
                             self.logger.debug("mexc_adapter.orderbook_refreshed_from_rest", {
-                                "symbol": symbol,
+                                "symbol": symbol,  # Internal format with underscore
+                                "mexc_symbol": mexc_symbol,  # MEXC API format without underscore
                                 "bids_count": len(bids),
                                 "asks_count": len(asks)
                             })
                     else:
                         self.logger.warning("mexc_adapter.rest_orderbook_failed", {
-                            "symbol": symbol,
+                            "symbol": symbol,  # Internal format with underscore
+                            "mexc_symbol": mexc_symbol,  # MEXC API format without underscore
                             "status": response.status
                         })
                         
