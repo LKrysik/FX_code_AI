@@ -1242,12 +1242,17 @@ class ExecutionController:
             self.logger.error("execution.buffer_flush_error", {"error": str(e)})
 
     async def _flush_symbol_buffer(self, symbol: str) -> None:
-        """✅ PERFORMANCE: Flush buffered data to files in batches"""
-        # Get symbol-specific lock to prevent race conditions
+        """✅ PERFORMANCE FIX (Problem #2): Flush buffered data without nested locks
+
+        OLD PROBLEM: Nested locks (global lock inside symbol lock) + holding lock during I/O
+        NEW APPROACH: Copy data under short lock, then I/O without any locks
+        """
+        # Get symbol-specific lock to prevent concurrent flushes of same symbol
         symbol_lock = await self._get_symbol_flush_lock(symbol)
 
         async with symbol_lock:
-            # ✅ PERF FIX: Use global lock to safely read buffer
+            # ✅ PERF FIX: Short lock acquisition to copy and clear buffer
+            # This is the ONLY place we hold global lock, and only briefly
             async with self._data_buffers_lock:
                 if not hasattr(self, '_data_buffers') or symbol not in self._data_buffers:
                     return
@@ -1256,31 +1261,44 @@ class ExecutionController:
                 if not buffer['price_data'] and not buffer['orderbook_data']:
                     return
 
-            # Flush happens outside global lock (only symbol lock held)
+                # Copy buffer contents (cheap - just list copy)
+                buffer_copy = {
+                    'price_data': list(buffer['price_data']),
+                    'orderbook_data': list(buffer['orderbook_data']),
+                    'last_flush': buffer['last_flush']
+                }
+
+                # Clear original buffer immediately (under lock)
+                buffer['price_data'].clear()
+                buffer['orderbook_data'].clear()
+                buffer['last_flush'] = time.time()
+
+            # ✅ PERF FIX: I/O happens WITHOUT any locks
+            # This allows parallel flushes for different symbols
+            # and doesn't block other threads from adding to buffers
             try:
                 await asyncio.wait_for(
-                    self._write_data_batch(symbol, buffer),
+                    self._write_data_batch(symbol, buffer_copy),
                     timeout=self.FLUSH_TIMEOUT_SECONDS
                 )
             except asyncio.TimeoutError:
-                async with self._data_buffers_lock:
-                    self.logger.error("execution.buffer_flush_timeout", {
-                        "symbol": symbol,
-                        "timeout_seconds": self.FLUSH_TIMEOUT_SECONDS,
-                        "price_buffer_size": len(buffer['price_data']),
-                        "orderbook_buffer_size": len(buffer['orderbook_data'])
-                    })
-                    buffer['price_data'].clear()
-                    buffer['orderbook_data'].clear()
-                    buffer['last_flush'] = time.time()
+                self.logger.error("execution.buffer_flush_timeout", {
+                    "symbol": symbol,
+                    "timeout_seconds": self.FLUSH_TIMEOUT_SECONDS,
+                    "price_buffer_size": len(buffer_copy['price_data']),
+                    "orderbook_buffer_size": len(buffer_copy['orderbook_data']),
+                    "note": "Data discarded to prevent backpressure"
+                })
+                # Data is already cleared from buffer, just log and continue
             except Exception as e:
-                async with self._data_buffers_lock:
-                    self.logger.error("execution.buffer_flush_error", {
-                        "symbol": symbol,
-                        "error": str(e),
-                        "price_buffer_size": len(buffer['price_data']),
-                        "orderbook_buffer_size": len(buffer['orderbook_data'])
-                    })
+                self.logger.error("execution.buffer_flush_error", {
+                    "symbol": symbol,
+                    "error": str(e),
+                    "price_buffer_size": len(buffer_copy['price_data']),
+                    "orderbook_buffer_size": len(buffer_copy['orderbook_data']),
+                    "note": "Data discarded, check QuestDB health"
+                })
+                # Data is already cleared from buffer, just log and continue
 
     @staticmethod
     def _format_numeric(value: Any, decimals: int = 8) -> str:
