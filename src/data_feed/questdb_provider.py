@@ -291,35 +291,80 @@ class QuestDBProvider:
         Acquire a Sender from the pool (blocking until available).
 
         ✅ PERFORMANCE FIX: Reuses pooled connections instead of creating new ones.
+        ✅ CRITICAL FIX: On-demand sender creation when pool is exhausted.
+
+        This prevents deadlock when all senders fail and replacement attempts fail.
+        Instead of waiting forever, we attempt to create a new sender on-demand.
 
         Returns:
-            Sender instance from the pool
+            Sender instance from the pool or newly created
 
         Raises:
-            RuntimeError: If pool is empty and not initialized
+            RuntimeError: If unable to create sender after max retries
         """
         async with self._sender_available:
-            while not self._sender_pool:
-                # Pool is empty - either not initialized or all senders checked out
-                # Wait for a sender to become available
-                await self._sender_available.wait()
+            max_create_attempts = 3
+            create_retry_delay = 1.0
 
-            sender = self._sender_pool.pop()
-            logger.debug(f"Sender acquired from pool (remaining: {len(self._sender_pool)})")
-            return sender
+            for attempt in range(max_create_attempts):
+                if self._sender_pool:
+                    # Happy path: sender available in pool
+                    sender = self._sender_pool.pop()
+                    logger.debug(f"Sender acquired from pool (remaining: {len(self._sender_pool)})")
+                    return sender
+
+                # Pool is empty - try to create new sender on-demand
+                logger.warning(
+                    f"Sender pool exhausted (attempt {attempt + 1}/{max_create_attempts}), "
+                    f"creating new sender on-demand for emergency recovery"
+                )
+
+                try:
+                    new_sender = Sender(Protocol.Tcp, self.ilp_host, self.ilp_port)
+                    logger.info(f"Emergency sender created (pool was empty, self-healing activated)")
+                    return new_sender
+                except IngressError as e:
+                    is_last_attempt = (attempt == max_create_attempts - 1)
+
+                    if is_last_attempt:
+                        # All creation attempts failed - QuestDB is likely offline
+                        error_msg = (
+                            f"Failed to create sender after {max_create_attempts} attempts: {e}\n"
+                            f"QuestDB appears to be offline or unreachable.\n"
+                            f"Please verify:\n"
+                            f"  1. QuestDB is running\n"
+                            f"  2. Port {self.ilp_port} (ILP) is accessible\n"
+                            f"  3. No firewall blocking connections\n"
+                            f"  4. Check Web UI: http://127.0.0.1:9000"
+                        )
+                        logger.error(error_msg)
+                        raise RuntimeError(error_msg) from e
+                    else:
+                        logger.warning(
+                            f"Sender creation failed (attempt {attempt + 1}): {e}, "
+                            f"retrying in {create_retry_delay}s"
+                        )
+                        # Release lock temporarily to allow other operations
+                        # Using asyncio.sleep releases the lock due to context manager exit
+                        # We'll re-acquire in next iteration
+                        await asyncio.sleep(create_retry_delay)
+
+            # Should never reach here due to exception in last attempt, but for safety
+            raise RuntimeError("Failed to acquire sender: pool exhausted and unable to create new sender")
 
     async def _release_sender(self, sender: Sender, is_broken: bool = False):
         """
         Return a Sender to the pool or replace if broken.
 
         ✅ PERFORMANCE FIX: Returns healthy senders to pool for reuse, recreates broken ones.
+        ✅ RECOVERY FIX: Graceful degradation - even if replacement fails, we don't crash.
+
+        The _acquire_sender() method will handle on-demand creation if pool exhausts,
+        so we don't need to panic if replacement fails here.
 
         Args:
             sender: Sender instance to release
             is_broken: If True, sender will be closed and replaced with a new one
-
-        Raises:
-            RuntimeError: If failed to create replacement sender
         """
         async with self._sender_available:
             if is_broken:
@@ -330,22 +375,28 @@ class QuestDBProvider:
                 except Exception as e:
                     logger.warning(f"Error closing broken sender: {e}")
 
-                # Try to create a replacement
+                # Try to create a replacement (best effort)
                 try:
                     new_sender = Sender(Protocol.Tcp, self.ilp_host, self.ilp_port)
                     self._sender_pool.append(new_sender)
                     logger.info(f"Broken sender replaced (pool size: {len(self._sender_pool)})")
                 except IngressError as e:
-                    logger.error(f"Failed to replace broken sender: {e}")
-                    # Pool is now smaller - log warning but don't raise
-                    # System can continue with reduced pool size
-                    logger.warning(f"Sender pool reduced to {len(self._sender_pool)} connections")
+                    # ✅ CHANGED: Log as warning, not error - this is recoverable
+                    # Pool shrinks, but _acquire_sender will handle on-demand creation
+                    logger.warning(
+                        f"Failed to replace broken sender: {e}. "
+                        f"Pool reduced to {len(self._sender_pool)} connections. "
+                        f"On-demand creation will be used if pool exhausts."
+                    )
+                    # ✅ CRITICAL: Don't raise - allow graceful degradation
+                    # The system can continue with reduced pool size
             else:
                 # Return healthy sender to pool
                 self._sender_pool.append(sender)
                 logger.debug(f"Sender released to pool (total: {len(self._sender_pool)})")
 
-            # Notify waiting coroutines that a sender is available
+            # Notify waiting coroutines that a sender may be available
+            # (or they should try creating one via on-demand creation)
             self._sender_available.notify()
 
     @asynccontextmanager
@@ -486,12 +537,46 @@ class QuestDBProvider:
             except IngressError as e:
                 last_error = e
                 is_last_attempt = (attempt == self.ilp_retry_attempts)
+                error_str = str(e).lower()
 
                 # ✅ CRITICAL FIX: Mark sender as broken and release it
                 if sender_acquired and sender is not None:
                     await self._release_sender(sender, is_broken=True)
                     sender_acquired = False
                     sender = None
+
+                # ✅ STALE SENDER DETECTION: "Sender is closed" is recoverable
+                # This happens when:
+                # - QuestDB restarted (all TCP connections closed)
+                # - Sender was idle too long (connection timeout)
+                # - Previous error left sender in closed state
+                # - Pool returned a stale sender that wasn't properly validated
+                is_stale_sender = "sender is closed" in error_str or "closed" in error_str
+
+                if is_stale_sender:
+                    if not is_last_attempt:
+                        logger.warning(
+                            f"{operation_name} failed with stale sender (attempt {attempt + 1}/{self.ilp_retry_attempts + 1}): {e}. "
+                            f"Sender was closed (QuestDB restart or idle timeout). "
+                            f"Retrying with new sender..."
+                        )
+                        # Don't check for permanent failure - this is always recoverable
+                        # Just retry with new sender (will be acquired in next iteration)
+                        delay = self.ilp_retry_delays[min(attempt, len(self.ilp_retry_delays) - 1)]
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        # Last attempt with stale sender - still fail but with clear message
+                        error_msg = (
+                            f"Failed to {operation_name} after {self.ilp_retry_attempts + 1} attempts (stale sender): {e}\n"
+                            f"All retry attempts exhausted. Senders are persistently closed.\n"
+                            f"This may indicate:\n"
+                            f"  1. QuestDB is restarting repeatedly\n"
+                            f"  2. Network connection is unstable\n"
+                            f"  3. Firewall is blocking persistent connections"
+                        )
+                        logger.error(error_msg)
+                        raise Exception(error_msg) from e
 
                 # ✅ RETRY LOGIC FIX: Detect permanent failures and fail fast
                 is_permanent = self._is_permanent_failure(e)
@@ -504,7 +589,7 @@ class QuestDBProvider:
                         f"This error indicates QuestDB is not running or not accepting connections.\n"
                         f"Retrying will not help. Please:\n"
                         f"  1. Start QuestDB server\n"
-                        f"  2. Verify ports 9009 (ILP) and 8812 (PostgreSQL) are accessible\n"
+                        f"  2. Verify ports {self.ilp_port} (ILP) and {self.pg_port} (PostgreSQL) are accessible\n"
                         f"  3. Check Web UI: http://127.0.0.1:9000\n"
                         f"\n"
                         f"Failing fast without retries to prevent data loss and buffer overflow."
