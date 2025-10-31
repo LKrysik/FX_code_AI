@@ -27,12 +27,13 @@ class MarketDataProviderFactory:
         self.logger = logger
         self._underlying_connector: Optional[object] = None
     
-    def create(self, override_mode: TradingMode = None) -> IMarketDataProvider:
+    def create(self, override_mode: TradingMode = None, data_types: Optional[list] = None) -> IMarketDataProvider:
         """
         Create market data provider with underlying exchange connector.
 
         Args:
             override_mode: Override the default trading mode for this provider
+            data_types: List of data types to subscribe to ('prices', 'orderbook'). Defaults to both.
 
         Returns:
             Configured market data provider
@@ -53,7 +54,8 @@ class MarketDataProviderFactory:
             "is_backtest": effective_mode == TradingMode.BACKTEST,
             "is_collect": effective_mode == TradingMode.COLLECT,
             "is_live": effective_mode == TradingMode.LIVE,
-            "mexc_enabled": self.settings.exchanges.mexc_enabled
+            "mexc_enabled": self.settings.exchanges.mexc_enabled,
+            "data_types": data_types
         })
 
         # Check if we're in backtest mode
@@ -63,7 +65,7 @@ class MarketDataProviderFactory:
         # For data collection or live trading, use real market data providers
         if effective_mode in (TradingMode.COLLECT, TradingMode.LIVE):
             if self.settings.exchanges.mexc_enabled:
-                return self._create_mexc_provider()
+                return self._create_mexc_provider(data_types=data_types)
             else:
                 raise ValueError("MEXC exchange must be enabled for COLLECT/LIVE modes")
 
@@ -107,26 +109,31 @@ class MarketDataProviderFactory:
         
         return provider
     
-    def _create_mexc_provider(self) -> IMarketDataProvider:
+    def _create_mexc_provider(self, data_types: Optional[list] = None) -> IMarketDataProvider:
         """
         Create clean MEXC WebSocket adapter for live trading.
-        
+
+        Args:
+            data_types: List of data types to subscribe to ('prices', 'orderbook'). Defaults to both.
+
         Returns:
             Configured MexcWebSocketAdapter implementing IMarketDataProvider
         """
         from ...infrastructure.exchanges.mexc_websocket_adapter import MexcWebSocketAdapter
-        
+
         # Create clean MEXC adapter directly implementing the interface
         provider = MexcWebSocketAdapter(
             settings=self.settings.exchanges,
             event_bus=self.event_bus,
-            logger=self.logger
+            logger=self.logger,
+            data_types=data_types  # ✅ FIX: Pass data_types to adapter
         )
-        
+
         self.logger.info("market_data_factory.mexc_adapter_created", {
             "exchange": "mexc",
-            "implementation": "clean_websocket_adapter"
+            "implementation": "clean_websocket_adapter",
+            "data_types": data_types or ['prices', 'orderbook']
         })
-        
+
         return provider
 

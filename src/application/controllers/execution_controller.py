@@ -463,8 +463,12 @@ class ExecutionController:
         trading_mode = mode_mapping.get(self._current_session.mode, TradingMode.BACKTEST)
         print(f"[DEBUG] Mapped {self._current_session.mode} to trading mode {trading_mode}")
 
-        # Create real market data provider with correct mode
-        data_source = self.market_data_provider_factory.create(override_mode=trading_mode)
+        # ✅ FIX: Get data_types from session parameters
+        data_types = self._current_session.parameters.get("data_types", ['prices', 'orderbook'])
+        print(f"[DEBUG] Data types from session: {data_types}")
+
+        # Create real market data provider with correct mode and data_types
+        data_source = self.market_data_provider_factory.create(override_mode=trading_mode, data_types=data_types)
         print(f"[DEBUG] Created provider: {type(data_source)}")
 
         # Wrap the IMarketDataProvider in an adapter that implements IExecutionDataSource
@@ -495,7 +499,18 @@ class ExecutionController:
         if not symbols:
             raise ValueError("data_collection_failed: symbols list cannot be empty")
 
-        extra_params = {k: v for k, v in kwargs.items() if k != "data_path"}
+        # ✅ FIX: Extract data_types from kwargs (defaults to both prices and orderbook)
+        data_types = kwargs.get("data_types", ['prices', 'orderbook'])
+        if isinstance(data_types, str):
+            data_types = [data_types]  # Convert single string to list
+
+        # Validate data_types
+        valid_data_types = {'prices', 'orderbook'}
+        invalid_types = set(data_types) - valid_data_types
+        if invalid_types:
+            raise ValueError(f"data_collection_failed: invalid data_types {invalid_types}. Valid options: {valid_data_types}")
+
+        extra_params = {k: v for k, v in kwargs.items() if k not in ("data_path", "data_types")}
         requested_data_path = kwargs.get("data_path")
         if requested_data_path is None and self._current_session:
             requested_data_path = self._current_session.parameters.get("data_path")
@@ -528,6 +543,7 @@ class ExecutionController:
             self._current_session.parameters.update({
                 "duration": duration,
                 "data_path": str(base_data_path),
+                "data_types": data_types,  # ✅ FIX: Store data_types in session parameters
                 **extra_params
             })
             session_id = self._current_session.session_id
@@ -539,7 +555,8 @@ class ExecutionController:
                     self._active_symbols[sym] = session_id
             self.logger.info("execution.session_updated_for_data_collection", {
                 "session_id": session_id,
-                "symbols": symbols
+                "symbols": symbols,
+                "data_types": data_types
             })
         else:
             # Create new session with DATA_COLLECTION mode
@@ -549,6 +566,7 @@ class ExecutionController:
                 config={
                     "duration": duration,
                     "data_path": str(base_data_path),
+                    "data_types": data_types,  # ✅ FIX: Pass data_types to session config
                     **extra_params
                 }
             )
@@ -569,7 +587,7 @@ class ExecutionController:
                 await self.db_persistence_service.create_session(
                     session_id=session_id,
                     symbols=symbols,
-                    data_types=['prices', 'orderbook'],  # Based on files created
+                    data_types=data_types,  # ✅ FIX: Use actual data_types from config
                     exchange='mexc',
                     notes=f"Data collection session created via API"
                 )

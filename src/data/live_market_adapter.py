@@ -77,7 +77,8 @@ class LiveMarketAdapter:
         settings: ExchangeSettings,
         event_bus: EventBus,
         logger: StructuredLogger,
-        session_manager: "SessionManager"
+        session_manager: "SessionManager",
+        data_types: Optional[List[str]] = None
     ):
         self.settings = settings
         self.event_bus = event_bus
@@ -85,7 +86,8 @@ class LiveMarketAdapter:
         self.session_manager = session_manager
 
         # Core adapter instance
-        self.adapter = MexcWebSocketAdapter(settings, event_bus, logger)
+        # ✅ FIX: Pass data_types to underlying MEXC adapter
+        self.adapter = MexcWebSocketAdapter(settings, event_bus, logger, data_types=data_types)
 
         # Sprint 4 enhancements
         self.incidents: List[Incident] = []
