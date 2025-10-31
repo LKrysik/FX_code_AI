@@ -315,6 +315,13 @@ class ExecutionController:
         self._progress_callbacks: List[Callable[[float], None]] = []
         self._last_progress_update = 0.0
 
+        # ✅ PERFORMANCE FIX: Throttle progress event publishing to reduce EventBus load
+        # Without throttling, progress updates are published after EVERY batch (~10/second)
+        # causing excessive logging, EventBus pressure, and WebSocket traffic.
+        # This limits progress events to once per interval while still updating internal state.
+        self._last_progress_publish = 0.0  # Timestamp of last progress event publish
+        self._progress_publish_interval = 5.0  # Seconds between progress event publishes (configurable)
+
         # ✅ FIX: Track last QuestDB session status update for periodic updates
         self._last_db_status_update = 0.0
 
@@ -970,33 +977,54 @@ class ExecutionController:
 
             self._current_session.progress = progress
 
-            # Always publish for data collection (since progress is artificial)
+            # Always update internal state for data collection
             self._last_progress_update = progress
 
-            # Notify callbacks
+            # Notify callbacks (always, for internal state tracking)
             for callback in self._progress_callbacks:
                 try:
                     callback(progress)
                 except Exception as e:
                     self.logger.error("execution.progress_callback_error", {"error": str(e)})
 
-            # Publish progress event with additional data collection fields
-            await self._publish_event(
-                "execution.progress_update",
-                {
-                    "session_id": self._current_session.session_id,
-                    "command_type": "collect",
-                    "progress": {
-                        "percentage": progress,
-                        "current_step": records_collected,
-                        "eta_seconds": eta_seconds
+            # ✅ THROTTLING: Only publish progress events at configured interval
+            # This prevents EventBus/WebSocket spam when batches arrive frequently (~10/sec)
+            # Internal state (progress, metrics) is always updated, but events are rate-limited
+            current_time = time.time()
+            time_since_last_publish = current_time - self._last_progress_publish
+
+            if time_since_last_publish >= self._progress_publish_interval:
+                # Publish progress event with additional data collection fields
+                await self._publish_event(
+                    "execution.progress_update",
+                    {
+                        "session_id": self._current_session.session_id,
+                        "command_type": "collect",
+                        "progress": {
+                            "percentage": progress,
+                            "current_step": records_collected,
+                            "eta_seconds": eta_seconds
+                        },
+                        "records_collected": records_collected,
+                        "status": self._current_session.status.value,
+                        "timestamp": datetime.now().isoformat()
                     },
+                    priority=EventPriority.NORMAL
+                )
+                self._last_progress_publish = current_time
+                self.logger.debug("execution.progress_published", {
+                    "session_id": self._current_session.session_id,
+                    "progress": progress,
                     "records_collected": records_collected,
-                    "status": self._current_session.status.value,
-                    "timestamp": datetime.now().isoformat()
-                },
-                priority=EventPriority.NORMAL
-            )
+                    "interval_seconds": time_since_last_publish
+                })
+            else:
+                # Throttled - skip publishing this update
+                self.logger.debug("execution.progress_throttled", {
+                    "session_id": self._current_session.session_id,
+                    "time_since_last_publish": time_since_last_publish,
+                    "next_publish_in": self._progress_publish_interval - time_since_last_publish
+                })
 
             # ✅ FIX: Periodic QuestDB session status update (every 10 seconds)
             # This ensures GET /api/data-collection/sessions returns up-to-date records_collected
@@ -1026,35 +1054,58 @@ class ExecutionController:
 
             return
 
-        # For other modes, use the original logic
+        # For other modes (backtest, live, paper), use the original logic
         if progress is None:
             return
 
         self._current_session.progress = progress
 
-        # Only publish if significant change
-        if abs(progress - self._last_progress_update) < 1.0:
-            return
-
+        # Always update internal state
         self._last_progress_update = progress
 
-        # Notify callbacks
+        # Notify callbacks (always, for internal state tracking)
         for callback in self._progress_callbacks:
             try:
                 callback(progress)
             except Exception as e:
                 self.logger.error("execution.progress_callback_error", {"error": str(e)})
 
-        # Publish progress event
-        await self._publish_event(
-            "execution.progress_update",
-            {
+        # ✅ THROTTLING: Only publish progress events at configured interval
+        # This prevents EventBus/WebSocket spam for high-frequency backtests
+        # Combines time-based throttling with significance threshold
+        current_time = time.time()
+        time_since_last_publish = current_time - self._last_progress_publish
+
+        # Publish if either: enough time passed OR significant progress change (>5%)
+        significant_change = abs(progress - self._last_progress_update) >= 5.0
+        time_threshold_met = time_since_last_publish >= self._progress_publish_interval
+
+        if time_threshold_met or significant_change:
+            # Publish progress event
+            await self._publish_event(
+                "execution.progress_update",
+                {
+                    "session_id": self._current_session.session_id,
+                    "progress": progress,
+                    "timestamp": datetime.now().isoformat()
+                },
+                priority=EventPriority.NORMAL
+            )
+            self._last_progress_publish = current_time
+            self.logger.debug("execution.progress_published", {
                 "session_id": self._current_session.session_id,
                 "progress": progress,
-                "timestamp": datetime.now().isoformat()
-            },
-            priority=EventPriority.NORMAL
-        )
+                "reason": "significant_change" if significant_change else "time_threshold",
+                "interval_seconds": time_since_last_publish
+            })
+        else:
+            # Throttled - skip publishing
+            self.logger.debug("execution.progress_throttled", {
+                "session_id": self._current_session.session_id,
+                "progress": progress,
+                "time_since_last_publish": time_since_last_publish,
+                "next_publish_in": self._progress_publish_interval - time_since_last_publish
+            })
     
     async def _complete_execution(self) -> None:
         """Handle natural execution completion"""
