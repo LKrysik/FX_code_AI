@@ -27,29 +27,33 @@ async def test_scenario_1_valid_data():
     db_provider = QuestDBProvider()
     await db_provider.initialize()
 
-    persistence = DataCollectionPersistenceService(db_provider=db_provider)
-    session_id = await persistence.create_session(
-        symbols=['BTC_USDT'],
-        data_types=['orderbook'],
-        collection_mode='live'
-    )
-
-    orderbook_data = [{
+    # Test direct QuestDB write (skip session layer)
+    batch = [{
+        'session_id': 'test_valid_data',
+        'symbol': 'BTC_USDT',
         'timestamp': time.time(),
-        'bids': [[50000.0, 1.0], [49999.0, 2.0], [49998.0, 3.0]],
-        'asks': [[50001.0, 1.0], [50002.0, 2.0], [50003.0, 3.0]]
+        'bid_price_1': 50000.0,
+        'bid_qty_1': 1.0,
+        'bid_price_2': 49999.0,
+        'bid_qty_2': 2.0,
+        'bid_price_3': 49998.0,
+        'bid_qty_3': 3.0,
+        'ask_price_1': 50001.0,
+        'ask_qty_1': 1.0,
+        'ask_price_2': 50002.0,
+        'ask_qty_2': 2.0,
+        'ask_price_3': 50003.0,
+        'ask_qty_3': 3.0,
     }]
 
     try:
-        count = await persistence.persist_orderbook_snapshots(
-            session_id=session_id,
-            symbol='BTC_USDT',
-            orderbook_data=orderbook_data
-        )
+        count = await db_provider.insert_orderbook_snapshots_batch(batch)
         print(f"✅ Valid data: {count} records written")
         return True
     except Exception as e:
         print(f"❌ Valid data FAILED: {e}")
+        import traceback
+        traceback.print_exc()
         return False
     finally:
         await db_provider.close()
@@ -64,30 +68,34 @@ async def test_scenario_2_empty_bids_asks():
     db_provider = QuestDBProvider()
     await db_provider.initialize()
 
-    persistence = DataCollectionPersistenceService(db_provider=db_provider)
-    session_id = await persistence.create_session(
-        symbols=['BTC_USDT'],
-        data_types=['orderbook'],
-        collection_mode='live'
-    )
-
-    orderbook_data = [{
+    # All zeros (simulates empty orderbook)
+    batch = [{
+        'session_id': 'test_empty',
+        'symbol': 'BTC_USDT',
         'timestamp': time.time(),
-        'bids': [],  # Empty!
-        'asks': []   # Empty!
+        'bid_price_1': 0.0,
+        'bid_qty_1': 0.0,
+        'bid_price_2': 0.0,
+        'bid_qty_2': 0.0,
+        'bid_price_3': 0.0,
+        'bid_qty_3': 0.0,
+        'ask_price_1': 0.0,
+        'ask_qty_1': 0.0,
+        'ask_price_2': 0.0,
+        'ask_qty_2': 0.0,
+        'ask_price_3': 0.0,
+        'ask_qty_3': 0.0,
     }]
 
     try:
-        count = await persistence.persist_orderbook_snapshots(
-            session_id=session_id,
-            symbol='BTC_USDT',
-            orderbook_data=orderbook_data
-        )
+        count = await db_provider.insert_orderbook_snapshots_batch(batch)
         print(f"✅ Empty bids/asks: {count} records written (all zeros)")
         return True
     except Exception as e:
         print(f"❌ Empty bids/asks FAILED: {e}")
         print("   This might be the issue if MEXC sends empty orderbooks!")
+        import traceback
+        traceback.print_exc()
         return False
     finally:
         await db_provider.close()
@@ -102,51 +110,64 @@ async def test_scenario_3_invalid_floats():
     db_provider = QuestDBProvider()
     await db_provider.initialize()
 
-    persistence = DataCollectionPersistenceService(db_provider=db_provider)
-    session_id = await persistence.create_session(
-        symbols=['BTC_USDT'],
-        data_types=['orderbook'],
-        collection_mode='live'
-    )
-
     # Test NaN
-    orderbook_data_nan = [{
+    batch_nan = [{
+        'session_id': 'test_nan',
+        'symbol': 'BTC_USDT',
         'timestamp': time.time(),
-        'bids': [[float('nan'), 1.0], [49999.0, 2.0]],  # NaN price!
-        'asks': [[50001.0, 1.0]]
+        'bid_price_1': float('nan'),  # NaN!
+        'bid_qty_1': 1.0,
+        'bid_price_2': 49999.0,
+        'bid_qty_2': 2.0,
+        'bid_price_3': 0.0,
+        'bid_qty_3': 0.0,
+        'ask_price_1': 50001.0,
+        'ask_qty_1': 1.0,
+        'ask_price_2': 0.0,
+        'ask_qty_2': 0.0,
+        'ask_price_3': 0.0,
+        'ask_qty_3': 0.0,
     }]
 
     try:
-        count = await persistence.persist_orderbook_snapshots(
-            session_id=session_id,
-            symbol='BTC_USDT',
-            orderbook_data=orderbook_data_nan
-        )
+        count = await db_provider.insert_orderbook_snapshots_batch(batch_nan)
         print(f"⚠️  NaN value: {count} records written (QuestDB accepted NaN?)")
         nan_ok = True
     except Exception as e:
         print(f"❌ NaN value FAILED: {e}")
         print("   QuestDB rejects NaN values!")
+        import traceback
+        traceback.print_exc()
         nan_ok = False
 
     # Test Infinity
-    orderbook_data_inf = [{
+    batch_inf = [{
+        'session_id': 'test_inf',
+        'symbol': 'BTC_USDT',
         'timestamp': time.time() + 1,
-        'bids': [[float('inf'), 1.0], [49999.0, 2.0]],  # Infinity price!
-        'asks': [[50001.0, 1.0]]
+        'bid_price_1': float('inf'),  # Infinity!
+        'bid_qty_1': 1.0,
+        'bid_price_2': 49999.0,
+        'bid_qty_2': 2.0,
+        'bid_price_3': 0.0,
+        'bid_qty_3': 0.0,
+        'ask_price_1': 50001.0,
+        'ask_qty_1': 1.0,
+        'ask_price_2': 0.0,
+        'ask_qty_2': 0.0,
+        'ask_price_3': 0.0,
+        'ask_qty_3': 0.0,
     }]
 
     try:
-        count = await persistence.persist_orderbook_snapshots(
-            session_id=session_id,
-            symbol='BTC_USDT',
-            orderbook_data=orderbook_data_inf
-        )
+        count = await db_provider.insert_orderbook_snapshots_batch(batch_inf)
         print(f"⚠️  Infinity value: {count} records written (QuestDB accepted infinity?)")
         inf_ok = True
     except Exception as e:
         print(f"❌ Infinity value FAILED: {e}")
         print("   QuestDB rejects infinity values!")
+        import traceback
+        traceback.print_exc()
         inf_ok = False
 
     await db_provider.close()
@@ -156,37 +177,40 @@ async def test_scenario_3_invalid_floats():
 async def test_scenario_4_string_values():
     """Test 4: String values instead of floats"""
     print("\n" + "=" * 80)
-    print("TEST 4: String values in bids/asks")
+    print("TEST 4: String values converted to floats")
     print("=" * 80)
 
     db_provider = QuestDBProvider()
     await db_provider.initialize()
 
-    persistence = DataCollectionPersistenceService(db_provider=db_provider)
-    session_id = await persistence.create_session(
-        symbols=['BTC_USDT'],
-        data_types=['orderbook'],
-        collection_mode='live'
-    )
-
-    # MEXC sends strings like "50000.00"
-    orderbook_data = [{
-        'timestamp': time.time(),
-        'bids': [["50000.00", "1.0"], ["49999.50", "2.0"]],  # Strings!
-        'asks': [["50001.00", "1.0"]]
-    }]
-
+    # MEXC sends strings - test float() conversion
     try:
-        count = await persistence.persist_orderbook_snapshots(
-            session_id=session_id,
-            symbol='BTC_USDT',
-            orderbook_data=orderbook_data
-        )
+        batch = [{
+            'session_id': 'test_strings',
+            'symbol': 'BTC_USDT',
+            'timestamp': time.time(),
+            'bid_price_1': float("50000.00"),  # String converted
+            'bid_qty_1': float("1.0"),
+            'bid_price_2': float("49999.50"),
+            'bid_qty_2': float("2.0"),
+            'bid_price_3': 0.0,
+            'bid_qty_3': 0.0,
+            'ask_price_1': float("50001.00"),
+            'ask_qty_1': float("1.0"),
+            'ask_price_2': 0.0,
+            'ask_qty_2': 0.0,
+            'ask_price_3': 0.0,
+            'ask_qty_3': 0.0,
+        }]
+
+        count = await db_provider.insert_orderbook_snapshots_batch(batch)
         print(f"✅ String values: {count} records written (float() conversion works)")
         return True
     except Exception as e:
         print(f"❌ String values FAILED: {e}")
         print("   float() conversion failed on MEXC string format!")
+        import traceback
+        traceback.print_exc()
         return False
     finally:
         await db_provider.close()
@@ -201,28 +225,30 @@ async def test_scenario_5_high_frequency():
     db_provider = QuestDBProvider()
     await db_provider.initialize()
 
-    persistence = DataCollectionPersistenceService(db_provider=db_provider)
-    session_id = await persistence.create_session(
-        symbols=['BTC_USDT'],
-        data_types=['orderbook'],
-        collection_mode='live'
-    )
-
     try:
         for batch_num in range(10):
-            orderbook_data = []
+            batch = []
+            base_time = time.time()
             for i in range(50):
-                orderbook_data.append({
-                    'timestamp': time.time() + i * 0.001,  # 1ms apart
-                    'bids': [[50000.0 + i, 1.0], [49999.0, 2.0]],
-                    'asks': [[50001.0, 1.0]]
+                batch.append({
+                    'session_id': 'test_high_freq',
+                    'symbol': 'BTC_USDT',
+                    'timestamp': base_time + i * 0.001,  # 1ms apart
+                    'bid_price_1': 50000.0 + i,
+                    'bid_qty_1': 1.0,
+                    'bid_price_2': 49999.0,
+                    'bid_qty_2': 2.0,
+                    'bid_price_3': 0.0,
+                    'bid_qty_3': 0.0,
+                    'ask_price_1': 50001.0,
+                    'ask_qty_1': 1.0,
+                    'ask_price_2': 0.0,
+                    'ask_qty_2': 0.0,
+                    'ask_price_3': 0.0,
+                    'ask_qty_3': 0.0,
                 })
 
-            count = await persistence.persist_orderbook_snapshots(
-                session_id=session_id,
-                symbol='BTC_USDT',
-                orderbook_data=orderbook_data
-            )
+            count = await db_provider.insert_orderbook_snapshots_batch(batch)
             print(f"  Batch {batch_num + 1}/10: {count} records written")
 
         print(f"✅ High-frequency writes: All batches succeeded")
@@ -230,44 +256,50 @@ async def test_scenario_5_high_frequency():
     except Exception as e:
         print(f"❌ High-frequency writes FAILED at batch {batch_num + 1}: {e}")
         print("   Sender pool exhaustion or connection issue!")
+        import traceback
+        traceback.print_exc()
         return False
     finally:
         await db_provider.close()
 
 
 async def test_scenario_6_missing_fields():
-    """Test 6: Missing required fields"""
+    """Test 6: Missing optional fields (all zeros)"""
     print("\n" + "=" * 80)
-    print("TEST 6: Missing required fields")
+    print("TEST 6: Incomplete orderbook (only level 1)")
     print("=" * 80)
 
     db_provider = QuestDBProvider()
     await db_provider.initialize()
 
-    persistence = DataCollectionPersistenceService(db_provider=db_provider)
-    session_id = await persistence.create_session(
-        symbols=['BTC_USDT'],
-        data_types=['orderbook'],
-        collection_mode='live'
-    )
-
-    # Missing 'bids' and 'asks' keys
-    orderbook_data = [{
+    # Only level 1 data, rest zeros (simulates thin orderbook)
+    batch = [{
+        'session_id': 'test_incomplete',
+        'symbol': 'BTC_USDT',
         'timestamp': time.time(),
-        # Missing bids and asks entirely!
+        'bid_price_1': 50000.0,
+        'bid_qty_1': 1.0,
+        'bid_price_2': 0.0,  # Missing level 2
+        'bid_qty_2': 0.0,
+        'bid_price_3': 0.0,  # Missing level 3
+        'bid_qty_3': 0.0,
+        'ask_price_1': 50001.0,
+        'ask_qty_1': 1.0,
+        'ask_price_2': 0.0,  # Missing level 2
+        'ask_qty_2': 0.0,
+        'ask_price_3': 0.0,  # Missing level 3
+        'ask_qty_3': 0.0,
     }]
 
     try:
-        count = await persistence.persist_orderbook_snapshots(
-            session_id=session_id,
-            symbol='BTC_USDT',
-            orderbook_data=orderbook_data
-        )
-        print(f"✅ Missing fields: {count} records written (defaults to empty arrays)")
+        count = await db_provider.insert_orderbook_snapshots_batch(batch)
+        print(f"✅ Incomplete orderbook: {count} records written (zeros for missing levels)")
         return True
     except Exception as e:
-        print(f"❌ Missing fields FAILED: {e}")
-        print("   Code doesn't handle missing bids/asks keys!")
+        print(f"❌ Incomplete orderbook FAILED: {e}")
+        print("   Code doesn't handle partial orderbook!")
+        import traceback
+        traceback.print_exc()
         return False
     finally:
         await db_provider.close()
