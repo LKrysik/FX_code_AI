@@ -64,9 +64,11 @@ CREATE TABLE IF NOT EXISTS data_collection_sessions (
     updated_at TIMESTAMP                              -- Last update time
 ) timestamp(created_at) PARTITION BY DAY;
 
--- Index for quick session lookups
-CREATE INDEX IF NOT EXISTS idx_sessions_status ON data_collection_sessions(status);
-CREATE INDEX IF NOT EXISTS idx_sessions_start_time ON data_collection_sessions(start_time);
+-- Indexes:
+-- session_id: SYMBOL (automatically indexed via CACHE)
+-- status: SYMBOL (automatically indexed via CACHE)
+-- start_time: TIMESTAMP (designated timestamp, cannot be indexed)
+-- No additional indexes needed - QuestDB handles SYMBOL indexing automatically
 
 
 -- ============================================================================
@@ -169,8 +171,10 @@ CREATE TABLE IF NOT EXISTS aggregated_ohlcv (
 ) timestamp(timestamp) PARTITION BY DAY
 DEDUP UPSERT KEYS(timestamp, symbol, interval, session_id);
 
--- Index for efficient interval queries
-CREATE INDEX IF NOT EXISTS idx_ohlcv_interval ON aggregated_ohlcv(interval);
+-- Indexes:
+-- session_id: SYMBOL (automatically indexed via CACHE)
+-- symbol: SYMBOL (automatically indexed via CACHE)
+-- interval: SYMBOL (automatically indexed via CACHE)
 
 
 -- ============================================================================
@@ -185,8 +189,7 @@ CREATE INDEX IF NOT EXISTS idx_ohlcv_interval ON aggregated_ohlcv(interval);
 
 ALTER TABLE indicators ADD COLUMN session_id SYMBOL capacity 2048 CACHE;
 
--- Add index for session-based queries
-CREATE INDEX IF NOT EXISTS idx_indicators_session ON indicators(session_id);
+-- Index: session_id is SYMBOL (automatically indexed via CACHE)
 
 
 -- ============================================================================
@@ -197,8 +200,7 @@ CREATE INDEX IF NOT EXISTS idx_indicators_session ON indicators(session_id);
 
 ALTER TABLE backtest_results ADD COLUMN session_id SYMBOL capacity 2048 CACHE;
 
--- Add index for session-based queries
-CREATE INDEX IF NOT EXISTS idx_backtest_session ON backtest_results(session_id);
+-- Index: session_id is SYMBOL (automatically indexed via CACHE)
 
 
 -- ============================================================================
