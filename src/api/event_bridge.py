@@ -262,6 +262,14 @@ class EventBridge(IEventBridge):
         # Broadcast rate limiting
         self.broadcast_semaphore = asyncio.Semaphore(max_concurrent_broadcasts)
 
+        # ✅ PERF FIX (Problem #11): Event processing rate limiting
+        # Allows concurrent processing while preventing unbounded parallelism
+        # Set to 10 to match EventBus worker capacity (not 1 which serializes everything)
+        self.event_processing_semaphore = asyncio.Semaphore(10)
+
+        # Track active processing tasks for cleanup
+        self._active_processing_tasks: Set[asyncio.Task] = set()
+
         # Batch processing tasks
         self.batch_processing_tasks: List[asyncio.Task] = []
 
@@ -501,6 +509,28 @@ class EventBridge(IEventBridge):
                 except asyncio.TimeoutError:
                     pass  # Task didn't cancel cleanly
 
+        # ✅ PERF FIX (Problem #11): Cancel active processing tasks
+        active_tasks_count = len(self._active_processing_tasks)
+        if active_tasks_count > 0:
+            self.logger.info("event_bridge.cancelling_processing_tasks", {
+                "active_tasks": active_tasks_count
+            })
+            for task in list(self._active_processing_tasks):
+                if not task.done():
+                    task.cancel()
+            # Wait for all tasks with timeout
+            if self._active_processing_tasks:
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(*self._active_processing_tasks, return_exceptions=True),
+                        timeout=2.0
+                    )
+                except asyncio.TimeoutError:
+                    self.logger.warning("event_bridge.processing_tasks_timeout", {
+                        "timed_out_count": len(self._active_processing_tasks)
+                    })
+            self._active_processing_tasks.clear()
+
         # Explicitly unsubscribe all handlers to prevent warnings during cleanup
         for event_type, handler in self._subscribed_handlers:
             try:
@@ -705,9 +735,18 @@ class EventBridge(IEventBridge):
                 key = self._generate_event_key(event_type, transformed_data)
                 processor.batch_aggregator.add_update(key, transformed_data)
             else:
-                # Process immediate updates sequentially to provide natural flow control
-                # This prevents too much concurrency overwhelming EventBus locks
-                await self._process_immediate_update(processor.stream_type, transformed_data, event_publish_time)
+                # ✅ PERF FIX (Problem #11): Parallel processing with semaphore for flow control
+                # OLD: Sequential processing (await) caused 5-10x latency amplification
+                # NEW: Parallel processing with semaphore limits concurrency to 10 (not unbounded)
+                # This utilizes EventBus's 11 workers instead of just 1
+                task = asyncio.create_task(
+                    self._process_immediate_update_with_semaphore(
+                        processor.stream_type, transformed_data, event_publish_time
+                    )
+                )
+                # Track task for cleanup
+                self._active_processing_tasks.add(task)
+                task.add_done_callback(self._active_processing_tasks.discard)
 
             # Track processing time
             processing_time = (time.time() - start_time) * 1000
@@ -862,6 +901,15 @@ class EventBridge(IEventBridge):
                 "stream_type": batch.stream_type,
                 "error": str(e)
             })
+
+    async def _process_immediate_update_with_semaphore(self, stream_type: str, data: Dict[str, Any], event_publish_time: Optional[float] = None):
+        """✅ PERF FIX (Problem #11): Process immediate update with concurrency control
+
+        This is a wrapper around _process_immediate_update that adds semaphore-based
+        flow control to prevent unbounded parallelism while still allowing concurrent processing.
+        """
+        async with self.event_processing_semaphore:
+            await self._process_immediate_update(stream_type, data, event_publish_time)
 
     async def _process_immediate_update(self, stream_type: str, data: Dict[str, Any], event_publish_time: Optional[float] = None):
         """Process an immediate update (no batching)"""
