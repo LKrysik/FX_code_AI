@@ -265,8 +265,10 @@ CREATE TABLE strategy_templates (
     updated_at TIMESTAMP                    -- Last update timestamp
 );
 
--- Create index on category for fast filtering
-CREATE INDEX idx_category ON strategy_templates(category);
+-- Index on category for fast filtering
+-- Note: QuestDB requires ALTER TABLE syntax for STRING column indexes
+-- Note 2: This table is dropped in migration 004 (unused), so index is not critical
+ALTER TABLE strategy_templates ALTER COLUMN category ADD INDEX;
 
 -- ============================================================================
 -- TABLE 8: SYSTEM_METRICS (Time-Series)

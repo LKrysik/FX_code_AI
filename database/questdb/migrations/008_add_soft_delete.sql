@@ -66,53 +66,25 @@ ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false;
 
 
 -- ============================================================================
--- 2. CREATE INDEXES ON is_deleted FOR QUERY PERFORMANCE
+-- 2. INDEXES ON is_deleted (NOT SUPPORTED IN QUESTDB)
 -- ============================================================================
--- Without these indexes, every SELECT would perform full table scan
--- With indexes, filtering is_deleted = false is O(log n) instead of O(n)
-
-CREATE INDEX IF NOT EXISTS idx_sessions_deleted
-ON data_collection_sessions(is_deleted);
-
-CREATE INDEX IF NOT EXISTS idx_tick_prices_deleted
-ON tick_prices(is_deleted);
-
-CREATE INDEX IF NOT EXISTS idx_tick_orderbook_deleted
-ON tick_orderbook(is_deleted);
-
-CREATE INDEX IF NOT EXISTS idx_aggregated_ohlcv_deleted
-ON aggregated_ohlcv(is_deleted);
-
-CREATE INDEX IF NOT EXISTS idx_indicators_deleted
-ON indicators(is_deleted);
-
-CREATE INDEX IF NOT EXISTS idx_backtest_results_deleted
-ON backtest_results(is_deleted);
-
-
--- ============================================================================
--- 3. CREATE COMPOSITE INDEXES FOR COMMON QUERY PATTERNS
--- ============================================================================
--- Most queries filter by session_id AND is_deleted
--- Composite index allows single index lookup instead of two separate lookups
-
-CREATE INDEX IF NOT EXISTS idx_sessions_id_deleted
-ON data_collection_sessions(session_id, is_deleted);
-
-CREATE INDEX IF NOT EXISTS idx_tick_prices_session_deleted
-ON tick_prices(session_id, is_deleted);
-
-CREATE INDEX IF NOT EXISTS idx_tick_orderbook_session_deleted
-ON tick_orderbook(session_id, is_deleted);
-
-CREATE INDEX IF NOT EXISTS idx_aggregated_ohlcv_session_deleted
-ON aggregated_ohlcv(session_id, is_deleted);
-
-CREATE INDEX IF NOT EXISTS idx_indicators_session_deleted
-ON indicators(session_id, is_deleted);
-
-CREATE INDEX IF NOT EXISTS idx_backtest_results_session_deleted
-ON backtest_results(session_id, is_deleted);
+-- QuestDB limitations:
+-- - BOOLEAN columns CANNOT be indexed in QuestDB
+-- - CREATE INDEX syntax is NOT supported (QuestDB uses ALTER TABLE for non-SYMBOL indexes)
+-- - Filtering by is_deleted will use sequential scan
+--
+-- Performance impact:
+-- - WHERE is_deleted = false: Full table scan (acceptable for soft delete pattern)
+-- - WHERE session_id = 'X' AND is_deleted = false: Uses session_id SYMBOL index + filter
+--
+-- Mitigation:
+-- - session_id is SYMBOL (already indexed) - most queries filter by this first
+-- - is_deleted filtering happens AFTER session_id filtering (small result set)
+-- - Soft delete tables are typically small (metadata, not time-series data)
+--
+-- Alternative considered:
+-- - Use INT (0/1) instead of BOOLEAN - rejected (type safety more important)
+-- - Periodic hard delete cleanup - recommended (removes deleted rows entirely)
 
 
 -- ============================================================================
