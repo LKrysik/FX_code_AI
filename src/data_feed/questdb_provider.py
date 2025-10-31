@@ -123,10 +123,13 @@ class QuestDBProvider:
         pg_pool_size: int = 10,
         ilp_retry_attempts: int = 3,
         ilp_retry_delays: Optional[List[float]] = None,
-        ilp_keepalive_seconds: int = 60,
     ):
         """
-        Initialize QuestDB provider with connection reuse.
+        Initialize QuestDB provider with retry logic.
+
+        Uses one-sender-per-operation pattern (no connection reuse) to avoid
+        race conditions and threading issues. Each batch write creates a new
+        Sender within a context manager, following QuestDB best practices.
 
         Args:
             ilp_host: InfluxDB line protocol host
@@ -139,20 +142,12 @@ class QuestDBProvider:
             pg_pool_size: PostgreSQL connection pool size
             ilp_retry_attempts: Number of retry attempts for ILP operations (default 3)
             ilp_retry_delays: Retry delays in seconds (default [1.0, 2.0, 4.0] for exponential backoff)
-            ilp_keepalive_seconds: Keep ILP connection alive for N seconds of inactivity (default 60)
         """
         # InfluxDB line protocol config
         self.ilp_host = ilp_host
         self.ilp_port = ilp_port
         self.ilp_retry_attempts = ilp_retry_attempts
         self.ilp_retry_delays = ilp_retry_delays or [1.0, 2.0, 4.0]
-        self.ilp_keepalive_seconds = ilp_keepalive_seconds
-
-        # ILP connection reuse (eliminates connection exhaustion)
-        self._ilp_sender: Optional[Sender] = None
-        self._ilp_sender_lock = asyncio.Lock()
-        self._ilp_last_used: float = 0
-        self._ilp_connection_count: int = 0  # For monitoring
 
         # PostgreSQL config
         self.pg_host = pg_host
@@ -167,7 +162,7 @@ class QuestDBProvider:
 
         logger.info(
             f"QuestDBProvider initialized (ILP: {ilp_host}:{ilp_port}, PG: {pg_host}:{pg_port}, "
-            f"retry_attempts: {ilp_retry_attempts}, keepalive: {ilp_keepalive_seconds}s)"
+            f"retry_attempts: {ilp_retry_attempts})"
         )
 
     async def initialize(self):
@@ -185,18 +180,7 @@ class QuestDBProvider:
             logger.info(f"PostgreSQL pool created ({self.pg_pool_size} connections)")
 
     async def close(self):
-        """Close PostgreSQL connection pool and ILP sender."""
-        # Close ILP sender
-        if self._ilp_sender:
-            try:
-                self._ilp_sender.close()
-                logger.info(f"ILP sender closed (total connections created: {self._ilp_connection_count})")
-            except Exception as e:
-                logger.warning(f"Error closing ILP sender: {e}")
-            finally:
-                self._ilp_sender = None
-
-        # Close PostgreSQL pool
+        """Close PostgreSQL connection pool."""
         if self.pg_pool:
             await self.pg_pool.close()
             self.pg_pool = None
@@ -217,7 +201,7 @@ class QuestDBProvider:
 
         # Test ILP connection (port 9009) - try to create sender
         try:
-            with self._get_sender() as sender:
+            with Sender(Protocol.Tcp, self.ilp_host, self.ilp_port) as sender:
                 # Just test connection creation, no actual write
                 pass
             ilp_ok = True
@@ -247,69 +231,19 @@ class QuestDBProvider:
 
         return is_healthy
 
-    def _get_sender(self) -> Sender:
-        """
-        Get or create reusable ILP sender with keepalive.
-
-        CRITICAL: This implements connection reuse to eliminate connection exhaustion.
-        Instead of creating a new TCP connection for every batch write (causing
-        100+ connections/sec), we reuse the same connection until it becomes stale.
-
-        Connection lifecycle:
-        - First call: Create new connection, increment counter
-        - Subsequent calls: Reuse existing connection (if < keepalive_seconds old)
-        - Stale connection: Close and recreate (if > keepalive_seconds idle)
-        - Error: Force close and recreate on next call
-
-        Benefits:
-        - 95-99% reduction in TCP connections (from 100+/sec to 1-2/min)
-        - Eliminates connection exhaustion and port exhaustion
-        - Eliminates TCP handshake overhead (~1-5ms per write)
-        - Reduces load on QuestDB server
-
-        Thread Safety: MUST be called within _ilp_sender_lock (enforced by _execute_ilp_with_retry)
-
-        Returns:
-            Configured Sender instance for ILP writes (reused when possible)
-        """
-        current_time = time.time()
-
-        # Close stale connection (idle for too long)
-        if self._ilp_sender:
-            idle_time = current_time - self._ilp_last_used
-            if idle_time > self.ilp_keepalive_seconds:
-                try:
-                    self._ilp_sender.close()
-                    logger.debug(f"Closed stale ILP connection (idle {idle_time:.1f}s)")
-                except Exception as e:
-                    logger.warning(f"Error closing stale ILP sender: {e}")
-                finally:
-                    self._ilp_sender = None
-
-        # Create new connection if needed
-        if self._ilp_sender is None:
-            self._ilp_sender = Sender(Protocol.Tcp, self.ilp_host, self.ilp_port)
-            self._ilp_connection_count += 1
-            logger.info(f"Created new ILP connection #{self._ilp_connection_count} to {self.ilp_host}:{self.ilp_port}")
-
-        self._ilp_last_used = current_time
-        return self._ilp_sender
-
     async def _execute_ilp_with_retry(self, operation_name: str, write_func) -> int:
         """
-        Execute ILP write operation with retry logic, exponential backoff, and connection reuse.
+        Execute ILP write operation with retry logic and exponential backoff.
 
-        CRITICAL CHANGES from previous implementation:
-        - Uses asyncio.Lock for thread-safe access to shared ILP sender
-        - Does NOT use context manager (with statement) - we reuse the connection!
-        - Forces connection recreation on IngressError (connection likely broken)
-        - Combines retry logic with connection pooling for maximum resilience
+        Uses one-sender-per-operation pattern: creates a new Sender for each operation
+        within a context manager, following QuestDB best practices. Each retry attempt
+        creates a fresh Sender to avoid state issues.
 
         This method addresses transient connection failures to QuestDB caused by:
-        - Connection exhaustion (FIXED by reusing connections)
+        - Connection exhaustion (high-frequency writes creating many TCP connections)
         - QuestDB overload (WAL queue full, temporarily refusing new connections)
         - Network timing issues (even on localhost)
-        - OS ephemeral port exhaustion (FIXED by reusing connections)
+        - OS ephemeral port exhaustion (Windows WSAECONNREFUSED 10061)
 
         Args:
             operation_name: Name of operation for logging (e.g., "insert_tick_prices")
@@ -325,35 +259,22 @@ class QuestDBProvider:
 
         for attempt in range(self.ilp_retry_attempts + 1):
             try:
-                # Thread-safe access to shared ILP sender
-                async with self._ilp_sender_lock:
-                    sender = self._get_sender()  # Reuses connection when possible
+                # Create new Sender for this operation (no reuse, no shared state)
+                with Sender(Protocol.Tcp, self.ilp_host, self.ilp_port) as sender:
                     inserted = write_func(sender)
                     sender.flush()
-                    # CRITICAL: Do NOT close sender - we reuse it!
+                # Context manager automatically closes sender
 
                 if attempt > 0:
-                    logger.info(
-                        f"{operation_name} succeeded after {attempt + 1} attempts ({inserted} rows, "
-                        f"connection #{self._ilp_connection_count})"
-                    )
+                    logger.info(f"{operation_name} succeeded after {attempt + 1} attempts ({inserted} rows)")
                 else:
-                    logger.debug(f"{operation_name} succeeded ({inserted} rows, connection #{self._ilp_connection_count})")
+                    logger.debug(f"{operation_name} succeeded ({inserted} rows)")
 
                 return inserted
 
             except IngressError as e:
                 last_error = e
                 is_last_attempt = (attempt == self.ilp_retry_attempts)
-
-                # Force connection recreation (current connection is likely broken)
-                if self._ilp_sender:
-                    try:
-                        self._ilp_sender.close()
-                    except:
-                        pass
-                    self._ilp_sender = None
-                    logger.debug("Closed broken ILP connection, will recreate on retry")
 
                 if is_last_attempt:
                     error_msg = f"Failed to {operation_name} after {self.ilp_retry_attempts + 1} attempts: {e}"
