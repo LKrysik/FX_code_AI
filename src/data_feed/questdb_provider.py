@@ -1097,11 +1097,17 @@ class QuestDBProvider:
         WARNING: This should be called LAST after all child data is soft deleted.
         Uses UPDATE to set is_deleted = true instead of physical deletion.
 
+        ✅ RACE CONDITION FIX: Now waits for WAL commit verification before returning.
+        This ensures subsequent SELECT queries see the updated is_deleted = true state.
+
         Args:
             session_id: Session identifier
 
         Returns:
             Number of rows soft deleted (should be 1)
+
+        Raises:
+            RuntimeError: If WAL commit verification fails after max retries
         """
         await self.initialize()
 
@@ -1113,11 +1119,94 @@ class QuestDBProvider:
                 affected_rows = int(result.split()[-1]) if result else 0
 
             logger.info(f"Soft deleted session metadata for {session_id}")
+
+            # ✅ CRITICAL FIX: Verify WAL commit before returning success
+            # This prevents race condition where frontend queries GET /sessions
+            # immediately after DELETE returns, but UPDATE isn't visible yet
+            if affected_rows > 0:
+                await self._verify_session_deleted(session_id)
+                logger.info(f"Session {session_id} soft delete verified (WAL committed)")
+
             return affected_rows
 
         except Exception as e:
             logger.error(f"Failed to soft delete session metadata for {session_id}: {e}")
             raise
+
+    async def _verify_session_deleted(
+        self,
+        session_id: str,
+        max_retries: int = 6,
+        retry_delays: Optional[List[float]] = None
+    ) -> None:
+        """
+        Verify that session soft delete has committed to QuestDB.
+
+        This method implements retry logic to wait for QuestDB WAL (Write-Ahead Log)
+        commit after UPDATE operation. QuestDB optimizes for fast INSERTs via ILP,
+        but UPDATEs require rewriting partitions which can take 50-500ms.
+
+        Without this verification, there's a race condition:
+        1. DELETE endpoint executes UPDATE (writes to WAL)
+        2. DELETE returns HTTP 200 immediately
+        3. Frontend calls GET /sessions
+        4. GET query reads old state (UPDATE not yet committed from WAL)
+        5. Deleted session appears in results ❌
+
+        This method polls the database until UPDATE is visible or timeout.
+
+        Args:
+            session_id: Session identifier to verify
+            max_retries: Maximum verification attempts (default: 6)
+            retry_delays: Delays between retries in seconds
+                         (default: [0, 0.2, 0.4, 0.6, 1.0, 1.5] = ~4s total)
+
+        Raises:
+            RuntimeError: If session is still not marked as deleted after max retries
+        """
+        if retry_delays is None:
+            retry_delays = [0, 0.2, 0.4, 0.6, 1.0, 1.5]
+
+        for attempt, delay in enumerate(retry_delays):
+            if delay > 0:
+                await asyncio.sleep(delay)
+
+            # Query to check if session is now marked as deleted
+            verify_query = """
+            SELECT is_deleted
+            FROM data_collection_sessions
+            WHERE session_id = $1
+            """
+
+            try:
+                async with self.pg_pool.acquire() as conn:
+                    row = await conn.fetchrow(verify_query, session_id)
+
+                if row and row['is_deleted']:
+                    # ✅ SUCCESS: UPDATE is now visible (WAL committed)
+                    if attempt > 0:
+                        total_wait = sum(retry_delays[:attempt+1])
+                        logger.info(f"Session {session_id} delete verified after {attempt+1} attempts " +
+                                   f"(waited {total_wait:.2f}s for WAL commit)")
+                    return
+
+                # Still not deleted, continue retry loop
+                if attempt < len(retry_delays) - 1:
+                    logger.debug(f"Session {session_id} delete verification retry {attempt+1}/{len(retry_delays)} - " +
+                                f"is_deleted = {row['is_deleted'] if row else 'NULL'}")
+
+            except Exception as e:
+                logger.warning(f"Session {session_id} delete verification failed on attempt {attempt+1}: {e}")
+                # Continue retry loop
+                continue
+
+        # ❌ TIMEOUT: WAL commit took too long
+        total_wait = sum(retry_delays)
+        raise RuntimeError(
+            f"Failed to verify session {session_id} deletion after {len(retry_delays)} attempts "
+            f"(total wait: {total_wait:.2f}s). QuestDB WAL commit timeout exceeded. "
+            f"The session may be deleted but the change is not yet visible to queries."
+        )
 
     async def delete_session_cascade(self, session_id: str) -> Dict[str, int]:
         """
