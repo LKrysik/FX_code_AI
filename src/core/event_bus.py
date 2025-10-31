@@ -158,22 +158,25 @@ class EventBus:
         self._subscribers: Dict[str, Set[WeakSubscriber]] = {}  # Changed to set for O(1) operations
 
         # ✅ CRITICAL FIX: Bucketed queues per priority instead of single heap
-        # ✅ PERF FIX: Further increased queue sizes for multi-symbol data collection
+        # ✅ PERF FIX: Optimized queue sizes to match I/O capacity (reduced from oversized values)
         self._priority_queues = {
-            EventPriority.CRITICAL: asyncio.Queue(maxsize=2000),   # Doubled for trading events
-            EventPriority.HIGH: asyncio.Queue(maxsize=20000),      # 4x increase for market data flood
-            EventPriority.NORMAL: asyncio.Queue(maxsize=10000),    # 2x increase for normal events
-            EventPriority.LOW: asyncio.Queue(maxsize=5000)         # 2.5x increase for low priority
+            EventPriority.CRITICAL: asyncio.Queue(maxsize=1000),   # Reduced from 2000 - avoid memory bloat
+            EventPriority.HIGH: asyncio.Queue(maxsize=5000),       # Reduced from 20000 - match DB write capacity
+            EventPriority.NORMAL: asyncio.Queue(maxsize=2000),     # Reduced from 10000 - balance throughput/memory
+            EventPriority.LOW: asyncio.Queue(maxsize=1000)         # Reduced from 5000 - low priority = smaller buffer
         }
 
         # ✅ CRITICAL FIX: Worker pool per priority for true parallel processing
-        # ✅ PERF FIX: Increased HIGH priority workers for real-time market data throughput
+        # ✅ PERF FIX: Right-sized workers to match I/O bottleneck (reduced from overprovisioned 27 total)
+        # Bottleneck analysis: QuestDB has single connection = serial writes, not parallel
+        # 16 HIGH workers competing for 1 DB connection = wasted context switching
         self._worker_counts = worker_counts or {
-            EventPriority.CRITICAL: 8,   # 8 workers for critical trading events (doubled)
-            EventPriority.HIGH: 16,      # 16 workers for high-frequency market data (fire-and-forget needs high parallelism)
-            EventPriority.NORMAL: 2,     # 2 workers for normal events
-            EventPriority.LOW: 1         # 1 worker for low priority
+            EventPriority.CRITICAL: 4,   # Reduced from 8 - fewer workers for critical path
+            EventPriority.HIGH: 4,       # Reduced from 16 - match DB connection count (4 parallel writes max)
+            EventPriority.NORMAL: 2,     # Unchanged - adequate for normal load
+            EventPriority.LOW: 1         # Unchanged - single worker sufficient
         }
+        # Total workers: 11 (down from 27) = 60% reduction in context switching overhead
 
         # Legacy priority queue removed - using bucketed queues only
 
@@ -695,12 +698,19 @@ class EventBus:
     
     async def _rate_limit_check(self, event_type: str, publisher_id: Optional[str] = None) -> bool:
         """
-        ✅ PERFORMANCE FIX: Optimized rate limiting with higher limits for data collection.
+        ✅ PERFORMANCE FIX (Problem #1): Lock-free rate limiting to eliminate hierarchy violations.
 
-        Changes:
+        Changes from old version:
+        - REMOVED: async with self._ttl_lock (was causing lock hierarchy violations)
+        - NEW: Lock-free implementation using Python's GIL-protected dict/deque operations
         - Global limit: 1000/s → 10000/s (10x increase for multi-symbol collection)
         - Per-publisher limit: 100/s → 2000/s (20x increase)
         - O(n) cleanup replaced with O(1) timestamp-based window reset
+
+        Why lock-free is safe:
+        - Python's GIL guarantees atomicity for single dict/deque operations
+        - dict.get(), dict.__setitem__(), deque.append() are all atomic
+        - Only race condition is double-create of rate_limiter, which is harmless
 
         Args:
             event_type: Event type to check
@@ -709,56 +719,54 @@ class EventBus:
         Returns:
             True if event should be processed, False if rate limited
         """
-        async with self._ttl_lock:
-            now = time.time()
+        now = time.time()
 
-            # Global rate limiting per event type (fallback)
-            if event_type in self._rate_limiters:
-                rate_limiter = self._rate_limiters[event_type]
-            else:
-                # Only create if we have active subscribers for this event type
-                if event_type not in self._subscribers:
-                    return True  # No subscribers = no rate limiting needed
-                rate_limiter = deque(maxlen=10000)  # ✅ PERF FIX: Increased from 1000 to 10000/second
-                self._rate_limiters[event_type] = rate_limiter
-                self._rate_limiter_ttl[event_type] = now
+        # ✅ PERF FIX (Problem #1): Lock-free access to rate limiters
+        # GIL ensures dict.get() and dict.__setitem__() are atomic
+        rate_limiter = self._rate_limiters.get(event_type)
+        if not rate_limiter:
+            # Only create if we have active subscribers for this event type
+            if event_type not in self._subscribers:
+                return True  # No subscribers = no rate limiting needed
+            rate_limiter = deque(maxlen=10000)  # Increased from 1000 to 10000/second
+            self._rate_limiters[event_type] = rate_limiter  # Atomic dict write
+            self._rate_limiter_ttl[event_type] = now  # Atomic dict write
 
-            # ✅ PERF FIX: O(1) cleanup - check if window expired, if so clear entire deque
-            # This is much faster than O(n) popleft() loop for each publish
-            if rate_limiter and rate_limiter[0] < now - 1.0:
-                # Window expired - clear entire deque for O(1) reset
-                rate_limiter.clear()
+        # ✅ PERF FIX: O(1) cleanup - check if window expired, if so clear entire deque
+        # deque[0] and deque.clear() are both GIL-protected
+        if rate_limiter and len(rate_limiter) > 0 and rate_limiter[0] < now - 1.0:
+            # Window expired - clear entire deque for O(1) reset
+            rate_limiter.clear()
 
-            # Check global limit first
-            if len(rate_limiter) >= 10000:  # ✅ PERF FIX: Increased from 1000 to 10000
-                self.logger.warning("eventbus.global_rate_limit_exceeded", {"event_type": event_type})
+        # Check global limit first
+        if len(rate_limiter) >= 10000:  # Increased from 1000 to 10000
+            self.logger.warning("eventbus.global_rate_limit_exceeded", {"event_type": event_type})
+            return False
+
+        # ✅ IMPORTANT FIX: Publisher-specific rate limiting
+        if publisher_id:
+            publisher_key = f"{event_type}:{publisher_id}"
+
+            publisher_limiter = self._publisher_rate_limits.get(publisher_key)
+            if not publisher_limiter:
+                publisher_limiter = deque(maxlen=2000)  # Increased from 100 to 2000/second
+                self._publisher_rate_limits[publisher_key] = publisher_limiter  # Atomic dict write
+
+            # ✅ PERF FIX: O(1) cleanup for publisher limiter
+            if publisher_limiter and len(publisher_limiter) > 0 and publisher_limiter[0] < now - 1.0:
+                publisher_limiter.clear()
+
+            # Check publisher-specific limit
+            if len(publisher_limiter) >= 2000:  # Increased from 100 to 2000
+                self.logger.warning("eventbus.publisher_rate_limit_exceeded", {"publisher_key": publisher_key})
                 return False
 
-            # ✅ IMPORTANT FIX: Publisher-specific rate limiting
-            if publisher_id:
-                publisher_key = f"{event_type}:{publisher_id}"
+            publisher_limiter.append(now)  # Atomic deque operation
 
-                if publisher_key in self._publisher_rate_limits:
-                    publisher_limiter = self._publisher_rate_limits[publisher_key]
-                else:
-                    publisher_limiter = deque(maxlen=2000)  # ✅ PERF FIX: Increased from 100 to 2000/second
-                    self._publisher_rate_limits[publisher_key] = publisher_limiter
-
-                # ✅ PERF FIX: O(1) cleanup for publisher limiter
-                if publisher_limiter and publisher_limiter[0] < now - 1.0:
-                    publisher_limiter.clear()
-
-                # Check publisher-specific limit
-                if len(publisher_limiter) >= 2000:  # ✅ PERF FIX: Increased from 100 to 2000
-                    self.logger.warning("eventbus.publisher_rate_limit_exceeded", {"publisher_key": publisher_key})
-                    return False
-
-                publisher_limiter.append(now)
-
-            # Update global limiter and TTL
-            rate_limiter.append(now)
-            self._rate_limiter_ttl[event_type] = now
-            return True
+        # Update global limiter and TTL
+        rate_limiter.append(now)  # Atomic deque operation
+        self._rate_limiter_ttl[event_type] = now  # Atomic dict write
+        return True
 
     async def publish_with_trace(self, event_type: str, data: Any, trace_id: Optional[str] = None, priority: EventPriority = EventPriority.NORMAL, publisher_id: Optional[str] = None) -> str:
         """
@@ -813,18 +821,10 @@ class EventBus:
             self._update_metric_atomic("total_dropped", 1)
             return
 
-        # ✅ PERF FIX: Fast path - only acquire cleanup lock when actually needed
-        # Cleanup happens once per 60s, but we had 1000+ publishes/sec acquiring the lock
-        # This was causing massive lock contention and >10ms publish latency
-        cleanup_needed = self._should_cleanup()
-
-        if cleanup_needed:
-            # Slow path: cleanup needed, acquire lock
-            async with self._cleanup_lock:
-                # Double-check in case another publish already did cleanup
-                if self._should_cleanup():
-                    await self._cleanup_dead_subscribers()
-                    self._last_cleanup_time = time.time()
+        # ✅ PERF FIX: Removed redundant cleanup checks from hot path (Problem #6)
+        # Background cleanup loop (_background_cleanup_loop) already handles cleanup every 10s
+        # This eliminates 10000+ calls/sec to _should_cleanup() with only 1 in 600,000 returning True
+        # Cleanup is NOT needed in publish() - it's purely hot path optimization
 
         # ✅ PERF FIX: Get alive subscribers WITHOUT holding any lock
         # Reading _subscribers dict is thread-safe in Python (GIL protected)
