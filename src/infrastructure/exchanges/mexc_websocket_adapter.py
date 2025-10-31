@@ -1852,21 +1852,24 @@ class MexcWebSocketAdapter(IMarketDataProvider):
             # ✅ CACHE UPDATE: Maintain full orderbook state
             async with self._orderbook_lock:
                 if symbol not in self._orderbook_cache:
+                    # ✅ FIX: Initialize with OrderedDict for consistency with snapshot/delta processing
                     self._orderbook_cache[symbol] = {
-                        "bids": [],
-                        "asks": [],
+                        "bids": OrderedDict(),
+                        "asks": OrderedDict(),
+                        "version": 0,
                         "timestamp": time.time()
                     }
-                
+
                 cache_entry = self._orderbook_cache[symbol]
                 current_time = time.time()
-                
+
                 # Update cache with new data (only if we received that side)
+                # Convert list format to OrderedDict
                 if bids:  # Update bids only if MEXC sent them
-                    cache_entry["bids"] = bids
-                if asks:  # Update asks only if MEXC sent them  
-                    cache_entry["asks"] = asks
-                
+                    cache_entry["bids"] = OrderedDict((str(float(price)), float(qty)) for price, qty in bids)
+                if asks:  # Update asks only if MEXC sent them
+                    cache_entry["asks"] = OrderedDict((str(float(price)), float(qty)) for price, qty in asks)
+
                 cache_entry["timestamp"] = current_time
                 
                 # ✅ COMPLETE ORDERBOOK: Always publish with both sides from cache
@@ -3082,15 +3085,18 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                         if bids or asks:
                             async with self._orderbook_lock:
                                 if symbol not in self._orderbook_cache:
+                                    # ✅ FIX: Initialize with OrderedDict for consistency with snapshot/delta processing
                                     self._orderbook_cache[symbol] = {
-                                        "bids": [],
-                                        "asks": [],
+                                        "bids": OrderedDict(),
+                                        "asks": OrderedDict(),
+                                        "version": 0,
                                         "timestamp": time.time()
                                     }
-                                
+
                                 cache_entry = self._orderbook_cache[symbol]
-                                cache_entry["bids"] = bids
-                                cache_entry["asks"] = asks
+                                # Convert list format to OrderedDict
+                                cache_entry["bids"] = OrderedDict((str(float(price)), float(qty)) for price, qty in bids)
+                                cache_entry["asks"] = OrderedDict((str(float(price)), float(qty)) for price, qty in asks)
                                 cache_entry["timestamp"] = time.time()
                                 
                             self.logger.debug("mexc_adapter.orderbook_refreshed_from_rest", {
@@ -3217,8 +3223,9 @@ class MexcWebSocketAdapter(IMarketDataProvider):
             
             connection_info = self._connections[connection_id]
             websocket = connection_info.get("websocket")
-            
-            if not websocket or websocket.closed:
+
+            # ✅ FIX: Use close_code instead of closed attribute (websockets library compatibility)
+            if not websocket or websocket.close_code is not None:
                 self.logger.warning("mexc_adapter.closed_connection_for_snapshot", {
                     "symbol": symbol,
                     "connection_id": connection_id
