@@ -144,41 +144,37 @@ CREATE TABLE IF NOT EXISTS indicator_variants (
 -- ============================================================================
 -- INDEXES FOR PERFORMANCE
 -- ============================================================================
--- All indexes exclude soft-deleted records for query efficiency
--- QuestDB supports CREATE INDEX for non-time-series columns
+-- Index strategy for QuestDB:
+-- 1. SYMBOL columns (base_indicator_type, variant_type) → automatically indexed via CACHE
+-- 2. STRING columns (user_id, scope) → can be indexed via ALTER TABLE
+-- 3. BOOLEAN columns (is_deleted) → CANNOT be indexed in QuestDB
 --
--- Index selection based on expected query patterns:
--- 1. Filter by base_indicator_type (most common: "show all TWPA variants")
--- 2. Filter by variant_type (common: "show all general indicators")
--- 3. Filter by user_id (common: "show my variants")
--- 4. Filter by scope (common: "show global + my variants")
+-- QuestDB index creation:
+-- - For SYMBOL: automatic (no action needed)
+-- - For STRING: ALTER TABLE table_name ALTER COLUMN column_name ADD INDEX
+-- - CREATE INDEX syntax: NOT supported in QuestDB
+-- - Partial indexes (WHERE clause): NOT supported
 --
--- Index size estimate: ~10KB per 1000 variants (minimal overhead)
+-- Expected query patterns:
+-- 1. Filter by base_indicator_type (SYMBOL - auto-indexed) ✓
+-- 2. Filter by variant_type (SYMBOL - auto-indexed) ✓
+-- 3. Filter by user_id (STRING - indexed below) ✓
+-- 4. Filter by scope (STRING - indexed below) ✓
+-- 5. Filter by is_deleted (BOOLEAN - sequential scan, acceptable for small table)
+--
+-- Expected volume: 100-1000 variants (small table, soft delete overhead acceptable)
 -- ============================================================================
 
--- Index 1: Filter by system indicator type
--- Query: SELECT * FROM indicator_variants WHERE base_indicator_type = 'TWPA' AND is_deleted = false
-CREATE INDEX IF NOT EXISTS idx_variants_base_type
-ON indicator_variants(base_indicator_type)
-WHERE is_deleted = false;
+-- Indexes for SYMBOL columns (automatic):
+-- - base_indicator_type: SYMBOL capacity 128 CACHE (auto-indexed)
+-- - variant_type: SYMBOL capacity 16 CACHE (auto-indexed)
 
--- Index 2: Filter by UI category
--- Query: SELECT * FROM indicator_variants WHERE variant_type = 'general' AND is_deleted = false
-CREATE INDEX IF NOT EXISTS idx_variants_type
-ON indicator_variants(variant_type)
-WHERE is_deleted = false;
+-- Index for STRING columns (manual):
+-- user_id: owner filtering (e.g., "show my variants")
+ALTER TABLE indicator_variants ALTER COLUMN user_id ADD INDEX;
 
--- Index 3: Filter by user ownership
--- Query: SELECT * FROM indicator_variants WHERE user_id = 'user_123' AND is_deleted = false
-CREATE INDEX IF NOT EXISTS idx_variants_user
-ON indicator_variants(user_id)
-WHERE is_deleted = false;
-
--- Index 4: Filter by scope (visibility)
--- Query: SELECT * FROM indicator_variants WHERE scope IN ('global', 'user_123') AND is_deleted = false
-CREATE INDEX IF NOT EXISTS idx_variants_scope
-ON indicator_variants(scope)
-WHERE is_deleted = false;
+-- scope: visibility filtering (e.g., "show global + my variants")
+ALTER TABLE indicator_variants ALTER COLUMN scope ADD INDEX;
 
 -- ============================================================================
 -- USAGE EXAMPLES

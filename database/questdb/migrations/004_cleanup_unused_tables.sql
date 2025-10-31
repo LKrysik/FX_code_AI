@@ -12,16 +12,15 @@
 DROP TABLE IF EXISTS strategy_templates;
 
 -- ============================================================================
--- PART 2: Add missing indexes for session_id columns
+-- PART 2: Indexes for session_id columns
 -- ============================================================================
--- Rationale: session_id added in migration 003 but indexes only for indicators
--- tick_prices and tick_orderbook queries by session_id are slow without indexes
-
--- Index for tick_prices.session_id (enables fast session-based queries)
-CREATE INDEX IF NOT EXISTS idx_tick_prices_session ON tick_prices(session_id);
-
--- Index for tick_orderbook.session_id (enables fast session-based queries)
-CREATE INDEX IF NOT EXISTS idx_tick_orderbook_session ON tick_orderbook(session_id);
+-- session_id is defined as SYMBOL type in tick_prices and tick_orderbook tables.
+-- SYMBOL columns are automatically indexed in QuestDB (via CACHE keyword).
+-- No additional CREATE INDEX statements needed.
+--
+-- Verification:
+-- - tick_prices.session_id: SYMBOL capacity 2048 CACHE (auto-indexed)
+-- - tick_orderbook.session_id: SYMBOL capacity 2048 CACHE (auto-indexed)
 
 -- ============================================================================
 -- VERIFICATION NOTES:

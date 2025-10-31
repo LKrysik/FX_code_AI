@@ -35,9 +35,10 @@ CREATE TABLE indicators (
 ) timestamp(timestamp) PARTITION BY DAY WAL
 DEDUP UPSERT KEYS(timestamp, session_id, symbol, indicator_id);
 
--- Create indexes for fast queries
-CREATE INDEX IF NOT EXISTS idx_indicators_session ON indicators(session_id);
-CREATE INDEX IF NOT EXISTS idx_indicators_symbol ON indicators(symbol);
+-- Indexes:
+-- session_id: SYMBOL (automatically indexed via CACHE)
+-- symbol: SYMBOL (automatically indexed via CACHE)
+-- indicator_id: SYMBOL (automatically indexed via CACHE)
 
 -- ============================================================================
 -- SCHEMA NOTES
