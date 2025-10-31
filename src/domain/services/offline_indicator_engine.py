@@ -263,7 +263,7 @@ class OfflineIndicatorEngine(IIndicatorEngine):
         """
         Load historical data for a symbol from QuestDB.
 
-        🔄 MIGRATED: Now uses QuestDB aggregated_ohlcv or tick_prices instead of CSV files.
+        🔄 MIGRATED: Now uses QuestDB tick_prices directly (aggregated_ohlcv removed).
 
         Args:
             symbol: Trading symbol
@@ -280,33 +280,11 @@ class OfflineIndicatorEngine(IIndicatorEngine):
         data_points: List[MarketDataPoint] = []
 
         try:
-            # Try to load from aggregated_ohlcv first (faster, pre-aggregated)
+            # Load from tick_prices (aggregated_ohlcv removed for simplicity)
+            # For OHLCV aggregation, use QuestDB SAMPLE BY in query:
+            # SELECT timestamp, first(price) as open, max(price) as high, ...
+            # FROM tick_prices SAMPLE BY 1m
             if session_id:
-                ohlcv_data = await self.questdb_data_provider.get_aggregated_ohlcv(
-                    session_id=session_id,
-                    symbol=symbol,
-                    interval='1m'  # 1-minute aggregation
-                )
-
-                if ohlcv_data:
-                    for row in ohlcv_data:
-                        timestamp = row.get('timestamp')
-                        if isinstance(timestamp, datetime):
-                            timestamp = timestamp.timestamp()
-                        else:
-                            timestamp = float(timestamp)
-
-                        data_points.append(
-                            MarketDataPoint(
-                                timestamp=self._normalize_timestamp(timestamp),
-                                symbol=symbol,
-                                price=float(row.get('close', row.get('price', 0.0))),
-                                volume=float(row.get('volume', 0.0)),
-                            )
-                        )
-
-            # Fall back to tick_prices if no aggregated data
-            if not data_points and session_id:
                 tick_data = await self.questdb_data_provider.get_tick_prices(
                     session_id=session_id,
                     symbol=symbol
