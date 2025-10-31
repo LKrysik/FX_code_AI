@@ -435,6 +435,7 @@ class QuestDBProvider:
             if sender_acquired and sender is not None:
                 await self._release_sender(sender, is_broken=True)
                 sender_acquired = False
+                sender = None  # ✅ CRITICAL: Reset sender reference to prevent use-after-free
             raise
 
         except Exception as e:
@@ -443,6 +444,7 @@ class QuestDBProvider:
             if sender_acquired and sender is not None:
                 await self._release_sender(sender, is_broken=True)
                 sender_acquired = False
+                sender = None  # ✅ CRITICAL: Reset sender reference to prevent use-after-free
             raise
 
         else:
@@ -450,6 +452,7 @@ class QuestDBProvider:
             if sender_acquired and sender is not None:
                 await self._release_sender(sender, is_broken=False)
                 sender_acquired = False
+                sender = None  # ✅ CRITICAL: Reset sender reference to prevent use-after-free
 
     @staticmethod
     def _is_permanent_failure(error: IngressError) -> bool:
