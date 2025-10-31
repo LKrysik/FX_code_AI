@@ -119,8 +119,6 @@ export default function DataCollectionPage() {
   });
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [sessionToDelete, setSessionToDelete] = useState<string | null>(null);
-  // Track deleted sessions to prevent them from reappearing from getExecutionStatus()
-  const [deletedSessionIds, setDeletedSessionIds] = useState<Set<string>>(new Set());
 
   // Backend health check - only as backup (WebSocket provides real-time status)
   const checkBackendConnection = useCallback(async () => {
@@ -498,42 +496,36 @@ export default function DataCollectionPage() {
 
       const allSessions: DataCollectionSession[] = [];
 
-      // Add current active session if exists AND not in deleted list
+      // Add current active session if exists
       if (sessionStatus && sessionStatus.session_id && sessionStatus.mode === 'collect') {
-        // CRITICAL FIX: Filter out deleted sessions from execution status
-        if (!deletedSessionIds.has(sessionStatus.session_id)) {
-          const currentSession: DataCollectionSession = {
-            session_id: sessionStatus.session_id,
-            status: sessionStatus.status || 'unknown',
-            symbols: sessionStatus.symbols || [],
-            data_types: sessionStatus.data_types || ['price', 'orderbook'],
-            duration: sessionStatus.duration || 'continuous',
-            start_time: sessionStatus.start_time,
-            records_collected: sessionStatus.records_collected || 0,
-            storage_path: sessionStatus.storage_path || 'data/historical',
-            created_at: sessionStatus.start_time || new Date().toISOString(),
-            error_message: sessionStatus.error_message || undefined,
-            progress_percentage: typeof sessionStatus.progress === 'object'
-              ? sessionStatus.progress?.percentage
-              : (typeof sessionStatus.progress === 'number' ? sessionStatus.progress : undefined),
-            eta_seconds: typeof sessionStatus.progress === 'object'
-              ? sessionStatus.progress?.eta_seconds
-              : undefined,
-            current_date: typeof sessionStatus.progress === 'object'
-              ? sessionStatus.progress?.current_date
-              : undefined,
-            command_type: sessionStatus.command_type || 'collect'
-          };
-          allSessions.push(currentSession);
-        } else {
-          console.log(`[loadDataCollectionSessions] Filtered out deleted session from execution status: ${sessionStatus.session_id}`);
-        }
+        const currentSession: DataCollectionSession = {
+          session_id: sessionStatus.session_id,
+          status: sessionStatus.status || 'unknown',
+          symbols: sessionStatus.symbols || [],
+          data_types: sessionStatus.data_types || ['price', 'orderbook'],
+          duration: sessionStatus.duration || 'continuous',
+          start_time: sessionStatus.start_time,
+          records_collected: sessionStatus.records_collected || 0,
+          storage_path: sessionStatus.storage_path || 'data/historical',
+          created_at: sessionStatus.start_time || new Date().toISOString(),
+          error_message: sessionStatus.error_message || undefined,
+          progress_percentage: typeof sessionStatus.progress === 'object'
+            ? sessionStatus.progress?.percentage
+            : (typeof sessionStatus.progress === 'number' ? sessionStatus.progress : undefined),
+          eta_seconds: typeof sessionStatus.progress === 'object'
+            ? sessionStatus.progress?.eta_seconds
+            : undefined,
+          current_date: typeof sessionStatus.progress === 'object'
+            ? sessionStatus.progress?.current_date
+            : undefined,
+          command_type: sessionStatus.command_type || 'collect'
+        };
+        allSessions.push(currentSession);
       }
 
-      // Add historical sessions (already filtered by backend WHERE is_deleted = false)
+      // Add historical sessions (filtered by backend WHERE is_deleted = false)
       if (historicalSessions.sessions) {
         const historicalSessionsFormatted = historicalSessions.sessions
-          .filter((session: any) => !deletedSessionIds.has(session.session_id || session.id))
           .map((session: any) => ({
             session_id: session.session_id || session.id,
             status: session.status || 'completed',
@@ -710,14 +702,15 @@ export default function DataCollectionPage() {
   };
 
   const handleDeleteSession = async (sessionId: string) => {
+    // ✅ RACE CONDITION FIX: Backend now waits for WAL commit before returning success
+    // This means when DELETE returns HTTP 200, the session is GUARANTEED to be deleted
+    // No need for frontend blocklist workaround or setTimeout cleanup
+
     // Optimistic UI update: immediately remove from local state
     const sessionToRemove = sessions.find(s => s.session_id === sessionId);
     setSessions(prev => prev.filter(s => s.session_id !== sessionId));
     setDeleteDialogOpen(false);
     setSessionToDelete(null);
-
-    // Add to deleted sessions blocklist to prevent reappearance from getExecutionStatus()
-    setDeletedSessionIds(prev => new Set(prev).add(sessionId));
 
     try {
       const result = await apiService.deleteDataCollectionSession(sessionId);
@@ -727,35 +720,20 @@ export default function DataCollectionPage() {
           message: `Session ${sessionId} deleted successfully`,
           severity: 'success'
         });
-        // Double-check by refreshing from backend (with blocklist active)
-        await loadDataCollectionSessions();
 
-        // Clean up blocklist after 5 minutes (enough time for backend state to sync)
-        // Extended from 30s to prevent race condition with execution controller state
-        setTimeout(() => {
-          setDeletedSessionIds(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(sessionId);
-            return newSet;
-          });
-        }, 300000); // 5 minutes = 300000ms
+        // ✅ SAFE TO RELOAD: Backend verified WAL commit, session will not reappear
+        await loadDataCollectionSessions();
       } else {
         throw new Error(result.message || 'Failed to delete session');
       }
     } catch (error: any) {
       console.error('Failed to delete session:', error);
 
-      // Rollback: remove from blocklist and restore the session to the list
-      setDeletedSessionIds(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(sessionId);
-        return newSet;
-      });
-
+      // Rollback optimistic update: restore session to the list
       if (sessionToRemove) {
         setSessions(prev => {
           const restored = [...prev, sessionToRemove];
-          // Re-sort by created_at
+          // Re-sort by created_at to maintain order
           restored.sort((a, b) => {
             const timeA = new Date(a.start_time || a.created_at).getTime();
             const timeB = new Date(b.start_time || b.created_at).getTime();
