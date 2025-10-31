@@ -81,8 +81,9 @@ async def verify_questdb():
     print("\n[TEST 4] Verify tick_prices Schema")
     try:
         async with pool.acquire() as conn:
+            # Fixed: Quote SQL keywords "column" and "type"
             columns_query = """
-            SELECT column_name, type, indexed
+            SELECT "column" as column_name, "type", indexed
             FROM table_columns('tick_prices')
             ORDER BY column_name
             """
@@ -98,7 +99,7 @@ async def verify_questdb():
                 'price', 'volume', 'quote_volume', 'is_deleted'
             }
             found_columns = {col['column_name'] for col in columns}
-
+            
             if not expected_columns.issubset(found_columns):
                 missing = expected_columns - found_columns
                 print(f"\n❌ Missing columns: {missing}")
@@ -112,8 +113,9 @@ async def verify_questdb():
     print("\n[TEST 5] Verify tick_orderbook Schema")
     try:
         async with pool.acquire() as conn:
+            # Fixed: Quote SQL keywords "column" and "type"
             columns_query = """
-            SELECT column_name, type, indexed
+            SELECT "column" as column_name, "type", indexed
             FROM table_columns('tick_orderbook')
             ORDER BY column_name
             """
@@ -176,16 +178,25 @@ async def verify_questdb():
 
         print("✅ Manual orderbook insert SUCCESSFUL")
 
-        # Verify write succeeded
+        # Verify write succeeded - add small delay for QuestDB to flush
+        await asyncio.sleep(0.5)
+        
         async with pool.acquire() as conn:
+            # Add small delay to ensure data is written
             count = await conn.fetchval(
-                "SELECT COUNT(*) FROM tick_orderbook WHERE session_id = 'test_verify_script'"
+                "SELECT COUNT(*) FROM tick_orderbook WHERE session_id = 'test_verify_script' AND is_deleted = false"
             )
             print(f"✅ Verified: {count} test record(s) written to tick_orderbook")
 
-            # Cleanup
-            await conn.execute("DELETE FROM tick_orderbook WHERE session_id = 'test_verify_script'")
-            print("✅ Test data cleaned up")
+            # Cleanup using soft delete (UPDATE instead of DELETE)
+            try:
+                await conn.execute(
+                    "UPDATE tick_orderbook SET is_deleted = true WHERE session_id = 'test_verify_script'"
+                )
+                print("✅ Test data cleaned up (soft deleted)")
+            except Exception as cleanup_error:
+                print(f"⚠️  Cleanup failed (non-critical): {cleanup_error}")
+                print("   This doesn't affect verification - test data can be ignored")
 
     except IngressError as e:
         print(f"❌ Manual orderbook insert FAILED: {e}")
