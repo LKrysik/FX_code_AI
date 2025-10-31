@@ -45,18 +45,35 @@ class MexcWebSocketAdapter(IMarketDataProvider):
     - Proper error handling and logging
     """
     
-    def __init__(self, settings: ExchangeSettings, event_bus: EventBus, logger: StructuredLogger):
+    def __init__(self, settings: ExchangeSettings, event_bus: EventBus, logger: StructuredLogger, data_types: Optional[List[str]] = None):
         """
         Initialize MEXC WebSocket adapter with Clean Architecture principles.
-        
+
         Args:
             settings: Exchange configuration
-            event_bus: Central communication hub  
+            event_bus: Central communication hub
             logger: Structured logger
+            data_types: List of data types to subscribe to ('prices', 'orderbook'). Defaults to both.
         """
         self.settings = settings
         self.event_bus = event_bus
         self.logger = logger
+
+        # ✅ FIX: Configure which data types to subscribe to
+        # Default to both prices and orderbook for backward compatibility
+        self.data_types = set(data_types or ['prices', 'orderbook'])
+
+        # Validate data_types
+        valid_data_types = {'prices', 'orderbook'}
+        invalid_types = self.data_types - valid_data_types
+        if invalid_types:
+            raise ValueError(f"Invalid data_types: {invalid_types}. Valid options: {valid_data_types}")
+
+        self.logger.info("mexc_adapter.data_types_configured", {
+            "data_types": list(self.data_types),
+            "subscribe_prices": 'prices' in self.data_types,
+            "subscribe_orderbook": 'orderbook' in self.data_types
+        })
         
         # Configuration from settings
         self.config = settings.get("mexc")
@@ -2182,10 +2199,19 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                     # Create new connection within the subscription lock to prevent races
                     connection_id = await self._create_new_connection()
                 
-                # Add to pending subscriptions BEFORE sending to prevent race conditions
+                # ✅ FIX: Add to pending subscriptions BEFORE sending to prevent race conditions
+                # Only track pending subscriptions for channels we'll actually subscribe to
                 if connection_id not in self._pending_subscriptions:
                     self._pending_subscriptions[connection_id] = {}
-                self._pending_subscriptions[connection_id][symbol] = {'deal': 'pending', 'depth': 'pending', 'depth_full': 'pending', 'added_time': time.time()}
+
+                pending_channels = {'added_time': time.time()}
+                if 'prices' in self.data_types:
+                    pending_channels['deal'] = 'pending'
+                if 'orderbook' in self.data_types:
+                    pending_channels['depth'] = 'pending'
+                    pending_channels['depth_full'] = 'pending'
+
+                self._pending_subscriptions[connection_id][symbol] = pending_channels
 
                 # Send subscription message
                 self.logger.info("mexc_adapter.subscribing", {
@@ -2228,116 +2254,136 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                 })
     
     async def _send_subscription(self, symbol: str, connection_id: int) -> None:
-        """Send subscription message for a symbol"""
+        """
+        Send subscription messages for a symbol based on configured data_types.
+
+        Only subscribes to channels corresponding to requested data types:
+        - 'prices' → sub.deal (trade/price data)
+        - 'orderbook' → sub.depth.full + sub.depth (snapshot + deltas)
+        """
         connection_info = self._connections.get(connection_id)
         if not connection_info or not connection_info["connected"]:
             raise RuntimeError(f"Connection {connection_id} not available")
 
         websocket = connection_info["websocket"]
-        
-        # Subscribe to deals (price data)
-        deal_subscription_message = {
-            "method": "sub.deal",
-            "param": {
-                "symbol": symbol
+
+        # ✅ FIX: Only subscribe to deals if 'prices' is requested
+        if 'prices' in self.data_types:
+            deal_subscription_message = {
+                "method": "sub.deal",
+                "param": {
+                    "symbol": symbol
+                }
             }
-        }
-        
-        await websocket.send(json.dumps(deal_subscription_message))
-        
-        self.logger.debug("mexc_adapter.subscription_sent", {
-            "symbol": symbol,
-            "connection_id": connection_id,
-            "method": "sub.deal"
-        })
-        
-        # Subscribe to order book depth with full snapshot first, then deltas
-        # Step 1: Get initial snapshot with sub.depth.full
-        depth_full_subscription_message = {
-            "method": "sub.depth.full",
-            "param": {
+
+            await websocket.send(json.dumps(deal_subscription_message))
+
+            self.logger.debug("mexc_adapter.subscription_sent", {
                 "symbol": symbol,
-                "limit": 20  # Get TOP 20 levels for full snapshot
+                "connection_id": connection_id,
+                "method": "sub.deal"
+            })
+
+        # ✅ FIX: Only subscribe to order book if 'orderbook' is requested
+        if 'orderbook' in self.data_types:
+            # Step 1: Get initial snapshot with sub.depth.full
+            depth_full_subscription_message = {
+                "method": "sub.depth.full",
+                "param": {
+                    "symbol": symbol,
+                    "limit": 20  # Get TOP 20 levels for full snapshot
+                }
             }
-        }
-        
-        await websocket.send(json.dumps(depth_full_subscription_message))
-        
-        self.logger.debug("mexc_adapter.subscription_sent", {
-            "symbol": symbol,
-            "connection_id": connection_id,
-            "method": "sub.depth.full",
-            "limit": 20
-        })
-        
-        # Step 2: Subscribe to incremental updates (deltas)
-        depth_subscription_message = {
-            "method": "sub.depth",
-            "param": {
-                "symbol": symbol
+
+            await websocket.send(json.dumps(depth_full_subscription_message))
+
+            self.logger.debug("mexc_adapter.subscription_sent", {
+                "symbol": symbol,
+                "connection_id": connection_id,
+                "method": "sub.depth.full",
+                "limit": 20
+            })
+
+            # Step 2: Subscribe to incremental updates (deltas)
+            depth_subscription_message = {
+                "method": "sub.depth",
+                "param": {
+                    "symbol": symbol
+                }
             }
-        }
-        
-        await websocket.send(json.dumps(depth_subscription_message))
-        
-        self.logger.debug("mexc_adapter.subscription_sent", {
-            "symbol": symbol,
-            "connection_id": connection_id,
-            "method": "sub.depth"
-        })
+
+            await websocket.send(json.dumps(depth_subscription_message))
+
+            self.logger.debug("mexc_adapter.subscription_sent", {
+                "symbol": symbol,
+                "connection_id": connection_id,
+                "method": "sub.depth"
+            })
     
     async def unsubscribe_from_symbol(self, symbol: str) -> None:
         """
         Unsubscribe from market data for a symbol.
-        
+
+        Only unsubscribes from channels that were actually subscribed based on data_types.
+
         Args:
             symbol: Trading symbol to unsubscribe from
         """
         symbol = symbol.upper()
-        
+
         if symbol not in self._subscribed_symbols:
             self.logger.debug("mexc_adapter.not_subscribed", {"symbol": symbol})
             return
-        
+
         try:
             connection_id = self._symbol_to_connection.get(symbol)
             if connection_id is not None and connection_id in self._connections:
                 connection_info = self._connections[connection_id]
-                
+
                 if connection_info["connected"]:
-                    # Send unsubscription messages for both channels (futures format)
                     websocket = connection_info["websocket"]
-                    
-                    # Unsubscribe from price/deal data
-                    deal_unsubscription = {
-                        "method": "unsub.deal",
-                        "param": {
-                            "symbol": symbol
+
+                    # ✅ FIX: Only unsubscribe from deals if we subscribed to prices
+                    if 'prices' in self.data_types:
+                        deal_unsubscription = {
+                            "method": "unsub.deal",
+                            "param": {
+                                "symbol": symbol
+                            }
                         }
-                    }
-                    await websocket.send(json.dumps(deal_unsubscription))
-                    
-                    # Unsubscribe from order book data
-                    depth_unsubscription = {
-                        "method": "unsub.depth",
-                        "param": {
-                            "symbol": symbol
+                        await websocket.send(json.dumps(deal_unsubscription))
+
+                    # ✅ FIX: Only unsubscribe from order book if we subscribed to orderbook
+                    if 'orderbook' in self.data_types:
+                        depth_unsubscription = {
+                            "method": "unsub.depth",
+                            "param": {
+                                "symbol": symbol
+                            }
                         }
-                    }
-                    await websocket.send(json.dumps(depth_unsubscription))
-                
+                        await websocket.send(json.dumps(depth_unsubscription))
+
+                        # Also unsubscribe from depth.full if needed
+                        depth_full_unsubscription = {
+                            "method": "unsub.depth.full",
+                            "param": {
+                                "symbol": symbol
+                            }
+                        }
+                        await websocket.send(json.dumps(depth_full_unsubscription))
+
                 # Update tracking
                 connection_info["subscriptions"].discard(symbol)
-            
+
             self._subscribed_symbols.discard(symbol)
             self._symbol_to_connection.pop(symbol, None)
-            
+
             self.logger.info("mexc_adapter.unsubscribed", {
                 "symbol": symbol,
                 "connection_id": connection_id,
                 "total_subscriptions": len(self._subscribed_symbols)
             })
-            
+
         except Exception as e:
             self.logger.error("mexc_adapter.unsubscription_error", {
                 "symbol": symbol,
