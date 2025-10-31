@@ -1175,10 +1175,12 @@ class WebSocketAPIServer:
         """
         subscribers = self.subscription_manager.get_subscribers(subscription_type)
 
-        # Add debug logging for execution_status broadcasts
+        # ✅ REMOVED: Debug print statements (replaced with structured logging)
         if subscription_type == "execution_status":
-            print(f"[WEBSOCKET DEBUG] Broadcasting execution_status to {len(subscribers)} subscribers")
-            print(f"[WEBSOCKET DEBUG] Execution data: {data.get('data', {}).get('records_collected', 'N/A')} records")
+            self.logger.debug("websocket.broadcast_execution_status", {
+                "subscriber_count": len(subscribers),
+                "records_collected": data.get('data', {}).get('records_collected', 'N/A')
+            })
 
         if exclude_client:
             subscribers.discard(exclude_client)

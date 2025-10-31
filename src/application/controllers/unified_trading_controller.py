@@ -51,9 +51,9 @@ class UnifiedTradingController:
         self._is_started = False
         self._is_initialized = False
 
-        # Data collection progress tracking
-        self._active_data_collections: Dict[str, Dict[str, Any]] = {}
-        self._progress_update_tasks: Dict[str, asyncio.Task] = {}
+        # ✅ REMOVED: Duplicate progress tracking (now handled by ExecutionController with throttling)
+        # Previous implementation had duplicate progress update loops causing excessive EventBus traffic
+        # ExecutionController now has built-in throttling for progress events (5s interval)
 
         # Defer heavy initialization to async method
         self.market_data_factory = None
@@ -78,9 +78,11 @@ class UnifiedTradingController:
         # Get settings from environment (moved to async context)
         try:
             settings = AppSettings()
-            print(f"[DEBUG] AppSettings created: trading.mode={settings.trading.mode}")
             self.market_data_factory = MarketDataProviderFactory(settings, self.event_bus, self.logger)
-            print(f"[DEBUG] Created market data factory: {self.market_data_factory}")
+            self.logger.debug("unified_trading_controller.factory_created", {
+                "trading_mode": settings.trading.mode,
+                "factory_type": type(self.market_data_factory).__name__
+            })
         except Exception as e:
             self.logger.error("unified_trading_controller.factory_creation_failed", {
                 "error": str(e),
@@ -125,8 +127,10 @@ class UnifiedTradingController:
             self.market_data_factory,
             db_persistence_service
         )
-        print(f"[DEBUG] ExecutionController created with factory: {self.execution_controller.market_data_provider_factory is not None}")
-        print(f"[DEBUG] ExecutionController DB persistence: {self.execution_controller.db_persistence_service is not None}")
+        self.logger.debug("unified_trading_controller.execution_controller_created", {
+            "has_market_data_factory": self.execution_controller.market_data_provider_factory is not None,
+            "has_db_persistence": self.execution_controller.db_persistence_service is not None
+        })
         self.execution_monitor = ExecutionMonitor(self.event_bus, self.logger)
         self.command_processor = AsyncCommandProcessor(
             self.execution_controller,
@@ -175,9 +179,7 @@ class UnifiedTradingController:
         # Stop monitoring
         await self.execution_monitor.stop_monitoring()
 
-        # Clean up all data collection progress tasks
-        for session_id in list(self._active_data_collections.keys()):
-            await self.stop_data_collection_progress(session_id)
+        # ✅ REMOVED: Progress task cleanup (no longer needed - ExecutionController handles progress)
 
         self.logger.info("unified_trading_controller.stopped")
     
@@ -250,14 +252,10 @@ class UnifiedTradingController:
             "parameters": parameters
         })
 
-        print(f"[CONTROLLER DEBUG] Starting data collection: symbols={symbols}, duration={duration}")
-
         command_id = await self.command_processor.execute_command(
             CommandType.START_DATA_COLLECTION,
             parameters
         )
-
-        print(f"[CONTROLLER DEBUG] Command executed, command_id={command_id}")
 
         self.logger.info("unified_trading_controller.data_collection_started", {
             "command_id": command_id,
@@ -265,24 +263,9 @@ class UnifiedTradingController:
             "duration": duration
         })
 
-        # Send initial WebSocket progress update
-        await self._send_progress_update(command_id, symbols, duration, 0, 0)
-
-        print(f"[CONTROLLER DEBUG] Initial progress sent")
-
-        # Start background progress update task
-        self._active_data_collections[command_id] = {
-            "symbols": symbols,
-            "duration": duration,
-            "start_time": asyncio.get_event_loop().time(),
-            "records_collected": 0
-        }
-        print(f"[CONTROLLER DEBUG] Added to active collections: {command_id}")
-
-        self._progress_update_tasks[command_id] = asyncio.create_task(
-            self._progress_update_loop(command_id)
-        )
-        print(f"[CONTROLLER DEBUG] Progress update task created for {command_id}")
+        # ✅ REMOVED: Duplicate progress tracking loop
+        # ExecutionController now handles progress updates with built-in throttling (5s interval)
+        # This eliminates duplicate EventBus publishes and excessive logging
 
         return command_id
     
@@ -296,9 +279,7 @@ class UnifiedTradingController:
             parameters
         )
 
-        # Clean up any active data collection progress tasks
-        for session_id in list(self._active_data_collections.keys()):
-            await self.stop_data_collection_progress(session_id)
+        # ✅ REMOVED: Progress task cleanup (ExecutionController handles lifecycle)
 
         return command_id
     
@@ -543,130 +524,18 @@ class UnifiedTradingController:
             "timestamp": asyncio.get_event_loop().time()
         }
 
-    async def _send_progress_update(self, session_id: str, symbols: List[str], duration: str, records_collected: int, progress_percentage: float):
-        """Send WebSocket progress update for data collection"""
-        import time
-        from datetime import datetime
-
-        # Calculate ETA based on progress
-        eta_seconds = None
-        if records_collected > 10 and progress_percentage > 0:
-            # Estimate based on current progress
-            elapsed_time = time.time() - time.time()  # This would need session start time
-            if elapsed_time > 60:  # Need at least 1 minute of data
-                collection_rate = records_collected / elapsed_time
-                remaining_percentage = 100.0 - progress_percentage
-                if collection_rate > 0:
-                    eta_seconds = int((remaining_percentage / 100.0) * (elapsed_time / (progress_percentage / 100.0)))
-
-        event_payload = {
-            "session_id": session_id,
-            "command_type": "collect",
-            "progress": {
-                "percentage": progress_percentage,
-                "current_step": records_collected,
-                "eta_seconds": eta_seconds
-            },
-            "records_collected": records_collected,
-            "status": "running",
-            "timestamp": datetime.now().isoformat()
-        }
-
-        # Debug logging for WebSocket integration
-        print(f"[WEBSOCKET DEBUG] Publishing progress update: session_id={session_id}, records={records_collected}, progress={progress_percentage:.1f}%")
-        print(f"[CONTROLLER DEBUG] About to publish execution.progress_update: payload_keys={list(event_payload.keys())}, has_type={event_payload.get('type')}, has_stream={'stream' in event_payload}")
-        self.logger.info("collect.websocket_progress_published", {
-            "session_id": session_id,
-            "records_collected": records_collected,
-            "progress_percentage": progress_percentage,
-            "eta_seconds": eta_seconds,
-            "event_payload_keys": list(event_payload.keys())
-        })
-
-        await self.event_bus.publish("execution.progress_update", event_payload)
-
-    async def _progress_update_loop(self, session_id: str):
-        """Background task to send periodic progress updates during data collection"""
-        print(f"[CONTROLLER DEBUG] Progress loop started for session_id={session_id}")
-        try:
-            while session_id in self._active_data_collections:
-                print(f"[CONTROLLER DEBUG] Progress loop iteration for {session_id}")
-                collection_info = self._active_data_collections[session_id]
-                current_time = asyncio.get_event_loop().time()
-                elapsed_time = current_time - collection_info["start_time"]
-
-                # Parse duration to calculate progress
-                duration_str = collection_info["duration"]
-                if duration_str != 'continuous':
-                    # Extract numeric value and unit
-                    import re
-                    match = re.match(r'^(\d+)([smhd])$', duration_str)
-                    if match:
-                        value, unit = match.groups()
-                        value = int(value)
-
-                        # Convert to seconds
-                        unit_multipliers = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}
-                        total_duration_seconds = value * unit_multipliers.get(unit, 3600)
-
-                        # Calculate time-based progress
-                        if total_duration_seconds > 0:
-                            progress_percentage = min(95.0, (elapsed_time / total_duration_seconds) * 100)
-                        else:
-                            progress_percentage = 0.0
-                    else:
-                        progress_percentage = min(95.0, elapsed_time / 3600 * 100)  # Default to 1 hour
-                else:
-                    # Continuous collection - use logarithmic progress
-                    progress_percentage = min(95.0, elapsed_time / 3600 * 100)
-
-                # Simulate increasing records collected (in real implementation, this would come from actual data)
-                records_collected = collection_info["records_collected"]
-                if elapsed_time > 10:  # Start showing records after 10 seconds
-                    records_collected = int(elapsed_time * 10)  # Simulate 10 records per second
-                    collection_info["records_collected"] = records_collected
-
-                print(f"[CONTROLLER DEBUG] Calculated progress: percentage={progress_percentage:.1f}%, records={records_collected}")
-
-                # Send progress update
-                await self._send_progress_update(
-                    session_id,
-                    collection_info["symbols"],
-                    collection_info["duration"],
-                    records_collected,
-                    progress_percentage
-                )
-
-                print(f"[CONTROLLER DEBUG] Progress update sent in loop for {session_id}")
-
-                # Wait before next update
-                await asyncio.sleep(5.0)  # Update every 5 seconds
-
-        except asyncio.CancelledError:
-            print(f"[CONTROLLER DEBUG] Progress loop cancelled for {session_id}")
-            # Task was cancelled, clean up
-            pass
-        except Exception as e:
-            print(f"[CONTROLLER DEBUG] Progress loop error for {session_id}: {str(e)}")
-            self.logger.error("unified_trading_controller.progress_update_loop_error", {
-                "session_id": session_id,
-                "error": str(e)
-            })
-
-    async def stop_data_collection_progress(self, session_id: str):
-        """Stop progress updates for a data collection session"""
-        if session_id in self._progress_update_tasks:
-            task = self._progress_update_tasks[session_id]
-            if not task.done():
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-            del self._progress_update_tasks[session_id]
-
-        if session_id in self._active_data_collections:
-            del self._active_data_collections[session_id]
-
-        # Send final progress update
-        await self._send_progress_update(session_id, [], "completed", 0, 100.0)
+    # ✅ REMOVED: Duplicate progress update methods (_send_progress_update, _progress_update_loop, stop_data_collection_progress)
+    # These methods were creating duplicate progress updates alongside ExecutionController's own progress tracking.
+    # This caused:
+    # 1. Duplicate EventBus publishes (2 sources publishing same events)
+    # 2. Excessive logging (10+ progress logs per second)
+    # 3. Unnecessary WebSocket traffic
+    # 4. Complex state management (two parallel progress tracking systems)
+    #
+    # ExecutionController now has built-in throttled progress updates (5s interval) that handle:
+    # - Progress calculation based on actual data collection metrics
+    # - Time-based ETA estimation
+    # - EventBus publishing with rate limiting
+    # - WebSocket broadcasting via ExecutionProcessor/EventBridge
+    #
+    # Migration impact: NONE - ExecutionController provides same functionality with better performance

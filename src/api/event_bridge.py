@@ -331,16 +331,20 @@ class EventBridge(IEventBridge):
         progress = data.get("progress", {})
         progress_percentage = progress.get("percentage", 0.0) if isinstance(progress, dict) else 0.0
 
-
+        # ✅ PERFORMANCE FIX: Changed from INFO to DEBUG
+        # Progress updates are routine/frequent operations (5s interval with throttling)
+        # INFO level should be reserved for significant events (session start/stop, errors)
+        # This reduces log spam from hundreds of progress updates per session to DEBUG-only logging
         if self.logger:
-            self.logger.info("event_bridge.execution_progress_sent", {
+            self.logger.debug("event_bridge.execution_progress_sent", {
                 "records_collected": records_collected,
                 "progress_percentage": progress_percentage,
                 "session_id": data.get("session_id"),
                 "command_type": data.get("command_type", "unknown")
             })
         else:
-            print(f"[EVENT_BRIDGE] Execution progress sent: records={records_collected}, progress={progress_percentage}%")
+            # Console fallback also changed to be less verbose
+            pass  # Skip console output for routine progress (too noisy)
 
         # This is already a formatted WebSocket message, broadcast directly
         success = await self.broadcast_provider.broadcast_message(
