@@ -617,7 +617,7 @@ class Container:
         Returns:
             Configured data collection controller
         """
-        def _create():
+        async def _create():
             try:
                 from ..application.controllers.execution_controller import ExecutionController
 
@@ -641,11 +641,30 @@ class Container:
                         pg_port=8812
                     )
 
-                    # Test QuestDB connection (fail-fast if not available)
-                    # Note: initialize() is async, will be called later
-                    # For now just verify provider was created
-                    if questdb_provider is None:
-                        raise RuntimeError("QuestDB provider creation failed")
+                    # ✅ CRITICAL FIX: Initialize PostgreSQL connection pool
+                    await questdb_provider.initialize()
+
+                    # ✅ CRITICAL FIX: Health check (fail-fast validation)
+                    is_healthy = await questdb_provider.is_healthy()
+                    if not is_healthy:
+                        raise RuntimeError(
+                            "QuestDB health check FAILED. The database is not accepting connections.\n"
+                            "Please ensure QuestDB is running:\n"
+                            "  1. On Windows: Run C:\\...\\questdb.exe from start_all.ps1\n"
+                            "  2. Check Web UI: http://127.0.0.1:9000\n"
+                            "  3. Verify ports:\n"
+                            "     - InfluxDB Line Protocol (ILP): 127.0.0.1:9009\n"
+                            "     - PostgreSQL wire protocol: 127.0.0.1:8812\n"
+                            "  4. If QuestDB is not installed:\n"
+                            "     - Download from https://questdb.io/download/\n"
+                            "     - Or run: python database/questdb/install_questdb.py (migrations only)"
+                        )
+
+                    self.logger.info("container.questdb_health_check_passed", {
+                        "ilp_port": 9009,
+                        "pg_port": 8812,
+                        "status": "healthy"
+                    })
 
                     # Create persistence service
                     db_persistence_service = DataCollectionPersistenceService(
@@ -670,7 +689,7 @@ class Container:
                     raise RuntimeError(
                         f"QuestDB persistence is REQUIRED but could not be initialized: {str(e)}\n"
                         f"Please ensure QuestDB is running at 127.0.0.1:9009 (ILP) and 127.0.0.1:8812 (PG).\n"
-                        f"Run: python database/questdb/install_questdb.py"
+                        f"See error message above for detailed instructions."
                     ) from e
 
                 # Create execution controller with factory and persistence

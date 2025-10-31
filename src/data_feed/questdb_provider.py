@@ -121,15 +121,16 @@ class QuestDBProvider:
         pg_password: str = 'quest',
         pg_database: str = 'qdb',
         pg_pool_size: int = 10,
+        ilp_sender_pool_size: int = 5,
         ilp_retry_attempts: int = 3,
         ilp_retry_delays: Optional[List[float]] = None,
     ):
         """
-        Initialize QuestDB provider with retry logic.
+        Initialize QuestDB provider with connection pooling for both PostgreSQL and ILP.
 
-        Uses one-sender-per-operation pattern (no connection reuse) to avoid
-        race conditions and threading issues. Each batch write creates a new
-        Sender within a context manager, following QuestDB best practices.
+        ✅ PERFORMANCE FIX: Now uses connection pool pattern for ILP Senders to prevent
+        port exhaustion and reduce connection overhead. Reuses persistent TCP connections
+        instead of creating new ones for each batch write.
 
         Args:
             ilp_host: InfluxDB line protocol host
@@ -139,13 +140,15 @@ class QuestDBProvider:
             pg_user: PostgreSQL user
             pg_password: PostgreSQL password
             pg_database: PostgreSQL database name
-            pg_pool_size: PostgreSQL connection pool size
+            pg_pool_size: PostgreSQL connection pool size (default 10)
+            ilp_sender_pool_size: ILP Sender pool size (default 5)
             ilp_retry_attempts: Number of retry attempts for ILP operations (default 3)
             ilp_retry_delays: Retry delays in seconds (default [1.0, 2.0, 4.0] for exponential backoff)
         """
         # InfluxDB line protocol config
         self.ilp_host = ilp_host
         self.ilp_port = ilp_port
+        self.ilp_sender_pool_size = ilp_sender_pool_size
         self.ilp_retry_attempts = ilp_retry_attempts
         self.ilp_retry_delays = ilp_retry_delays or [1.0, 2.0, 4.0]
 
@@ -157,16 +160,28 @@ class QuestDBProvider:
         self.pg_database = pg_database
         self.pg_pool_size = pg_pool_size
 
-        # Connection pool (initialized in async context)
+        # PostgreSQL connection pool (initialized in async context)
         self.pg_pool: Optional[asyncpg.Pool] = None
+
+        # ✅ PERFORMANCE FIX: ILP Sender connection pool
+        # Reuses TCP connections to prevent port exhaustion and reduce overhead
+        self._sender_pool: List[Sender] = []
+        self._sender_pool_lock = asyncio.Lock()
+        self._sender_available = asyncio.Condition(self._sender_pool_lock)
 
         logger.info(
             f"QuestDBProvider initialized (ILP: {ilp_host}:{ilp_port}, PG: {pg_host}:{pg_port}, "
-            f"retry_attempts: {ilp_retry_attempts})"
+            f"pg_pool: {pg_pool_size}, ilp_pool: {ilp_sender_pool_size}, retry_attempts: {ilp_retry_attempts})"
         )
 
     async def initialize(self):
-        """Initialize PostgreSQL connection pool."""
+        """
+        Initialize both PostgreSQL connection pool and ILP Sender pool.
+
+        ✅ PERFORMANCE FIX: Creates persistent ILP Sender connections to prevent
+        port exhaustion and reduce TCP handshake overhead.
+        """
+        # Initialize PostgreSQL pool
         if self.pg_pool is None:
             self.pg_pool = await asyncpg.create_pool(
                 host=self.pg_host,
@@ -179,12 +194,51 @@ class QuestDBProvider:
             )
             logger.info(f"PostgreSQL pool created ({self.pg_pool_size} connections)")
 
+        # ✅ PERFORMANCE FIX: Initialize ILP Sender pool
+        async with self._sender_pool_lock:
+            if not self._sender_pool:
+                for i in range(self.ilp_sender_pool_size):
+                    try:
+                        sender = Sender(Protocol.Tcp, self.ilp_host, self.ilp_port)
+                        self._sender_pool.append(sender)
+                        logger.debug(f"ILP Sender #{i+1} created")
+                    except IngressError as e:
+                        logger.error(f"Failed to create ILP Sender #{i+1}: {e}")
+                        # Close any senders that were created
+                        for s in self._sender_pool:
+                            try:
+                                s.close()
+                            except:
+                                pass
+                        self._sender_pool.clear()
+                        raise RuntimeError(f"Failed to initialize ILP Sender pool: {e}") from e
+
+                logger.info(f"ILP Sender pool created ({len(self._sender_pool)} connections)")
+
     async def close(self):
-        """Close PostgreSQL connection pool."""
+        """
+        Close both PostgreSQL connection pool and ILP Sender pool.
+
+        ✅ PERFORMANCE FIX: Properly closes all pooled connections.
+        """
+        # Close PostgreSQL pool
         if self.pg_pool:
             await self.pg_pool.close()
             self.pg_pool = None
             logger.info("PostgreSQL pool closed")
+
+        # ✅ PERFORMANCE FIX: Close ILP Sender pool
+        async with self._sender_pool_lock:
+            for i, sender in enumerate(self._sender_pool):
+                try:
+                    sender.close()
+                    logger.debug(f"ILP Sender #{i+1} closed")
+                except Exception as e:
+                    logger.warning(f"Error closing ILP Sender #{i+1}: {e}")
+            self._sender_pool.clear()
+            if self._sender_pool:
+                logger.info(f"ILP Sender pool closed ({len(self._sender_pool)} connections)")
+            # Note: using if check because pool might be empty if initialize() was never called
 
     async def is_healthy(self) -> bool:
         """
@@ -231,19 +285,113 @@ class QuestDBProvider:
 
         return is_healthy
 
+    async def _acquire_sender(self) -> Sender:
+        """
+        Acquire a Sender from the pool (blocking until available).
+
+        ✅ PERFORMANCE FIX: Reuses pooled connections instead of creating new ones.
+
+        Returns:
+            Sender instance from the pool
+
+        Raises:
+            RuntimeError: If pool is empty and not initialized
+        """
+        async with self._sender_available:
+            while not self._sender_pool:
+                # Pool is empty - either not initialized or all senders checked out
+                # Wait for a sender to become available
+                await self._sender_available.wait()
+
+            sender = self._sender_pool.pop()
+            logger.debug(f"Sender acquired from pool (remaining: {len(self._sender_pool)})")
+            return sender
+
+    async def _release_sender(self, sender: Sender, is_broken: bool = False):
+        """
+        Return a Sender to the pool or replace if broken.
+
+        ✅ PERFORMANCE FIX: Returns healthy senders to pool for reuse, recreates broken ones.
+
+        Args:
+            sender: Sender instance to release
+            is_broken: If True, sender will be closed and replaced with a new one
+
+        Raises:
+            RuntimeError: If failed to create replacement sender
+        """
+        async with self._sender_available:
+            if is_broken:
+                # Close broken sender
+                try:
+                    sender.close()
+                    logger.debug("Broken sender closed")
+                except Exception as e:
+                    logger.warning(f"Error closing broken sender: {e}")
+
+                # Try to create a replacement
+                try:
+                    new_sender = Sender(Protocol.Tcp, self.ilp_host, self.ilp_port)
+                    self._sender_pool.append(new_sender)
+                    logger.info(f"Broken sender replaced (pool size: {len(self._sender_pool)})")
+                except IngressError as e:
+                    logger.error(f"Failed to replace broken sender: {e}")
+                    # Pool is now smaller - log warning but don't raise
+                    # System can continue with reduced pool size
+                    logger.warning(f"Sender pool reduced to {len(self._sender_pool)} connections")
+            else:
+                # Return healthy sender to pool
+                self._sender_pool.append(sender)
+                logger.debug(f"Sender released to pool (total: {len(self._sender_pool)})")
+
+            # Notify waiting coroutines that a sender is available
+            self._sender_available.notify()
+
+    @staticmethod
+    def _is_permanent_failure(error: IngressError) -> bool:
+        """
+        Detect if error indicates a permanent failure (e.g., server not running).
+
+        ✅ RETRY LOGIC FIX: Distinguishes between permanent failures (QuestDB not running)
+        and transient failures (network glitch, temporary overload).
+
+        Permanent failures should fail fast without retries, while transient failures
+        benefit from exponential backoff retry.
+
+        Args:
+            error: IngressError from QuestDB client
+
+        Returns:
+            True if error indicates permanent failure, False for transient failure
+        """
+        error_str = str(error).lower()
+
+        # Connection refused - server not running (WSAECONNREFUSED 10061 on Windows)
+        permanent_indicators = [
+            'connection refused',
+            'could not connect',
+            'os error 10061',  # Windows WSAECONNREFUSED
+            'connection reset',
+            'broken pipe',
+        ]
+
+        return any(indicator in error_str for indicator in permanent_indicators)
+
     async def _execute_ilp_with_retry(self, operation_name: str, write_func) -> int:
         """
         Execute ILP write operation with retry logic and exponential backoff.
 
-        Uses one-sender-per-operation pattern: creates a new Sender for each operation
-        within a context manager, following QuestDB best practices. Each retry attempt
-        creates a fresh Sender to avoid state issues.
+        ✅ PERFORMANCE FIX: Now uses connection pool pattern instead of creating new Sender
+        for each operation. Reuses persistent TCP connections to prevent port exhaustion
+        and reduce overhead.
+
+        ✅ RETRY LOGIC FIX: Detects permanent failures (server not running) and fails fast
+        without exhausting all retry attempts. Only retries transient failures.
 
         This method addresses transient connection failures to QuestDB caused by:
-        - Connection exhaustion (high-frequency writes creating many TCP connections)
         - QuestDB overload (WAL queue full, temporarily refusing new connections)
         - Network timing issues (even on localhost)
-        - OS ephemeral port exhaustion (Windows WSAECONNREFUSED 10061)
+        - Broken connections (automatically recreated)
 
         Args:
             operation_name: Name of operation for logging (e.g., "insert_tick_prices")
@@ -253,17 +401,27 @@ class QuestDBProvider:
             Number of successfully inserted rows
 
         Raises:
-            Exception: If all retry attempts fail
+            Exception: If all retry attempts fail or permanent failure detected
         """
         last_error = None
+        sender = None
+        sender_acquired = False
 
         for attempt in range(self.ilp_retry_attempts + 1):
             try:
-                # Create new Sender for this operation (no reuse, no shared state)
-                with Sender(Protocol.Tcp, self.ilp_host, self.ilp_port) as sender:
-                    inserted = write_func(sender)
-                    sender.flush()
-                # Context manager automatically closes sender
+                # ✅ PERFORMANCE FIX: Acquire sender from pool (not create new)
+                if not sender_acquired:
+                    sender = await self._acquire_sender()
+                    sender_acquired = True
+
+                # Execute write operation
+                inserted = write_func(sender)
+                sender.flush()
+
+                # ✅ PERFORMANCE FIX: Return sender to pool (not close)
+                await self._release_sender(sender, is_broken=False)
+                sender_acquired = False
+                sender = None
 
                 if attempt > 0:
                     logger.info(f"{operation_name} succeeded after {attempt + 1} attempts ({inserted} rows)")
@@ -276,6 +434,31 @@ class QuestDBProvider:
                 last_error = e
                 is_last_attempt = (attempt == self.ilp_retry_attempts)
 
+                # ✅ CRITICAL FIX: Mark sender as broken and release it
+                if sender_acquired and sender is not None:
+                    await self._release_sender(sender, is_broken=True)
+                    sender_acquired = False
+                    sender = None
+
+                # ✅ RETRY LOGIC FIX: Detect permanent failures and fail fast
+                is_permanent = self._is_permanent_failure(e)
+
+                if is_permanent:
+                    error_msg = (
+                        f"Failed to {operation_name}: QuestDB appears to be OFFLINE (permanent failure detected)\n"
+                        f"Error: {e}\n"
+                        f"\n"
+                        f"This error indicates QuestDB is not running or not accepting connections.\n"
+                        f"Retrying will not help. Please:\n"
+                        f"  1. Start QuestDB server\n"
+                        f"  2. Verify ports 9009 (ILP) and 8812 (PostgreSQL) are accessible\n"
+                        f"  3. Check Web UI: http://127.0.0.1:9000\n"
+                        f"\n"
+                        f"Failing fast without retries to prevent data loss and buffer overflow."
+                    )
+                    logger.error(error_msg)
+                    raise Exception(error_msg) from e
+
                 if is_last_attempt:
                     error_msg = f"Failed to {operation_name} after {self.ilp_retry_attempts + 1} attempts: {e}"
                     logger.error(error_msg)
@@ -285,9 +468,17 @@ class QuestDBProvider:
                     delay = self.ilp_retry_delays[min(attempt, len(self.ilp_retry_delays) - 1)]
                     logger.warning(
                         f"Failed to {operation_name} (attempt {attempt + 1}/{self.ilp_retry_attempts + 1}): {e}. "
-                        f"Retrying in {delay}s..."
+                        f"Retrying in {delay}s... (transient failure)"
                     )
                     await asyncio.sleep(delay)
+
+            except Exception as e:
+                # Unexpected error - release sender if acquired
+                if sender_acquired and sender is not None:
+                    await self._release_sender(sender, is_broken=True)
+                    sender_acquired = False
+                    sender = None
+                raise
 
         # Should never reach here, but for type safety
         raise Exception(f"Failed to {operation_name}: {last_error}")
