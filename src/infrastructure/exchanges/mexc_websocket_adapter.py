@@ -2985,26 +2985,28 @@ class MexcWebSocketAdapter(IMarketDataProvider):
     
     async def _refresh_orderbook_from_rest(self, symbol: str) -> None:
         """
-        Refresh orderbook cache from MEXC REST API.
+        Refresh orderbook cache from MEXC Futures REST API.
 
-        CRITICAL: MEXC Spot API (/api/v3/depth) requires symbols WITHOUT underscore.
-        Internal format: BTC_USDT → MEXC format: BTCUSDT
+        CRITICAL: Uses ONLY Futures endpoint (NOT Spot API).
+        - Futures endpoint: https://contract.mexc.com/api/v1/contract/depth/{symbol}
+        - Symbol format: WITH underscore (BTC_USDT)
+        - Same format as WebSocket (wss://contract.mexc.com)
         """
         try:
-            # Transform symbol format: BTC_USDT → BTCUSDT (remove underscore)
-            # MEXC Spot API expects concatenated format without underscore
-            mexc_symbol = symbol.replace('_', '')
-
-            rest_url = f"https://api.mexc.com/api/v3/depth?symbol={mexc_symbol}&limit=20"
+            # MEXC Futures uses symbol WITH underscore (same as WebSocket)
+            # No transformation needed - use symbol as-is
+            rest_url = f"https://contract.mexc.com/api/v1/contract/depth/{symbol}"
             
             async with aiohttp.ClientSession() as session:
                 async with session.get(rest_url, timeout=aiohttp.ClientTimeout(total=5.0)) as response:
                     if response.status == 200:
                         data = await response.json()
-                        
-                        # Parse REST response 
-                        bids_raw = data.get("bids", [])
-                        asks_raw = data.get("asks", [])
+
+                        # Parse Futures REST response (format: {"success": true, "code": 0, "data": {...}})
+                        # Different from Spot API which returns bids/asks at root level
+                        response_data = data.get("data", {}) if "data" in data else data
+                        bids_raw = response_data.get("bids", [])
+                        asks_raw = response_data.get("asks", [])
                         
                         # Convert to our format
                         bids = []
@@ -3046,16 +3048,16 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                                 cache_entry["timestamp"] = time.time()
                                 
                             self.logger.debug("mexc_adapter.orderbook_refreshed_from_rest", {
-                                "symbol": symbol,  # Internal format with underscore
-                                "mexc_symbol": mexc_symbol,  # MEXC API format without underscore
+                                "symbol": symbol,
                                 "bids_count": len(bids),
-                                "asks_count": len(asks)
+                                "asks_count": len(asks),
+                                "source": "futures_rest_api"
                             })
                     else:
                         self.logger.warning("mexc_adapter.rest_orderbook_failed", {
-                            "symbol": symbol,  # Internal format with underscore
-                            "mexc_symbol": mexc_symbol,  # MEXC API format without underscore
-                            "status": response.status
+                            "symbol": symbol,
+                            "status": response.status,
+                            "endpoint": "futures_rest_api"
                         })
                         
         except Exception as e:
