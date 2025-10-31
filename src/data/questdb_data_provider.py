@@ -338,74 +338,15 @@ class QuestDBDataProvider:
             })
             raise
 
-    async def get_aggregated_ohlcv(
-        self,
-        session_id: str,
-        symbol: str,
-        interval: str = '1m',
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
-        limit: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
-        """
-        Get pre-aggregated OHLCV candles.
-
-        Args:
-            session_id: Session identifier
-            symbol: Trading pair symbol
-            interval: Timeframe ('1m', '5m', '15m', '1h', '4h', '1d')
-            start_time: Filter by start timestamp
-            end_time: Filter by end timestamp
-            limit: Maximum number of candles
-
-        Returns:
-            List of OHLCV candle dictionaries
-        """
-        try:
-            # Build time filter
-            time_filters = []
-            if start_time:
-                start_us = int(start_time.timestamp() * 1_000_000)
-                time_filters.append(f"timestamp >= {start_us}")
-
-            if end_time:
-                end_us = int(end_time.timestamp() * 1_000_000)
-                time_filters.append(f"timestamp <= {end_us}")
-
-            time_clause = f"AND {' AND '.join(time_filters)}" if time_filters else ""
-            limit_clause = f"LIMIT {limit}" if limit else ""
-
-            query = f"""
-            SELECT timestamp, open, high, low, close, volume, quote_volume,
-                   trades_count, is_closed
-            FROM aggregated_ohlcv
-            WHERE session_id = '{session_id}'
-              AND symbol = '{symbol}'
-              AND interval = '{interval}'
-            {time_clause}
-            ORDER BY timestamp ASC
-            {limit_clause}
-            """
-
-            self.logger.debug("questdb_data_provider.get_aggregated_ohlcv", {
-                "session_id": session_id,
-                "symbol": symbol,
-                "interval": interval,
-                "limit": limit
-            })
-
-            results = await self.db.execute_query(query)
-            return results
-
-        except Exception as e:
-            self.logger.error("questdb_data_provider.get_aggregated_ohlcv_failed", {
-                "session_id": session_id,
-                "symbol": symbol,
-                "interval": interval,
-                "error": str(e),
-                "error_type": type(e).__name__
-            })
-            raise
+    # get_aggregated_ohlcv() removed - use SAMPLE BY instead
+    # See data_collection_persistence_service.py OHLCV AGGREGATION REMOVED for details
+    #
+    # Example replacement query:
+    # SELECT timestamp, first(price) as open, max(price) as high,
+    #        min(price) as low, last(price) as close, sum(volume) as volume
+    # FROM tick_prices
+    # WHERE session_id = 'X' AND symbol = 'BTC_USDT'
+    # SAMPLE BY 1m ALIGN TO CALENDAR
 
     async def get_session_statistics(self, session_id: str) -> Dict[str, Any]:
         """
