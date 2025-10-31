@@ -276,7 +276,11 @@ class ExecutionController:
 
     MAX_BUFFER_SIZE = 1000
     FLUSH_INTERVAL_SECONDS = 0.5  # ✅ TRADING FIX: Reduced from 5.0s to 500ms for faster data writes
-    FLUSH_TIMEOUT_SECONDS = 5.0
+    # ✅ CRITICAL FIX: Flush timeout must exceed total retry time
+    # Retry logic in QuestDB: 4 attempts with delays [1.0s, 2.0s, 4.0s] = ~7.4s total
+    # Add 100% buffer for operation overhead and network latency: 7.4 * 2 = ~15s
+    # This prevents false timeouts when QuestDB retry logic is legitimately working
+    FLUSH_TIMEOUT_SECONDS = 15.0  # Increased from 5.0s to accommodate QuestDB retry logic
 
     def __init__(
         self,
