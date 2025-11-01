@@ -1321,20 +1321,30 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                             break
 
                     if confirmed_symbol:
-                        # Check if both subscriptions are now confirmed
-                        if (pending_symbols[confirmed_symbol].get('deal') == 'confirmed' and
-                            pending_symbols[confirmed_symbol].get('depth') == 'confirmed'):
-                            # ⚠️ DIAGNOSTIC: Log if removing before depth_full confirmation
-                            depth_full_status = pending_symbols[confirmed_symbol].get('depth_full', 'not_tracked')
-                            if depth_full_status == 'pending':
-                                self.logger.warning("mexc_adapter.symbol_removed_before_depth_full", {
-                                    "symbol": confirmed_symbol,
-                                    "connection_id": connection_id,
-                                    "depth_full_status": depth_full_status,
-                                    "warning": "Removing symbol from pending before depth_full confirmation - snapshot task may not start!"
-                                })
+                        # ✅ FIX: Check ALL subscriptions are confirmed before removing
+                        # If orderbook enabled, we need deal + depth + depth_full
+                        # Otherwise, only deal + depth
+                        if 'orderbook' in self.data_types:
+                            all_confirmed = (
+                                pending_symbols[confirmed_symbol].get('deal') == 'confirmed' and
+                                pending_symbols[confirmed_symbol].get('depth') == 'confirmed' and
+                                pending_symbols[confirmed_symbol].get('depth_full') == 'confirmed'
+                            )
+                        else:
+                            all_confirmed = (
+                                pending_symbols[confirmed_symbol].get('deal') == 'confirmed' and
+                                pending_symbols[confirmed_symbol].get('depth') == 'confirmed'
+                            )
 
-                            # Both confirmed, remove from pending
+                        if all_confirmed:
+                            # All required subscriptions confirmed, safe to remove
+                            self.logger.debug("mexc_adapter.symbol_confirmed_removing_from_pending", {
+                                "symbol": confirmed_symbol,
+                                "connection_id": connection_id,
+                                "has_orderbook": 'orderbook' in self.data_types,
+                                "all_channels_confirmed": True
+                            })
+
                             del pending_symbols[confirmed_symbol]
                             if not pending_symbols:
                                 del self._pending_subscriptions[connection_id]
@@ -1404,21 +1414,30 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                             break
 
                     if confirmed_symbol:
-                        # Check if both subscriptions are now confirmed
-                        if (pending_symbols[confirmed_symbol].get('deal') == 'confirmed' and
-                            pending_symbols[confirmed_symbol].get('depth') == 'confirmed'):
-                            # ⚠️ DIAGNOSTIC: Log if removing before depth_full confirmation
-                            depth_full_status = pending_symbols[confirmed_symbol].get('depth_full', 'not_tracked')
-                            if depth_full_status == 'pending':
-                                self.logger.warning("mexc_adapter.symbol_removed_before_depth_full", {
-                                    "symbol": confirmed_symbol,
-                                    "connection_id": connection_id,
-                                    "depth_full_status": depth_full_status,
-                                    "warning": "Removing symbol from pending before depth_full confirmation - snapshot task may not start!",
-                                    "handler": "depth"
-                                })
+                        # ✅ FIX: Check ALL subscriptions are confirmed before removing
+                        # If orderbook enabled, we need deal + depth + depth_full
+                        # Otherwise, only deal + depth
+                        if 'orderbook' in self.data_types:
+                            all_confirmed = (
+                                pending_symbols[confirmed_symbol].get('deal') == 'confirmed' and
+                                pending_symbols[confirmed_symbol].get('depth') == 'confirmed' and
+                                pending_symbols[confirmed_symbol].get('depth_full') == 'confirmed'
+                            )
+                        else:
+                            all_confirmed = (
+                                pending_symbols[confirmed_symbol].get('deal') == 'confirmed' and
+                                pending_symbols[confirmed_symbol].get('depth') == 'confirmed'
+                            )
 
-                            # Both confirmed, remove from pending
+                        if all_confirmed:
+                            # All required subscriptions confirmed, safe to remove
+                            self.logger.debug("mexc_adapter.symbol_confirmed_removing_from_pending", {
+                                "symbol": confirmed_symbol,
+                                "connection_id": connection_id,
+                                "has_orderbook": 'orderbook' in self.data_types,
+                                "all_channels_confirmed": True
+                            })
+
                             del pending_symbols[confirmed_symbol]
                             if not pending_symbols:
                                 del self._pending_subscriptions[connection_id]
