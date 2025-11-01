@@ -1514,9 +1514,37 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                             "subscription_type": "depth.full",
                             "pending_count": len([s for s, st in pending_symbols.items() if st.get('deal') == 'pending' or st.get('depth') == 'pending' or st.get('depth_full') == 'pending'])
                         })
-                        
+
                         # Start periodic snapshot refresh task for this symbol
                         await self._start_snapshot_refresh_task(confirmed_symbol)
+
+                        # ✅ FIX: Check if ALL subscriptions are confirmed before removing
+                        # This prevents memory leak where symbols stay in pending forever
+                        if 'orderbook' in self.data_types:
+                            all_confirmed = (
+                                pending_symbols[confirmed_symbol].get('deal') == 'confirmed' and
+                                pending_symbols[confirmed_symbol].get('depth') == 'confirmed' and
+                                pending_symbols[confirmed_symbol].get('depth_full') == 'confirmed'
+                            )
+                        else:
+                            all_confirmed = (
+                                pending_symbols[confirmed_symbol].get('deal') == 'confirmed' and
+                                pending_symbols[confirmed_symbol].get('depth') == 'confirmed'
+                            )
+
+                        if all_confirmed:
+                            # All required subscriptions confirmed, safe to remove
+                            self.logger.debug("mexc_adapter.symbol_confirmed_removing_from_pending", {
+                                "symbol": confirmed_symbol,
+                                "connection_id": connection_id,
+                                "has_orderbook": 'orderbook' in self.data_types,
+                                "all_channels_confirmed": True,
+                                "handler": "depth_full"
+                            })
+
+                            del pending_symbols[confirmed_symbol]
+                            if not pending_symbols:
+                                del self._pending_subscriptions[connection_id]
                     else:
                         # ⚠️ DIAGNOSTIC: Symbol not found - this is the bug manifestation!
                         # Try to identify which symbol this confirmation belongs to
