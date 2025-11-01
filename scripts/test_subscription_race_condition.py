@@ -159,7 +159,7 @@ class SubscriptionStateSimulator:
         return confirmed_symbol
 
     async def handle_depth_full_confirmation(self, connection_id: int):
-        """Simulate depth_full confirmation (this is where the bug manifests)"""
+        """Simulate depth_full confirmation (FIXED with cleanup logic)"""
         pending_symbols = self._pending_subscriptions.get(connection_id, {})
         if not pending_symbols:
             self.log("ERROR", "depth_full_confirmation_failed", {
@@ -185,6 +185,27 @@ class SubscriptionStateSimulator:
                 "symbol": confirmed_symbol,
                 "type": "depth_full"
             })
+
+            # ✅ FIX: Check if ALL 3 channels confirmed, then remove
+            all_confirmed = (
+                pending_symbols[confirmed_symbol].get('deal') == 'confirmed' and
+                pending_symbols[confirmed_symbol].get('depth') == 'confirmed' and
+                pending_symbols[confirmed_symbol].get('depth_full') == 'confirmed'
+            )
+
+            if all_confirmed:
+                self.log("INFO", "removing_symbol_from_pending", {
+                    "symbol": confirmed_symbol,
+                    "connection_id": connection_id,
+                    "reason": "all_channels_confirmed",
+                    "channels": "deal + depth + depth_full",
+                    "handler": "depth_full"
+                })
+
+                # Remove from pending
+                del pending_symbols[confirmed_symbol]
+                if not pending_symbols:
+                    del self._pending_subscriptions[connection_id]
         else:
             # ❌ MANIFESTATION: Symbol already removed!
             self.log("ERROR", "depth_full_confirmation_failed", {
@@ -319,6 +340,81 @@ async def test_multiple_symbols():
     return len(sim._snapshot_refresh_tasks) == 3  # ✅ Should be 3 out of 3 with fix!
 
 
+async def test_memory_leak_prevention():
+    """Test that symbols are removed from pending after all confirmations"""
+    print("\n" + "=" * 80)
+    print("TEST 4: Memory Leak Prevention - pending subscriptions cleanup")
+    print("         ✅ FIXED: Symbol should be removed after all 3 confirmations")
+    print("=" * 80 + "\n")
+
+    sim = SubscriptionStateSimulator()
+
+    # Subscribe symbol
+    await sim.subscribe_symbol("LEAK_TEST_USDT", connection_id=1)
+
+    print("Initial state:")
+    print(f"   Pending subscriptions: {list(sim._pending_subscriptions.get(1, {}).keys())}")
+
+    # All confirmations arrive
+    await sim.handle_deal_confirmation(1)
+    print("\nAfter deal confirmation:")
+    print(f"   Pending subscriptions: {list(sim._pending_subscriptions.get(1, {}).keys())}")
+
+    await sim.handle_depth_confirmation(1)
+    print("\nAfter depth confirmation:")
+    print(f"   Pending subscriptions: {list(sim._pending_subscriptions.get(1, {}).keys())}")
+
+    await sim.handle_depth_full_confirmation(1)
+    print("\nAfter depth_full confirmation:")
+    pending_after = sim._pending_subscriptions.get(1, {})
+    print(f"   Pending subscriptions: {list(pending_after.keys())}")
+
+    print("\n📊 RESULT:")
+    if len(pending_after) == 0:
+        print("   ✅ SUCCESS: Symbol removed from pending after all confirmations!")
+        print("   No memory leak - pending subscriptions properly cleaned up")
+    else:
+        print(f"   ❌ FAILURE: Symbol still in pending: {list(pending_after.keys())}")
+        print("   Memory leak - symbols accumulate in pending subscriptions")
+
+    return len(pending_after) == 0
+
+
+async def test_duplicate_confirmation_handling():
+    """Test that duplicate depth_full confirmations are handled gracefully"""
+    print("\n" + "=" * 80)
+    print("TEST 5: Duplicate Confirmation Handling")
+    print("         ✅ FIXED: Duplicate confirmations should not cause errors")
+    print("=" * 80 + "\n")
+
+    sim = SubscriptionStateSimulator()
+
+    # Subscribe symbol
+    await sim.subscribe_symbol("DUP_TEST_USDT", connection_id=1)
+
+    # All confirmations arrive
+    await sim.handle_deal_confirmation(1)
+    await sim.handle_depth_confirmation(1)
+    await sim.handle_depth_full_confirmation(1)
+
+    print("\nFirst depth_full processed, symbol removed from pending")
+    print(f"Pending subscriptions: {list(sim._pending_subscriptions.get(1, {}).keys())}")
+
+    # Duplicate depth_full confirmation arrives (simulates late/retry)
+    print("\nDuplicate depth_full confirmation arrives...")
+    result = await sim.handle_depth_full_confirmation(1)
+
+    print("\n📊 RESULT:")
+    if result is None:
+        print("   ✅ SUCCESS: Duplicate confirmation handled gracefully!")
+        print("   Returns None without crashing or creating errors")
+        print("   Snapshot task already exists, no duplicates created")
+    else:
+        print(f"   ⚠️  UNEXPECTED: Duplicate created snapshot task for {result}")
+
+    return result is None
+
+
 async def main():
     """Run all tests"""
     print("=" * 80)
@@ -351,6 +447,22 @@ async def main():
         print(f"❌ Test 3 crashed: {e}")
         results.append(("Multiple symbols test", False))
 
+    # Test 4: Memory leak prevention
+    try:
+        result = await test_memory_leak_prevention()
+        results.append(("Memory leak prevention test", result))
+    except Exception as e:
+        print(f"❌ Test 4 crashed: {e}")
+        results.append(("Memory leak prevention test", False))
+
+    # Test 5: Duplicate confirmation handling
+    try:
+        result = await test_duplicate_confirmation_handling()
+        results.append(("Duplicate confirmation handling test", result))
+    except Exception as e:
+        print(f"❌ Test 5 crashed: {e}")
+        results.append(("Duplicate confirmation handling test", False))
+
     # Summary
     print("\n" + "=" * 80)
     print("TEST SUMMARY")
@@ -369,6 +481,8 @@ async def main():
         print("\n   Before fix: Only symbols where depth_full arrived FIRST got tasks")
         print("   After fix: ALL symbols get tasks because symbol stays in pending")
         print("              until all 3 channels (deal + depth + depth_full) are confirmed")
+        print("\n   ✅ Memory leak FIXED: Symbols removed from pending after all confirmations")
+        print("   ✅ Duplicate handling: Gracefully handles late/retry confirmations")
     else:
         print("\n❌ TESTS FAILED:")
         print("   Some tests did not pass. Check implementation or test logic.")
