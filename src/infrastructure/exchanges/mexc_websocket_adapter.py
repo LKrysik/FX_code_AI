@@ -142,6 +142,7 @@ class MexcWebSocketAdapter(IMarketDataProvider):
         self._subscribed_symbols: Set[str] = set()
         self._subscription_lock = asyncio.Lock()  # Prevent race conditions in subscribe operations
         self._pending_subscriptions: Dict[int, Dict[str, Dict[str, str]]] = {}  # connection_id -> symbol -> {'deal': 'pending', 'depth': 'pending', 'depth_full': 'pending'}
+        self._snapshot_received: Dict[str, bool] = {}  # Track if we received initial snapshot for symbol
         
         # Market data cache - Enhanced with size-based management
         self._latest_prices: Dict[str, float] = {}  # Legacy cache for backward compatibility
@@ -1253,14 +1254,25 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                 # Handle market data - futures deal format
                 elif channel == "push.deal":
                     await self._handle_futures_deal_data(data)
-                
-                # Handle market data - futures depth format  
+
+                # Handle market data - futures depth format
+                # ✅ FIX: MEXC sends both snapshot (from sub.depth.full) and deltas (from sub.depth) through "push.depth"
+                # There is NO "push.depth.full" channel in MEXC API!
+                # We distinguish by tracking if we received first message after sub.depth.full confirmation
                 elif channel == "push.depth":
-                    await self._handle_futures_depth_data(data, is_snapshot=False)
-                
-                # Handle market data - futures depth full snapshot format
-                elif channel == "push.depth.full":
-                    await self._handle_futures_depth_data(data, is_snapshot=True)
+                    symbol = data.get("symbol", "")
+
+                    # First push.depth for this symbol = snapshot, subsequent = deltas
+                    is_snapshot = not self._snapshot_received.get(symbol, False)
+
+                    if is_snapshot:
+                        self._snapshot_received[symbol] = True
+                        self.logger.debug("mexc_adapter.receiving_initial_snapshot", {
+                            "symbol": symbol,
+                            "channel": channel
+                        })
+
+                    await self._handle_futures_depth_data(data, is_snapshot=is_snapshot)
                 
                 # Handle pong messages - update last_pong_received to track connection health
                 elif channel == "pong":
@@ -1852,21 +1864,24 @@ class MexcWebSocketAdapter(IMarketDataProvider):
             # ✅ CACHE UPDATE: Maintain full orderbook state
             async with self._orderbook_lock:
                 if symbol not in self._orderbook_cache:
+                    # ✅ FIX: Initialize with OrderedDict for consistency with snapshot/delta processing
                     self._orderbook_cache[symbol] = {
-                        "bids": [],
-                        "asks": [],
+                        "bids": OrderedDict(),
+                        "asks": OrderedDict(),
+                        "version": 0,
                         "timestamp": time.time()
                     }
-                
+
                 cache_entry = self._orderbook_cache[symbol]
                 current_time = time.time()
-                
+
                 # Update cache with new data (only if we received that side)
+                # Convert list format to OrderedDict
                 if bids:  # Update bids only if MEXC sent them
-                    cache_entry["bids"] = bids
-                if asks:  # Update asks only if MEXC sent them  
-                    cache_entry["asks"] = asks
-                
+                    cache_entry["bids"] = OrderedDict((str(float(price)), float(qty)) for price, qty in bids)
+                if asks:  # Update asks only if MEXC sent them
+                    cache_entry["asks"] = OrderedDict((str(float(price)), float(qty)) for price, qty in asks)
+
                 cache_entry["timestamp"] = current_time
                 
                 # ✅ COMPLETE ORDERBOOK: Always publish with both sides from cache
@@ -2377,6 +2392,8 @@ class MexcWebSocketAdapter(IMarketDataProvider):
 
             self._subscribed_symbols.discard(symbol)
             self._symbol_to_connection.pop(symbol, None)
+            # ✅ FIX: Clean up snapshot tracking when unsubscribing
+            self._snapshot_received.pop(symbol, None)
 
             self.logger.info("mexc_adapter.unsubscribed", {
                 "symbol": symbol,
@@ -3082,15 +3099,18 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                         if bids or asks:
                             async with self._orderbook_lock:
                                 if symbol not in self._orderbook_cache:
+                                    # ✅ FIX: Initialize with OrderedDict for consistency with snapshot/delta processing
                                     self._orderbook_cache[symbol] = {
-                                        "bids": [],
-                                        "asks": [],
+                                        "bids": OrderedDict(),
+                                        "asks": OrderedDict(),
+                                        "version": 0,
                                         "timestamp": time.time()
                                     }
-                                
+
                                 cache_entry = self._orderbook_cache[symbol]
-                                cache_entry["bids"] = bids
-                                cache_entry["asks"] = asks
+                                # Convert list format to OrderedDict
+                                cache_entry["bids"] = OrderedDict((str(float(price)), float(qty)) for price, qty in bids)
+                                cache_entry["asks"] = OrderedDict((str(float(price)), float(qty)) for price, qty in asks)
                                 cache_entry["timestamp"] = time.time()
                                 
                             self.logger.debug("mexc_adapter.orderbook_refreshed_from_rest", {
@@ -3217,8 +3237,9 @@ class MexcWebSocketAdapter(IMarketDataProvider):
             
             connection_info = self._connections[connection_id]
             websocket = connection_info.get("websocket")
-            
-            if not websocket or websocket.closed:
+
+            # ✅ FIX: Use close_code instead of closed attribute (websockets library compatibility)
+            if not websocket or websocket.close_code is not None:
                 self.logger.warning("mexc_adapter.closed_connection_for_snapshot", {
                     "symbol": symbol,
                     "connection_id": connection_id
