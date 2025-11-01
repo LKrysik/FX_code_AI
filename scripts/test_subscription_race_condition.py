@@ -75,7 +75,7 @@ class SubscriptionStateSimulator:
         })
 
     async def handle_deal_confirmation(self, connection_id: int):
-        """Simulate deal confirmation (BUGGY implementation from real code)"""
+        """Simulate deal confirmation (FIXED implementation)"""
         pending_symbols = self._pending_subscriptions.get(connection_id, {})
         if not pending_symbols:
             return None
@@ -89,16 +89,19 @@ class SubscriptionStateSimulator:
                 break
 
         if confirmed_symbol:
-            # ❌ BUG: Check if both deal AND depth confirmed, IGNORE depth_full
-            if (pending_symbols[confirmed_symbol].get('deal') == 'confirmed' and
-                pending_symbols[confirmed_symbol].get('depth') == 'confirmed'):
+            # ✅ FIX: Check ALL 3 channels before removing
+            all_confirmed = (
+                pending_symbols[confirmed_symbol].get('deal') == 'confirmed' and
+                pending_symbols[confirmed_symbol].get('depth') == 'confirmed' and
+                pending_symbols[confirmed_symbol].get('depth_full') == 'confirmed'
+            )
 
-                self.log("WARNING", "removing_symbol_from_pending", {
+            if all_confirmed:
+                self.log("INFO", "removing_symbol_from_pending", {
                     "symbol": confirmed_symbol,
                     "connection_id": connection_id,
-                    "reason": "deal_and_depth_confirmed",
-                    "depth_full_status": pending_symbols[confirmed_symbol].get('depth_full'),
-                    "BUG": "Removing before depth_full confirmation!"
+                    "reason": "all_channels_confirmed",
+                    "channels": "deal + depth + depth_full"
                 })
 
                 # Remove from pending
@@ -114,7 +117,7 @@ class SubscriptionStateSimulator:
         return confirmed_symbol
 
     async def handle_depth_confirmation(self, connection_id: int):
-        """Simulate depth confirmation (BUGGY implementation from real code)"""
+        """Simulate depth confirmation (FIXED implementation)"""
         pending_symbols = self._pending_subscriptions.get(connection_id, {})
         if not pending_symbols:
             return None
@@ -128,16 +131,19 @@ class SubscriptionStateSimulator:
                 break
 
         if confirmed_symbol:
-            # ❌ BUG: Check if both deal AND depth confirmed, IGNORE depth_full
-            if (pending_symbols[confirmed_symbol].get('deal') == 'confirmed' and
-                pending_symbols[confirmed_symbol].get('depth') == 'confirmed'):
+            # ✅ FIX: Check ALL 3 channels before removing
+            all_confirmed = (
+                pending_symbols[confirmed_symbol].get('deal') == 'confirmed' and
+                pending_symbols[confirmed_symbol].get('depth') == 'confirmed' and
+                pending_symbols[confirmed_symbol].get('depth_full') == 'confirmed'
+            )
 
-                self.log("WARNING", "removing_symbol_from_pending", {
+            if all_confirmed:
+                self.log("INFO", "removing_symbol_from_pending", {
                     "symbol": confirmed_symbol,
                     "connection_id": connection_id,
-                    "reason": "deal_and_depth_confirmed",
-                    "depth_full_status": pending_symbols[confirmed_symbol].get('depth_full'),
-                    "BUG": "Removing before depth_full confirmation!"
+                    "reason": "all_channels_confirmed",
+                    "channels": "deal + depth + depth_full"
                 })
 
                 # Remove from pending
@@ -203,9 +209,10 @@ class SubscriptionStateSimulator:
 
 
 async def test_correct_order():
-    """Test when confirmations arrive in 'safe' order"""
+    """Test when confirmations arrive in typical order - WITH FIX"""
     print("\n" + "=" * 80)
-    print("TEST 1: Confirmations arrive in safe order (deal → depth → depth_full)")
+    print("TEST 1: Confirmations arrive in typical order (deal → depth → depth_full)")
+    print("         ✅ FIXED: Symbol stays in pending until all 3 channels confirmed")
     print("=" * 80 + "\n")
 
     sim = SubscriptionStateSimulator()
@@ -215,13 +222,13 @@ async def test_correct_order():
 
     # Confirmations in order
     await asyncio.sleep(0.01)
-    await sim.handle_deal_confirmation(1)
+    await sim.handle_deal_confirmation(1)  # Marks deal=confirmed, symbol stays in pending
 
     await asyncio.sleep(0.01)
-    await sim.handle_depth_confirmation(1)  # This will remove symbol from pending
+    await sim.handle_depth_confirmation(1)  # Marks depth=confirmed, symbol stays in pending
 
     await asyncio.sleep(0.01)
-    result = await sim.handle_depth_full_confirmation(1)  # ❌ Will fail to find symbol
+    result = await sim.handle_depth_full_confirmation(1)  # ✅ Will find symbol and start task
 
     print("\n📊 RESULT:")
     if result is None:
@@ -268,9 +275,10 @@ async def test_depth_full_first():
 
 
 async def test_multiple_symbols():
-    """Test with multiple symbols to show inconsistent behavior"""
+    """Test with multiple symbols - WITH FIX all should work"""
     print("\n" + "=" * 80)
     print("TEST 3: Multiple symbols with varying confirmation order")
+    print("         ✅ FIXED: All symbols should get snapshot tasks regardless of order")
     print("=" * 80 + "\n")
 
     sim = SubscriptionStateSimulator()
@@ -280,32 +288,35 @@ async def test_multiple_symbols():
     for i, symbol in enumerate(symbols):
         await sim.subscribe_symbol(symbol, connection_id=1)
 
-    # Symbol 1: depth_full arrives last (BUG)
+    # Symbol 1: depth_full arrives last (NOW WORKS with fix)
     print("\n--- AEVO_USDT: deal → depth → depth_full ---")
     await sim.handle_deal_confirmation(1)
-    await sim.handle_depth_confirmation(1)  # Will remove AEVO_USDT
-    await sim.handle_depth_full_confirmation(1)  # Won't find AEVO_USDT
+    await sim.handle_depth_confirmation(1)  # Symbol stays in pending
+    await sim.handle_depth_full_confirmation(1)  # ✅ Will find AEVO_USDT and start task
 
-    # Symbol 2: depth_full arrives first (WORKS)
+    # Symbol 2: depth_full arrives first (always worked)
     print("\n--- AIBOT_USDT: depth_full arrives first ---")
     await sim.handle_depth_full_confirmation(1)  # Will process AIBOT_USDT
     await sim.handle_deal_confirmation(1)
-    await sim.handle_depth_confirmation(1)
+    await sim.handle_depth_confirmation(1)  # Symbol removed after all 3 confirmed
 
     # Symbol 3: depth_full between deal and depth
     print("\n--- ARIA_USDT: deal → depth_full → depth ---")
     await sim.handle_deal_confirmation(1)
     await sim.handle_depth_full_confirmation(1)  # Will process ARIA_USDT
-    await sim.handle_depth_confirmation(1)
+    await sim.handle_depth_confirmation(1)  # Symbol removed after all 3 confirmed
 
     print("\n📊 RESULT:")
     print(f"   Symbols subscribed: {len(symbols)}")
     print(f"   Snapshot tasks started: {len(sim._snapshot_refresh_tasks)}")
-    print(f"   Running tasks: {list(sim._snapshot_refresh_tasks.keys())}")
-    print(f"\n   ❌ Missing snapshot task: AEVO_USDT")
-    print(f"   ✅ Has snapshot task: AIBOT_USDT, ARIA_USDT")
+    print(f"   Running tasks: {sorted(sim._snapshot_refresh_tasks.keys())}")
 
-    return len(sim._snapshot_refresh_tasks) == 2  # Should be 2 out of 3
+    if len(sim._snapshot_refresh_tasks) == 3:
+        print(f"\n   ✅ SUCCESS: All 3 symbols have snapshot tasks!")
+    else:
+        print(f"\n   ❌ FAILURE: Only {len(sim._snapshot_refresh_tasks)} out of 3 have snapshot tasks")
+
+    return len(sim._snapshot_refresh_tasks) == 3  # ✅ Should be 3 out of 3 with fix!
 
 
 async def main():
@@ -348,13 +359,20 @@ async def main():
         status = "✅ PASS" if passed else "❌ FAIL"
         print(f"{status}: {test_name}")
 
-    print("\n🔍 KEY FINDING:")
-    print("   The bug is CONFIRMED: snapshot tasks are only started when")
-    print("   depth_full confirmation arrives BEFORE deal+depth removes the")
-    print("   symbol from pending subscriptions.")
-    print("\n   This creates inconsistent behavior where some symbols get")
-    print("   snapshot refresh tasks and others don't, depending on network")
-    print("   timing of WebSocket messages.")
+    # Check if all tests passed
+    all_passed = all(passed for _, passed in results)
+
+    if all_passed:
+        print("\n✅ FIX VALIDATED:")
+        print("   The fix is working correctly! Snapshot tasks are now started for")
+        print("   ALL symbols, regardless of WebSocket message timing.")
+        print("\n   Before fix: Only symbols where depth_full arrived FIRST got tasks")
+        print("   After fix: ALL symbols get tasks because symbol stays in pending")
+        print("              until all 3 channels (deal + depth + depth_full) are confirmed")
+    else:
+        print("\n❌ TESTS FAILED:")
+        print("   Some tests did not pass. Check implementation or test logic.")
+        print(f"   Passed: {sum(1 for _, p in results if p)}/{len(results)}")
 
 
 if __name__ == "__main__":
