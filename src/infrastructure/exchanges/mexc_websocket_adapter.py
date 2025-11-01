@@ -1324,6 +1324,16 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                         # Check if both subscriptions are now confirmed
                         if (pending_symbols[confirmed_symbol].get('deal') == 'confirmed' and
                             pending_symbols[confirmed_symbol].get('depth') == 'confirmed'):
+                            # ⚠️ DIAGNOSTIC: Log if removing before depth_full confirmation
+                            depth_full_status = pending_symbols[confirmed_symbol].get('depth_full', 'not_tracked')
+                            if depth_full_status == 'pending':
+                                self.logger.warning("mexc_adapter.symbol_removed_before_depth_full", {
+                                    "symbol": confirmed_symbol,
+                                    "connection_id": connection_id,
+                                    "depth_full_status": depth_full_status,
+                                    "warning": "Removing symbol from pending before depth_full confirmation - snapshot task may not start!"
+                                })
+
                             # Both confirmed, remove from pending
                             del pending_symbols[confirmed_symbol]
                             if not pending_symbols:
@@ -1397,6 +1407,17 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                         # Check if both subscriptions are now confirmed
                         if (pending_symbols[confirmed_symbol].get('deal') == 'confirmed' and
                             pending_symbols[confirmed_symbol].get('depth') == 'confirmed'):
+                            # ⚠️ DIAGNOSTIC: Log if removing before depth_full confirmation
+                            depth_full_status = pending_symbols[confirmed_symbol].get('depth_full', 'not_tracked')
+                            if depth_full_status == 'pending':
+                                self.logger.warning("mexc_adapter.symbol_removed_before_depth_full", {
+                                    "symbol": confirmed_symbol,
+                                    "connection_id": connection_id,
+                                    "depth_full_status": depth_full_status,
+                                    "warning": "Removing symbol from pending before depth_full confirmation - snapshot task may not start!",
+                                    "handler": "depth"
+                                })
+
                             # Both confirmed, remove from pending
                             del pending_symbols[confirmed_symbol]
                             if not pending_symbols:
@@ -1478,6 +1499,20 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                         # Start periodic snapshot refresh task for this symbol
                         await self._start_snapshot_refresh_task(confirmed_symbol)
                     else:
+                        # ⚠️ DIAGNOSTIC: Symbol not found - this is the bug manifestation!
+                        # Try to identify which symbol this confirmation belongs to
+                        subscribed_on_conn = [s for s, c in self._symbol_to_connection.items() if c == connection_id]
+
+                        self.logger.error("mexc_adapter.depth_full_confirmation_orphaned", {
+                            "connection_id": connection_id,
+                            "channel": channel,
+                            "problem": "Symbol already removed from pending by deal/depth handlers",
+                            "subscribed_symbols_on_connection": subscribed_on_conn,
+                            "remaining_pending": list(pending_symbols.keys()),
+                            "impact": "Snapshot refresh task NOT started - this causes no_connection_for_snapshot warnings later",
+                            "bug_location": "Lines 1338 and 1422 remove symbol before depth_full confirmation"
+                        })
+
                         self.logger.info("mexc_adapter.futures_subscription_confirmed", {
                             "connection_id": connection_id,
                             "channel": channel,
@@ -1486,6 +1521,17 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                             "pending_count": 0
                         })
                 else:
+                    # ⚠️ DIAGNOSTIC: No pending subscriptions at all
+                    subscribed_on_conn = [s for s, c in self._symbol_to_connection.items() if c == connection_id]
+
+                    self.logger.error("mexc_adapter.depth_full_confirmation_no_pending", {
+                        "connection_id": connection_id,
+                        "channel": channel,
+                        "problem": "No pending subscriptions found for connection",
+                        "subscribed_symbols_on_connection": subscribed_on_conn,
+                        "impact": "Snapshot refresh task NOT started"
+                    })
+
                     self.logger.info("mexc_adapter.futures_subscription_confirmed", {
                         "connection_id": connection_id,
                         "channel": channel,
