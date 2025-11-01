@@ -142,8 +142,7 @@ class MexcWebSocketAdapter(IMarketDataProvider):
         self._subscribed_symbols: Set[str] = set()
         self._subscription_lock = asyncio.Lock()  # Prevent race conditions in subscribe operations
         self._pending_subscriptions: Dict[int, Dict[str, Dict[str, str]]] = {}  # connection_id -> symbol -> {'deal': 'pending', 'depth': 'pending', 'depth_full': 'pending'}
-        self._snapshot_received: Dict[str, bool] = {}  # Track if we received initial snapshot for symbol
-        
+
         # Market data cache - Enhanced with size-based management
         self._latest_prices: Dict[str, float] = {}  # Legacy cache for backward compatibility
         self._symbol_volumes: Dict[str, float] = {}  # Legacy cache for backward compatibility
@@ -1256,24 +1255,17 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                     await self._handle_futures_deal_data(data)
 
                 # Handle market data - futures depth format
-                # ✅ FIX: MEXC sends both snapshot (from sub.depth.full) and deltas (from sub.depth) through "push.depth"
-                # There is NO "push.depth.full" channel in MEXC API!
-                # We distinguish by tracking if we received first message after sub.depth.full confirmation
+                # ✅ CORRECTED: MEXC uses TWO separate channels for orderbook data:
+                # - push.depth: incremental deltas (from sub.depth) - MERGE with cache
+                # - push.depth.full: full snapshots (from sub.depth.full) - RESET cache
+                # Both channels exist and serve different purposes (verified by test_mexc_depth_subscription.py)
                 elif channel == "push.depth":
-                    symbol = data.get("symbol", "")
+                    await self._handle_futures_depth_data(data, is_snapshot=False)
 
-                    # First push.depth for this symbol = snapshot, subsequent = deltas
-                    is_snapshot = not self._snapshot_received.get(symbol, False)
+                # Handle market data - futures depth full snapshot format
+                elif channel == "push.depth.full":
+                    await self._handle_futures_depth_data(data, is_snapshot=True)
 
-                    if is_snapshot:
-                        self._snapshot_received[symbol] = True
-                        self.logger.debug("mexc_adapter.receiving_initial_snapshot", {
-                            "symbol": symbol,
-                            "channel": channel
-                        })
-
-                    await self._handle_futures_depth_data(data, is_snapshot=is_snapshot)
-                
                 # Handle pong messages - update last_pong_received to track connection health
                 elif channel == "pong":
                     if connection_id in self._connections:
@@ -2392,8 +2384,6 @@ class MexcWebSocketAdapter(IMarketDataProvider):
 
             self._subscribed_symbols.discard(symbol)
             self._symbol_to_connection.pop(symbol, None)
-            # ✅ FIX: Clean up snapshot tracking when unsubscribing
-            self._snapshot_received.pop(symbol, None)
 
             self.logger.info("mexc_adapter.unsubscribed", {
                 "symbol": symbol,
