@@ -36,7 +36,7 @@ async def test_sub_depth_only():
         await ws.send(json.dumps(subscription))
         print(f"[{datetime.now()}] Sent: {subscription}")
 
-        # Collect first 5 messages
+        # Collect first 10 messages
         message_count = 0
         for i in range(10):
             msg = await ws.recv()
@@ -46,7 +46,7 @@ async def test_sub_depth_only():
             channel = data.get("channel", "")
             symbol = data.get("symbol", "")
 
-            if channel == "push.depth":
+            if channel == "push.depth" or channel == "push.depth.full":
                 depth_data = data.get("data", {})
                 bids_count = len(depth_data.get("bids", []))
                 asks_count = len(depth_data.get("asks", []))
@@ -59,9 +59,9 @@ async def test_sub_depth_only():
                 print(f"  Asks: {asks_count} levels")
                 print(f"  Version: {version}")
 
-                # Check if this is a full snapshot (20 levels) or delta (fewer levels)
-                if bids_count == 20 or asks_count == 20:
-                    print(f"  >>> LOOKS LIKE SNAPSHOT (full 20 levels)")
+                # Check if this is a full snapshot (>=20 levels) or delta (fewer levels)
+                if bids_count >= 20 or asks_count >= 20:
+                    print(f"  >>> LOOKS LIKE SNAPSHOT (full orderbook)")
                 else:
                     print(f"  >>> LOOKS LIKE DELTA (partial update)")
             elif channel.startswith("rs."):
@@ -98,7 +98,7 @@ async def test_sub_depth_full_only():
 
                 channel = data.get("channel", "")
 
-                if channel == "push.depth":
+                if channel == "push.depth" or channel == "push.depth.full":
                     depth_data = data.get("data", {})
                     bids_count = len(depth_data.get("bids", []))
                     asks_count = len(depth_data.get("asks", []))
@@ -107,6 +107,11 @@ async def test_sub_depth_full_only():
                     print(f"  Channel: {channel}")
                     print(f"  Bids: {bids_count} levels")
                     print(f"  Asks: {asks_count} levels")
+
+                    if bids_count >= 20 or asks_count >= 20:
+                        print(f"  >>> SNAPSHOT (full orderbook)")
+                    else:
+                        print(f"  >>> DELTA (partial)")
                 elif channel.startswith("rs."):
                     print(f"\n[{datetime.now()}] Subscription response: {data}")
                 else:
@@ -151,7 +156,7 @@ async def test_both_subscriptions():
 
             channel = data.get("channel", "")
 
-            if channel == "push.depth":
+            if channel == "push.depth" or channel == "push.depth.full":
                 depth_data = data.get("data", {})
                 bids_count = len(depth_data.get("bids", []))
                 asks_count = len(depth_data.get("asks", []))
@@ -161,8 +166,8 @@ async def test_both_subscriptions():
                 print(f"  Bids: {bids_count} levels")
                 print(f"  Asks: {asks_count} levels")
 
-                if bids_count == 20 or asks_count == 20:
-                    print(f"  >>> SNAPSHOT (20 levels)")
+                if bids_count >= 20 or asks_count >= 20:
+                    print(f"  >>> SNAPSHOT (full orderbook)")
                 else:
                     print(f"  >>> DELTA (partial)")
             elif channel.startswith("rs."):
