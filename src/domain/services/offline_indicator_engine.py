@@ -34,26 +34,24 @@ except ImportError:
 class OfflineIndicatorEngine(IIndicatorEngine):
     """
     Indicator engine for offline/historical data processing.
-    
-    Loads data from CSV files and calculates indicators for complete datasets.
+
+    Uses QuestDB as data source for all indicator calculations.
     Optimized for batch processing and historical analysis.
     """
-    
+
     def __init__(
         self,
-        data_path: str = "data",
         questdb_data_provider: Optional[QuestDBDataProvider] = None
     ):
         """
         Initialize offline indicator engine with QuestDB support.
 
         🔄 MIGRATED: Now uses QuestDB as primary data source instead of CSV files.
+        ✅ REMOVED: data_path parameter (backward compatibility removed per CLAUDE.md)
 
         Args:
-            data_path: Legacy base path for data files (kept for backward compatibility)
             questdb_data_provider: QuestDB data provider (auto-initialized if None)
         """
-        self.data_path = data_path
         self.logger = get_logger("offline_indicator_engine")
 
         # QuestDB provider for database operations

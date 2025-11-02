@@ -29,7 +29,6 @@ import asyncio
 import logging
 from typing import Dict, List, Set, Optional
 from datetime import datetime
-from collections import defaultdict
 
 from .indicators.incremental_indicators import IncrementalIndicator
 from ...data_feed.questdb_provider import QuestDBProvider
@@ -54,7 +53,8 @@ class IndicatorScheduler:
         self,
         db_provider: QuestDBProvider,
         tick_interval: float = 1.0,
-        batch_size: int = 100
+        batch_size: int = 100,
+        max_symbols: int = 1000
     ):
         """
         Initialize indicator scheduler.
@@ -63,14 +63,16 @@ class IndicatorScheduler:
             db_provider: QuestDB provider for InfluxDB line protocol writes
             tick_interval: Tick interval in seconds (default: 1.0)
             batch_size: Batch size for bulk insert (default: 100)
+            max_symbols: Maximum number of symbols to prevent unbounded growth (default: 1000)
         """
         self.db_provider = db_provider
         self.tick_interval = tick_interval
         self.batch_size = batch_size
+        self.max_symbols = max_symbols
 
-        # Registered indicators by symbol
-        # symbol → [indicator1, indicator2, ...]
-        self.indicators: Dict[str, List[IncrementalIndicator]] = defaultdict(list)
+        # ✅ MEMORY SAFE: Explicit dict instead of defaultdict to prevent unbounded growth
+        # Registered indicators by symbol: symbol → [indicator1, indicator2, ...]
+        self.indicators: Dict[str, List[IncrementalIndicator]] = {}
 
         # Active symbols
         self.symbols: Set[str] = set()
@@ -103,8 +105,21 @@ class IndicatorScheduler:
 
         Args:
             indicator: Incremental indicator instance
+
+        Raises:
+            ValueError: If max_symbols limit is exceeded
         """
         symbol = indicator.symbol
+
+        # ✅ MEMORY SAFE: Explicit creation with max_symbols validation
+        if symbol not in self.indicators:
+            if len(self.indicators) >= self.max_symbols:
+                raise ValueError(
+                    f"Cannot register indicator: max_symbols limit reached ({self.max_symbols}). "
+                    f"Current symbols: {len(self.indicators)}"
+                )
+            self.indicators[symbol] = []
+
         self.indicators[symbol].append(indicator)
         self.symbols.add(symbol)
 

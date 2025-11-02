@@ -10,7 +10,7 @@ Provides REST endpoints for:
 """
 
 import asyncio
-import csv
+# ✅ REMOVED: csv import (file-based data deprecated, using QuestDB)
 import json
 import math
 import os
@@ -22,7 +22,7 @@ from fastapi.responses import JSONResponse
 
 from src.core.logger import get_logger
 
-from src.core.event_bus import EventPriority
+from src.core.event_bus import EventPriority, EventBus
 from src.domain.services.streaming_indicator_engine import StreamingIndicatorEngine
 from src.api.response_envelope import ensure_envelope
 from src.domain.services.indicator_persistence_service import IndicatorPersistenceService
@@ -55,58 +55,86 @@ _questdb_data_provider: Optional[QuestDBDataProvider] = None
 
 DATA_BASE_PATH = Path(os.environ.get("INDICATOR_DATA_DIR", "data")).resolve()
 
+# ✅ ARCHITECTURE FIX: Removed SimpleEventBus duplication (34 lines of duplicate code)
+# Was duplicating core/event_bus.py (1341 lines of production-ready code)
+# Violates CLAUDE.md: "Eliminate code duplication (single source of truth)"
+# Now using the real EventBus from core with proper DI
 
-class SimpleEventBus:
+_event_bus: Optional[EventBus] = None
+
+
+def initialize_indicators_dependencies(
+    event_bus: EventBus,
+    streaming_engine: Optional[StreamingIndicatorEngine] = None,
+    questdb_provider: Optional[QuestDBProvider] = None
+) -> None:
     """
-    Minimal synchronous event bus used for API-triggered indicator calculations.
-    Supports the subset of functionality required by the persistence service.
+    ✅ ARCHITECTURE FIX: Explicit dependency injection instead of lazy initialization.
+
+    This function should be called from unified_server.py during app startup
+    to inject proper dependencies from Container.
+
+    Args:
+        event_bus: Production EventBus from Container (replaces SimpleEventBus)
+        streaming_engine: Optional pre-created StreamingIndicatorEngine
+        questdb_provider: Optional pre-created QuestDBProvider
     """
+    global _event_bus, _streaming_engine, _persistence_service, _offline_indicator_engine
+    global _questdb_provider, _questdb_data_provider
 
-    class _ImmediateResult:
-        def __await__(self):
-            return iter(())
+    # Inject EventBus (no more SimpleEventBus!)
+    _event_bus = event_bus
 
-    def __init__(self):
-        self._subscribers: Dict[str, List[Callable[[Dict[str, Any]], Any]]] = {}
+    # Inject or create services
+    if streaming_engine:
+        _streaming_engine = streaming_engine
 
-    def subscribe(self, event_type: str, handler: Callable[[Dict[str, Any]], Any], priority: EventPriority = EventPriority.NORMAL):
-        handlers = self._subscribers.setdefault(event_type, [])
-        handlers.append(handler)
-        return self._ImmediateResult()
+    if questdb_provider:
+        _questdb_provider = questdb_provider
+        _questdb_data_provider = QuestDBDataProvider(_questdb_provider, logger)
 
-    def emit_event(self, event_type: str, payload: Dict[str, Any], priority: EventPriority = EventPriority.NORMAL) -> None:
-        handlers = list(self._subscribers.get(event_type, []))
-        for handler in handlers:
-            try:
-                result = handler(payload)
-                if hasattr(result, "__await__"):
-                    # Best effort support for coroutine handlers without requiring an event loop
-                    for _ in result.__await__():
-                        pass
-            except Exception as exc:
-                # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
-                logger.error("indicators_routes.simple_event_bus_handler_error", {
-                    "event_type": event_type,
-                    "error": str(exc)
-                })
+    # Create dependent services with injected EventBus
+    _persistence_service = IndicatorPersistenceService(
+        _event_bus,
+        logger,
+        questdb_provider=_questdb_provider
+    )
+    _offline_indicator_engine = OfflineIndicatorEngine(
+        questdb_data_provider=_questdb_data_provider
+    )
 
-
-_event_bus: Optional[SimpleEventBus] = None
+    logger.info("indicators_routes.dependencies_initialized", {
+        "event_bus_type": type(_event_bus).__name__,
+        "has_streaming_engine": _streaming_engine is not None,
+        "has_questdb": _questdb_provider is not None
+    })
 
 
 def _ensure_support_services() -> Tuple[IndicatorPersistenceService, OfflineIndicatorEngine]:
+    """
+    ⚠️ DEPRECATED: Use initialize_indicators_dependencies() for proper DI.
+
+    This function provides fallback lazy initialization for backward compatibility.
+    Will be removed once unified_server calls initialize_indicators_dependencies().
+    """
     global _persistence_service, _offline_indicator_engine, _event_bus
+
     if _event_bus is None:
-        _event_bus = SimpleEventBus()
+        # Fallback: create EventBus if not injected
+        logger.warning("indicators_routes.lazy_eventbus_init", {
+            "message": "EventBus not injected - creating fallback instance. Use initialize_indicators_dependencies()!"
+        })
+        _event_bus = EventBus()
+
     if _persistence_service is None:
-        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
         _persistence_service = IndicatorPersistenceService(
             _event_bus,
-            logger,
-            base_data_dir=str(DATA_BASE_PATH)
+            logger
         )
+
     if _offline_indicator_engine is None:
-        _offline_indicator_engine = OfflineIndicatorEngine(str(DATA_BASE_PATH))
+        _offline_indicator_engine = OfflineIndicatorEngine()
+
     return _persistence_service, _offline_indicator_engine
 
 
@@ -369,10 +397,9 @@ async def get_streaming_indicator_engine() -> StreamingIndicatorEngine:
 
         _persistence_service = IndicatorPersistenceService(
             _event_bus,
-            logger,
-            base_data_dir=str(DATA_BASE_PATH)
+            logger
         )
-        _offline_indicator_engine = OfflineIndicatorEngine(str(DATA_BASE_PATH))
+        _offline_indicator_engine = OfflineIndicatorEngine()
 
         # Start the engine (loads variants from database)
         await _streaming_engine.start()
