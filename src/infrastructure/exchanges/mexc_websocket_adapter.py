@@ -2935,7 +2935,8 @@ class MexcWebSocketAdapter(IMarketDataProvider):
         """Request fresh snapshot via WebSocket for a symbol"""
         try:
             connection_id = self._symbol_to_connection.get(symbol)
-            if not connection_id or connection_id not in self._connections:
+            # ✅ FIX: connection_id=0 is valid! Use 'is None' instead of 'not connection_id'
+            if connection_id is None or connection_id not in self._connections:
                 # ✅ FIX: Enhanced logging with context + orphaned task cleanup
                 self.logger.warning("mexc_adapter.no_connection_for_snapshot", {
                     "symbol": symbol,
