@@ -183,29 +183,61 @@ class UnifiedTradingController:
 
         self.logger.info("unified_trading_controller.stopped")
     
-    async def start_backtest(self, 
+    async def start_backtest(self,
                            symbols: List[str],
                            acceleration_factor: float = 10.0,
                            **kwargs) -> str:
         """Start backtest execution"""
-        
+
         parameters = {
             "symbols": symbols,
             "acceleration_factor": acceleration_factor,
             **kwargs
         }
-        
-        command_id = await self.command_processor.execute_command(
-            CommandType.START_BACKTEST,
-            parameters
-        )
-        
-        self.logger.info("unified_trading_controller.backtest_started", {
-            "command_id": command_id,
-            "symbols": symbols
-        })
-        
-        return command_id
+
+        # ✅ FIX: Use execute_command_with_result to get session_id immediately
+        try:
+            result = await self.command_processor.execute_command_with_result(
+                CommandType.START_BACKTEST,
+                parameters,
+                timeout=5.0
+            )
+
+            session_id = result.get("session_id")
+
+            if not session_id:
+                # Fallback to old behavior
+                command_id = await self.command_processor.execute_command(
+                    CommandType.START_BACKTEST,
+                    parameters
+                )
+                return command_id
+
+            self.logger.info("unified_trading_controller.backtest_started", {
+                "session_id": session_id,
+                "symbols": symbols
+            })
+
+            return session_id
+
+        except (TimeoutError, ValueError) as e:
+            # Fallback to async command execution
+            self.logger.error("unified_trading_controller.backtest_execute_with_result_failed", {
+                "error": str(e),
+                "fallback": "using execute_command"
+            })
+
+            command_id = await self.command_processor.execute_command(
+                CommandType.START_BACKTEST,
+                parameters
+            )
+
+            self.logger.info("unified_trading_controller.backtest_started_fallback", {
+                "command_id": command_id,
+                "symbols": symbols
+            })
+
+            return command_id
     
     async def start_live_trading(self,
                                 symbols: List[str],
@@ -219,18 +251,51 @@ class UnifiedTradingController:
             **kwargs
         }
 
-        command_id = await self.command_processor.execute_command(
-            CommandType.START_TRADING,
-            parameters
-        )
+        # ✅ FIX: Use execute_command_with_result to get session_id immediately
+        try:
+            result = await self.command_processor.execute_command_with_result(
+                CommandType.START_TRADING,
+                parameters,
+                timeout=5.0
+            )
 
-        self.logger.info("unified_trading_controller.live_trading_started", {
-            "command_id": command_id,
-            "symbols": symbols,
-            "mode": mode
-        })
+            session_id = result.get("session_id")
 
-        return command_id
+            if not session_id:
+                # Fallback to old behavior
+                command_id = await self.command_processor.execute_command(
+                    CommandType.START_TRADING,
+                    parameters
+                )
+                return command_id
+
+            self.logger.info("unified_trading_controller.live_trading_started", {
+                "session_id": session_id,
+                "symbols": symbols,
+                "mode": mode
+            })
+
+            return session_id
+
+        except (TimeoutError, ValueError) as e:
+            # Fallback to async command execution
+            self.logger.error("unified_trading_controller.live_trading_execute_with_result_failed", {
+                "error": str(e),
+                "fallback": "using execute_command"
+            })
+
+            command_id = await self.command_processor.execute_command(
+                CommandType.START_TRADING,
+                parameters
+            )
+
+            self.logger.info("unified_trading_controller.live_trading_started_fallback", {
+                "command_id": command_id,
+                "symbols": symbols,
+                "mode": mode
+            })
+
+            return command_id
 
     async def start_data_collection(self,
                                      symbols: List[str],
@@ -252,22 +317,63 @@ class UnifiedTradingController:
             "parameters": parameters
         })
 
-        command_id = await self.command_processor.execute_command(
-            CommandType.START_DATA_COLLECTION,
-            parameters
-        )
+        # ✅ FIX: Use execute_command_with_result to get session_id immediately
+        # This ensures API endpoint POST /sessions/start returns correct session_id
+        # instead of command_id, fixing the "unknown" session_id bug in frontend
+        try:
+            result = await self.command_processor.execute_command_with_result(
+                CommandType.START_DATA_COLLECTION,
+                parameters,
+                timeout=5.0  # Wait up to 5 seconds for session creation
+            )
 
-        self.logger.info("unified_trading_controller.data_collection_started", {
-            "command_id": command_id,
-            "symbols": symbols,
-            "duration": duration
-        })
+            session_id = result.get("session_id")
 
-        # ✅ REMOVED: Duplicate progress tracking loop
-        # ExecutionController now handles progress updates with built-in throttling (5s interval)
-        # This eliminates duplicate EventBus publishes and excessive logging
+            if not session_id:
+                # Fallback: log warning and use command_id (shouldn't happen)
+                self.logger.warning("unified_trading_controller.no_session_id_in_result", {
+                    "result_keys": list(result.keys()) if result else [],
+                    "symbols": symbols,
+                    "duration": duration
+                })
+                # Fall back to old behavior
+                command_id = await self.command_processor.execute_command(
+                    CommandType.START_DATA_COLLECTION,
+                    parameters
+                )
+                return command_id
 
-        return command_id
+            self.logger.info("unified_trading_controller.data_collection_started", {
+                "session_id": session_id,
+                "symbols": symbols,
+                "duration": duration
+            })
+
+            return session_id
+
+        except (TimeoutError, ValueError) as e:
+            # If execute_command_with_result fails, fall back to old async behavior
+            self.logger.error("unified_trading_controller.execute_with_result_failed", {
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "symbols": symbols,
+                "duration": duration,
+                "fallback": "using execute_command"
+            })
+
+            # Fallback to async command execution
+            command_id = await self.command_processor.execute_command(
+                CommandType.START_DATA_COLLECTION,
+                parameters
+            )
+
+            self.logger.info("unified_trading_controller.data_collection_started_fallback", {
+                "command_id": command_id,
+                "symbols": symbols,
+                "duration": duration
+            })
+
+            return command_id
     
     async def stop_execution(self, force: bool = False) -> str:
         """Stop current execution"""
