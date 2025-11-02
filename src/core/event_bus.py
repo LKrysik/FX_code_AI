@@ -209,6 +209,17 @@ class EventBus:
         self._publisher_rate_limits: Dict[str, deque] = {}  # key: f"{event_type}:{publisher_id}"
         self._publisher_rate_limits_ttl: Dict[str, float] = {}  # TTL tracking
 
+        # ✅ PERFORMANCE FIX #6A: Trusted publishers skip rate limiting
+        # Trusted publishers are internal services (MEXC adapter, ExecutionController)
+        # that have their own rate limiting or controlled throughput
+        self._trusted_publishers: Set[str] = {
+            'mexc_adapter',
+            'mexc_websocket_adapter',
+            'execution_controller',
+            'data_collection',
+            'internal'
+        }
+
         # Circuit breaker for cascade failure prevention
         self._circuit_breakers: Dict[str, 'CircuitBreaker'] = {}
         self._circuit_breaker_ttl: Dict[str, float] = {}  # TTL tracking
@@ -816,10 +827,16 @@ class EventBus:
         if not self._worker_pools_started:
             await self._start_worker_pools()
 
-        # ✅ IMPORTANT: Publisher-based rate limiting (outside lock)
-        if not await self._rate_limit_check(event_type, publisher_id):
-            self._update_metric_atomic("total_dropped", 1)
-            return
+        # ✅ PERFORMANCE FIX #6A: Skip rate limiting for trusted publishers
+        # Trusted publishers (MEXC adapter, internal services) have controlled throughput
+        # and don't need rate limiting overhead (~250ns per publish)
+        is_trusted = publisher_id in self._trusted_publishers if publisher_id else False
+
+        if not is_trusted:
+            # ✅ IMPORTANT: Publisher-based rate limiting (outside lock)
+            if not await self._rate_limit_check(event_type, publisher_id):
+                self._update_metric_atomic("total_dropped", 1)
+                return
 
         # ✅ PERF FIX: Removed redundant cleanup checks from hot path (Problem #6)
         # Background cleanup loop (_background_cleanup_loop) already handles cleanup every 10s
