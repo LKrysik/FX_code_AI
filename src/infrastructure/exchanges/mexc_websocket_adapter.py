@@ -1243,15 +1243,17 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                             "pending_count": 0
                         })
                 else:
-                    # ⚠️ DIAGNOSTIC: No pending subscriptions at all
+                    # ⚠️ DIAGNOSTIC: No pending subscriptions at all (late/duplicate confirmation)
                     subscribed_on_conn = [s for s, c in self._symbol_to_connection.items() if c == connection_id]
 
-                    self.logger.error("mexc_adapter.depth_full_confirmation_no_pending", {
+                    # ✅ FIX: Changed ERROR → WARNING (this is expected edge case with recovery)
+                    self.logger.warning("mexc_adapter.depth_full_confirmation_no_pending", {
                         "connection_id": connection_id,
                         "channel": channel,
-                        "problem": "No pending subscriptions found for connection",
+                        "scenario": "late_or_duplicate_depth_full_confirmation",
                         "subscribed_symbols_on_connection": subscribed_on_conn,
-                        "impact": "Attempting recovery"
+                        "recovery_action": "starting_snapshot_tasks_if_missing",
+                        "explanation": "This can happen if confirmation arrived after cleanup or is duplicate"
                     })
 
                     # ✅ FIX (Propozycja #2): Recovery mechanism - start snapshot tasks for orphaned symbols
@@ -2103,6 +2105,10 @@ class MexcWebSocketAdapter(IMarketDataProvider):
             self.logger.debug("mexc_adapter.not_subscribed", {"symbol": symbol})
             return
 
+        # ✅ FIX: Stop snapshot refresh task FIRST before unsubscribing
+        # This prevents "no_connection_for_snapshot" warnings after unsubscribe
+        await self._stop_snapshot_refresh_task(symbol)
+
         try:
             connection_id = self._symbol_to_connection.get(symbol)
             if connection_id is not None and connection_id in self._connections:
@@ -2187,7 +2193,12 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                 "connection_id": connection_id,
                 "error": str(e)
             })
-        
+
+        # ✅ FIX: Stop all snapshot refresh tasks for symbols on this connection
+        # This prevents "no_connection_for_snapshot" warnings after connection closes
+        for symbol in failed_symbols:
+            await self._stop_snapshot_refresh_task(symbol)
+
         # Clean up subscriptions
         for symbol in list(connection_info["subscriptions"]):
             self._subscribed_symbols.discard(symbol)
@@ -2905,14 +2916,48 @@ class MexcWebSocketAdapter(IMarketDataProvider):
             "refresh_interval": self._snapshot_refresh_interval
         })
 
+    async def _stop_snapshot_refresh_task(self, symbol: str) -> None:
+        """Stop and cancel snapshot refresh task for a symbol"""
+        task = self._snapshot_refresh_tasks.pop(symbol, None)
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+            self.logger.debug("mexc_adapter.snapshot_task_cancelled", {
+                "symbol": symbol,
+                "reason": "unsubscribe_or_cleanup"
+            })
+
     async def _request_websocket_snapshot(self, symbol: str) -> bool:
         """Request fresh snapshot via WebSocket for a symbol"""
         try:
             connection_id = self._symbol_to_connection.get(symbol)
             if not connection_id or connection_id not in self._connections:
+                # ✅ FIX: Enhanced logging with context + orphaned task cleanup
                 self.logger.warning("mexc_adapter.no_connection_for_snapshot", {
-                    "symbol": symbol
+                    "symbol": symbol,
+                    "in_subscribed_symbols": symbol in self._subscribed_symbols,
+                    "has_snapshot_task": symbol in self._snapshot_refresh_tasks,
+                    "connection_id_from_mapping": connection_id,
+                    "available_connections": list(self._connections.keys()),
+                    "likely_cause": "symbol_unsubscribed_or_connection_closed",
+                    "action": "skipping_refresh_task_will_retry_next_interval"
                 })
+
+                # If symbol not in subscribed, stop orphaned task immediately
+                if symbol not in self._subscribed_symbols:
+                    self.logger.info("mexc_adapter.stopping_orphaned_snapshot_task", {
+                        "symbol": symbol,
+                        "reason": "symbol_no_longer_subscribed"
+                    })
+                    # Task will be stopped - remove from dict and cancel
+                    task = self._snapshot_refresh_tasks.pop(symbol, None)
+                    if task and not task.done():
+                        task.cancel()
+
                 return False
             
             connection_info = self._connections[connection_id]
