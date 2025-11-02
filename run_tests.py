@@ -192,18 +192,33 @@ def build_pytest_command(args) -> List[str]:
 def run_tests(cmd: List[str]) -> int:
     """Run pytest with the given command"""
     print_header("Running Tests")
+
+    # Debug: Show Python executable
+    print_info(f"Python: {sys.executable}")
     print_info(f"Command: {' '.join(cmd)}\n")
 
     start_time = time.time()
 
     # Run pytest
-    result = subprocess.run(cmd)
+    try:
+        result = subprocess.run(cmd)
+        exit_code = result.returncode
+    except FileNotFoundError as e:
+        print_error(f"Failed to run pytest: {e}")
+        print_error("\nThis usually means pytest has wrong shebang (old virtualenv path).")
+        print_warning("FIX: Reinstall pytest in current virtualenv:")
+        print(f"  pip uninstall pytest -y")
+        print(f"  pip install pytest pytest-asyncio pytest-timeout")
+        return 1
+    except Exception as e:
+        print_error(f"Unexpected error: {e}")
+        return 1
 
     elapsed_time = time.time() - start_time
 
     print(f"\n{Colors.BOLD}Time elapsed: {elapsed_time:.2f}s{Colors.ENDC}\n")
 
-    return result.returncode
+    return exit_code
 
 
 def main():
