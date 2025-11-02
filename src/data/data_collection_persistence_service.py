@@ -53,6 +53,13 @@ class DataCollectionPersistenceService:
         # In-memory cache for session state
         self._active_sessions: Dict[str, Dict[str, Any]] = {}
 
+        # ✅ PERFORMANCE FIX #12A: TTL-based cleanup for stale sessions
+        # Prevents memory leaks from sessions that never receive stop signal
+        self._cleanup_task: Optional[asyncio.Task] = None
+        self._cleanup_interval = 3600  # 1 hour
+        self._session_ttl = 86400  # 24 hours
+        self._start_cleanup_task()
+
         # OHLCV aggregation removed - see OHLCVAggregator class removal for rationale
 
     async def create_session(
@@ -350,6 +357,75 @@ class DataCollectionPersistenceService:
                 'error': str(e)
             })
             return None
+
+    def _start_cleanup_task(self):
+        """
+        ✅ PERFORMANCE FIX #12A: Start background cleanup task
+
+        Defensive programming to prevent memory leaks from sessions
+        that never receive stop signal (e.g., server crash, network issues).
+        """
+        try:
+            loop = asyncio.get_running_loop()
+            self._cleanup_task = loop.create_task(self._cleanup_stale_sessions_loop())
+            self.logger.info("data_collection.cleanup_task_started", {
+                "cleanup_interval": self._cleanup_interval,
+                "session_ttl": self._session_ttl
+            })
+        except RuntimeError:
+            # No event loop running yet - will start on first operation
+            self.logger.debug("data_collection.cleanup_task_deferred", {
+                "reason": "no_event_loop"
+            })
+
+    async def _cleanup_stale_sessions_loop(self):
+        """
+        ✅ PERFORMANCE FIX #12A: Background cleanup loop
+
+        Runs every hour and removes sessions older than 24 hours
+        that are still in _active_sessions cache. This prevents
+        memory leaks from crashed/orphaned sessions.
+        """
+        try:
+            while True:
+                await asyncio.sleep(self._cleanup_interval)
+
+                now = datetime.utcnow()
+                stale_sessions = []
+
+                for session_id, session in self._active_sessions.items():
+                    # Session is stale if no update for 24 hours
+                    last_updated = session.get('updated_at', session.get('created_at', now))
+                    age_seconds = (now - last_updated).total_seconds()
+
+                    if age_seconds > self._session_ttl:
+                        stale_sessions.append(session_id)
+
+                # Remove stale sessions
+                for session_id in stale_sessions:
+                    session = self._active_sessions.pop(session_id, None)
+                    if session:
+                        self.logger.warning("data_collection.stale_session_cleaned", {
+                            'session_id': session_id,
+                            'age_hours': round(age_seconds / 3600, 1),
+                            'status': session.get('status', 'unknown'),
+                            'records': session.get('records_collected', 0)
+                        })
+
+                # Log cleanup summary if any sessions were cleaned
+                if stale_sessions:
+                    self.logger.info("data_collection.cleanup_completed", {
+                        'cleaned_count': len(stale_sessions),
+                        'remaining_count': len(self._active_sessions)
+                    })
+
+        except asyncio.CancelledError:
+            self.logger.debug("data_collection.cleanup_task_cancelled", {})
+        except Exception as e:
+            self.logger.error("data_collection.cleanup_task_error", {
+                'error': str(e),
+                'error_type': type(e).__name__
+            })
 
     async def _insert_session_metadata(self, session: Dict[str, Any]) -> None:
         """
