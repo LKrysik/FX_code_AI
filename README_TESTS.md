@@ -79,19 +79,24 @@ tests_e2e/
 ├── pytest.ini                  # Pytest configuration
 ├── conftest.py                 # Shared fixtures (auth, clients)
 │
-├── api/                        # Backend API tests (35 tests)
+├── api/                        # Backend API tests (108 tests)
 │   ├── conftest.py
-│   ├── test_auth.py            # Authentication (12 tests)
-│   ├── test_strategies.py      # Strategy CRUD (18 tests)
-│   ├── test_sessions.py        # Session management (10 tests)
-│   └── test_health.py          # Health checks (5 tests)
+│   ├── test_auth.py            # Authentication (17 tests)
+│   ├── test_strategies.py      # Strategy CRUD (25 tests)
+│   ├── test_sessions.py        # Session management (13 tests)
+│   ├── test_health.py          # Health checks (18 tests)
+│   ├── test_risk.py            # Risk management (17 tests)
+│   ├── test_wallet_orders.py   # Wallet & Orders (8 tests)
+│   ├── test_indicators.py      # Indicators (3 tests)
+│   ├── test_results.py         # Results (7 tests)
+│   └── test_misc.py            # Misc endpoints (symbols, metrics, alerts) (10 tests)
 │
-├── frontend/                   # Frontend UI tests (10 tests)
+├── frontend/                   # Frontend UI tests (7 tests)
 │   ├── conftest.py             # Playwright fixtures
 │   ├── test_auth_flow.py       # Login/logout flows (5 tests)
-│   └── test_dashboard.py       # Dashboard rendering (5 tests)
+│   └── test_dashboard.py       # Dashboard rendering (2 tests)
 │
-├── integration/                # Full E2E flows (5 tests)
+├── integration/                # Full E2E flows (2 tests)
 │   └── test_complete_flow.py   # Complete user workflows
 │
 └── fixtures/                   # Test data (JSON)
