@@ -77,14 +77,14 @@ def check_prerequisites() -> bool:
 
     # Check pytest installed
     try:
-        result = subprocess.run(['pytest', '--version'], capture_output=True, text=True)
+        result = subprocess.run([sys.executable, '-m', 'pytest', '--version'], capture_output=True, text=True)
         if result.returncode == 0:
             print_success(f"pytest installed: {result.stdout.strip()}")
         else:
             print_error("pytest not found")
             all_ok = False
-    except FileNotFoundError:
-        print_error("pytest not installed. Run: pip install pytest pytest-asyncio")
+    except Exception as e:
+        print_error(f"pytest not installed. Run: pip install pytest pytest-asyncio")
         all_ok = False
 
     # Check if backend is running (optional warning)
@@ -128,7 +128,7 @@ def check_prerequisites() -> bool:
 
 def build_pytest_command(args) -> List[str]:
     """Build pytest command based on arguments"""
-    cmd = ['pytest']
+    cmd = [sys.executable, '-m', 'pytest']
 
     # Determine test path
     if args.api:
@@ -176,9 +176,9 @@ def build_pytest_command(args) -> List[str]:
 
     # Parallel execution (if pytest-xdist installed)
     try:
-        subprocess.run(['pytest', '--help'], capture_output=True, text=True, check=True)
+        subprocess.run([sys.executable, '-m', 'pytest', '--help'], capture_output=True, text=True, check=True)
         # Check if -n flag is available (pytest-xdist)
-        help_output = subprocess.run(['pytest', '--help'], capture_output=True, text=True).stdout
+        help_output = subprocess.run([sys.executable, '-m', 'pytest', '--help'], capture_output=True, text=True).stdout
         if '-n' in help_output:
             # Use auto-detect number of CPUs
             cmd.extend(['-n', 'auto'])
