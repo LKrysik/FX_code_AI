@@ -114,13 +114,13 @@ def check_prerequisites() -> bool:
     # Check Playwright for frontend tests
     playwright_installed = False
     try:
-        result = subprocess.run(['playwright', '--version'], capture_output=True, text=True)
+        result = subprocess.run([sys.executable, '-m', 'playwright', '--version'], capture_output=True, text=True)
         if result.returncode == 0:
             print_success(f"Playwright installed: {result.stdout.strip()}")
             playwright_installed = True
         else:
             print_warning("Playwright not found (needed for frontend tests)")
-    except FileNotFoundError:
+    except Exception:
         print_warning("Playwright not installed. Run: pip install playwright && playwright install")
 
     return all_ok
