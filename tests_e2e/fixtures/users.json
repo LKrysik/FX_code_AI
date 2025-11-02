@@ -1,0 +1,12 @@
+{
+  "admin": {
+    "username": "admin",
+    "password": "supersecret",
+    "permissions": ["admin", "read", "write"]
+  },
+  "test_user": {
+    "username": "test_user",
+    "password": "test_password",
+    "permissions": ["read", "write"]
+  }
+}
