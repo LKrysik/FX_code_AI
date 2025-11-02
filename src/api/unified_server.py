@@ -161,23 +161,34 @@ def create_unified_app():
         # Start all the internal components of the WebSocket server
         await app.state.websocket_api_server.startup_embedded()
 
-        # Initialize QuestDB providers for data analysis routes (shared instances)
-        # This prevents creating new connections on every request
+        # ✅ ARCHITECTURE FIX: Use Container to create singleton QuestDB providers
+        # Prevents duplicate connections and ensures proper lifecycle management
         from ..data.questdb_data_provider import QuestDBDataProvider
-        from ..data_feed.questdb_provider import QuestDBProvider
 
-        questdb_provider = QuestDBProvider(
-            ilp_host='127.0.0.1',
-            ilp_port=9009,
-            pg_host='127.0.0.1',
-            pg_port=8812
-        )
+        questdb_provider = await container.create_questdb_provider()
         questdb_data_provider = QuestDBDataProvider(questdb_provider, logger)
 
         # Store in app.state for reuse across all endpoints
         app.state.questdb_provider = questdb_provider
         app.state.questdb_data_provider = questdb_data_provider
-        logger.info("QuestDB providers initialized and stored in app.state")
+        logger.info("QuestDB providers initialized from Container (singleton)")
+
+        # ✅ ARCHITECTURE FIX: Initialize indicators_routes with proper DI
+        # Eliminates lazy initialization and duplicate EventBus/QuestDB instances
+        from src.api import indicators_routes
+
+        streaming_engine = await container.create_streaming_indicator_engine()
+
+        indicators_routes.initialize_indicators_dependencies(
+            event_bus=event_bus,
+            streaming_engine=streaming_engine,
+            questdb_provider=questdb_provider
+        )
+        logger.info("indicators_routes initialized with proper dependency injection", {
+            "event_bus_id": id(event_bus),
+            "streaming_engine_id": id(streaming_engine),
+            "questdb_provider_id": id(questdb_provider)
+        })
 
         # Initialize health monitoring
         global health_monitor
