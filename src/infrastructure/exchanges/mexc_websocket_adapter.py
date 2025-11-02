@@ -147,7 +147,7 @@ class MexcWebSocketAdapter(IMarketDataProvider):
         
         # ✅ ORDERBOOK CACHE: Maintain full state between incremental updates
         self._orderbook_cache = {}  # symbol -> {"bids": OrderedDict, "asks": OrderedDict, "version": int, "timestamp": float}
-        self._orderbook_lock = asyncio.Lock()  # Ensure thread-safe updates
+        self._orderbook_locks: Dict[str, asyncio.Lock] = {}  # Per-symbol locks for concurrent orderbook updates
         self._orderbook_versions = {}  # symbol -> last_processed_version for delta synchronization
         
         # Periodic snapshot refresh to prevent drift from deltas
@@ -264,6 +264,23 @@ class MexcWebSocketAdapter(IMarketDataProvider):
     def _update_tracking_expiry(self, symbol: str) -> None:
         """Update expiry time for tracking structures to prevent memory leaks"""
         self._tracking_expiry[symbol] = time.time() + self._max_tracking_age
+
+    def _get_orderbook_lock(self, symbol: str) -> asyncio.Lock:
+        """
+        Get or create a per-symbol lock for orderbook updates.
+
+        This eliminates global lock contention - each symbol can update
+        independently without blocking others.
+
+        Args:
+            symbol: Trading pair symbol (e.g., "BTC_USDT")
+
+        Returns:
+            asyncio.Lock: Dedicated lock for this symbol's orderbook
+        """
+        if symbol not in self._orderbook_locks:
+            self._orderbook_locks[symbol] = asyncio.Lock()
+        return self._orderbook_locks[symbol]
 
     def _create_tracked_task(self, coro, name: str = "") -> asyncio.Task:
         """Create a tracked asyncio task to prevent dangling tasks"""
@@ -1554,7 +1571,8 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                     asks.append(parsed_ask)
             
             # ✅ CACHE UPDATE: Maintain full orderbook state
-            async with self._orderbook_lock:
+            # ✅ PERF FIX: Per-symbol lock instead of global lock (eliminates contention)
+            async with self._get_orderbook_lock(symbol):
                 if symbol not in self._orderbook_cache:
                     # ✅ FIX: Initialize with OrderedDict for consistency with snapshot/delta processing
                     self._orderbook_cache[symbol] = {
@@ -1663,8 +1681,9 @@ class MexcWebSocketAdapter(IMarketDataProvider):
             # Sort orderbook levels properly
             bids.sort(key=lambda x: float(x[0]), reverse=True)  # Highest price first
             asks.sort(key=lambda x: float(x[0]))  # Lowest price first
-            
-            async with self._orderbook_lock:
+
+            # ✅ PERF FIX: Per-symbol lock instead of global lock
+            async with self._get_orderbook_lock(symbol):
                 # Create new cache state from snapshot
                 self._orderbook_cache[symbol] = {
                     "bids": OrderedDict((str(float(price)), float(qty)) for price, qty in bids),
@@ -1720,8 +1739,9 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                 parsed_ask = self._safe_parse_orderbook_level(ask)
                 if parsed_ask:
                     ask_updates.append(parsed_ask)
-            
-            async with self._orderbook_lock:
+
+            # ✅ PERF FIX: Per-symbol lock instead of global lock
+            async with self._get_orderbook_lock(symbol):
                 # Initialize cache if not exists (fallback)
                 if symbol not in self._orderbook_cache:
                     self._orderbook_cache[symbol] = {
@@ -1789,7 +1809,8 @@ class MexcWebSocketAdapter(IMarketDataProvider):
     async def _publish_orderbook_from_cache(self, symbol: str) -> None:
         """Publish orderbook update from cache"""
         try:
-            async with self._orderbook_lock:
+            # ✅ PERF FIX: Per-symbol lock instead of global lock
+            async with self._get_orderbook_lock(symbol):
                 cache_entry = self._orderbook_cache.get(symbol)
                 if not cache_entry:
                     return
@@ -2685,7 +2706,8 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                         
                         # Update cache
                         if bids or asks:
-                            async with self._orderbook_lock:
+                            # ✅ PERF FIX: Per-symbol lock instead of global lock
+                            async with self._get_orderbook_lock(symbol):
                                 if symbol not in self._orderbook_cache:
                                     # ✅ FIX: Initialize with OrderedDict for consistency with snapshot/delta processing
                                     self._orderbook_cache[symbol] = {
@@ -2735,9 +2757,10 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                 for symbol in symbols_to_refresh:
                     if not self._running:
                         break
-                    
+
                     # Check if cache is stale (older than 2 minutes)
-                    async with self._orderbook_lock:
+                    # ✅ PERF FIX: Per-symbol lock instead of global lock
+                    async with self._get_orderbook_lock(symbol):
                         if symbol in self._orderbook_cache:
                             cache_age = time.time() - self._orderbook_cache[symbol]["timestamp"]
                             if cache_age > 120:  # 2 minutes
