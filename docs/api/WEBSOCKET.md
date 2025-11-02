@@ -85,3 +85,20 @@ Uwaga: metryki sesji normalizowane s¹ wg aktywnych symboli bie¿¹cej sesji (prior
 - Start sesji (backtest/live/paper) z cap bud¿etu — session_start; monitorowanie — session_status.
 - Podgl¹d strumieni: market_data, indicators, signals (seed 5 wiadomoœci na subskrypcjê).
 - Kolekcja danych do póŸniejszego backtestu — collection_start/stop/status.
+
+---
+
+## Completeness Note
+
+**Last Updated:** 2025-11-02
+
+All message types handled by `MessageRouter` in `src/api/message_router.py` are documented above. For detailed implementation, see:
+- `src/api/websocket_server.py` - WebSocket server implementation
+- `src/api/message_router.py` - Message routing logic
+- `src/api/auth_handler.py` - JWT authentication
+
+**Authentication:**
+- JWT authentication is required for all operations (except health checks)
+- Tokens are validated via AuthHandler
+- Access tokens expire after configured hours (default: 24h)
+- Refresh tokens can be used to obtain new access tokens

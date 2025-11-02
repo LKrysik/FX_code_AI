@@ -1,16 +1,15 @@
-## Automated Updates (2025-09-30T22:13:00.000Z)
+## Automated Updates (2025-11-02)
 
 ### Current Sprint Section
-**Justification**: Scope decisions from DECISIONS.md require roadmap updates to reflect current strategic direction
-**Benefits**: Improves focus on critical gaps, reduces confusion about priorities, aligns with user feedback analysis
-**Consistency improvements**: Ensures roadmap reflects binding decisions and actual implementation status
-**Quality enhancements**: Better prioritization prevents misallocation of effort, clearer dependencies
-**Risks**: Extended timeline may delay pilot, but necessary for viable MVP
+**Justification**: Sprint 16 progress requires roadmap updates to reflect completed tasks
+**Benefits**: Improves visibility of resolved issues, accurate status tracking
+**Consistency improvements**: Ensures roadmap reflects actual implementation status
+**Quality enhancements**: Better prioritization prevents duplication of completed work
 
 ---
 
 # Product Roadmap
-> Last reviewed: 2025-09-30T22:13:00.000Z via automated sync — DECISIONS.md synchronized with roadmap; scope expanded per binding decisions; timeline adjustments required.
+> Last reviewed: 2025-11-02 — Sprint 16 status synchronized; time window semantics problem marked as resolved; database migration status updated.
 
 
 
@@ -116,18 +115,21 @@ Implementacja prostych, niezawodnych wskaźników dla Strategy Builder opartych 
 8. **Rozbudowa UI Canvas**: Pełne wsparcie dla grafowego budowania strategii, praca offline.
 
 
-### 🚨 **1. Nierozwiązany Problem z Semantyką Okien Czasowych**
-**Problem**: System (t1, t2) gdzie t1 > t2 jest mylący i niejednoznaczny w systemie rozproszonym.
+### ✅ **1. Problem z Semantyką Okien Czasowych** (ROZWIĄZANY)
+**Problem**: System (t1, t2) gdzie t1 > t2 był mylący i niejednoznaczny w systemie rozproszonym.
 - `VWAP(300, 0)` - "od 5 minut temu do teraz" - ale co oznacza "teraz"?
 - Czy to czas otrzymania danych, czas przetwarzania, czy timestamp ostatniej transakcji?
-- W szybko zmieniającym się rynku różnica może być krytyczna dla decyzji tradingowych.
 
-**Ryzyko**: Niespójne obliczenia wskaźników między różnymi częściami systemu, błędne sygnały tradingowe.
+**Status**: ✅ ROZWIĄZANE w Sprint 14 (USER_REC_14)
 
-**Rozwiązanie Wymagane**:
-- Wprowadzenie jawnego parametru `reference_time` lub używanie absolutnych znaczników czasu UTC
-- Standaryzacja: zawsze używać `timestamp` ostatniej transakcji jako punktu odniesienia
-- Dokumentacja precyzyjnej semantyki dla wszystkich funkcji okien czasowych
+**Rozwiązanie Zaimplementowane**:
+- ✅ Standaryzacja na `(t1, t2)` gdzie `t1` to sekundy wstecz dla startu okna, `t2` dla końca
+- ✅ Przykład: `TWPA(300, 0)` = "od 5 minut temu (300s) do teraz (0s)"
+- ✅ Konsystentne używanie `timestamp` ostatniej transakcji jako punktu odniesienia
+- ✅ Dokumentacja w `docs/trading/INDICATORS.md` i `CLAUDE.md`
+- ✅ Walidacja parametrów czasowych w `src/core/time_normalization.py`
+
+**Dowód**: Zobacz `docs/STATUS.md` - Sprint 14 ✅ Completed
 
 
 ### 🚨 **4. Nieadekwatne Zarządzanie Stanem dla Warunków Czasowych**
