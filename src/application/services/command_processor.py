@@ -162,7 +162,88 @@ class AsyncCommandProcessor:
         })
 
         return command_id
-    
+
+    async def execute_command_with_result(
+        self,
+        command_type: CommandType,
+        parameters: Dict[str, Any],
+        timeout: float = 5.0,
+        progress_callback: Optional[Callable[[float], None]] = None
+    ) -> Dict[str, Any]:
+        """
+        Execute a command and wait for completion to retrieve the result.
+
+        This method is useful when the caller needs immediate access to the command result
+        (e.g., session_id) rather than just the command_id.
+
+        Args:
+            command_type: Type of command to execute
+            parameters: Command parameters
+            timeout: Maximum time to wait for command completion (seconds)
+            progress_callback: Optional callback for progress updates
+
+        Returns:
+            Command result dictionary containing session_id and other data
+
+        Raises:
+            TimeoutError: If command does not complete within timeout
+            ValueError: If command fails or is cancelled
+        """
+        # Start command execution
+        command_id = await self.execute_command(command_type, parameters, progress_callback)
+
+        self.logger.debug("command.waiting_for_result", {
+            "command_id": command_id,
+            "command_type": command_type.value,
+            "timeout": timeout
+        })
+
+        # Wait for completion
+        start_time = datetime.now()
+        poll_interval = 0.1  # Poll every 100ms
+
+        while (datetime.now() - start_time).total_seconds() < timeout:
+            async with self._main_lock:
+                command_execution = self._active_commands.get(command_id)
+
+            if not command_execution:
+                raise ValueError(f"Command {command_id} not found in active commands")
+
+            if command_execution.status == CommandStatus.COMPLETED:
+                self.logger.info("command.result_retrieved", {
+                    "command_id": command_id,
+                    "command_type": command_type.value,
+                    "duration": (command_execution.completed_at - command_execution.created_at).total_seconds()
+                })
+                return command_execution.result or {}
+
+            elif command_execution.status == CommandStatus.FAILED:
+                error_msg = command_execution.error or "Command execution failed"
+                self.logger.error("command.execution_failed", {
+                    "command_id": command_id,
+                    "command_type": command_type.value,
+                    "error": error_msg
+                })
+                raise ValueError(f"Command {command_id} failed: {error_msg}")
+
+            elif command_execution.status == CommandStatus.CANCELLED:
+                self.logger.warning("command.execution_cancelled", {
+                    "command_id": command_id,
+                    "command_type": command_type.value
+                })
+                raise ValueError(f"Command {command_id} was cancelled")
+
+            # Wait before next poll
+            await asyncio.sleep(poll_interval)
+
+        # Timeout reached
+        self.logger.error("command.execution_timeout", {
+            "command_id": command_id,
+            "command_type": command_type.value,
+            "timeout": timeout
+        })
+        raise TimeoutError(f"Command {command_id} did not complete within {timeout}s")
+
     async def cancel_command(self, command_id: str) -> bool:
         """Race-condition safe cancellation"""
         async with self._main_lock:
