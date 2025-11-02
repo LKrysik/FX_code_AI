@@ -77,5 +77,5 @@ Zobacz: [README_TESTS.md](README_TESTS.md)
 
 **Czas instalacji:** ~3 minuty
 **Czas pierwszego uruchomienia:** ~2 minuty
-**Liczba testów:** 117 (API: 108, Frontend: 7, Integration: 2)
-**Pokrycie:** 52 endpointy API + UI flows
+**Liczba testów:** 224 (API: 213, Frontend: 9, Integration: 2)
+**Pokrycie:** 97+ endpointów API + UI flows (wszystkie routery: data_analysis, indicators, ops)
