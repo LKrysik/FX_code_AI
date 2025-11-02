@@ -1,1 +1,0 @@
-CREATE TABLE IF NOT EXISTS indicator_variants (id STRING, name STRING, base_indicator_type SYMBOL capacity 128 CACHE, variant_type SYMBOL capacity 16 CACHE, description STRING, parameters STRING, schema_version INT, is_system BOOLEAN, created_by STRING, user_id STRING, scope STRING, created_at TIMESTAMP, updated_at TIMESTAMP, deleted_at TIMESTAMP, is_deleted BOOLEAN)
