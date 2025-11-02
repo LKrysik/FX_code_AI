@@ -169,6 +169,61 @@ Wspólna Envelope:
 - POST /risk/emergency-stop � zatrzymanie awaryjne (zwolnienie budżetu)
 - POST /risk/assess-position � ocena ryzyka pozycji
 
+### Authentication (JWT)
+- POST /api/v1/auth/login – Login z JWT, zwraca access_token i refresh_token
+  - Body: `{"username": "admin", "password": "secret"}`
+  - Response: `{"access_token": "...", "refresh_token": "...", "token_type": "bearer", "expires_in": 3600, "user": {...}}`
+  - Sets HttpOnly cookies: `access_token`, `refresh_token`
+- POST /api/v1/auth/refresh – Odświeżenie tokenu
+  - Requires: `refresh_token` cookie or header
+  - Response: nowy `access_token` i `refresh_token`
+- POST /api/v1/auth/logout – Wylogowanie
+  - Requires: valid `access_token`
+  - Clears cookies and invalidates session
+- GET /csrf-token – Generowanie tokenu CSRF
+  - Response: `{"token": "..."}`
+  - Token expires in 1 hour
+
+### Strategy Management (4-Section)
+- POST /api/strategies – Utworzenie strategii
+  - Body: `{"strategy_name": "...", "s1_signal": {...}, "z1_entry": {...}, "o1_cancel": {...}, "emergency_exit": {...}}`
+  - Validates all 4 sections required
+  - Response: `{"strategy": {"id": "...", "strategy_name": "...", "created_at": "..."}}`
+- GET /api/strategies – Lista strategii
+  - Response: `{"strategies": [...]}`
+- GET /api/strategies/{strategy_id} – Szczegóły strategii
+  - Response: `{"strategy": {...}}`
+- PUT /api/strategies/{strategy_id} – Aktualizacja strategii
+  - Body: complete strategy config
+  - Validates before updating
+- DELETE /api/strategies/{strategy_id} – Usunięcie strategii
+  - Response: `{"message": "Strategy deleted successfully", "strategy_id": "...", "strategy_name": "..."}`
+- POST /api/strategies/validate – Walidacja konfiguracji
+  - Body: strategy config
+  - Response: `{"isValid": true/false, "errors": [...], "warnings": [...]}`
+
+### Health & Monitoring
+- GET /health – Ultra-fast liveness probe (<10ms)
+  - Response: `{"status": "healthy", "timestamp": "...", "uptime": 12345, "version": "1.0"}`
+- GET /health/detailed – Comprehensive health check
+  - Returns: overall status, component health, degradation info, circuit breakers, telemetry
+  - Response includes: `status`, `degradation_info`, `components`, `health_checks`, `active_alerts`, `circuit_breakers`
+- GET /health/status – Detailed health monitoring status
+  - Returns: health checks, active alerts, timestamps
+- GET /health/checks/{check_name} – Szczegóły konkretnego health checku
+- GET /health/services – Lista zarejestrowanych serwisów
+- GET /health/services/{service_name} – Status konkretnego serwisu
+- POST /health/services/{service_name}/enable – Włączenie serwisu
+- POST /health/services/{service_name}/disable – Wyłączenie serwisu
+- POST /health/clear-cache – Czyszczenie cache health endpoint
+- GET /metrics – Metryki systemowe (telemetry)
+  - Returns comprehensive system metrics
+- GET /metrics/health – Metryki zdrowia
+- GET /circuit-breakers – Status circuit breakerów
+  - Returns status of all registered circuit breakers
+- GET /alerts – Aktywne alerty
+- POST /alerts/{alert_id}/resolve – Rozwiązanie alertu
+
 ## Zastosowania UI (skr�cony przewodnik)
 - Strategia: /strategies (validate_only/upsert), /strategies/status do tabeli w UI.
 - Wska�niki: /indicators + filtry i bulk do zarz�dzania instancjami.

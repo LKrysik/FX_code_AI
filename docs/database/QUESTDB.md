@@ -90,25 +90,52 @@ cairo.commit.lag=10000
 
 ## Database Schema
 
-### Prices Table (Time-Series)
+### Data Collection Sessions Table
 
 ```sql
-CREATE TABLE prices (
-    symbol SYMBOL capacity 256 CACHE,
-    timestamp TIMESTAMP,
-    open DOUBLE,
-    high DOUBLE,
-    low DOUBLE,
-    close DOUBLE,
-    volume DOUBLE
-) timestamp(timestamp) PARTITION BY DAY WAL;
+CREATE TABLE data_collection_sessions (
+    session_id SYMBOL capacity 2048 CACHE,
+    status SYMBOL capacity 16 CACHE,
+    symbols STRING,
+    data_types STRING,
+    start_time TIMESTAMP,
+    end_time TIMESTAMP,
+    records_collected LONG,
+    prices_count LONG,
+    orderbook_count LONG,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP
+) timestamp(created_at) PARTITION BY DAY;
 ```
 
 **Design Notes:**
+- Tracks data collection session lifecycle
+- Links to tick_prices, tick_orderbook, and indicators tables
+- `session_id`: Unique identifier for each collection session
+- `status`: 'active', 'completed', 'failed', 'stopped'
+
+### Tick Prices Table (Time-Series)
+
+```sql
+CREATE TABLE tick_prices (
+    session_id SYMBOL capacity 2048 CACHE,
+    symbol SYMBOL capacity 256 CACHE,
+    timestamp TIMESTAMP,
+    price DOUBLE,
+    volume DOUBLE,
+    quote_volume DOUBLE
+) timestamp(timestamp) PARTITION BY DAY WAL
+DEDUP UPSERT KEYS(timestamp, symbol, session_id);
+```
+
+**Design Notes:**
+- High-frequency tick data (individual trades/price updates)
+- Replaces CSV-based storage (data/{symbol}/{session_id}/prices.csv)
 - `SYMBOL` type: Optimized string storage (indexed, cached)
 - `timestamp(timestamp)`: Designated timestamp column
 - `PARTITION BY DAY`: Daily partitions for fast queries
 - `WAL`: Write-Ahead Log for durability
+- `DEDUP`: Prevents duplicate ticks from redundant ingestion
 
 ### Indicators Table (Time-Series)
 
@@ -118,15 +145,79 @@ CREATE TABLE indicators (
     indicator_id SYMBOL capacity 1024 CACHE,
     timestamp TIMESTAMP,
     value DOUBLE,
-    metadata STRING
+    confidence DOUBLE,
+    metadata STRING,
+    session_id SYMBOL capacity 2048 CACHE
 ) timestamp(timestamp) PARTITION BY DAY WAL;
 ```
 
 **Design Notes:**
 - Multiple indicators per symbol (RSI_14, EMA_12, etc.)
+- `session_id`: Links indicators to specific data collection sessions (added in migration 003)
+- `confidence`: Confidence score (0-1, optional)
 - `metadata`: JSON string for additional data
 - Daily partitions for fast queries
 - High-frequency inserts (1-second updates)
+
+### Tick Orderbook Table (Time-Series)
+
+```sql
+CREATE TABLE tick_orderbook (
+    session_id SYMBOL capacity 2048 CACHE,
+    symbol SYMBOL capacity 256 CACHE,
+    timestamp TIMESTAMP,
+    bid_price_1 DOUBLE,
+    bid_qty_1 DOUBLE,
+    bid_price_2 DOUBLE,
+    bid_qty_2 DOUBLE,
+    bid_price_3 DOUBLE,
+    bid_qty_3 DOUBLE,
+    ask_price_1 DOUBLE,
+    ask_qty_1 DOUBLE,
+    ask_price_2 DOUBLE,
+    ask_qty_2 DOUBLE,
+    ask_price_3 DOUBLE,
+    ask_qty_3 DOUBLE
+) timestamp(timestamp) PARTITION BY DAY WAL
+DEDUP UPSERT KEYS(timestamp, symbol, session_id);
+```
+
+**Design Notes:**
+- 3-level orderbook depth snapshots
+- Replaces CSV-based storage (data/{symbol}/{session_id}/orderbook.csv)
+- Computed metrics (calculate on query, not stored):
+  - `best_bid = bid_price_1`
+  - `best_ask = ask_price_1`
+  - `spread = ask_price_1 - bid_price_1`
+  - `spread_pct = (spread / bid_price_1) * 100`
+
+### Aggregated OHLCV Table (Time-Series)
+
+```sql
+CREATE TABLE aggregated_ohlcv (
+    session_id SYMBOL capacity 2048 CACHE,
+    symbol SYMBOL capacity 256 CACHE,
+    interval SYMBOL capacity 16 CACHE,
+    timestamp TIMESTAMP,
+    open DOUBLE,
+    high DOUBLE,
+    low DOUBLE,
+    close DOUBLE,
+    volume DOUBLE,
+    quote_volume DOUBLE,
+    trades_count INT,
+    is_closed BOOLEAN,
+    created_at TIMESTAMP
+) timestamp(timestamp) PARTITION BY DAY
+DEDUP UPSERT KEYS(timestamp, symbol, interval, session_id);
+```
+
+**Design Notes:**
+- Pre-computed OHLCV candles from tick data
+- Computed during data collection or via async aggregation task
+- Enables fast backtest queries without resampling tick data
+- `interval`: Timeframe ('1m', '5m', '15m', '1h', '4h', '1d')
+- `is_closed`: True if candle is finalized
 
 ### Strategy Templates Table (Relational)
 
@@ -174,29 +265,27 @@ import pandas as pd
 with Sender(Protocol.Tcp, 'localhost', 9009) as sender:
     # Single row
     sender.row(
-        'prices',
-        symbols={'symbol': 'BTC/USD'},
+        'tick_prices',
+        symbols={'session_id': 'session_123', 'symbol': 'BTC/USD'},
         columns={
-            'open': 50000.0,
-            'high': 51000.0,
-            'low': 49500.0,
-            'close': 50500.0,
-            'volume': 1000000.0
+            'price': 50000.0,
+            'volume': 1000.0,
+            'quote_volume': 50000000.0
         },
         at=pd.Timestamp.now().value
     )
 
     # Batch insert (fastest)
-    for price in price_data:
+    for tick in tick_data:
         sender.row(
-            'prices',
-            symbols={'symbol': price['symbol']},
+            'tick_prices',
+            symbols={'session_id': tick['session_id'], 'symbol': tick['symbol']},
             columns={
-                'open': price['open'],
-                'close': price['close'],
-                'volume': price['volume']
+                'price': tick['price'],
+                'volume': tick['volume'],
+                'quote_volume': tick['quote_volume']
             },
-            at=price['timestamp']
+            at=tick['timestamp']
         )
 
     sender.flush()
@@ -221,9 +310,10 @@ conn = psycopg2.connect(
 
 # Query with pandas
 df = pd.read_sql("""
-    SELECT timestamp, close, volume
-    FROM prices
+    SELECT timestamp, price, volume, quote_volume
+    FROM tick_prices
     WHERE symbol = 'BTC/USD'
+      AND session_id = 'session_123'
       AND timestamp > '2025-10-27T00:00:00'
     ORDER BY timestamp DESC
     LIMIT 1000
@@ -252,17 +342,17 @@ import requests
 # Execute SQL query
 response = requests.get(
     'http://localhost:9000/exec',
-    params={'query': "SELECT * FROM prices WHERE symbol = 'BTC/USD' LIMIT 10"}
+    params={'query': "SELECT * FROM tick_prices WHERE symbol = 'BTC/USD' AND session_id = 'session_123' LIMIT 10"}
 )
 
 data = response.json()
 print(data)
 
 # Import CSV
-with open('prices.csv', 'rb') as f:
+with open('tick_prices.csv', 'rb') as f:
     response = requests.post(
         'http://localhost:9000/imp',
-        params={'name': 'prices'},
+        params={'name': 'tick_prices'},
         files={'data': f}
     )
 ```
@@ -283,9 +373,9 @@ with Sender(Protocol.Tcp, 'localhost', 9009) as sender:
 
     for i in range(100000):
         sender.row(
-            'prices',
-            symbols={'symbol': 'BTC/USD'},
-            columns={'close': 50000 + i, 'volume': 1000},
+            'tick_prices',
+            symbols={'session_id': 'test_session', 'symbol': 'BTC/USD'},
+            columns={'price': 50000 + i, 'volume': 1000, 'quote_volume': (50000 + i) * 1000},
             at=pd.Timestamp.now().value
         )
 
@@ -314,9 +404,10 @@ start = time.time()
 
 with conn.cursor() as cur:
     cur.execute("""
-        SELECT timestamp, close, volume
-        FROM prices
+        SELECT timestamp, price, volume
+        FROM tick_prices
         WHERE symbol = 'BTC/USD'
+          AND session_id = 'test_session'
           AND timestamp > dateadd('h', -1, now())
         ORDER BY timestamp DESC
     """)
@@ -367,17 +458,17 @@ Access: `http://127.0.0.1:9000`
 ### Export from TimescaleDB
 
 ```sql
--- Export prices
+-- Export tick prices
 COPY (
-    SELECT symbol, timestamp, open, high, low, close, volume
-    FROM prices
+    SELECT session_id, symbol, timestamp, price, volume, quote_volume
+    FROM tick_prices
     WHERE timestamp > '2025-10-01'
     ORDER BY timestamp
-) TO '/tmp/prices.csv' WITH CSV HEADER;
+) TO '/tmp/tick_prices.csv' WITH CSV HEADER;
 
 -- Export indicators
 COPY (
-    SELECT symbol, indicator_id, timestamp, value
+    SELECT symbol, indicator_id, timestamp, value, session_id
     FROM indicators
     WHERE timestamp > '2025-10-01'
     ORDER BY timestamp
@@ -397,10 +488,10 @@ COPY (
 ```python
 import requests
 
-with open('prices.csv', 'rb') as f:
+with open('tick_prices.csv', 'rb') as f:
     response = requests.post(
         'http://localhost:9000/imp',
-        params={'name': 'prices'},
+        params={'name': 'tick_prices'},
         files={'data': f}
     )
     print(response.text)
@@ -412,20 +503,18 @@ from questdb.ingress import Sender, Protocol
 import pandas as pd
 
 # Read CSV
-df = pd.read_csv('prices.csv')
+df = pd.read_csv('tick_prices.csv')
 
 # Insert in batches
 with Sender(Protocol.Tcp, 'localhost', 9009) as sender:
     for _, row in df.iterrows():
         sender.row(
-            'prices',
-            symbols={'symbol': row['symbol']},
+            'tick_prices',
+            symbols={'session_id': row['session_id'], 'symbol': row['symbol']},
             columns={
-                'open': row['open'],
-                'high': row['high'],
-                'low': row['low'],
-                'close': row['close'],
-                'volume': row['volume']
+                'price': row['price'],
+                'volume': row['volume'],
+                'quote_volume': row['quote_volume']
             },
             at=pd.Timestamp(row['timestamp']).value
         )
@@ -456,11 +545,11 @@ xcopy /E /I db backup_2025-10-27
 
 ```sql
 -- Delete data older than 30 days
-DELETE FROM prices
+DELETE FROM tick_prices
 WHERE timestamp < dateadd('d', -30, now());
 
 -- Compact partitions
-VACUUM PARTITION prices;
+VACUUM PARTITION tick_prices;
 ```
 
 ### Monitoring
@@ -471,7 +560,9 @@ SELECT table_name, size_bytes / 1024 / 1024 as size_mb
 FROM table_size();
 
 -- Partition info
-SELECT * FROM table_partitions('prices');
+SELECT * FROM table_partitions('tick_prices');
+SELECT * FROM table_partitions('tick_orderbook');
+SELECT * FROM table_partitions('aggregated_ohlcv');
 
 -- Query stats
 SELECT * FROM sys.query_activity;
@@ -495,13 +586,16 @@ tail -f <questdb_root>/log/questdb.log
 
 ```sql
 -- Check table statistics
-SELECT * FROM table_stats('prices');
+SELECT * FROM table_stats('tick_prices');
+SELECT * FROM table_stats('tick_orderbook');
 
 -- Check partition count (too many = slow)
-SELECT COUNT(*) FROM table_partitions('prices');
+SELECT COUNT(*) FROM table_partitions('tick_prices');
+SELECT COUNT(*) FROM table_partitions('tick_orderbook');
 
 -- Rebuild indexes
-REINDEX TABLE prices;
+REINDEX TABLE tick_prices;
+REINDEX TABLE tick_orderbook;
 ```
 
 ### Memory Issues
@@ -517,15 +611,17 @@ shared.worker.count=4
 
 ## Next Steps
 
-1. **Create schemas** - Run SQL scripts to create tables
-2. **Test connection** - Verify Python client works
-3. **Import sample data** - Load 24 hours of BTC prices
-4. **Benchmark** - Compare performance with TimescaleDB
-5. **Migrate** - Full data migration when ready
-6. **Update code** - Switch from TimescaleDB to QuestDB
+1. ✅ **Create schemas** - Migration 003 completed (tick_prices, data_collection_sessions, tick_orderbook, aggregated_ohlcv)
+2. ✅ **Test connection** - Python client verified and working
+3. **Import sample data** - Load 24 hours of tick data with session tracking
+4. **Implement OHLCV aggregation** - Background task to compute candles from ticks
+5. **Update data collector** - Write directly to QuestDB via InfluxDB Line Protocol
+6. **Update API endpoints** - Query from QuestDB instead of CSV files
+7. **Add session picker** - Enable backtest UI to select historical sessions
 
 ---
 
 **Generated:** 2025-10-27
+**Last Updated:** 2025-11-02
 **Author:** Claude AI
-**Sprint:** Phase 2 Sprint 3 (QuestDB Migration)
+**Sprint:** Phase 2 Sprint 3 (QuestDB Migration) - In Progress
