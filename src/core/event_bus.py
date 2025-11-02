@@ -248,6 +248,22 @@ class EventBus:
         # ✅ CRITICAL FIX: Background cleanup task for aggressive memory management
         self._background_cleanup_task: Optional[asyncio.Task] = None
 
+        # ✅ PERFORMANCE FIX #5B: Adaptive worker pool management
+        self._worker_adjustment_task: Optional[asyncio.Task] = None
+        self._worker_adjustment_interval = 10.0  # Check every 10 seconds
+        self._min_workers_per_priority = {
+            EventPriority.CRITICAL: 1,
+            EventPriority.HIGH: 1,
+            EventPriority.NORMAL: 1,
+            EventPriority.LOW: 1
+        }
+        self._max_workers_per_priority = {
+            EventPriority.CRITICAL: 4,
+            EventPriority.HIGH: 4,
+            EventPriority.NORMAL: 2,
+            EventPriority.LOW: 1
+        }
+
         # Worker pools will be started when needed
         self._worker_pools_started = False
 
@@ -387,6 +403,13 @@ class EventBus:
                 "worker_distribution": self._worker_counts
             })
 
+            # ✅ PERFORMANCE FIX #5B: Start adaptive worker pool adjustment
+            self._worker_adjustment_task = asyncio.create_task(
+                self._worker_adjustment_loop(),
+                name="EventBus-WorkerAdjustment"
+            )
+            self._active_tasks.add(self._worker_adjustment_task)
+
     def _is_critical_error(self, error: Exception) -> bool:
         """Classify errors as critical (require attention) or ordinary"""
         critical_types = (SystemError, MemoryError, OSError, RuntimeError)
@@ -440,7 +463,106 @@ class EventBus:
         finally:
             # Removed debug logging for performance - worker stop is normal
             pass
-    
+
+    async def _worker_adjustment_loop(self):
+        """
+        ✅ PERFORMANCE FIX #5B: Adaptive worker pool adjustment
+
+        Monitors queue sizes and adjusts worker counts dynamically:
+        - Scale UP: If queue >50% full, add workers (up to max)
+        - Scale DOWN: If queue <10% full for >30s, remove workers (down to min)
+
+        This prevents over-provisioning (wasted context switching) while
+        maintaining responsiveness during load spikes.
+        """
+        try:
+            # Track queue utilization over time for scale-down decisions
+            low_utilization_start: Dict[EventPriority, Optional[float]] = {
+                p: None for p in EventPriority
+            }
+
+            while not self._shutdown_requested:
+                try:
+                    await asyncio.sleep(self._worker_adjustment_interval)
+
+                    async with self._worker_lock:
+                        for priority, queue in self._priority_queues.items():
+                            current_workers = len(self._worker_tasks.get(priority, []))
+                            queue_size = queue.qsize()
+                            queue_capacity = queue.maxsize
+                            utilization = queue_size / queue_capacity if queue_capacity > 0 else 0
+
+                            # Scale UP: Queue >50% full and not at max workers
+                            if (utilization > 0.5 and
+                                current_workers < self._max_workers_per_priority[priority]):
+
+                                # Add 1 worker
+                                worker_id = current_workers
+                                new_worker = asyncio.create_task(
+                                    self._priority_worker(priority, worker_id),
+                                    name=f"EventBus-Worker-{priority.name}-{worker_id}"
+                                )
+                                self._worker_tasks[priority].append(new_worker)
+                                self._active_tasks.add(new_worker)
+
+                                self.logger.info("eventbus.worker_scaled_up", {
+                                    "priority": priority.name,
+                                    "workers": f"{current_workers} → {current_workers + 1}",
+                                    "queue_utilization": f"{utilization * 100:.1f}%",
+                                    "queue_size": queue_size,
+                                    "reason": "high_load"
+                                })
+
+                                # Reset low utilization tracking
+                                low_utilization_start[priority] = None
+
+                            # Scale DOWN: Queue <10% full for >30s and not at min workers
+                            elif (utilization < 0.1 and
+                                  current_workers > self._min_workers_per_priority[priority]):
+
+                                # Track low utilization duration
+                                if low_utilization_start[priority] is None:
+                                    low_utilization_start[priority] = time.time()
+
+                                low_util_duration = time.time() - low_utilization_start[priority]
+
+                                # Only scale down after 30s of sustained low utilization
+                                if low_util_duration > 30.0:
+                                    # Remove 1 worker (graceful shutdown)
+                                    if self._worker_tasks[priority]:
+                                        worker = self._worker_tasks[priority].pop()
+                                        worker.cancel()
+
+                                        self.logger.info("eventbus.worker_scaled_down", {
+                                            "priority": priority.name,
+                                            "workers": f"{current_workers} → {current_workers - 1}",
+                                            "queue_utilization": f"{utilization * 100:.1f}%",
+                                            "low_util_duration_s": round(low_util_duration, 1),
+                                            "reason": "sustained_low_load"
+                                        })
+
+                                        # Reset tracking after scale down
+                                        low_utilization_start[priority] = None
+
+                            else:
+                                # Utilization between 10-50% = stable, reset tracking
+                                low_utilization_start[priority] = None
+
+                except Exception as e:
+                    self.logger.error("eventbus.worker_adjustment_error", {
+                        "error": str(e),
+                        "error_type": type(e).__name__
+                    })
+                    # Continue loop despite errors
+
+        except asyncio.CancelledError:
+            self.logger.debug("eventbus.worker_adjustment_stopped", {})
+        except Exception as e:
+            self.logger.error("eventbus.worker_adjustment_loop_fatal", {
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+
     async def _process_queued_event_optimized(self, event: QueuedEvent):
         """✅ CRITICAL FIX: Optimized event processing with batch timeout"""
         if event.event_type not in self._subscribers:
