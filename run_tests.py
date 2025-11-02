@@ -77,7 +77,7 @@ def check_prerequisites() -> bool:
 
     # Check pytest installed
     try:
-        result = subprocess.run(['pytest', '--version'], capture_output=True, text=True)
+        result = subprocess.run([sys.executable, '-m', 'pytest', '--version'], capture_output=True, text=True)
         if result.returncode == 0:
             print_success(f"pytest installed: {result.stdout.strip()}")
         else:
