@@ -1445,23 +1445,130 @@ class Container:
 
         return await self._get_or_create_singleton_async("questdb_provider", _create)
 
+    async def create_indicator_algorithm_registry(self):
+        """
+        Create or return cached IndicatorAlgorithmRegistry singleton.
+
+        ✅ ARCHITECTURE FIX: Single source of truth for indicator algorithms.
+        Shared across StreamingIndicatorEngine and IndicatorVariantRepository.
+
+        Returns:
+            Configured IndicatorAlgorithmRegistry singleton
+
+        Raises:
+            RuntimeError: If registry creation or algorithm discovery fails
+        """
+        def _create():
+            try:
+                from ..domain.services.indicators.algorithm_registry import IndicatorAlgorithmRegistry
+
+                registry = IndicatorAlgorithmRegistry(self.logger)
+
+                # Auto-discover algorithms from indicators module
+                discovered_count = registry.auto_discover_algorithms()
+
+                # If auto-discovery failed, manually register critical algorithms
+                if discovered_count == 0:
+                    self.logger.info("container.manual_algorithm_registration", {
+                        "reason": "auto_discovery_found_no_algorithms"
+                    })
+
+                    from ..domain.services.indicators.twpa import twpa_algorithm
+                    from ..domain.services.indicators.twpa_ratio import twpa_ratio_algorithm
+
+                    registry.register_algorithm(twpa_algorithm)
+                    registry.register_algorithm(twpa_ratio_algorithm)
+
+                    discovered_count = len(registry.get_all_algorithms())
+
+                self.logger.info("container.indicator_algorithm_registry_created", {
+                    "algorithms_count": discovered_count
+                })
+
+                return registry
+            except Exception as e:
+                self.logger.error("container.indicator_algorithm_registry_creation_failed", {
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                })
+                raise RuntimeError(f"Failed to create IndicatorAlgorithmRegistry: {str(e)}") from e
+
+        return await self._get_or_create_singleton_async("indicator_algorithm_registry", _create)
+
+    async def create_indicator_variant_repository(self):
+        """
+        Create or return cached IndicatorVariantRepository singleton.
+
+        ✅ ARCHITECTURE FIX: Single source of truth for variant persistence.
+        Eliminates duplicate repository creation in indicators_routes.py.
+
+        Dependencies (injected):
+        - QuestDBProvider (database access)
+        - IndicatorAlgorithmRegistry (parameter validation)
+        - StructuredLogger (logging)
+
+        Returns:
+            Configured IndicatorVariantRepository singleton
+
+        Raises:
+            RuntimeError: If repository creation fails
+        """
+        async def _create():
+            try:
+                from ..domain.repositories.indicator_variant_repository import IndicatorVariantRepository
+
+                # Create dependencies via Container (singleton pattern)
+                questdb_provider = await self.create_questdb_provider()
+                algorithm_registry = await self.create_indicator_algorithm_registry()
+
+                repository = IndicatorVariantRepository(
+                    questdb_provider=questdb_provider,
+                    algorithm_registry=algorithm_registry,
+                    logger=self.logger
+                )
+
+                self.logger.info("container.indicator_variant_repository_created", {
+                    "questdb_configured": questdb_provider is not None,
+                    "algorithm_registry_configured": algorithm_registry is not None
+                })
+
+                return repository
+            except Exception as e:
+                self.logger.error("container.indicator_variant_repository_creation_failed", {
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                })
+                raise RuntimeError(f"Failed to create IndicatorVariantRepository: {str(e)}") from e
+
+        return await self._get_or_create_singleton_async("indicator_variant_repository", _create)
+
     async def create_streaming_indicator_engine(self):
         """
         Create or return cached StreamingIndicatorEngine singleton.
 
         ✅ ARCHITECTURE FIX: Single instance for all indicator calculations.
+        ✅ NOW INCLUDES: IndicatorVariantRepository for database persistence.
+
         Shared across indicators_routes, websocket_server, and trading controllers.
 
         Returns:
             Configured StreamingIndicatorEngine singleton
+
+        Raises:
+            RuntimeError: If engine creation or startup fails
         """
         async def _create():
             try:
                 from ..domain.services.streaming_indicator_engine import StreamingIndicatorEngine
 
+                # ✅ FIX: Create variant repository (SINGLE SOURCE OF TRUTH)
+                variant_repository = await self.create_indicator_variant_repository()
+
+                # ✅ FIX: Inject repository into engine constructor
                 engine = StreamingIndicatorEngine(
                     event_bus=self.event_bus,
-                    logger=self.logger
+                    logger=self.logger,
+                    variant_repository=variant_repository  # ✅ FIXED: Repository now injected
                 )
 
                 # Start the engine (loads variants from database)
@@ -1469,7 +1576,8 @@ class Container:
 
                 self.logger.info("container.streaming_indicator_engine_created", {
                     "status": "started",
-                    "event_bus_connected": True
+                    "event_bus_connected": True,
+                    "variant_repository_configured": variant_repository is not None
                 })
 
                 return engine

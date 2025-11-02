@@ -304,40 +304,56 @@ class StreamingIndicatorEngine:
         self._memory_check_interval = 30  # Check memory every 30 seconds (more frequent)
         self._last_memory_check = time.time()
 
-        # Algorithm registry for unified system (REQUIRED - no fallbacks)
-        try:
-            from .indicators.algorithm_registry import IndicatorAlgorithmRegistry
-            self._algorithm_registry = IndicatorAlgorithmRegistry(self.logger)
-            
-            # Load all algorithms through registry
-            discovered_count = self._algorithm_registry.auto_discover_algorithms()
-            
-            # If auto-discovery failed, manually register critical algorithms
-            if discovered_count == 0:
-                self.logger.info("streaming_indicator_engine.manual_algorithm_registration", {
-                    "reason": "auto_discovery_found_no_algorithms"
-                })
-                
-                from .indicators.twpa import twpa_algorithm
-                from .indicators.twpa_ratio import twpa_ratio_algorithm
-                
-                self._algorithm_registry.register_algorithm(twpa_algorithm)
-                self._algorithm_registry.register_algorithm(twpa_ratio_algorithm)
-                
-                manual_count = len(self._algorithm_registry.get_all_algorithms())
-                self.logger.info("streaming_indicator_engine.manual_registration_completed", {
-                    "algorithms_registered": manual_count
-                })
-        except ImportError as import_error:
-            self.logger.error("streaming_indicator_engine.algorithm_registry_import_failed", {
-                "error": str(import_error)
+        # ✅ ARCHITECTURE FIX: Use algorithm registry from variant_repository (SINGLE SOURCE OF TRUTH)
+        # If variant_repository is provided, reuse its algorithm_registry to avoid duplication.
+        # If not provided (e.g., tests without DI), create standalone registry (fallback).
+        if variant_repository is not None and hasattr(variant_repository, 'algorithms'):
+            # ✅ PREFERRED PATH: Reuse registry from repository (no duplication)
+            self._algorithm_registry = variant_repository.algorithms
+            algorithm_count = len(self._algorithm_registry.get_all_algorithms())
+            self.logger.info("streaming_indicator_engine.algorithm_registry_from_repository", {
+                "algorithms_count": algorithm_count,
+                "source": "variant_repository.algorithms"
             })
-            raise RuntimeError("Algorithm registry is required - cannot continue without it") from import_error
-        
-        algorithm_count = len(self._algorithm_registry.get_all_algorithms())
-        self.logger.info("streaming_indicator_engine.algorithm_registry_initialized", {
-            "algorithms_count": algorithm_count
-        })
+        else:
+            # ⚠️ FALLBACK PATH: Create standalone registry (for tests or when repository is None)
+            # This path should NOT be used in production (repository should always be injected)
+            try:
+                from .indicators.algorithm_registry import IndicatorAlgorithmRegistry
+                self._algorithm_registry = IndicatorAlgorithmRegistry(self.logger)
+
+                # Load all algorithms through registry
+                discovered_count = self._algorithm_registry.auto_discover_algorithms()
+
+                # If auto-discovery failed, manually register critical algorithms
+                if discovered_count == 0:
+                    self.logger.info("streaming_indicator_engine.manual_algorithm_registration", {
+                        "reason": "auto_discovery_found_no_algorithms"
+                    })
+
+                    from .indicators.twpa import twpa_algorithm
+                    from .indicators.twpa_ratio import twpa_ratio_algorithm
+
+                    self._algorithm_registry.register_algorithm(twpa_algorithm)
+                    self._algorithm_registry.register_algorithm(twpa_ratio_algorithm)
+
+                    manual_count = len(self._algorithm_registry.get_all_algorithms())
+                    self.logger.info("streaming_indicator_engine.manual_registration_completed", {
+                        "algorithms_registered": manual_count
+                    })
+
+                algorithm_count = len(self._algorithm_registry.get_all_algorithms())
+                self.logger.warning("streaming_indicator_engine.algorithm_registry_fallback", {
+                    "algorithms_count": algorithm_count,
+                    "source": "standalone_registry",
+                    "reason": "variant_repository_not_provided",
+                    "recommendation": "Inject variant_repository via Container for production use"
+                })
+            except ImportError as import_error:
+                self.logger.error("streaming_indicator_engine.algorithm_registry_import_failed", {
+                    "error": str(import_error)
+                })
+                raise RuntimeError("Algorithm registry is required - cannot continue without it") from import_error
         
         # ✅ Old _register_system_indicators() call removed - using new registry systems
 

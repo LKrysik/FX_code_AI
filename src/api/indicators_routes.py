@@ -360,50 +360,36 @@ async def _compute_indicator_series(
 
 async def get_streaming_indicator_engine() -> StreamingIndicatorEngine:
     """
-    Dependency to get StreamingIndicatorEngine instance.
-    ✅ UPDATED: Now creates IndicatorVariantRepository for database persistence.
-    ✅ FIXED: Reuses _ensure_questdb_providers() to eliminate code duplication.
+    FastAPI dependency to get StreamingIndicatorEngine instance.
+
+    ✅ ARCHITECTURE FIX: Simplified to return Container-created singleton.
+    ✅ ELIMINATED: Duplicate repository creation (now in Container only).
+    ✅ ELIMINATED: SimpleEventBus fallback (proper DI via initialize_indicators_dependencies).
+
+    CRITICAL: This function assumes initialize_indicators_dependencies() was called
+    during unified_server startup. If _streaming_engine is None, it means DI failed.
+
+    Returns:
+        StreamingIndicatorEngine singleton from Container
+
+    Raises:
+        RuntimeError: If engine not initialized (DI failure)
     """
-    global _streaming_engine, _event_bus, _persistence_service, _offline_indicator_engine
+    global _streaming_engine
 
     if _streaming_engine is None:
-        # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
-        _event_bus = SimpleEventBus()
-
-        # ✅ FIXED: Reuse existing correct QuestDB initialization (single source of truth)
-        questdb_provider, _ = _ensure_questdb_providers()
-
-        # ✅ NEW: Create algorithm registry and variant repository
-        from ..domain.services.indicators.algorithm_registry import IndicatorAlgorithmRegistry
-        from ..domain.repositories.indicator_variant_repository import IndicatorVariantRepository
-
-        # Create algorithm registry
-        algorithm_registry = IndicatorAlgorithmRegistry(logger)
-        algorithm_registry.auto_discover_algorithms()
-
-        # Create variant repository
-        variant_repository = IndicatorVariantRepository(
-            questdb_provider=questdb_provider,
-            algorithm_registry=algorithm_registry,
-            logger=logger
+        # ❌ ARCHITECTURE VIOLATION: Engine should be injected via initialize_indicators_dependencies()
+        # This should NEVER happen in production - indicates DI failure
+        logger.error("indicators_routes.engine_not_initialized", {
+            "error": "StreamingIndicatorEngine not injected via initialize_indicators_dependencies()",
+            "solution": "Ensure unified_server.py calls initialize_indicators_dependencies() on startup"
+        })
+        raise RuntimeError(
+            "StreamingIndicatorEngine not initialized. "
+            "This indicates dependency injection failure in unified_server.py. "
+            "Check that initialize_indicators_dependencies() is called during startup."
         )
 
-        # Create streaming engine with repository
-        _streaming_engine = StreamingIndicatorEngine(
-            event_bus=_event_bus,
-            logger=logger,
-            variant_repository=variant_repository
-        )
-
-        _persistence_service = IndicatorPersistenceService(
-            _event_bus,
-            logger
-        )
-        _offline_indicator_engine = OfflineIndicatorEngine()
-
-        # Start the engine (loads variants from database)
-        await _streaming_engine.start()
-    
     return _streaming_engine
 
 
