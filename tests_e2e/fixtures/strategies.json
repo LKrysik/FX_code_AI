@@ -1,0 +1,91 @@
+{
+  "valid_momentum_strategy": {
+    "strategy_name": "Momentum Test Strategy",
+    "description": "Test strategy for momentum trading",
+    "s1_signal": {
+      "conditions": [
+        {
+          "id": "price_velocity_1",
+          "indicatorId": "price_velocity",
+          "operator": ">",
+          "value": 0.5
+        }
+      ]
+    },
+    "z1_entry": {
+      "conditions": [
+        {
+          "id": "price_velocity_entry",
+          "indicatorId": "price_velocity",
+          "operator": ">",
+          "value": 0.5
+        }
+      ],
+      "positionSize": {
+        "type": "percentage",
+        "value": 10
+      }
+    },
+    "o1_cancel": {
+      "timeoutSeconds": 300,
+      "conditions": [
+        {
+          "id": "price_velocity_cancel",
+          "indicatorId": "price_velocity",
+          "operator": "<",
+          "value": -0.3
+        }
+      ]
+    },
+    "emergency_exit": {
+      "conditions": [
+        {
+          "id": "price_velocity_emergency",
+          "indicatorId": "price_velocity",
+          "operator": "<",
+          "value": -1.0
+        }
+      ],
+      "cooldownMinutes": 60,
+      "actions": {
+        "cancelPending": true,
+        "closePosition": true,
+        "logEvent": true
+      }
+    }
+  },
+  "minimal_valid_strategy": {
+    "strategy_name": "Minimal Strategy",
+    "description": "Minimal valid strategy for testing",
+    "s1_signal": {
+      "conditions": [
+        {
+          "id": "condition_1",
+          "indicatorId": "price",
+          "operator": ">",
+          "value": 100
+        }
+      ]
+    },
+    "z1_entry": {
+      "conditions": [],
+      "positionSize": {
+        "type": "fixed",
+        "value": 100
+      }
+    },
+    "o1_cancel": {
+      "timeoutSeconds": 60,
+      "conditions": []
+    },
+    "emergency_exit": {
+      "conditions": [],
+      "cooldownMinutes": 30,
+      "actions": {
+        "cancelPending": true,
+        "closePosition": true,
+        "logEvent": true
+      }
+    }
+  }
+}
