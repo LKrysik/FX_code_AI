@@ -10,6 +10,7 @@ import uuid
 import threading
 import time
 import os
+import re
 from pathlib import Path
 import inspect
 from datetime import datetime
@@ -542,7 +543,6 @@ class ExecutionController:
 
         # Validate duration format
         if duration != 'continuous':
-            import re
             if not re.match(r'^(\d+)([smhd])$', duration):
                 raise ValueError(f"data_collection_failed: invalid duration format '{duration}'. Use format like '30s', '5m', '2h', '1d' or 'continuous'")
 
@@ -769,7 +769,9 @@ class ExecutionController:
             return
 
         if not self._can_transition_to(ExecutionState.STOPPING):
-            if self._current_session.status in (ExecutionState.STARTING, ExecutionState.IDLE):
+            # Allow stopping from STARTING, IDLE, or ERROR states
+            # ERROR state should be cleanable without force flag
+            if self._current_session.status in (ExecutionState.STARTING, ExecutionState.IDLE, ExecutionState.ERROR):
                 self._current_session.status = ExecutionState.STOPPING
             elif force:
                 await self._force_stop()
@@ -947,14 +949,12 @@ class ExecutionController:
         # For data collection mode, calculate progress based on time elapsed
         if self._current_session.mode == ExecutionMode.DATA_COLLECTION:
             records_collected = self._current_session.metrics.get('records_collected', 0)
-            import time
             elapsed_time = time.time() - (self._current_session.start_time.timestamp() if self._current_session.start_time else time.time())
 
             # Parse duration from session parameters (e.g., "60m", "2h", "30s")
             duration_str = self._current_session.parameters.get('duration', 'continuous')
             if duration_str != 'continuous':
                 # Extract numeric value and unit
-                import re
                 match = re.match(r'^(\d+)([smhd])$', duration_str)
                 if match:
                     value, unit = match.groups()
