@@ -651,7 +651,9 @@ export default function DataCollectionPage() {
       };
 
       const response = await apiService.startSession(collectionData);
-      const sessionId = (response && (response.data?.session_id || response.session_id)) || 'unknown';
+      // ✅ FIX: Extract session_id from correct nested structure
+      // API response structure: { data: { status: "session_started", data: { session_id: "..." } } }
+      const sessionId = response?.data?.data?.session_id || response?.data?.session_id || response?.session_id || 'unknown';
 
       // Immediately create a running session to show progress bar
       const newSession: DataCollectionSession = {
