@@ -325,20 +325,25 @@ From `.github/copilot-instructions.md` - **MUST follow for ALL code changes:**
 
 ## Current Sprint Status
 
-**Sprint 16 - Indicator System Consolidation** (Active as of latest status)
+**Sprint 16 - Indicator System Consolidation** (In Progress as of 2025-11-02)
 
 **Critical Issues Being Addressed:**
-1. Duplicate calculation logic across three indicator engines
-2. 2,000+ lines of orphaned UnifiedIndicatorEngine code
-3. CSV/Database race conditions during migration
+1. Duplicate calculation logic across indicator engines
+2. ✅ **COMPLETED**: UnifiedIndicatorEngine code (2,000+ lines) has been removed from codebase
+3. CSV/Database migration to QuestDB (tick_prices, data_collection_sessions)
 4. Factory contract violations
 5. Memory leak risks in long-lived caches
 
 **What This Means:**
 - Focus is on **consolidating** to StreamingIndicatorEngine as single source
-- Removing duplicate code paths
-- Eliminating CSV dependencies
+- Removing duplicate code paths ✅ (UnifiedIndicatorEngine deleted)
+- Migrating from CSV to QuestDB for data storage
 - If working on indicators, coordinate with consolidation effort
+
+**Recent Completions:**
+- ✅ UnifiedIndicatorEngine and StreamingIndicatorEngineAdapter removed
+- ✅ Migration 003 implemented (tick_prices, tick_orderbook, data_collection_sessions, aggregated_ohlcv)
+- ✅ Documentation updated to reflect current database schema
 
 ## Exchange Integration
 
