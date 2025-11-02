@@ -1,0 +1,21 @@
+# E2E Test Requirements
+# Install with: pip install -r test_requirements.txt
+
+# Core testing framework
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-xdist>=3.3.0         # Parallel execution
+pytest-timeout>=2.1.0       # Timeout support
+pytest-cov>=4.1.0           # Coverage reporting
+pytest-html>=3.2.0          # HTML reports
+
+# HTTP clients
+httpx>=0.24.0               # Async HTTP client
+requests>=2.31.0            # Sync HTTP client (fallback)
+
+# Frontend testing
+playwright>=1.40.0          # Browser automation
+
+# Utilities
+python-dotenv>=1.0.0        # Environment variables
+pydantic>=2.0.0             # Data validation
