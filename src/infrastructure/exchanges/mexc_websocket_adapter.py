@@ -95,28 +95,8 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                 "recommendation": "Use wss:// for production"
             })
         
-        # Constants for memory management - FIXED: Reduced limits for safety
-        self.MAX_TRACKED_RECONNECTIONS = 20  # FIXED: Hard limit instead of soft trigger
-        self.MAX_ACCESS_COUNT_ENTRIES = 2000  # Limit access count tracking
-        self.MAX_CACHE_ACCESS_ORDER = 5000   # Limit LRU order tracking
-        
-        # Enhanced cache configuration with settings support
-        self.cache_config = {
-            "max_cache_size": self.config.get("max_cache_size", 1000),
-            "high_water_mark": self.config.get("high_water_mark", 850),
-            "cleanup_batch_size": self.config.get("cleanup_batch_size", 50),
-            "priority_retention_hours": self.config.get("priority_retention_hours", 1)
-        }
-        
-        # Validate cache configuration
-        if self.cache_config["max_cache_size"] <= 0:
-            raise ValueError("max_cache_size must be > 0")
-        if self.cache_config["high_water_mark"] >= self.cache_config["max_cache_size"]:
-            self.cache_config["high_water_mark"] = int(self.cache_config["max_cache_size"] * 0.85)
-            self.logger.warning("mexc_adapter.cache_config_adjusted", {
-                "high_water_mark": self.cache_config["high_water_mark"],
-                "reason": "was >= max_cache_size"
-            })
+        # Constants for memory management
+        self.MAX_TRACKED_RECONNECTIONS = 20  # Hard limit for reconnection tracking
         
         # Circuit breaker protection
         self.circuit_breaker = CircuitBreaker(
@@ -143,25 +123,8 @@ class MexcWebSocketAdapter(IMarketDataProvider):
         self._subscription_lock = asyncio.Lock()  # Prevent race conditions in subscribe operations
         self._pending_subscriptions: Dict[int, Dict[str, Dict[str, str]]] = {}  # connection_id -> symbol -> {'deal': 'pending', 'depth': 'pending', 'depth_full': 'pending'}
 
-        # Market data cache - Enhanced with size-based management
-        self._latest_prices: Dict[str, float] = {}  # Legacy cache for backward compatibility
-        self._symbol_volumes: Dict[str, float] = {}  # Legacy cache for backward compatibility
-        self._market_data_cache: Dict[str, MarketData] = {}  # Enhanced cache with MarketData objects
-        self._cache_timestamps: Dict[str, float] = {}  # Track cache freshness
-        self._cache_access_order: OrderedDict[str, bool] = OrderedDict()  # O(1) LRU tracking
-        
-        # Simplified access tracking (bounded)
-        self._cache_access_count: Dict[str, int] = {}  # Track access frequency (bounded)
-        
-        # Cache synchronization - Simplified to single lock for consistency and performance
-        self._cache_lock = asyncio.Lock()  # Single lock for all cache operations
-        
-        # CRITICAL FIX: Disable complex access tracking to reduce CPU usage
-        # self._pending_access_updates = asyncio.Queue(maxsize=1000)  # Batch access updates
-        # self._access_update_task = None  # Background task for batched updates
-        # self._access_update_lock = asyncio.Lock()  # Prevent race conditions in task creation
-        # self._access_batch_size = 50  # Process access updates in batches
-        # self._access_flush_interval = 0.1  # Flush every 100ms
+        # Market data cache removed - EventBus is the single source of truth
+        # All data flows through EventBus to subscribers (ExecutionController, etc.)
         
         # Shutdown management
         self.shutdown_manager = SimpleShutdown("MexcWebSocketAdapter")
@@ -169,19 +132,11 @@ class MexcWebSocketAdapter(IMarketDataProvider):
         # Reconnection tracking
         self._reconnection_attempts: Dict[int, int] = {}
         self._start_time = time.time()
-        self._last_cleanup_time = time.time()
-        
-        # Cache cleanup task
-        self._cache_cleanup_task = None
 
         # Memory management - guaranteed cleanup for tracking structures
         self._tracking_cleanup_task = None
         self._tracking_expiry = {}  # symbol -> expiry_time for all tracking structures
         self._max_tracking_age = 3600  # 1 hour expiry for tracking data
-
-        # O(n) operation optimization - cached intersection for hot path
-        self._last_intersection_time = 0
-        self._cached_intersection = set()
 
         # Task lifecycle management - prevent dangling tasks
         self._active_tasks = set()
@@ -205,8 +160,7 @@ class MexcWebSocketAdapter(IMarketDataProvider):
             "max_subscriptions_per_connection": self.max_subscriptions_per_connection,
             "max_connections": self.max_connections,
             "circuit_breaker_enabled": True,
-            "rate_limiting_enabled": True,
-            "cache_config": self.cache_config
+            "rate_limiting_enabled": True
         })
     
     def get_exchange_name(self) -> str:
@@ -233,9 +187,6 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                 "elapsed_ms": round((time.time() - start_time) * 1000, 2)
             })
 
-            # Start cache cleanup task
-            self._cache_cleanup_task = self._create_tracked_task(self._cleanup_stale_cache(), "cache_cleanup")
-
             # Start tracking cleanup task for memory leak prevention
             self._tracking_cleanup_task = self._create_tracked_task(self._cleanup_tracking_structures(), "tracking_cleanup")
 
@@ -245,14 +196,9 @@ class MexcWebSocketAdapter(IMarketDataProvider):
             # ✅ START: Orderbook refresh task for cache freshness
             self._orderbook_refresh_task = self._create_tracked_task(self._start_orderbook_refresh_task(), "orderbook_refresh")
 
-            # CRITICAL FIX: Disable access update processor to reduce CPU usage
-            # await self._start_access_update_processor()
-
             self.logger.info("mexc_adapter.connected", {
                 "url": self.ws_url,
                 "connections": len(self._connections),
-                "cache_cleanup_enabled": True,
-                "lock_free_access_tracking": True,
                 "elapsed_ms": round((time.time() - start_time) * 1000, 2)
             })
 
@@ -264,66 +210,6 @@ class MexcWebSocketAdapter(IMarketDataProvider):
             self.logger.error("mexc_adapter.connect_failed", {"error": str(e), "error_type": type(e).__name__, "elapsed_ms": round((time.time() - start_time) * 1000, 2)})
             self._running = False
             raise
-    
-    async def _cleanup_stale_cache(self) -> None:
-        """Clean up stale cache entries every 5 minutes and enforce intelligent size limits"""
-        while self._running:
-            try:
-                await asyncio.sleep(300)  # 5 minutes
-                
-                current_time = time.time()
-                stale_threshold = 600  # 10 minutes
-                
-                stale_removed = 0
-                # Time-based cleanup with proper locking
-                async with self._cache_lock:
-                    stale_symbols = [
-                        symbol for symbol, timestamp in self._cache_timestamps.items()
-                        if current_time - timestamp > stale_threshold
-                    ]
-                    for symbol in stale_symbols:
-                        self._remove_from_cache(symbol)
-                        stale_removed += 1
-                
-                # Intelligent size-based cleanup (has its own locking)
-                size_removed = await self._perform_intelligent_cache_cleanup()
-                
-                # OPTIMIZED: Get cache size quickly, compute expensive metrics outside lock
-                async with self._cache_lock:
-                    cache_size = len(self._market_data_cache)
-                    cached_symbols = set(self._market_data_cache.keys())
-                
-                # OPTIMIZED: Use cached intersection to avoid O(n) operation
-                current_time = time.time()
-                if current_time - self._last_intersection_time > 30:
-                    self._cached_intersection = cached_symbols & self._subscribed_symbols
-                    self._last_intersection_time = current_time
-
-                subscribed_cached = len(self._cached_intersection)
-                
-                if stale_removed > 0 or size_removed > 0:
-                    self.logger.info("mexc_adapter.cache_cleanup_completed", {
-                        "stale_removed": stale_removed,
-                        "size_removed": size_removed,
-                        "total_removed": stale_removed + size_removed,
-                        "cache_size_after": cache_size,
-                        "max_size": self.cache_config["max_cache_size"],
-                        "utilization_pct": round((cache_size / self.cache_config["max_cache_size"]) * 100, 1),
-                        "subscribed_symbols_cached": subscribed_cached,
-                        "cache_efficiency": round((subscribed_cached / max(cache_size, 1)) * 100, 1)
-                    })
-                elif cache_size > self.cache_config["high_water_mark"] * 0.8:
-                    # Log warning when approaching high water mark
-                    self.logger.warning("mexc_adapter.cache_size_approaching_limit", {
-                        "cache_size": cache_size,
-                        "high_water_mark": self.cache_config["high_water_mark"],
-                        "utilization_pct": round((cache_size / self.cache_config["max_cache_size"]) * 100, 1)
-                    })
-                    
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self.logger.error("mexc_adapter.cache_cleanup_error", {"error": str(e)})
 
     async def _cleanup_tracking_structures(self) -> None:
         """Guaranteed cleanup of tracking structures to prevent memory leaks"""
@@ -344,10 +230,6 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                 for symbol in cleanup_candidates:
                     if self._reconnection_attempts.pop(symbol, None) is not None:
                         removed_count += 1
-                    if self._cache_access_count.pop(symbol, None) is not None:
-                        removed_count += 1
-                    if self._cache_access_order.pop(symbol, None) is not None:
-                        removed_count += 1
                     if self._debug_log_rates.pop(symbol, None) is not None:
                         removed_count += 1
                     self._tracking_expiry.pop(symbol, None)
@@ -358,19 +240,6 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                     for _ in range(excess):
                         oldest = next(iter(self._reconnection_attempts))
                         self._reconnection_attempts.pop(oldest, None)
-                        removed_count += 1
-
-                if len(self._cache_access_count) > self.MAX_ACCESS_COUNT_ENTRIES:
-                    excess = len(self._cache_access_count) - int(self.MAX_ACCESS_COUNT_ENTRIES * 0.8)
-                    items = sorted(self._cache_access_count.items(), key=lambda x: x[1])
-                    for symbol, _ in items[:excess]:
-                        self._cache_access_count.pop(symbol, None)
-                        removed_count += 1
-
-                if len(self._cache_access_order) > self.MAX_CACHE_ACCESS_ORDER:
-                    excess = len(self._cache_access_order) - int(self.MAX_CACHE_ACCESS_ORDER * 0.8)
-                    for _ in range(excess):
-                        self._cache_access_order.popitem(last=False)
                         removed_count += 1
 
                 if len(self._debug_log_rates) > 1000:
@@ -384,8 +253,6 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                     self.logger.info("mexc_adapter.tracking_cleanup_completed", {
                         "removed_entries": removed_count,
                         "reconnection_attempts_remaining": len(self._reconnection_attempts),
-                        "access_count_remaining": len(self._cache_access_count),
-                        "lru_order_remaining": len(self._cache_access_order),
                         "debug_rates_remaining": len(self._debug_log_rates)
                     })
 
@@ -467,233 +334,6 @@ class MexcWebSocketAdapter(IMarketDataProvider):
             })
 
         # Could implement: increase worker threads, expand queue sizes for trading events
-
-    def _remove_from_cache(self, symbol: str) -> None:
-        """Remove a symbol from all cache structures - MUST be called with _cache_lock held"""
-        self._market_data_cache.pop(symbol, None)
-        self._cache_timestamps.pop(symbol, None)
-        self._latest_prices.pop(symbol, None)
-        self._symbol_volumes.pop(symbol, None)
-        self._cache_access_count.pop(symbol, None)
-        
-        # Remove from LRU tracking - O(1) with OrderedDict
-        self._cache_access_order.pop(symbol, None)
-    
-    def _update_cache_access_unsafe(self, symbol: str) -> None:
-        """
-        Update LRU access order and access count - MUST be called with _cache_lock held.
-        Implements O(1) LRU tracking using OrderedDict to eliminate performance bottleneck.
-        """
-        # Update LRU order - O(1) operations only
-        if symbol in self._cache_access_order:
-            self._cache_access_order.move_to_end(symbol)  # O(1)
-        else:
-            self._cache_access_order[symbol] = True  # O(1)
-
-        # Update access count (bounded to prevent memory growth)
-        self._cache_access_count[symbol] = self._cache_access_count.get(symbol, 0) + 1
-
-        # Update expiry for memory leak prevention
-        self._update_tracking_expiry(symbol)
-        
-        # Keep access count strictly bounded - use configurable limit
-        max_access_entries = self.MAX_ACCESS_COUNT_ENTRIES
-        if len(self._cache_access_count) > max_access_entries:
-            # Remove oldest entries based on cache timestamps and LRU order
-            excess_count = len(self._cache_access_count) - int(max_access_entries * 0.8)  # Remove to 80% capacity
-            removal_candidates = []
-            
-            # Prioritize removal of symbols not in cache or very old
-            current_time = time.time()
-            for tracked_symbol in list(self._cache_access_count.keys()):
-                if tracked_symbol not in self._market_data_cache:
-                    removal_candidates.append(tracked_symbol)
-                elif current_time - self._cache_timestamps.get(tracked_symbol, 0) > 3600:  # 1 hour old
-                    removal_candidates.append(tracked_symbol)
-                
-                if len(removal_candidates) >= excess_count:
-                    break
-            
-            # Remove selected candidates
-            for old_symbol in removal_candidates[:excess_count]:
-                self._cache_access_count.pop(old_symbol, None)
-            
-            if removal_candidates:
-                self.logger.debug("mexc_adapter.access_count_bounded_cleanup", {
-                    "removed_entries": len(removal_candidates[:excess_count]),
-                    "remaining_entries": len(self._cache_access_count),
-                    "max_allowed": max_access_entries
-                })
-        
-        # Keep LRU list strictly bounded - O(1) operations
-        max_lru_entries = self.MAX_CACHE_ACCESS_ORDER
-        if len(self._cache_access_order) > max_lru_entries:
-            # Remove oldest 20% to avoid frequent cleanups - O(1) per removal
-            keep_count = int(max_lru_entries * 0.8)
-            removed_count = len(self._cache_access_order) - keep_count
-            
-            # Remove oldest entries efficiently
-            for _ in range(removed_count):
-                self._cache_access_order.popitem(last=False)  # O(1) remove oldest
-            
-            self.logger.debug("mexc_adapter.lru_order_bounded_cleanup", {
-                "removed_entries": removed_count,
-                "remaining_entries": len(self._cache_access_order),
-                "max_allowed": max_lru_entries
-            })
-    
-    async def _update_cache_access(self, symbol: str) -> None:
-        """CRITICAL FIX: Disabled to reduce CPU usage"""
-        # Skip all access tracking to reduce CPU overhead
-        pass
-
-    async def _start_access_update_processor(self) -> None:
-        """CRITICAL FIX: Disabled to reduce CPU usage"""
-        # Skip starting access update processor
-        pass
-
-    async def _process_access_updates_batch(self) -> None:
-        """CRITICAL FIX: Disabled to reduce CPU usage"""
-        # Skip batch processing
-        pass
-
-    async def _flush_access_batch(self, batch: List[str]) -> None:
-        """Flush a batch of access updates with single lock acquisition"""
-        if not batch:
-            return
-            
-        # Deduplicate and count accesses in batch
-        access_counts = {}
-        for symbol in batch:
-            access_counts[symbol] = access_counts.get(symbol, 0) + 1
-        
-        # Single lock acquisition for entire batch
-        async with self._cache_lock:
-            for symbol, count in access_counts.items():
-                # Update access count
-                self._cache_access_count[symbol] = self._cache_access_count.get(symbol, 0) + count
-
-                # Update LRU order - O(1)
-                if symbol in self._cache_access_order:
-                    self._cache_access_order.move_to_end(symbol)
-                else:
-                    self._cache_access_order[symbol] = True
-
-                # Update expiry for memory leak prevention
-                self._update_tracking_expiry(symbol)
-            
-            # Periodic cleanup of tracking structures (bounded)
-            if len(self._cache_access_count) > self.MAX_ACCESS_COUNT_ENTRIES:
-                await self._cleanup_access_tracking_unsafe()
-        
-        self.logger.debug("mexc_adapter.access_batch_flushed", {
-            "batch_size": len(batch),
-            "unique_symbols": len(access_counts),
-            "total_accesses": sum(access_counts.values())
-        })
-
-    async def _cleanup_access_tracking_unsafe(self) -> None:
-        """Clean up access tracking structures - MUST be called with _cache_lock held"""
-        # Remove access counts for symbols not in cache
-        symbols_to_remove = [
-            symbol for symbol in self._cache_access_count.keys()
-            if symbol not in self._market_data_cache
-        ]
-        
-        for symbol in symbols_to_remove[:100]:  # Limit cleanup batch size
-            self._cache_access_count.pop(symbol, None)
-            self._cache_access_order.pop(symbol, None)
-        
-        # Enforce hard limits
-        if len(self._cache_access_order) > self.MAX_CACHE_ACCESS_ORDER:
-            excess = len(self._cache_access_order) - int(self.MAX_CACHE_ACCESS_ORDER * 0.8)
-            for _ in range(excess):
-                oldest_symbol = next(iter(self._cache_access_order))
-                self._cache_access_order.pop(oldest_symbol, None)
-
-    async def _perform_intelligent_cache_cleanup(self) -> int:
-        """
-        Perform intelligent cache cleanup when size limits are exceeded.
-        Thread-safe with proper locking.
-        Returns number of symbols removed.
-        """
-        async with self._cache_lock:
-            cache_size = len(self._market_data_cache)
-
-            # Only cleanup if we exceed high water mark
-            if cache_size < self.cache_config["high_water_mark"]:
-                return 0
-            
-            # Calculate how many symbols to remove
-            symbols_to_remove = min(
-                cache_size - self.cache_config["high_water_mark"] + self.cache_config["cleanup_batch_size"],
-                self.cache_config["cleanup_batch_size"]
-            )
-            
-            if symbols_to_remove <= 0:
-                return 0
-            
-            # Get candidates for removal using simple LRU from OrderedDict
-            candidates = list(self._cache_access_order.keys())[:symbols_to_remove]
-            
-            # Remove selected symbols
-            removed_count = 0
-            removed_symbols = []
-            
-            for symbol in candidates:
-                self._remove_from_cache(symbol)
-                removed_symbols.append(symbol)
-                removed_count += 1
-            
-            if removed_count > 0:
-                self.logger.info("mexc_adapter.intelligent_cache_cleanup", {
-                    "removed_count": removed_count,
-                    "cache_size_before": cache_size,
-                    "cache_size_after": len(self._market_data_cache),
-                    "target_symbols": symbols_to_remove,
-                    "high_water_mark": self.cache_config["high_water_mark"],
-                    "cleanup_reason": "size_based_intelligent"
-                })
-            
-            return removed_count
-    
-    async def _safe_add_to_cache(self, symbol: str, market_data: MarketData) -> None:
-        """CRITICAL FIX: Simplified cache update to reduce CPU usage"""
-        current_time = time.time()
-
-        # CRITICAL FIX: Use simple lock instead of complex RWLock to reduce overhead
-        async with self._cache_lock:
-            cache_size = len(self._market_data_cache)
-
-            # Simple eviction - just remove oldest if at limit
-            if cache_size >= self.cache_config["max_cache_size"]:
-                if self._cache_access_order:
-                    # Remove oldest entry
-                    oldest_symbol = next(iter(self._cache_access_order))
-                    self._remove_from_cache(oldest_symbol)
-                else:
-                    return  # Skip if no eviction possible
-
-            # Simple cache update
-            self._market_data_cache[symbol] = market_data
-            self._cache_timestamps[symbol] = current_time
-
-            if market_data.price:
-                self._latest_prices[symbol] = float(market_data.price)
-            if market_data.volume:
-                self._symbol_volumes[symbol] = float(market_data.volume)
-
-            # Update LRU order
-            if symbol in self._cache_access_order:
-                self._cache_access_order.move_to_end(symbol)
-            else:
-                self._cache_access_order[symbol] = True
-
-            # Update expiry for memory leak prevention
-            self._update_tracking_expiry(symbol)
-
-        # CRITICAL FIX: Skip access tracking to reduce CPU overhead
-        # await self._update_cache_access(symbol)
 
     async def _create_new_connection(self) -> int:
         """Create a new WebSocket connection and return its ID with circuit breaker protection"""
@@ -1665,23 +1305,6 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                 timestamp = int(deal_data.get("t", 0))    # timestamp in ms
                 
                 if price > 0 and volume > 0:
-                    # Update legacy caches (for backward compatibility)
-                    self._latest_prices[symbol] = price
-                    self._symbol_volumes[symbol] = volume
-                    
-                    # Create market data object
-                    market_data_obj = MarketData(
-                        symbol=symbol,
-                        price=Decimal(str(price)),
-                        volume=Decimal(str(volume)),
-                        timestamp=datetime.fromtimestamp(timestamp / 1000) if timestamp else datetime.now(),
-                        exchange="mexc",
-                        side="buy" if deal_type == 1 else "sell" if deal_type == 2 else None
-                    )
-                    
-                    # Use thread-safe intelligent cache management
-                    await self._safe_add_to_cache(symbol, market_data_obj)
-                    
                     # Use MEXC timestamp or current time as fallback
                     event_timestamp = timestamp / 1000 if timestamp else time.time()
                     
@@ -1712,7 +1335,6 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                         "timestamp": event_timestamp,  # Use MEXC timestamp when available
                         "side": "buy" if deal_type == 1 else "sell",
                         "source": "futures_deal",
-                        "market_data": market_data_obj,
                         "mexc_timestamp": timestamp,  # Original MEXC timestamp in ms
                         "system_timestamp": time.time()  # Our system timestamp for comparison
                     }))
@@ -1849,21 +1471,7 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                 timestamp = int(deal.get("t", 0))    # timestamp
                 
                 if price > 0 and volume > 0:
-                    # Update cache
-                    self._latest_prices[symbol] = price
-                    self._symbol_volumes[symbol] = volume
-                    
-                    # Create market data object - for regular market data without trade side info
-                    market_data_obj = MarketData(
-                        symbol=symbol,
-                        price=Decimal(str(price)),
-                        volume=Decimal(str(volume)),
-                        timestamp=datetime.fromtimestamp(timestamp / 1000) if timestamp else datetime.now(),
-                        exchange="mexc",
-                        side=None  # No side information in regular market data
-                    )
-                    
-                    # Publish price update event via EventBus
+                    # Publish price update event via EventBus (no cache - EventBus is source of truth)
                     await self._safe_publish_event("market.price_update", {
                         "exchange": "mexc",
                         "symbol": symbol,
@@ -1872,8 +1480,7 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                         "timestamp": time.time(),
                         "side": side,
                         "quote_volume": price * volume,
-                        "source": "deals",
-                        "market_data": market_data_obj
+                        "source": "deals"
                     })
                     
                     self.logger.debug("mexc_adapter.price_update", {
@@ -2683,10 +2290,6 @@ class MexcWebSocketAdapter(IMarketDataProvider):
         self.logger.info("mexc_adapter.disconnecting", {
             "connections_count": len(self._connections)
         })
-        
-        # Cancel cache cleanup task
-        if self._cache_cleanup_task and not self._cache_cleanup_task.done():
-            self._cache_cleanup_task.cancel()
 
         # Cancel tracking cleanup task
         if self._tracking_cleanup_task and not self._tracking_cleanup_task.done():
@@ -2704,39 +2307,19 @@ class MexcWebSocketAdapter(IMarketDataProvider):
 
         # Cancel all active tasks
         await self._cancel_all_active_tasks()
-            
-        # OPTIMIZED: Stop access update processor (disabled for CPU optimization)
-        # Access update task is disabled to reduce CPU usage
-        if self._cache_cleanup_task and not self._cache_cleanup_task.done():
-            self._cache_cleanup_task.cancel()
-            try:
-                await self._cache_cleanup_task
-            except asyncio.CancelledError:
-                pass
-        
+
         # Close all connections
         for connection_id in list(self._connections.keys()):
             await self._close_connection(connection_id)
-        
-        # Clear caches with proper locking
-        async with self._cache_lock:
-            self._market_data_cache.clear()
-            self._cache_timestamps.clear()
-            self._latest_prices.clear()
-            self._symbol_volumes.clear()
-            self._cache_access_count.clear()
-            self._cache_access_order.clear()
-        
+
         # Clear debug log rates and message counter
         self._debug_log_rates.clear()
         self._message_count = 0
 
         # Clear tracking structures
         self._reconnection_attempts.clear()
-        self._cache_access_count.clear()
-        self._cache_access_order.clear()
         self._tracking_expiry.clear()
-        
+
         # Clear pending subscriptions
         self._pending_subscriptions.clear()
 
@@ -2799,17 +2382,19 @@ class MexcWebSocketAdapter(IMarketDataProvider):
     # Implementation of IMarketDataProvider interface methods
     
     async def get_latest_price(self, symbol: str) -> Optional[MarketData]:
-        """Lock-free read for high-performance access"""
-        symbol = symbol.upper()
+        """
+        get_latest_price is not supported - use EventBus subscription instead.
 
-        # Lock-free read - acceptable in high-frequency scenarios
-        # Race condition acceptable: stale data is better than blocking
-        market_data = self._market_data_cache.get(symbol)
+        Market data is published in real-time through EventBus events.
+        Subscribe to 'market.price_update' to receive price updates.
 
-        # Skip access tracking to reduce CPU overhead
-        # await self._update_cache_access(symbol)
-
-        return market_data
+        Raises:
+            NotImplementedError: Always - this method is not implemented
+        """
+        raise NotImplementedError(
+            "get_latest_price() is not supported. "
+            "Use EventBus.subscribe('market.price_update', handler) to receive real-time price updates."
+        )
     
     # Removed duplicate method definitions - using implementations at end of file
     
@@ -2867,17 +2452,6 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                 "health_score": self._calculate_connection_health(info)
             })
         
-        # Add cache metrics
-        cache_hit_symbols = len(self._market_data_cache)
-        total_subscribed = len(self._subscribed_symbols)
-        cache_hit_ratio = (cache_hit_symbols / max(total_subscribed, 1)) * 100
-        
-        current_time = time.time()
-        fresh_cache_count = sum(
-            1 for timestamp in self._cache_timestamps.values()
-            if current_time - timestamp < 300  # Fresh if less than 5 minutes old
-        )
-        
         return {
             "connections": self.get_connection_stats(),
             "performance": {
@@ -2898,26 +2472,6 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                 "circuit_breaker_state": self.circuit_breaker.get_state(),
                 "rate_limit_tokens_available": round(float(self.subscription_rate_limiter.tokens), 2),
                 "rate_limit_usage_pct": round(((self.subscription_rate_limiter.max_tokens - self.subscription_rate_limiter.tokens) / self.subscription_rate_limiter.max_tokens) * 100, 2)
-            },
-            "cache": {
-                "cached_symbols": cache_hit_symbols,
-                "cache_hit_ratio_pct": cache_hit_ratio,
-                "fresh_cache_entries": fresh_cache_count,
-                "stale_cache_entries": cache_hit_symbols - fresh_cache_count,
-                "avg_cache_age_seconds": sum(
-                    current_time - timestamp 
-                    for timestamp in self._cache_timestamps.values()
-                ) / max(len(self._cache_timestamps), 1),
-                # OPTIMIZED: Lock contention analysis (disabled for CPU optimization)
-                "access_tracking": {
-                    "batched_updates": False,
-                    "pending_updates": 0,
-                    "access_processor_active": False,
-                    "tracked_symbols": len(self._cache_access_count),
-                    "lru_entries": len(self._cache_access_order),
-                    "queue_utilization_pct": 0,
-                    "lock_contention_mitigation": "disabled_for_cpu_optimization"
-                }
             }
         }
 
@@ -2986,68 +2540,19 @@ class MexcWebSocketAdapter(IMarketDataProvider):
         return (max_subs - min_subs) <= 10
     
     async def get_cache_statistics(self) -> dict:
-        """Get comprehensive cache statistics for monitoring and optimization - Thread Safe"""
-        current_time = time.time()
-        
-        # OPTIMIZED: Extract data quickly from critical section
-        async with self._cache_lock:
-            cache_size = len(self._market_data_cache)
-            cached_symbols = set(self._market_data_cache.keys())
-            cache_timestamps = dict(self._cache_timestamps)
-            access_counts = dict(self._cache_access_count)
-        
-        # OPTIMIZED: Use cached intersection when possible
-        total_subscribed = len(self._subscribed_symbols)
-        current_time = time.time()
-        if current_time - self._last_intersection_time > 30:
-            self._cached_intersection = cached_symbols & self._subscribed_symbols
-            self._last_intersection_time = current_time
-        subscribed_cached = len(self._cached_intersection)
-        
-        # Age distribution
-        age_buckets = {"<1h": 0, "1-6h": 0, "6-24h": 0, ">24h": 0}
-        for timestamp in cache_timestamps.values():
-            age_hours = (current_time - timestamp) / 3600
-            if age_hours < 1:
-                age_buckets["<1h"] += 1
-            elif age_hours < 6:
-                age_buckets["1-6h"] += 1
-            elif age_hours < 24:
-                age_buckets["6-24h"] += 1
-            else:
-                age_buckets[">24h"] += 1
-        
-        # Access frequency analysis
-        avg_access = sum(access_counts.values()) / max(len(access_counts), 1)
-        
-        symbols_needing_cleanup = len([
-            s for s, t in cache_timestamps.items()
-            if current_time - t > 600  # Older than 10 minutes
-        ])
-        
-        return {
-            "size": {
-                "current_size": cache_size,
-                "max_size": self.cache_config["max_cache_size"],
-                "utilization_pct": round((cache_size / self.cache_config["max_cache_size"]) * 100, 1),
-                "high_water_mark": self.cache_config["high_water_mark"]
-            },
-            "efficiency": {
-                "subscribed_symbols_cached": subscribed_cached,
-                "total_subscribed_symbols": total_subscribed,
-                "cache_hit_ratio_pct": round((subscribed_cached / max(total_subscribed, 1)) * 100, 1),
-                "avg_access_per_symbol": round(avg_access, 1),
-                "tracking_overhead": len(self._cache_access_count)
-            },
-            "age_distribution": age_buckets,
-            "health": {
-                "symbols_needing_cleanup": symbols_needing_cleanup,
-                "memory_pressure": cache_size >= self.cache_config["high_water_mark"],
-                "config_valid": self.cache_config["max_cache_size"] > 0,
-                "thread_safety": "enabled"
-            },
-            "config": self.cache_config
-        }
+        """
+        Cache statistics are not available - cache layer has been removed.
+
+        Market data now flows exclusively through EventBus in real-time.
+        No caching layer exists for price/volume data.
+
+        Raises:
+            NotImplementedError: Always - cache layer has been removed
+        """
+        raise NotImplementedError(
+            "get_cache_statistics() is not supported. "
+            "Cache layer has been removed - all data flows through EventBus in real-time."
+        )
 
     # Abstract method implementations required by IMarketDataProvider
     
