@@ -143,6 +143,10 @@ class MexcWebSocketAdapter(IMarketDataProvider):
         self._subscription_lock = asyncio.Lock()  # Prevent race conditions in subscribe operations
         self._pending_subscriptions: Dict[int, Dict[str, Dict[str, str]]] = {}  # connection_id -> symbol -> {'deal': 'pending', 'depth': 'pending', 'depth_full': 'pending'}
 
+        # ✅ FIX: Coordination tracking for async message processing (Propozycja #1B)
+        # Prevents race condition: connection cleanup vs in-flight confirmation processing
+        self._message_processing_count: Dict[int, int] = {}  # connection_id -> count of active message handlers
+
         # Market data cache - Enhanced with size-based management
         self._latest_prices: Dict[str, float] = {}  # Legacy cache for backward compatibility
         self._symbol_volumes: Dict[str, float] = {}  # Legacy cache for backward compatibility
@@ -1228,6 +1232,12 @@ class MexcWebSocketAdapter(IMarketDataProvider):
 
     async def _handle_message(self, message: str, connection_id: int) -> None:
         """Handle incoming WebSocket message"""
+        # ✅ FIX (Propozycja #1B): Increment counter to track in-flight message processing
+        # This prevents race condition: _close_connection() will wait for this to complete
+        self._message_processing_count[connection_id] = (
+            self._message_processing_count.get(connection_id, 0) + 1
+        )
+
         try:
             # Offload JSON parsing to thread pool for performance
             data = await asyncio.to_thread(json.loads, message)
@@ -1300,7 +1310,14 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                 "error": str(e),
                 "message": message[:200]
             })
-    
+        finally:
+            # ✅ FIX (Propozycja #1B): Decrement counter - message processing complete
+            count = self._message_processing_count.get(connection_id, 1) - 1
+            if count <= 0:
+                self._message_processing_count.pop(connection_id, None)
+            else:
+                self._message_processing_count[connection_id] = count
+
     async def _handle_futures_subscription_response(self, data: dict, connection_id: int) -> None:
         """Handle futures subscription/unsubscription responses"""
         channel = data.get("channel", "")
@@ -1576,8 +1593,30 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                         "channel": channel,
                         "problem": "No pending subscriptions found for connection",
                         "subscribed_symbols_on_connection": subscribed_on_conn,
-                        "impact": "Snapshot refresh task NOT started"
+                        "impact": "Attempting recovery"
                     })
+
+                    # ✅ FIX (Propozycja #2): Recovery mechanism - start snapshot tasks for orphaned symbols
+                    # This handles race condition where connection cleanup removed pending before confirmation arrived
+                    if subscribed_on_conn and 'orderbook' in self.data_types:
+                        recovered_count = 0
+                        for symbol in subscribed_on_conn:
+                            # Only start task if missing
+                            if symbol not in self._snapshot_refresh_tasks:
+                                await self._start_snapshot_refresh_task(symbol)
+                                recovered_count += 1
+                                self.logger.info("mexc_adapter.snapshot_task_recovered", {
+                                    "symbol": symbol,
+                                    "connection_id": connection_id,
+                                    "trigger": "orphaned_depth_full_confirmation"
+                                })
+
+                        if recovered_count > 0:
+                            self.logger.info("mexc_adapter.recovery_completed", {
+                                "connection_id": connection_id,
+                                "recovered_tasks": recovered_count,
+                                "total_symbols_on_connection": len(subscribed_on_conn)
+                            })
 
                     self.logger.info("mexc_adapter.futures_subscription_confirmed", {
                         "connection_id": connection_id,
@@ -2524,7 +2563,36 @@ class MexcWebSocketAdapter(IMarketDataProvider):
         for symbol in list(connection_info["subscriptions"]):
             self._subscribed_symbols.discard(symbol)
             self._symbol_to_connection.pop(symbol, None)
-        
+
+        # ✅ FIX (Propozycja #1B): Wait for in-flight message processing to complete
+        # This prevents race condition where confirmations arrive after cleanup starts
+        max_wait = 5.0  # 5 seconds max wait
+        start_time = time.time()
+
+        while connection_id in self._message_processing_count:
+            elapsed = time.time() - start_time
+            if elapsed > max_wait:
+                self.logger.warning("mexc_adapter.force_cleanup_timeout", {
+                    "connection_id": connection_id,
+                    "remaining_handlers": self._message_processing_count.get(connection_id, 0),
+                    "elapsed_seconds": elapsed
+                })
+                break
+            await asyncio.sleep(0.1)  # Check every 100ms
+
+        # Log successful wait
+        if connection_id in self._message_processing_count:
+            # Timed out - force cleanup
+            self._message_processing_count.pop(connection_id, None)
+        else:
+            # Clean wait - all handlers completed
+            elapsed = time.time() - start_time
+            if elapsed > 0.1:  # Only log if we actually waited
+                self.logger.debug("mexc_adapter.cleanup_wait_completed", {
+                    "connection_id": connection_id,
+                    "wait_seconds": round(elapsed, 3)
+                })
+
         # Clean up pending subscriptions for this connection
         self._pending_subscriptions.pop(connection_id, None)
         
