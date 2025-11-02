@@ -3,14 +3,17 @@ Market Data Provider Factory
 ============================
 Handles conditional logic for creating market data providers.
 Isolates exchange selection logic from Container.
+
+✅ REMOVED: FileConnector and FileMarketDataProvider (file-based backtest deprecated)
+Use QuestDBHistoricalDataSource instead for backtesting.
 """
 
 import asyncio
 from typing import TYPE_CHECKING, Optional
 from ...domain.interfaces.market_data import IMarketDataProvider
 from ...infrastructure.config.settings import TradingMode
-from ...exchanges.file_connector import FileConnector
-from ...infrastructure.exchanges.file_market_data_provider import FileMarketDataProvider
+# ✅ REMOVED: FileConnector import (deprecated, file removed)
+# ✅ REMOVED: FileMarketDataProvider import (deprecated)
 
 if TYPE_CHECKING:
     from ...core.event_bus import EventBus
@@ -60,7 +63,10 @@ class MarketDataProviderFactory:
 
         # Check if we're in backtest mode
         if effective_mode == TradingMode.BACKTEST:
-            return self._create_backtest_provider()
+            raise NotImplementedError(
+                "File-based backtest is deprecated. FileConnector has been removed. "
+                "Use QuestDBHistoricalDataSource instead for backtesting with historical data."
+            )
 
         # For data collection or live trading, use real market data providers
         if effective_mode in (TradingMode.COLLECT, TradingMode.LIVE):
@@ -70,45 +76,10 @@ class MarketDataProviderFactory:
                 raise ValueError("MEXC exchange must be enabled for COLLECT/LIVE modes")
 
         raise ValueError(f"No supported exchange is enabled for mode {effective_mode} - MEXC exchange must be configured")
-    
-    def _create_backtest_provider(self) -> IMarketDataProvider:
-        """
-        Create file-based market data provider for backtest mode.
-        Uses time_scale_factor from backtest settings for playback speed.
-        
-        Returns:
-            Configured FileMarketDataProvider with backtest settings
-        """
-        backtest_config = {
-            'enabled': True,
-            'path': self.settings.backtest.data_directory,
-            'playback_speed': float(self.settings.backtest.time_scale_factor),
-            'loop': False,
-            'start_from_beginning': True
-        }
-        
-        # Create FileConnector with backtest settings
-        file_connector = FileConnector(
-            config=backtest_config,
-            event_bus=self.event_bus,
-            logger=self.logger
-        )
-        
-        # Wrap in adapter that implements IMarketDataProvider
-        provider = FileMarketDataProvider(
-            file_connector=file_connector,
-            event_bus=self.event_bus,
-            logger=self.logger
-        )
-        
-        self.logger.info("market_data_factory.backtest_provider_created", {
-            "data_directory": self.settings.backtest.data_directory,
-            "time_scale_factor": self.settings.backtest.time_scale_factor,
-            "playback_speed": backtest_config['playback_speed']
-        })
-        
-        return provider
-    
+
+    # ✅ REMOVED: _create_backtest_provider() method (38 lines)
+    # File-based backtest is deprecated - use QuestDBHistoricalDataSource instead
+
     def _create_mexc_provider(self, data_types: Optional[list] = None) -> IMarketDataProvider:
         """
         Create clean MEXC WebSocket adapter for live trading.
