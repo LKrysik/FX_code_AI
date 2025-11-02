@@ -26,37 +26,6 @@ from ...core.circuit_breaker import (
 )
 
 
-"""
-MEXC Adapter - Real API Integration
-====================================
-Real MEXC REST API adapter with authentication, rate limiting, and caching.
-"""
-
-import asyncio
-import hashlib
-import hmac
-import json
-import time
-from typing import Dict, Any, Optional, List
-from datetime import datetime
-from urllib.parse import urlencode
-
-import aiohttp
-from aiohttp import ClientTimeout
-
-from ...core.logger import StructuredLogger
-from ...core.circuit_breaker import (
-    CircuitBreaker,
-    CircuitBreakerConfig,
-    RetryConfig,
-    ResilientService,
-    get_or_create_service
-)
-
-
-
-
-
 
 class MexcRealAdapter:
     """
