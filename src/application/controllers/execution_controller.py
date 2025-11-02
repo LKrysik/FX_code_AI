@@ -596,6 +596,17 @@ class ExecutionController:
                 "storage": "QuestDB"  # Indicate data storage backend
             })
 
+            # ✅ PERFORMANCE FIX #9A: Pre-allocate per-symbol flush locks
+            # This eliminates meta-lock overhead during hot path (flush operations)
+            async with self._symbol_flush_locks_lock:
+                for symbol in symbols:
+                    if symbol not in self._symbol_flush_locks:
+                        self._symbol_flush_locks[symbol] = asyncio.Lock()
+                        self.logger.debug("data_collection.lock_preallocated", {
+                            "session_id": session_id,
+                            "symbol": symbol
+                        })
+
             # ✅ STEP 0.1: QuestDB is REQUIRED - Create session in database
             try:
                 await self.db_persistence_service.create_session(
