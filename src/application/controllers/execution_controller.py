@@ -1040,7 +1040,6 @@ class ExecutionController:
             # ✅ FIX: Periodic QuestDB session status update (every 10 seconds)
             # This ensures GET /api/data-collection/sessions returns up-to-date records_collected
             # and status when user returns to data-collection page
-            import time
             current_time = time.time()
             if current_time - self._last_db_status_update >= 10.0:
                 try:
