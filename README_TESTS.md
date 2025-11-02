@@ -17,7 +17,7 @@ System testów E2E (End-to-End) dla FX Code AI zgodny z zasadą **KISS** (Keep I
 
 ### **Kluczowe Cechy:**
 - ✅ **Jeden launcher** dla wszystkich testów: `python run_tests.py`
-- ✅ **68 testów** pokrywających wszystkie API endpoints i kluczowe UI flows
+- ✅ **224 testy** pokrywające wszystkie API endpoints i kluczowe UI flows (213 API + 9 Frontend + 2 Integration)
 - ✅ **3 kategorie**: API, Frontend, Integration
 - ✅ **Automatyczne cleanup** po każdym teście
 - ✅ **Parallel execution** (pytest-xdist)
@@ -79,19 +79,22 @@ tests_e2e/
 ├── pytest.ini                  # Pytest configuration
 ├── conftest.py                 # Shared fixtures (auth, clients)
 │
-├── api/                        # Backend API tests (108 tests)
+├── api/                        # Backend API tests (213 tests)
 │   ├── conftest.py
-│   ├── test_auth.py            # Authentication (17 tests)
-│   ├── test_strategies.py      # Strategy CRUD (25 tests)
-│   ├── test_sessions.py        # Session management (13 tests)
-│   ├── test_health.py          # Health checks (18 tests)
-│   ├── test_risk.py            # Risk management (17 tests)
-│   ├── test_wallet_orders.py   # Wallet & Orders (8 tests)
+│   ├── test_auth.py            # Authentication (13 tests)
+│   ├── test_strategies.py      # Strategy CRUD (22 tests)
+│   ├── test_sessions.py        # Session management (11 tests)
+│   ├── test_health.py          # Health checks (17 tests)
+│   ├── test_risk.py            # Risk management (14 tests)
+│   ├── test_wallet_orders.py   # Wallet & Orders (10 tests)
 │   ├── test_indicators.py      # Indicators (3 tests)
-│   ├── test_results.py         # Results (7 tests)
-│   └── test_misc.py            # Misc endpoints (symbols, metrics, alerts) (10 tests)
+│   ├── test_results.py         # Results (9 tests)
+│   ├── test_misc.py            # Misc endpoints (9 tests)
+│   ├── test_data_analysis.py   # Data collection & analysis (25 tests) 🆕
+│   ├── test_indicator_variants.py # Indicator variants CRUD (44 tests) 🆕
+│   └── test_ops.py             # Operations dashboard (36 tests) 🆕
 │
-├── frontend/                   # Frontend UI tests (7 tests)
+├── frontend/                   # Frontend UI tests (9 tests)
 │   ├── conftest.py             # Playwright fixtures
 │   ├── test_auth_flow.py       # Login/logout flows (5 tests)
 │   └── test_dashboard.py       # Dashboard rendering (2 tests)
