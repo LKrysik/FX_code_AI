@@ -1404,6 +1404,116 @@ class Container:
         
         self._is_shutting_down = False
 
+    # ========================================================================
+    # INDICATOR SYSTEM FACTORY METHODS (Added for proper DI integration)
+    # ========================================================================
+
+    async def create_questdb_provider(self):
+        """
+        Create or return cached QuestDB provider singleton.
+
+        ✅ ARCHITECTURE FIX: Single source of truth for QuestDB connections.
+        Prevents duplicate connections from indicators_routes.py lazy init.
+
+        Returns:
+            Configured QuestDBProvider singleton
+        """
+        async def _create():
+            try:
+                from ..data_feed.questdb_provider import QuestDBProvider
+
+                # Use settings if available, otherwise defaults
+                provider = QuestDBProvider(
+                    ilp_host='127.0.0.1',
+                    ilp_port=9009,
+                    pg_host='127.0.0.1',
+                    pg_port=8812
+                )
+
+                self.logger.info("container.questdb_provider_created", {
+                    "ilp_port": 9009,
+                    "pg_port": 8812
+                })
+
+                return provider
+            except Exception as e:
+                self.logger.error("container.questdb_provider_creation_failed", {
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                })
+                raise RuntimeError(f"Failed to create QuestDB provider: {str(e)}") from e
+
+        return await self._get_or_create_singleton_async("questdb_provider", _create)
+
+    async def create_streaming_indicator_engine(self):
+        """
+        Create or return cached StreamingIndicatorEngine singleton.
+
+        ✅ ARCHITECTURE FIX: Single instance for all indicator calculations.
+        Shared across indicators_routes, websocket_server, and trading controllers.
+
+        Returns:
+            Configured StreamingIndicatorEngine singleton
+        """
+        async def _create():
+            try:
+                from ..domain.services.streaming_indicator_engine import StreamingIndicatorEngine
+
+                engine = StreamingIndicatorEngine(
+                    event_bus=self.event_bus,
+                    logger=self.logger
+                )
+
+                # Start the engine (loads variants from database)
+                await engine.start()
+
+                self.logger.info("container.streaming_indicator_engine_created", {
+                    "status": "started",
+                    "event_bus_connected": True
+                })
+
+                return engine
+            except Exception as e:
+                self.logger.error("container.streaming_indicator_engine_creation_failed", {
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                })
+                raise RuntimeError(f"Failed to create StreamingIndicatorEngine: {str(e)}") from e
+
+        return await self._get_or_create_singleton_async("streaming_indicator_engine", _create)
+
+    async def create_indicator_persistence_service(self):
+        """
+        Create IndicatorPersistenceService with proper dependencies.
+
+        ✅ ARCHITECTURE FIX: Uses singleton QuestDBProvider from Container.
+        No duplicate database connections.
+
+        Returns:
+            Configured IndicatorPersistenceService
+        """
+        try:
+            from ..domain.services.indicator_persistence_service import IndicatorPersistenceService
+
+            # Use singleton QuestDB provider
+            questdb_provider = await self.create_questdb_provider()
+
+            service = IndicatorPersistenceService(
+                event_bus=self.event_bus,
+                logger=self.logger,
+                questdb_provider=questdb_provider
+            )
+
+            self.logger.info("container.indicator_persistence_service_created")
+
+            return service
+        except Exception as e:
+            self.logger.error("container.indicator_persistence_service_creation_failed", {
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            raise RuntimeError(f"Failed to create IndicatorPersistenceService: {str(e)}") from e
+
     async def startup(self):
         """
         Start all created services in proper order.

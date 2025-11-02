@@ -17,7 +17,8 @@ from collections import deque
 import time
 
 from ..core.logger import StructuredLogger
-from ..trading.backtesting_engine import BacktestingEngine, BacktestConfiguration
+# ✅ REMOVED: BacktestingEngine import (file deleted - was using deleted FileConnector)
+# Backtesting now handled by command_processor.py with QuestDBHistoricalDataSource
 
 @dataclass
 class ExecutionSession:
@@ -331,37 +332,34 @@ class CommandHandler:
                                    client_id: str,
                                    command_id: str,
                                    params: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle start_backtest command"""
-        session_id = f"exec_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+        """
+        ❌ DEPRECATED: start_backtest command is no longer supported.
 
-        # Create execution session
-        session = ExecutionSession(
-            session_id=session_id,
-            client_id=client_id,
-            command_type="backtest",
-            parameters=params,
-            status="starting"
-        )
+        BacktestingEngine was removed because it depended on deleted FileConnector.
+        Use the proper backtest API instead: POST /sessions/start with mode=BACKTEST
 
-        async with self.session_lock:
-            self.active_sessions[session_id] = session
-            self.active_session_count += 1
-            self.total_sessions_created += 1
-
-        # Start background execution
-        asyncio.create_task(self._execute_backtest(session))
-
+        New backtest system uses:
+        - QuestDBHistoricalDataSource (session-based data replay)
+        - ExecutionController (unified execution engine)
+        - command_processor.py (proper command handling)
+        """
         return {
-            "type": "response",
+            "type": "error",
             "id": command_id,
-            "status": "accepted",
-            "data": {
-                "session_id": session_id,
-                "estimated_duration_seconds": self._estimate_backtest_duration(params),
-                "data_points_to_process": self._calculate_data_points(params),
-                "symbols_count": len(params.get("symbols", [])),
-                "strategy": params.get("strategy_graph", {}).get("name", "graph_strategy")
-            }
+            "status": "deprecated",
+            "error_code": "COMMAND_DEPRECATED",
+            "error_message": (
+                "start_backtest command is deprecated and has been removed.\n\n"
+                "Use the proper backtest API instead:\n"
+                "POST /sessions/start with:\n"
+                "{\n"
+                '  "mode": "BACKTEST",\n'
+                '  "session_id": "<data_collection_session_id>",\n'
+                '  "symbols": ["BTC_USDT"],\n'
+                '  "acceleration_factor": 10.0\n'
+                "}\n\n"
+                "List available sessions: GET /api/data-collection/sessions"
+            )
         }
 
     async def _handle_stop_execution(self,
@@ -531,112 +529,9 @@ class CommandHandler:
             }
         }
 
-    async def _execute_backtest(self, session: ExecutionSession):
-        """Execute backtest in background using BacktestingEngine"""
-        backtesting_engine = None
-
-        try:
-            session.status = "running"
-            session.last_update = datetime.now()
-
-            # Publish session started event
-            await self._publish_execution_event(session, "session_started")
-
-            # Extract backtest parameters
-            params = session.parameters
-            symbols = params.get("symbols", [])
-            date_range = params.get("date_range", {})
-
-            # Parse dates
-            try:
-                start_date = datetime.fromisoformat(date_range["start"].replace('Z', '+00:00'))
-                end_date = datetime.fromisoformat(date_range["end"].replace('Z', '+00:00'))
-            except (KeyError, ValueError) as e:
-                raise ValueError(f"Invalid date range: {e}")
-
-            # Get strategy graph from parameters
-            strategy_graph_data = params.get("strategy_graph", {})
-            if not strategy_graph_data:
-                raise ValueError("Strategy graph is required for backtesting")
-
-            # Deserialize strategy graph
-            try:
-                from ..strategy_graph.serializer import StrategyGraph
-                strategy_graph = StrategyGraph.from_dict(strategy_graph_data)
-            except Exception as e:
-                raise ValueError(f"Invalid strategy graph: {e}")
-
-            # Create backtest configuration
-            backtest_config = BacktestConfiguration(
-                session_id=session.session_id,
-                symbols=symbols,
-                start_date=start_date,
-                end_date=end_date,
-                timeframe=params.get("timeframe", "1h"),
-                initial_balance=params.get("budget", {}).get("global_cap", 10000.0),
-                strategy_graph=strategy_graph,
-                time_acceleration=params.get("acceleration", 10.0),
-                data_directory=params.get("data_sources", ["data"])[0] if params.get("data_sources") else "data"
-            )
-
-            # Initialize backtesting engine
-            backtesting_engine = BacktestingEngine(
-                event_bus=self.event_bus,
-                logger=self.logger
-            )
-
-            # Initialize with configuration
-            success = await backtesting_engine.initialize(backtest_config)
-            if not success:
-                raise RuntimeError("Failed to initialize backtesting engine")
-
-            # Execute backtest
-            result = await backtesting_engine.execute_backtest()
-
-            # Update session with results
-            session.status = "completed"
-            session.end_time = datetime.now()
-            session.progress = 100.0
-            session.results = {
-                "total_trades": result.total_trades,
-                "winning_trades": result.winning_trades,
-                "losing_trades": result.losing_trades,
-                "win_rate": result.win_rate,
-                "total_pnl": result.total_pnl,
-                "max_drawdown": result.max_drawdown,
-                "sharpe_ratio": result.sharpe_ratio,
-                "profit_factor": result.profit_factor,
-                "trades": [trade.__dict__ for trade in result.trades],
-                "signals": [signal.__dict__ for signal in result.signals]
-            }
-
-            # Publish completion event
-            await self._publish_execution_event(session, "session_completed")
-
-        except Exception as e:
-            session.status = "failed"
-            session.error_message = str(e)
-            session.end_time = datetime.now()
-
-            if self.logger:
-                self.logger.error("command_handler.backtest_execution_error", {
-                    "session_id": session.session_id,
-                    "error": str(e)
-                }, exc_info=True)
-
-            await self._publish_execution_event(session, "session_failed")
-        finally:
-            # Clean up backtesting engine
-            if backtesting_engine:
-                await backtesting_engine.stop_backtest()
-
-            async with self.session_lock:
-                if session.session_id in self.active_sessions:
-                    self.active_sessions.pop(session.session_id, None)
-                    if self.active_session_count > 0:
-                        self.active_session_count -= 1
-                    # Ensure the session is recorded for auditing/tests
-                    self.completed_sessions.append(session)
+    # ✅ REMOVED: _execute_backtest method (105 lines)
+    # BacktestingEngine was deleted because it depended on deleted FileConnector
+    # Use ExecutionController + QuestDBHistoricalDataSource instead (command_processor.py)
 
     async def _execute_live_trading(self, session: ExecutionSession):
         """Execute live trading in background"""
