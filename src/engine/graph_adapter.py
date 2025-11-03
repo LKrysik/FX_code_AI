@@ -798,14 +798,18 @@ def get_graph_adapter() -> GraphAdapter:
     """Get or create the global graph adapter instance."""
     global graph_adapter
     if graph_adapter is None:
+        # ✅ REFACTORING FIX: Don't try to import global singletons that no longer exist
+        # StreamingIndicatorEngine is now created via Container, not as a global instance
+        # This fallback pattern creates GraphAdapter without dependencies
         try:
             from ..core.state_persistence_manager import state_persistence_manager
             from ..core.event_bus import event_bus
-            from ..domain.services.streaming_indicator_engine import streaming_indicator_engine
+            # ❌ REMOVED: streaming_indicator_engine global instance no longer exists
+            # streaming_indicator_engine should be injected via Container, not imported as singleton
 
             graph_adapter = GraphAdapter(
                 state_persistence_manager=state_persistence_manager,
-                indicator_engine=streaming_indicator_engine,
+                indicator_engine=None,  # ✅ FIX: indicator_engine should be injected via DI
                 event_bus=event_bus
             )
         except ImportError:
