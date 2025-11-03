@@ -61,6 +61,7 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
   const [strategyData, setStrategyData] = useState<Strategy5Section>(
     strategy || {
       name: '',
+      direction: 'LONG',  // ⚠️ CRITICAL FIX: Default direction for new strategies
       s1_signal: { conditions: [] },
       z1_entry: {
         conditions: [],
@@ -107,6 +108,7 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
     if (strategy) {
       setStrategyData(prev => ({
         name: strategy.name || '',
+        direction: strategy.direction || 'LONG',  // ⚠️ CRITICAL FIX: Include direction field
         s1_signal: strategy.s1_signal || { conditions: [] },
         z1_entry: {
           conditions: strategy.z1_entry?.conditions || [],

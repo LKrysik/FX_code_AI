@@ -670,6 +670,7 @@ class StrategyManager:
         strategy = Strategy(
             strategy_name=config.get("strategy_name", "unnamed_strategy"),
             enabled=config.get("enabled", True),
+            direction=config.get("direction", "LONG"),  # ⚠️ CRITICAL FIX: Support SHORT strategies
             global_limits=config.get("global_limits", {})
         )
 
@@ -1338,6 +1339,7 @@ class StrategyManager:
         return {
             "strategy_name": strategy.strategy_name,
             "enabled": strategy.enabled,
+            "direction": strategy.direction,  # ⚠️ CRITICAL FIX: Return direction field
             "current_state": strategy.current_state.value,
             "symbol": strategy.symbol,
             "position_active": strategy.position_active,
@@ -1365,6 +1367,7 @@ class StrategyManager:
             {
                 "strategy_name": strategy.strategy_name,
                 "enabled": strategy.enabled,
+                "direction": strategy.direction,  # ⚠️ CRITICAL FIX: Return direction field
                 "current_state": strategy.current_state.value,
                 "symbol": strategy.symbol
             }
@@ -1379,6 +1382,7 @@ class StrategyManager:
             results.append({
                 "strategy_name": name,
                 "enabled": strategy.enabled,
+                "direction": strategy.direction,  # ⚠️ CRITICAL FIX: Return direction field
                 "current_state": strategy.current_state.value,
                 "symbol": strategy.symbol,
                 "active_symbols_count": len(tel.get("active_symbols", set())),
