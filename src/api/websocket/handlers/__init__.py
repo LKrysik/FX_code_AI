@@ -18,4 +18,6 @@ All handlers follow the same pattern:
 4. Return standardized response
 """
 
-__all__ = []
+from .auth_handler import AuthMessageHandler
+
+__all__ = ["AuthMessageHandler"]
