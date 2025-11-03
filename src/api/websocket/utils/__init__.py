@@ -11,4 +11,7 @@ These utilities eliminate code duplication and provide consistent
 patterns across the WebSocket server.
 """
 
-__all__ = []
+from .error_handler import ErrorHandler
+from .client_utils import ClientUtils
+
+__all__ = ["ErrorHandler", "ClientUtils"]
