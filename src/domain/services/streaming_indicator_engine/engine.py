@@ -484,6 +484,15 @@ class StreamingIndicatorEngine:
 
         return health_data
 
+    def get_algorithm_registry(self):
+        """
+        ✅ ENCAPSULATION FIX: Public accessor for algorithm registry.
+
+        Returns:
+            IndicatorAlgorithmRegistry instance
+        """
+        return self._algorithm_registry
+
     def add_indicator(self,
                       symbol: str,
                       indicator_type: IndicatorType,

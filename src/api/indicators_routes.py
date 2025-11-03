@@ -856,7 +856,7 @@ async def add_indicator_for_session(
                 symbol=symbol,
                 variant=variant,
                 override_parameters=parameters,
-                algorithm_registry=engine._algorithm_registry
+                algorithm_registry=engine.get_algorithm_registry()
             )
         except HTTPException:
             # bubble up structured error (e.g. malformed data)
@@ -2205,15 +2205,16 @@ async def get_available_algorithms(
         List of algorithm metadata including parameters and categories
     """
     try:
-        if not engine._algorithm_registry:
+        registry = engine.get_algorithm_registry()
+        if not registry:
             raise HTTPException(
                 status_code=503,
                 detail="Algorithm registry not available"
             )
-        
-        algorithms_metadata = engine._algorithm_registry.get_all_metadata()
-        algorithm_stats = engine._algorithm_registry.get_statistics()
-        
+
+        algorithms_metadata = registry.get_all_metadata()
+        algorithm_stats = registry.get_statistics()
+
         return JSONResponse(content={
             "status": "success",
             "data": {
@@ -2235,14 +2236,15 @@ async def get_algorithm_categories(
 ) -> JSONResponse:
     """Get all available algorithm categories."""
     try:
-        if not engine._algorithm_registry:
+        registry = engine.get_algorithm_registry()
+        if not registry:
             raise HTTPException(
                 status_code=503,
                 detail="Algorithm registry not available"
             )
-        
-        categories = engine._algorithm_registry.get_categories()
-        
+
+        categories = registry.get_categories()
+
         return JSONResponse(content={
             "status": "success",
             "data": {
@@ -2264,13 +2266,14 @@ async def get_algorithm_details(
 ) -> JSONResponse:
     """Get detailed information about a specific algorithm."""
     try:
-        if not engine._algorithm_registry:
+        registry = engine.get_algorithm_registry()
+        if not registry:
             raise HTTPException(
                 status_code=503,
                 detail="Algorithm registry not available"
             )
-        
-        metadata = engine._algorithm_registry.get_algorithm_metadata(algorithm_type)
+
+        metadata = registry.get_algorithm_metadata(algorithm_type)
         if not metadata:
             raise HTTPException(
                 status_code=404,
@@ -2305,16 +2308,17 @@ async def calculate_algorithm_refresh_interval(
         request: JSON body with algorithm parameters
     """
     try:
-        if not engine._algorithm_registry:
+        registry = engine.get_algorithm_registry()
+        if not registry:
             raise HTTPException(
                 status_code=503,
                 detail="Algorithm registry not available"
             )
-        
+
         body = await request.json()
         parameters = body.get("parameters", {})
-        
-        refresh_interval = engine._algorithm_registry.calculate_refresh_interval(
+
+        refresh_interval = registry.calculate_refresh_interval(
             algorithm_type, parameters
         )
         
