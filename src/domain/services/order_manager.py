@@ -344,11 +344,18 @@ class OrderManager:
         return [self._serialize_order(o) for o in self._orders.values()]
 
     def get_all_positions(self) -> List[Dict[str, Any]]:
+        """Get all open positions with SHORT support and extended fields"""
         return [
             {
                 "symbol": pos.symbol,
                 "quantity": pos.quantity,
-                "average_price": pos.average_price
+                "average_price": pos.average_price,
+                "position_type": pos.position_type,
+                "position_size": pos.position_size,
+                "leverage": pos.leverage,
+                "liquidation_price": pos.liquidation_price,
+                "unrealized_pnl": pos.unrealized_pnl,
+                "unrealized_pnl_pct": pos.unrealized_pnl_pct
             }
             for pos in self._positions.values()
             if pos.quantity != 0
