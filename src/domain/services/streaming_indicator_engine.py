@@ -402,6 +402,12 @@ class StreamingIndicatorEngine:
         self._incremental_indicators: Dict[str, Any] = {}  # Cache for incremental calculations
 
         # ✅ REFACTORING: Caching moved to CacheManager component
+        # ⚠️ TEMPORARY: Keep old fields for backward compatibility until full migration
+        self._indicator_cache = self._cache_manager._cache  # Direct reference to cache storage
+        self._cache_ttl_seconds = 60
+        self._cache_access_order = self._cache_manager._access_order
+        self._indicator_volatility = self._cache_manager._indicator_volatility
+        self._cache_access_history = self._cache_manager._access_history
 
         self._time_driven_indicators: Dict[str, TimeDrivenSchedule] = {}
         self._time_scheduler_task: Optional[asyncio.Task] = None
