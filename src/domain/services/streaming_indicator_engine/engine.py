@@ -1382,89 +1382,17 @@ class StreamingIndicatorEngine:
     # ✅ GOAL_03: Registered calculation functions for system indicators
     # These functions provide the unified interface for the indicator registry system
     
-    def _calculate_sma_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """SMA calculation wrapper for registry system"""
-        prices = calculation_params.get('prices', [])
-        period = calculation_params.get('period', 20)
-        
-        if len(prices) < period:
-            return None
-        return sum(prices[-period:]) / period
-
-    def _calculate_ema_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """EMA calculation wrapper for registry system"""
-        prices = calculation_params.get('prices', [])
-        period = calculation_params.get('period', 20)
-        
-        if len(prices) < period:
-            return None
-        return self._calculate_ema(prices, period)
-
-    def _calculate_rsi_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """RSI calculation wrapper for registry system"""
-        prices = calculation_params.get('prices', [])
-        period = calculation_params.get('period', 14)
-        
-        if len(prices) < period + 1:
-            return None
-        return self._calculate_rsi(prices, period)
-
-    def _calculate_macd_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """MACD calculation wrapper for registry system"""
-        prices = calculation_params.get('prices', [])
-        
-        if len(prices) < 26:  # Need enough data for slow EMA
-            return None
-        return self._calculate_macd(prices)
-
-    def _calculate_bollinger_bands_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """Bollinger Bands calculation wrapper for registry system"""
-        prices = calculation_params.get('prices', [])
-        period = calculation_params.get('period', 20)
-        
-        if len(prices) < period:
-            return None
-        return self._calculate_bollinger_bands(prices, period)
-
-    def _calculate_pump_magnitude_pct_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """Pump Magnitude calculation wrapper for registry system"""
-        prices = calculation_params.get('prices', [])
-        period = calculation_params.get('period', 20)
-        
-        if len(prices) < period:
-            return None
-        return self._calculate_pump_magnitude_pct(prices, period)
-
-    def _calculate_volume_surge_ratio_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """Volume Surge Ratio calculation wrapper for registry system"""
-        return self._calculate_volume_surge_ratio(indicator)
-
-    def _calculate_price_velocity_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """Price Velocity calculation wrapper for registry system"""
-        prices = calculation_params.get('prices', [])
-        period = calculation_params.get('period', 10)
-        
-        if len(prices) < period:
-            return None
-        return self._calculate_price_velocity(prices, period)
-
-    def _calculate_price_momentum_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """Price Momentum calculation wrapper for registry system"""
-        prices = calculation_params.get('prices', [])
-        period = calculation_params.get('period', 10)
-        
-        if len(prices) < period:
-            return None
-        return self._calculate_price_momentum(prices, period)
-
-    def _calculate_baseline_price_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """Baseline Price calculation wrapper for registry system"""
-        prices = calculation_params.get('prices', [])
-        period = calculation_params.get('period', 20)
-        
-        if len(prices) < period:
-            return None
-        return self._calculate_baseline_price(prices, period)
+    # ✅ REFACTORING: Dead code removed - unused _registered methods
+    # Removed 12 unused wrapper methods that were never called:
+    # - _calculate_sma_registered, _calculate_ema_registered, _calculate_rsi_registered
+    # - _calculate_macd_registered, _calculate_bollinger_bands_registered
+    # - _calculate_pump_magnitude_pct_registered, _calculate_volume_surge_ratio_registered
+    # - _calculate_price_velocity_registered, _calculate_price_momentum_registered
+    # - _calculate_baseline_price_registered, _calculate_order_price_registered
+    # - _calculate_close_order_price_registered, _calculate_volatility_registered
+    # - _calculate_risk_level_registered
+    #
+    # Only 2 _registered methods are actually used (kept below):
 
     def _calculate_stop_loss_price_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
         """Stop Loss Price calculation wrapper for registry system"""
@@ -1493,106 +1421,22 @@ class StreamingIndicatorEngine:
         else:
             return price * (1.0 + (risk_reward_ratio * 0.01))  # Simple percentage-based
 
-    def _calculate_order_price_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """Order Price calculation wrapper for registry system"""
-        price = calculation_params.get('price', 0.0)
-        method = calculation_params.get('method', 'market')
-        offset_pct = calculation_params.get('offset_pct', 0.0)
-        
-        if price == 0.0:
-            return None
-            
-        if method == 'market':
-            return price * (1.0 + offset_pct / 100.0)
-        elif method == 'limit':
-            return price * (1.0 + offset_pct / 100.0)
-        else:
-            return price  # Default to market price
+    # ✅ REFACTORING: Tech indicator methods (used by price aggregation calculations)
 
-    def _calculate_close_order_price_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """Close Order Price calculation wrapper for registry system"""
-        price = calculation_params.get('price', 0.0)
-        method = calculation_params.get('method', 'market')
-        offset_pct = calculation_params.get('offset_pct', 0.0)
-        
-        if price == 0.0:
-            return None
-            
-        if method == 'market':
-            return price * (1.0 + offset_pct / 100.0)
-        elif method == 'limit':
-            return price * (1.0 + offset_pct / 100.0)
-        else:
-            return price  # Default to market price
-
-    def _calculate_volatility_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """Volatility calculation wrapper for registry system"""
-        prices = calculation_params.get('prices', [])
-        period = calculation_params.get('period', 20)
-        
-        if len(prices) < period:
-            return None
-        return self._calculate_volatility(prices, period)
-
-    def _calculate_risk_level_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """Risk Level calculation wrapper for registry system"""
-        return self._calculate_risk_level(indicator)
-    
     def _calculate_ema(self, prices: List[float], period: int) -> float:
-        """Calculate Exponential Moving Average"""
+        """
+        Calculate Exponential Moving Average.
+
+        ✅ REFACTORING NOTE: Only EMA remains - other tech indicators (RSI, MACD, Bollinger) removed.
+        They were never called and IndicatorCalculator provides better implementations.
+        """
         multiplier = 2.0 / (period + 1)
         ema = prices[0]  # Start with first price
-        
+
         for price in prices[1:]:
             ema = (price * multiplier) + (ema * (1 - multiplier))
-        
+
         return ema
-    
-    def _calculate_rsi(self, prices: List[float], period: int) -> float:
-        """Calculate Relative Strength Index"""
-        if len(prices) < period + 1:
-            return 50.0  # Neutral RSI
-        
-        gains = []
-        losses = []
-        
-        for i in range(1, len(prices)):
-            change = prices[i] - prices[i-1]
-            if change > 0:
-                gains.append(change)
-                losses.append(0)
-            else:
-                gains.append(0)
-                losses.append(abs(change))
-        
-        if len(gains) < period:
-            return 50.0
-        
-        avg_gain = sum(gains[-period:]) / period
-        avg_loss = sum(losses[-period:]) / period
-        
-        if avg_loss == 0:
-            return 100.0
-        
-        rs = avg_gain / avg_loss
-        rsi = 100 - (100 / (1 + rs))
-        
-        return rsi
-    
-    def _calculate_macd(self, prices: List[float]) -> float:
-        """Calculate MACD (simplified)"""
-        if len(prices) < 26:
-            return 0.0
-        
-        ema12 = self._calculate_ema(prices[-12:], 12)
-        ema26 = self._calculate_ema(prices[-26:], 26)
-        
-        return ema12 - ema26
-    
-    def _calculate_bollinger_bands(self, prices: List[float], period: int) -> float:
-        """Calculate Bollinger Bands middle band (SMA) with standard deviation available"""
-        if len(prices) < period:
-            return 0.0
 
     # ===== PHASE 3: PRIORITY 2 CORE FEATURES IMPLEMENTATIONS =====
 
