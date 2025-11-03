@@ -328,57 +328,6 @@ class StreamingIndicatorEngine:
         """✅ REFACTORING: Delegate to CacheManager"""
         self._cache_manager.set(cache_key, value, ttl)
 
-    def _cleanup_cache(self) -> None:
-        """Clean expired cache entries"""
-        current_time = time.time()
-        expired_keys = [
-            key for key, entry in self._indicator_cache.items()
-            if current_time - entry["timestamp"] > entry["ttl"]
-        ]
-        for key in expired_keys:
-            del self._indicator_cache[key]
-            self._cache_access_order.pop(key, None)
-
-        if expired_keys:
-            self.logger.debug("streaming_indicator_engine.cache_cleanup", {
-                "expired_entries": len(expired_keys),
-                "remaining_cache_size": len(self._indicator_cache)
-            })
-
-    def _calculate_adaptive_ttl(self, cache_key: str) -> int:
-        """✅ PHASE 2 FIX: Calculate adaptive TTL based on indicator volatility and usage patterns"""
-        # Extract indicator type from cache key
-        indicator_type = cache_key.split(':')[0] if ':' in cache_key else 'UNKNOWN'
-
-        # Base TTL
-        base_ttl = self._cache_ttl_seconds
-
-        # Adjust based on volatility (lower volatility = longer TTL)
-        volatility = self._indicator_volatility.get(indicator_type, 0.5)  # Default medium volatility
-        volatility_factor = 1.0 - (volatility * 0.5)  # 0.5 to 1.5 range
-
-        # Adjust based on recent access patterns (more frequent access = longer TTL)
-        access_factor = self._calculate_access_frequency_factor(cache_key)
-
-        # Calculate final TTL with bounds
-        adaptive_ttl = int(base_ttl * volatility_factor * access_factor)
-        return max(30, min(300, adaptive_ttl))  # Between 30 seconds and 5 minutes
-
-    def _calculate_access_frequency_factor(self, cache_key: str) -> float:
-        """Calculate access frequency factor for TTL adjustment"""
-        # Simple implementation - could be enhanced with more sophisticated analysis
-        recent_accesses = sum(1 for access in self._cache_access_history
-                            if access['key'] == cache_key and access['hit'] and
-                            time.time() - access['timestamp'] < 300)  # Last 5 minutes
-
-        if recent_accesses > 10:
-            return 1.5  # Frequently accessed, longer TTL
-        elif recent_accesses > 5:
-            return 1.2  # Moderately accessed
-        elif recent_accesses > 1:
-            return 1.0  # Normal
-        else:
-            return 0.8  # Rarely accessed, shorter TTL
 
     async def _run_time_driven_scheduler(self) -> None:
         """Background task ensuring time-driven indicators refresh even without new ticks."""
@@ -497,49 +446,6 @@ class StreamingIndicatorEngine:
                 "error": str(exc),
             })
 
-    def _enforce_cache_limits(self) -> None:
-        """✅ PHASE 2 FIX: Enforce cache size limits using LRU eviction"""
-        cache_size = len(self._indicator_cache)
-
-        if cache_size >= self._max_cache_size:
-            # Hard limit exceeded - aggressive eviction
-            self._evict_cache_entries(cache_size - self._max_cache_size + 1000)
-        elif cache_size >= self._cache_high_watermark:
-            # High watermark exceeded - moderate eviction
-            target_size = int(self._max_cache_size * 0.7)  # Target 70% capacity
-            entries_to_evict = cache_size - target_size
-            self._evict_cache_entries(entries_to_evict)
-
-    def _evict_cache_entries(self, num_entries: int) -> None:
-        """Evict least recently used cache entries"""
-        if not self._cache_access_order:
-            return
-
-        # Sort by access time (oldest first)
-        sorted_entries = sorted(self._cache_access_order.items(), key=lambda x: x[1])
-
-        evicted = 0
-        for cache_key, _ in sorted_entries:
-            if evicted >= num_entries:
-                break
-            if cache_key in self._indicator_cache:
-                del self._indicator_cache[cache_key]
-                del self._cache_access_order[cache_key]
-                evicted += 1
-
-        if evicted > 0:
-            self.logger.debug("streaming_indicator_engine.cache_eviction", {
-                "evicted_entries": evicted,
-                "remaining_cache_size": len(self._indicator_cache)
-            })
-
-    def _record_cache_access(self, cache_key: str, hit: bool) -> None:
-        """Record cache access for performance analysis"""
-        self._cache_access_history.append({
-            'key': cache_key,
-            'hit': hit,
-            'timestamp': time.time()
-        })
 
     def _update_indicator_volatility(self) -> None:
         """✅ PHASE 2 FIX: Update indicator volatility scores based on recent calculations"""
@@ -1014,8 +920,8 @@ class StreamingIndicatorEngine:
             if key in self._indicators:
                 del self._indicators[key]
 
-        # ✅ CRITICAL FIX: Cleanup expired cache entries
-        self._cleanup_cache()
+        # ✅ REFACTORING: Delegate cache cleanup to CacheManager
+        self._cache_manager.cleanup()
 
         if expired_price_keys or expired_ob_keys or expired_deal_keys or expired_indicators:
             self.logger.info("streaming_indicator_engine.data_cleanup", {
@@ -1023,7 +929,7 @@ class StreamingIndicatorEngine:
                 "expired_ob_keys": len(expired_ob_keys),
                 "expired_deal_keys": len(expired_deal_keys),
                 "expired_indicators": len(expired_indicators),
-                "cache_size_after_cleanup": len(self._indicator_cache)
+                "cache_size_after_cleanup": len(self._cache_manager._cache)
             })
 
     def _check_memory_limits(self) -> bool:
