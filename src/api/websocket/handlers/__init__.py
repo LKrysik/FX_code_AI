@@ -20,5 +20,6 @@ All handlers follow the same pattern:
 
 from .auth_handler import AuthMessageHandler
 from .subscription_handler import SubscriptionMessageHandler
+from .protocol_handler import ProtocolMessageHandler
 
-__all__ = ["AuthMessageHandler", "SubscriptionMessageHandler"]
+__all__ = ["AuthMessageHandler", "SubscriptionMessageHandler", "ProtocolMessageHandler"]
