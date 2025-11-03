@@ -6,19 +6,29 @@ E2E Test Runner - Single Entry Point
 KISS (Keep It Simple, Stupid) test runner for all E2E tests.
 
 Usage:
-    python run_tests.py                  # Run ALL tests
+    python run_tests.py                  # Run ALL backend E2E tests
     python run_tests.py --api            # API tests only
-    python run_tests.py --frontend       # Frontend tests only
+    python run_tests.py --frontend       # Frontend E2E tests only (Playwright)
     python run_tests.py --integration    # Integration tests only
     python run_tests.py --fast           # Fast tests only (skip slow)
     python run_tests.py --verbose        # Verbose output
     python run_tests.py --coverage       # With coverage report
     python run_tests.py --html-report    # Generate HTML report
 
+Frontend Unit Tests (Jest):
+    cd frontend && npm test              # Run Jest unit tests
+    cd frontend && npm run test:watch    # Watch mode
+    cd frontend && npm run test:coverage # With coverage
+
 Examples:
     python run_tests.py --api --verbose
     python run_tests.py --frontend --coverage
     python run_tests.py --all --html-report
+
+Notes:
+    - This runner executes backend E2E tests (pytest) in tests_e2e/
+    - Frontend unit tests (Jest) are in frontend/src/__tests__/
+    - Run frontend tests separately: cd frontend && npm test
 """
 
 import sys
@@ -227,13 +237,17 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python run_tests.py                     # Run all tests
+  python run_tests.py                     # Run all backend E2E tests
   python run_tests.py --api               # API tests only
-  python run_tests.py --frontend          # Frontend tests only
+  python run_tests.py --frontend          # Frontend E2E tests only (Playwright)
   python run_tests.py --integration       # Integration tests only
   python run_tests.py --fast              # Fast tests only
   python run_tests.py --api --verbose     # API tests with verbose output
   python run_tests.py --all --coverage    # All tests with coverage
+
+Frontend Unit Tests (Jest):
+  cd frontend && npm test                 # Run Jest unit tests
+  cd frontend && npm run test:coverage    # With coverage report
         """
     )
 
