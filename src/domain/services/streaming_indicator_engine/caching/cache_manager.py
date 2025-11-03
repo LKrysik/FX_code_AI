@@ -321,30 +321,43 @@ class CacheManager:
         })
 
     def update_volatility(self) -> None:
-        """Update indicator volatility metrics for adaptive TTL."""
+        """
+        Update indicator volatility metrics for adaptive TTL.
+
+        Volatility is calculated as cache miss rate with exponential smoothing.
+        Higher miss rate = higher volatility = shorter TTL.
+        """
         current_time = time.time()
 
         # Only update periodically
         if current_time - self._last_volatility_update < self._volatility_update_interval:
             return
 
-        # Calculate volatility from access history
-        indicator_access_counts: Dict[str, int] = {}
-        indicator_value_changes: Dict[str, List[float]] = {}
+        # Calculate volatility from access history based on hit/miss rate
+        indicator_stats: Dict[str, Dict[str, int]] = {}
 
         for access in self._access_history:
             key = access.get("key", "")
             parts = key.split(":")
             if len(parts) >= 2:
-                indicator_type = parts[1]
-                indicator_access_counts[indicator_type] = indicator_access_counts.get(indicator_type, 0) + 1
+                indicator_type = parts[1]  # parts[1] is indicator_type (e.g., "TWPA")
 
-        # Update volatility scores
-        for indicator_type, count in indicator_access_counts.items():
-            # Simple volatility metric based on access frequency
-            time_window = current_time - (current_time - self._performance_window)
-            volatility = count / max(1, time_window / 60)  # accesses per minute
-            self._indicator_volatility[indicator_type] = volatility
+                if indicator_type not in indicator_stats:
+                    indicator_stats[indicator_type] = {'hits': 0, 'misses': 0}
+
+                if access.get('hit', False):
+                    indicator_stats[indicator_type]['hits'] += 1
+                else:
+                    indicator_stats[indicator_type]['misses'] += 1
+
+        # Calculate volatility as miss rate with exponential smoothing
+        for indicator_type, stats in indicator_stats.items():
+            total = stats['hits'] + stats['misses']
+            if total > 0:
+                miss_rate = stats['misses'] / total
+                # Exponential moving average: smooth volatility updates
+                current_volatility = self._indicator_volatility.get(indicator_type, 0.5)
+                self._indicator_volatility[indicator_type] = (current_volatility * 0.7) + (miss_rate * 0.3)
 
         self._last_volatility_update = current_time
 
@@ -360,13 +373,59 @@ class CacheManager:
             return 0.0
         return self._hits / total
 
+    def calculate_recent_hit_rate(self, window_seconds: int = 300) -> float:
+        """
+        Calculate hit rate over recent time window.
+
+        Args:
+            window_seconds: Time window in seconds (default 300 = 5 minutes)
+
+        Returns:
+            Hit rate over the time window (0.0 to 1.0)
+        """
+        current_time = time.time()
+        recent_accesses = [
+            access for access in self._access_history
+            if current_time - access['timestamp'] < window_seconds
+        ]
+
+        if not recent_accesses:
+            return 0.0
+
+        recent_hits = sum(1 for access in recent_accesses if access.get('hit', False))
+        return recent_hits / len(recent_accesses)
+
+    def clear(self) -> int:
+        """
+        Clear all cache entries.
+
+        Returns:
+            Number of entries cleared
+        """
+        count = len(self._cache)
+        self._cache.clear()
+        self._access_order.clear()
+
+        self.logger.info("cache_manager.cleared", {
+            "entries_cleared": count,
+            "hits_before_clear": self._hits,
+            "misses_before_clear": self._misses
+        })
+
+        return count
+
     def get_statistics(self) -> Dict[str, Any]:
         """
         Get cache statistics.
 
+        Updates volatility before returning stats to ensure fresh metrics.
+
         Returns:
-            Dictionary with cache metrics
+            Dictionary with cache metrics including volatility and recent hit rates
         """
+        # Update volatility metrics before returning statistics
+        self.update_volatility()
+
         return {
             "size": len(self._cache),
             "max_size": self.max_size,
@@ -374,5 +433,7 @@ class CacheManager:
             "hit_rate": self.get_hit_rate(),
             "hits": self._hits,
             "misses": self._misses,
-            "total_accesses": self._hits + self._misses
+            "total_accesses": self._hits + self._misses,
+            "volatility_scores": self._indicator_volatility.copy(),
+            "recent_hit_rate_5m": self.calculate_recent_hit_rate(300)
         }
