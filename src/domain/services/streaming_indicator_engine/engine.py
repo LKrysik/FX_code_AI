@@ -751,7 +751,7 @@ class StreamingIndicatorEngine:
             algorithm = self._algorithm_registry.get_algorithm(indicator_type)
             if algorithm:
                 try:
-                    from .indicators.base_algorithm import IndicatorParameters
+                    from ..indicators.base_algorithm import IndicatorParameters
                     wrapped_params = IndicatorParameters(params)
                     interval = algorithm.calculate_refresh_interval(wrapped_params)
                     calculation_function = algorithm._create_engine_hook()
@@ -3226,7 +3226,7 @@ class StreamingIndicatorEngine:
 
     def _calc_twpa(self, window_points: list, start_ts: float, end_ts: float) -> Optional[float]:
         """Compute Time-Weighted Price Average using unified algorithm."""
-        from .indicators.twpa import twpa_algorithm
+        from ..indicators.twpa import twpa_algorithm
         from .indicators.base_algorithm import IndicatorParameters
         
         # Use the unified algorithm
@@ -4283,7 +4283,7 @@ class StreamingIndicatorEngine:
 
         Uses TWPAAlgorithm from algorithm registry for consistent calculation.
         """
-        from .indicators.twpa import twpa_algorithm
+        from ..indicators.twpa import twpa_algorithm
         from .indicators.base_algorithm import IndicatorParameters
 
         metadata = indicator.metadata or {}
@@ -4366,36 +4366,36 @@ class StreamingIndicatorEngine:
                 "base_indicator_type": indicator.metadata.get("type")
             }
     
-    def store_calculated_value(self, indicator_key: str, value: float, timestamp: float, metadata: Optional[Dict[str, Any]] = None) -> bool:
+    async def store_calculated_value(self, indicator_key: str, value: float, timestamp: float, metadata: Optional[Dict[str, Any]] = None) -> bool:
         """
         Public API method to store calculated indicator values.
-        
+
         Args:
             indicator_key: Unique identifier for the indicator
             value: The calculated indicator value
             timestamp: Unix timestamp when value was calculated
             metadata: Optional metadata associated with the value
-            
+
         Returns:
             True if stored successfully, False otherwise
         """
         try:
             with self._data_lock:
                 # Store the value (this could trigger events for persistence)
-                # For now, emit event for persistence layer to pick up
-                self.event_bus.emit_event("indicator_value_calculated", {
+                # Publish event for persistence layer to pick up
+                await self.event_bus.publish("indicator_value_calculated", {
                     "indicator_key": indicator_key,
                     "value": value,
                     "timestamp": timestamp,
                     "metadata": metadata or {}
-                })
-                
+                }, priority=EventPriority.NORMAL)
+
                 self.logger.debug("streaming_indicator_engine.value_stored", {
                     "indicator_key": indicator_key,
                     "value": value,
                     "timestamp": timestamp
                 })
-                
+
                 return True
                 
         except Exception as e:
@@ -4558,7 +4558,7 @@ class StreamingIndicatorEngine:
             })
             return None
     
-    def add_indicator_to_session(self, session_id: str, symbol: str, variant_id: str, 
+    async def add_indicator_to_session(self, session_id: str, symbol: str, variant_id: str,
                                parameters: Optional[Dict[str, Any]] = None) -> Optional[str]:
         """
         Add an indicator to a specific session and symbol.
@@ -4649,14 +4649,14 @@ class StreamingIndicatorEngine:
                 
                 self._session_indicators[session_id][symbol].append(indicator_id)
                 
-                # Emit event for persistence layer
-                self.event_bus.emit_event("indicator_added_to_session", {
+                # Publish event for persistence layer
+                await self.event_bus.publish("indicator_added_to_session", {
                     "session_id": session_id,
                     "symbol": symbol,
                     "indicator_id": indicator_id,
                     "variant_id": variant_id,
                     "parameters": parameters or {}
-                })
+                }, priority=EventPriority.NORMAL)
 
                 self.logger.info("streaming_indicator_engine.indicator_added_to_session", {
                     "session_id": session_id,
@@ -4726,7 +4726,7 @@ class StreamingIndicatorEngine:
             })
             return []
     
-    def remove_indicator_from_session(self, session_id: str, symbol: str, indicator_id: str) -> bool:
+    async def remove_indicator_from_session(self, session_id: str, symbol: str, indicator_id: str) -> bool:
         """
         Remove an indicator from a session.
         
@@ -4759,12 +4759,12 @@ class StreamingIndicatorEngine:
                 if indicator_id in self._indicators:
                     del self._indicators[indicator_id]
                 
-                # Emit event for persistence layer
-                self.event_bus.emit_event("indicator_removed_from_session", {
+                # Publish event for persistence layer
+                await self.event_bus.publish("indicator_removed_from_session", {
                     "session_id": session_id,
                     "symbol": symbol,
                     "indicator_id": indicator_id
-                })
+                }, priority=EventPriority.NORMAL)
                 
                 self.logger.info("streaming_indicator_engine.indicator_removed_from_session", {
                     "session_id": session_id,
@@ -5032,7 +5032,7 @@ class StreamingIndicatorEngine:
             timestamps = [ts for ts, _ in price_series_sorted]
             
             # Import TWPA algorithm (unified system)
-            from .indicators.twpa import twpa_algorithm
+            from ..indicators.twpa import twpa_algorithm
             import bisect
             
             # Simulation results
