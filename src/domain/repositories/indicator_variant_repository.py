@@ -26,7 +26,8 @@ import traceback
 
 from ...data_feed.questdb_provider import QuestDBProvider
 from ...domain.services.indicators.algorithm_registry import IndicatorAlgorithmRegistry
-from ...domain.services.streaming_indicator_engine import IndicatorVariant, VariantParameter
+from ...domain.services.streaming_indicator_engine import IndicatorVariant
+from ...domain.types.indicator_types import VariantParameter  # ✅ IMPORT FIX: VariantParameter is in types module
 from ...core.logger import StructuredLogger, get_logger
 
 
