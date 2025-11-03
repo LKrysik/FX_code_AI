@@ -19,5 +19,6 @@ All handlers follow the same pattern:
 """
 
 from .auth_handler import AuthMessageHandler
+from .subscription_handler import SubscriptionMessageHandler
 
-__all__ = ["AuthMessageHandler"]
+__all__ = ["AuthMessageHandler", "SubscriptionMessageHandler"]
