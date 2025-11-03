@@ -834,7 +834,7 @@ async def add_indicator_for_session(
             raise HTTPException(status_code=404, detail=f"Variant '{variant_id}' not found")
 
         # Add to session using StreamingIndicatorEngine session management
-        indicator_id = engine.add_indicator_to_session(
+        indicator_id = await engine.add_indicator_to_session(
             session_id=session_id,
             symbol=symbol,
             variant_id=variant_id,
@@ -1013,7 +1013,7 @@ async def remove_indicator_from_session(
     """
     try:
         # Remove indicator from session
-        success = engine.remove_indicator_from_session(
+        success = await engine.remove_indicator_from_session(
             session_id=session_id,
             symbol=symbol,
             indicator_id=indicator_id
