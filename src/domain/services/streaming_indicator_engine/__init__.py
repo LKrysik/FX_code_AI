@@ -6,9 +6,9 @@ Refactored from monolithic 5746-line file into maintainable modules.
 Public API remains unchanged for backward compatibility.
 """
 
-# ✅ FIX: Import StreamingIndicatorEngine from parent module (still in streaming_indicator_engine.py)
-# Using relative import from parent directory
-from ..streaming_indicator_engine import StreamingIndicatorEngine
+# ✅ RESTRUCTURED: Import StreamingIndicatorEngine from engine.py inside package
+# This avoids circular import caused by package/module name collision
+from .engine import StreamingIndicatorEngine
 
 # Import types from refactored module
 from .core.types import (
