@@ -120,12 +120,14 @@ class IndicatorVariantRepository:
         parameters_json = self._encode_parameters(algorithm, parameters)
 
         # Prepare INSERT query
+        # ✅ FORWARD-COMPATIBLE FIX: Explicit CAST to BOOLEAN for QuestDB compatibility
+        # QuestDB PostgreSQL protocol requires explicit type casting for BOOLEAN values
         query = """
             INSERT INTO indicator_variants (
                 id, name, base_indicator_type, variant_type, description,
                 parameters, schema_version, is_system, created_by, user_id, scope,
                 created_at, updated_at, is_deleted
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, CAST($8 AS BOOLEAN), $9, $10, $11, $12, $13, CAST($14 AS BOOLEAN))
         """
 
         params = [
@@ -136,13 +138,13 @@ class IndicatorVariantRepository:
             description,
             parameters_json,
             1,  # schema_version
-            is_system,
+            is_system,  # Will be cast to BOOLEAN in query
             created_by,
             user_id,
             scope,
             datetime.utcnow(),
             datetime.utcnow(),
-            False  # is_deleted
+            False  # is_deleted - Will be cast to BOOLEAN in query
         ]
 
         try:
@@ -233,6 +235,8 @@ class IndicatorVariantRepository:
             List of IndicatorVariant objects
         """
         # Build query with filters
+        # ✅ FORWARD-COMPATIBLE: Simple BOOLEAN comparison (assumes correct types in database)
+        # With explicit CAST in INSERT, is_deleted is always proper BOOLEAN type
         where_clauses = ["is_deleted = false"]
         params = []
         param_idx = 1
@@ -430,14 +434,14 @@ class IndicatorVariantRepository:
         Returns:
             True if deleted, False if variant not found
         """
-        # ✅ FIX: QuestDB doesn't support bind variables in UPDATE for TIMESTAMP
-        # Use literal timestamp value instead
+        # ✅ FORWARD-COMPATIBLE FIX: Explicit CAST to BOOLEAN for type safety
+        # QuestDB requires explicit type casting for BOOLEAN values in UPDATE
         deleted_at = datetime.utcnow()
         deleted_at_str = deleted_at.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
 
         query = f"""
             UPDATE indicator_variants
-            SET is_deleted = true, deleted_at = '{deleted_at_str}'
+            SET is_deleted = CAST(true AS BOOLEAN), deleted_at = '{deleted_at_str}'
             WHERE id = $1 AND is_deleted = false
         """
 
