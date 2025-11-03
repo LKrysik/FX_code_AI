@@ -23,11 +23,13 @@ from .subscription_handler import SubscriptionMessageHandler
 from .protocol_handler import ProtocolMessageHandler
 from .session_handler import SessionMessageHandler
 from .collection_handler import CollectionMessageHandler
+from .strategy_handler import StrategyMessageHandler
 
 __all__ = [
     "AuthMessageHandler",
     "SubscriptionMessageHandler",
     "ProtocolMessageHandler",
     "SessionMessageHandler",
-    "CollectionMessageHandler"
+    "CollectionMessageHandler",
+    "StrategyMessageHandler"
 ]
