@@ -443,162 +443,46 @@ class StreamingIndicatorEngine:
 
 
     # ✅ PHASE 1 FIX: Circuit breaker implementation
-    def _is_circuit_breaker_open(self) -> bool:
-        """Check if circuit breaker is open (blocking requests)"""
-        state = self._circuit_breaker_state
-        config = self._circuit_breaker_config
-        current_time = time.time()
-
-        if state["state"] == "OPEN":
-            if current_time >= state["next_attempt_time"]:
-                # Time to try again - move to HALF_OPEN
-                state["state"] = "HALF_OPEN"
-                state["success_count"] = 0
-                self.logger.info("streaming_indicator_engine.circuit_breaker_half_open", {
-                    "failure_count": state["failure_count"],
-                    "recovery_timeout": config["recovery_timeout"]
-                })
-                return False
-            return True  # Still open
-        return False
-
-    def _record_calculation_success(self) -> None:
-        """Record successful calculation for circuit breaker"""
-        state = self._circuit_breaker_state
-        config = self._circuit_breaker_config
-
-        state["failure_count"] = 0  # Reset failure count on success
-
-        if state["state"] == "HALF_OPEN":
-            state["success_count"] += 1
-            if state["success_count"] >= config["success_threshold"]:
-                # Enough successes - close the circuit
-                state["state"] = "CLOSED"
-                self.logger.info("streaming_indicator_engine.circuit_breaker_closed", {
-                    "success_count": state["success_count"],
-                    "success_threshold": config["success_threshold"]
-                })
-
-    def _record_calculation_failure(self, error: Exception) -> None:
-        """Record failed calculation for circuit breaker"""
-        state = self._circuit_breaker_state
-        config = self._circuit_breaker_config
-        current_time = time.time()
-
-        state["failure_count"] += 1
-        state["last_failure_time"] = current_time
-
-        # Update error counts for health monitoring
-        error_type = type(error).__name__
-        self._health_monitoring["error_counts"][error_type] = \
-            self._health_monitoring["error_counts"].get(error_type, 0) + 1
-
-        if state["state"] == "HALF_OPEN":
-            # Any failure in HALF_OPEN goes back to OPEN
-            state["state"] = "OPEN"
-            state["next_attempt_time"] = current_time + config["recovery_timeout"]
-            self.logger.warning("streaming_indicator_engine.circuit_breaker_reopened", {
-                "error_type": error_type,
-                "failure_count": state["failure_count"]
-            })
-        elif state["failure_count"] >= config["failure_threshold"] and state["state"] == "CLOSED":
-            # Open the circuit
-            state["state"] = "OPEN"
-            state["next_attempt_time"] = current_time + config["recovery_timeout"]
-            self.logger.warning("streaming_indicator_engine.circuit_breaker_opened", {
-                "failure_threshold": config["failure_threshold"],
-                "failure_count": state["failure_count"],
-                "error_type": error_type
-            })
+    # ✅ REFACTORING: Circuit breaker methods removed - delegated to HealthMonitor
+    # Removed: _is_circuit_breaker_open(), _record_calculation_success(), _record_calculation_failure()
+    # All circuit breaker logic now handled by self._health_monitor
 
     async def _calculate_with_circuit_breaker(self, indicator_key: str, indicator: StreamingIndicator,
                                               price: float, timestamp: Any) -> Optional[float]:
-        """Calculate indicator value with circuit breaker protection"""
-        # Check if circuit breaker is open
-        if self._is_circuit_breaker_open():
-            self.logger.debug("streaming_indicator_engine.circuit_breaker_open_blocking", {
-                "indicator_key": indicator_key,
-                "state": self._circuit_breaker_state["state"]
-            })
-            return None  # Return None instead of failing
+        """
+        ✅ REFACTORING: Calculate indicator value with circuit breaker protection.
 
-        # Perform calculation with timeout
-        try:
-            import asyncio
-            calculation_coro = self._calculate_indicator_value_incremental(indicator_key, indicator, price, timestamp)
+        Delegates to HealthMonitor for circuit breaker and timeout protection.
+        """
+        # Create calculation coroutine
+        calculation_coro = self._calculate_indicator_value_incremental(indicator_key, indicator, price, timestamp)
 
-            # Run with timeout protection
-            start_time = time.time()
-            result = await asyncio.wait_for(calculation_coro, timeout=self._circuit_breaker_config["timeout_seconds"])
-            calculation_time = time.time() - start_time
+        # Delegate to HealthMonitor for circuit breaker protection
+        result = await self._health_monitor.execute_with_protection(
+            coro=calculation_coro,
+            context=f"indicator:{indicator_key}"
+        )
 
-            # Record success and performance metrics
-            self._record_calculation_success()
-            self._health_monitoring["calculation_times"].append(calculation_time)
+        return result
 
-            return result
-
-        except asyncio.TimeoutError:
-            error = TimeoutError(f"Calculation timeout after {self._circuit_breaker_config['timeout_seconds']}s")
-            self._record_calculation_failure(error)
-            self.logger.warning("streaming_indicator_engine.calculation_timeout", {
-                "indicator_key": indicator_key,
-                "timeout_seconds": self._circuit_breaker_config["timeout_seconds"]
-            })
-            return None
-        except Exception as e:
-            self._record_calculation_failure(e)
-            self.logger.error("streaming_indicator_engine.calculation_error_with_circuit_breaker", {
-                "indicator_key": indicator_key,
-                "error": str(e),
-                "error_type": type(e).__name__
-            })
-            return None
-
-    # ✅ PHASE 1 FIX: Health monitoring methods
-    def _update_health_status(self) -> None:
-        """Update overall health status based on metrics"""
-        current_time = time.time()
-        if current_time - self._health_monitoring["last_health_check"] < 60:
-            return  # Check health every minute
-
-        self._health_monitoring["last_health_check"] = current_time
-
-        # Calculate health metrics
-        calculation_times = list(self._health_monitoring["calculation_times"])
-        if not calculation_times:
-            self._health_monitoring["health_status"] = "UNKNOWN"
-            return
-
-        avg_calculation_time = sum(calculation_times) / len(calculation_times)
-        error_rate = sum(self._health_monitoring["error_counts"].values()) / max(1, len(calculation_times))
-
-        # Determine health status
-        if avg_calculation_time > 1.0 or error_rate > 0.1:  # >1s avg or >10% errors
-            self._health_monitoring["health_status"] = "UNHEALTHY"
-        elif avg_calculation_time > 0.5 or error_rate > 0.05:  # >500ms avg or >5% errors
-            self._health_monitoring["health_status"] = "DEGRADED"
-        else:
-            self._health_monitoring["health_status"] = "HEALTHY"
+    # ✅ REFACTORING: Health monitoring fully delegated to HealthMonitor
+    # Removed: _update_health_status() - delegated to HealthMonitor.update_health_status()
 
     def get_health_status(self) -> Dict[str, Any]:
-        """Get comprehensive health status"""
-        self._update_health_status()
+        """
+        ✅ REFACTORING: Get comprehensive health status.
 
-        return {
-            "overall_status": self._health_monitoring["health_status"],
-            "circuit_breaker": self._circuit_breaker_state.copy(),
-            "performance": {
-                "avg_calculation_time_ms": (
-                    sum(self._health_monitoring["calculation_times"]) /
-                    max(1, len(self._health_monitoring["calculation_times"]))
-                ) * 1000,
-                "total_calculations": len(self._health_monitoring["calculation_times"]),
-                "error_counts": self._health_monitoring["error_counts"].copy()
-            },
-            "cache_stats": self.get_cache_performance_stats(),
-            "memory_stability": self._memory_monitor.get_stability_report()
-        }
+        Delegates health and circuit breaker monitoring to HealthMonitor,
+        adds cache and memory stats from respective monitors.
+        """
+        # Get health status from HealthMonitor (includes circuit breaker and performance)
+        health_data = self._health_monitor.get_health_status()
+
+        # Augment with cache and memory stats
+        health_data["cache_stats"] = self.get_cache_performance_stats()
+        health_data["memory_stability"] = self._memory_monitor.get_stability_report()
+
+        return health_data
 
     def add_indicator(self,
                       symbol: str,
