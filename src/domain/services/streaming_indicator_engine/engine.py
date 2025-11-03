@@ -597,7 +597,7 @@ class StreamingIndicatorEngine:
                 "error_counts": self._health_monitoring["error_counts"].copy()
             },
             "cache_stats": self.get_cache_performance_stats(),
-            "memory_stability": self.get_memory_stability_report()
+            "memory_stability": self._memory_monitor.get_stability_report()
         }
 
     def add_indicator(self,
@@ -608,8 +608,8 @@ class StreamingIndicatorEngine:
                       **kwargs) -> str:
         """Add a streaming indicator with memory and concurrency safety"""
         with self._data_lock:
-            # ✅ CRITICAL FIX: Check memory limits before adding
-            if not self._check_memory_limits():
+            # ✅ REFACTORING: Delegate memory check to MemoryMonitor
+            if not self._memory_monitor.check_limits():
                 raise MemoryError(f"Memory limit exceeded ({self.MAX_MEMORY_MB}MB). Cannot add indicator.")
 
             # ✅ CRITICAL FIX: Check indicator limits per symbol
@@ -879,64 +879,31 @@ class StreamingIndicatorEngine:
             })
 
     def _check_memory_limits(self) -> bool:
-        """✅ PHASE 2 FIX: Enhanced memory monitoring with leak detection for 24/7 stability"""
-        current_time = time.time()
+        """
+        ✅ REFACTORING: Check memory limits and trigger appropriate cleanup.
 
-        # Only check memory periodically to avoid overhead
-        if current_time - self._last_memory_check < self._memory_check_interval:
+        Delegates monitoring to MemoryMonitor, engine handles data cleanup.
+        """
+        # Delegate monitoring to MemoryMonitor
+        within_limits = self._memory_monitor.check_limits()
+
+        if within_limits:
             return True
 
-        try:
-            process = psutil.Process()
-            memory_mb = process.memory_info().rss / 1024 / 1024
-            self._performance_metrics["memory_usage_mb"] = memory_mb
-            self._last_memory_check = current_time
+        # Memory limit exceeded - determine cleanup level from MemoryMonitor metrics
+        metrics = self._memory_monitor.get_metrics()
+        memory_mb = metrics["memory_usage_mb"]
+        memory_pct = (memory_mb / self.MAX_MEMORY_MB) * 100
 
-            # ✅ PHASE 2 FIX: Track memory samples for leak detection
-            self._memory_samples.append({
-                "timestamp": current_time,
-                "memory_mb": memory_mb,
-                "indicators_count": len(self._indicators),
-                "cache_size": self._cache_manager.get_statistics()["size"]
-            })
+        # Execute appropriate cleanup based on severity
+        if memory_pct >= 95:  # Emergency threshold
+            self._emergency_cleanup()
+        elif memory_pct >= 85:  # Force cleanup threshold
+            self._force_cleanup()
+        else:  # Standard cleanup threshold (70%)
+            self._cleanup_expired_data()
 
-            # ✅ PHASE 2 FIX: Check for memory leaks
-            self._detect_memory_leaks()
-
-            # ✅ PHASE 2 FIX: Progressive cleanup based on memory usage levels
-            memory_pct = (memory_mb / self.MAX_MEMORY_MB) * 100
-
-            if memory_pct >= self._memory_emergency_threshold_pct:
-                # Emergency cleanup - most aggressive
-                self.logger.error("streaming_indicator_engine.emergency_memory_cleanup", {
-                    "memory_mb": memory_mb,
-                    "memory_pct": memory_pct,
-                    "limit_mb": self.MAX_MEMORY_MB
-                })
-                self._emergency_cleanup()
-                return False
-            elif memory_pct >= self._memory_force_cleanup_threshold_pct:
-                # Force cleanup - aggressive
-                self.logger.warning("streaming_indicator_engine.force_memory_cleanup", {
-                    "memory_mb": memory_mb,
-                    "memory_pct": memory_pct,
-                    "limit_mb": self.MAX_MEMORY_MB
-                })
-                self._force_cleanup()
-                return False
-            elif memory_pct >= self._memory_cleanup_threshold_pct:
-                # Standard cleanup - moderate
-                self.logger.info("streaming_indicator_engine.standard_memory_cleanup", {
-                    "memory_mb": memory_mb,
-                    "memory_pct": memory_pct,
-                    "limit_mb": self.MAX_MEMORY_MB
-                })
-                self._cleanup_expired_data()
-
-            return True
-        except Exception as e:
-            self.logger.error("streaming_indicator_engine.memory_check_error", {"error": str(e)})
-            return True  # Allow operation if check fails
+        return False  # Indicate cleanup was triggered
 
     def _force_cleanup(self) -> None:
         """✅ CRITICAL FIX: Force cleanup when memory limits exceeded"""
@@ -1042,51 +1009,6 @@ class StreamingIndicatorEngine:
 
             self.logger.error("streaming_indicator_engine.emergency_cleanup_completed", cleanup_stats)
 
-    def _detect_memory_leaks(self) -> None:
-        """✅ PHASE 2 FIX: Detect potential memory leaks for 24/7 stability monitoring"""
-        if len(self._memory_samples) < 10:  # Need minimum samples
-            return
-
-        current_time = time.time()
-        if current_time - self._last_memory_growth_check < (self._memory_growth_window_minutes * 60):
-            return
-
-        self._last_memory_growth_check = current_time
-
-        # Analyze memory growth over the monitoring window
-        recent_samples = [s for s in self._memory_samples
-                         if current_time - s['timestamp'] < (self._memory_growth_window_minutes * 60)]
-
-        if len(recent_samples) < 5:
-            return
-
-        # Calculate memory growth trend
-        earliest = min(recent_samples, key=lambda x: x['timestamp'])
-        latest = max(recent_samples, key=lambda x: x['timestamp'])
-        memory_growth = latest['memory_mb'] - earliest['memory_mb']
-
-        # Calculate growth rate (MB per hour)
-        time_span_hours = (latest['timestamp'] - earliest['timestamp']) / 3600
-        if time_span_hours > 0:
-            growth_rate_mbh = memory_growth / time_span_hours
-
-            if memory_growth > self._memory_leak_threshold_mb:
-                self._memory_alerts_triggered += 1
-                self.logger.warning("streaming_indicator_engine.memory_leak_detected", {
-                    "memory_growth_mb": memory_growth,
-                    "growth_rate_mb_per_hour": growth_rate_mbh,
-                    "time_span_hours": time_span_hours,
-                    "alerts_triggered": self._memory_alerts_triggered,
-                    "samples_analyzed": len(recent_samples)
-                })
-
-                # Trigger preventive cleanup if growth is concerning
-                if growth_rate_mbh > 10:  # Growing faster than 10MB/hour
-                    self.logger.warning("streaming_indicator_engine.preventive_cleanup_triggered", {
-                        "reason": "high_memory_growth_rate",
-                        "growth_rate_mb_per_hour": growth_rate_mbh
-                    })
-                    self._cleanup_expired_data()
 
     def _cleanup_all_data_structures(self) -> int:
         """✅ PHASE 2 FIX: Aggressive cleanup of all data structures for emergency situations"""
@@ -1118,81 +1040,6 @@ class StreamingIndicatorEngine:
 
         return cleaned_count
 
-    def get_memory_stability_report(self) -> Dict[str, Any]:
-        """✅ PHASE 2 FIX: Generate comprehensive memory stability report for 24/7 monitoring"""
-        if not self._memory_samples:
-            return {"status": "no_data", "message": "No memory samples collected yet"}
-
-        current_time = time.time()
-
-        # Analyze memory trends
-        recent_samples = [s for s in self._memory_samples
-                         if current_time - s['timestamp'] < 3600]  # Last hour
-
-        if not recent_samples:
-            return {"status": "insufficient_data", "message": "No recent memory samples"}
-
-        # Calculate statistics
-        memory_values = [s['memory_mb'] for s in recent_samples]
-        avg_memory = sum(memory_values) / len(memory_values)
-        max_memory = max(memory_values)
-        min_memory = min(memory_values)
-        memory_variance = sum((x - avg_memory) ** 2 for x in memory_values) / len(memory_values)
-
-        # Calculate stability score (lower variance = more stable)
-        stability_score = max(0, 100 - (memory_variance * 10))  # Scale variance to 0-100 score
-
-        # Determine stability status
-        if stability_score >= 90:
-            status = "EXCELLENT"
-        elif stability_score >= 75:
-            status = "GOOD"
-        elif stability_score >= 60:
-            status = "FAIR"
-        elif stability_score >= 40:
-            status = "POOR"
-        else:
-            status = "CRITICAL"
-
-        # Memory growth analysis
-        if len(recent_samples) >= 2:
-            oldest = min(recent_samples, key=lambda x: x['timestamp'])
-            newest = max(recent_samples, key=lambda x: x['timestamp'])
-            growth_mb = newest['memory_mb'] - oldest['memory_mb']
-            time_span_hours = (newest['timestamp'] - oldest['timestamp']) / 3600
-            growth_rate_mbh = growth_mb / time_span_hours if time_span_hours > 0 else 0
-        else:
-            growth_mb = 0
-            growth_rate_mbh = 0
-
-        return {
-            "status": status,
-            "stability_score": stability_score,
-            "memory_stats": {
-                "average_mb": round(avg_memory, 2),
-                "max_mb": round(max_memory, 2),
-                "min_mb": round(min_memory, 2),
-                "variance": round(memory_variance, 4),
-                "current_mb": self._performance_metrics.get("memory_usage_mb", 0)
-            },
-            "growth_analysis": {
-                "growth_mb": round(growth_mb, 2),
-                "growth_rate_mb_per_hour": round(growth_rate_mbh, 2),
-                "samples_analyzed": len(recent_samples)
-            },
-            "cleanup_stats": {
-                "alerts_triggered": self._memory_alerts_triggered,
-                "last_cleanup": self._last_cleanup_time,
-                "cleanup_frequency_hours": self._cleanup_interval_seconds / 3600
-            },
-            "thresholds": {
-                "max_memory_mb": self.MAX_MEMORY_MB,
-                "cleanup_threshold_pct": self._memory_cleanup_threshold_pct,
-                "force_cleanup_threshold_pct": self._memory_force_cleanup_threshold_pct,
-                "emergency_threshold_pct": self._memory_emergency_threshold_pct,
-                "leak_threshold_mb": self._memory_leak_threshold_mb
-            }
-        }
 
     def _init_incremental_calculator(self, indicator_key: str, indicator_type: str, period: int) -> None:
         """✅ CRITICAL FIX: Initialize incremental calculator for performance"""
@@ -1230,8 +1077,8 @@ class StreamingIndicatorEngine:
         """Handle market data update with thread safety and error handling"""
         start_time = time.time()
 
-        # ✅ CRITICAL FIX: Check memory limits before processing
-        if not self._check_memory_limits():
+        # ✅ REFACTORING: Delegate memory check to MemoryMonitor
+        if not self._memory_monitor.check_limits():
             return
 
         symbol = data.get("symbol")
