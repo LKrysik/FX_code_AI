@@ -162,13 +162,8 @@ class StreamingIndicatorEngine:
         # ✅ CRITICAL FIX: Incremental indicator calculators for performance
         self._incremental_indicators: Dict[str, Any] = {}  # Cache for incremental calculations
 
-        # ✅ REFACTORING: Caching moved to CacheManager component
-        # ⚠️ TEMPORARY: Keep old fields for backward compatibility until full migration
-        self._indicator_cache = self._cache_manager._cache  # Direct reference to cache storage
-        self._cache_ttl_seconds = 60
-        self._cache_access_order = self._cache_manager._access_order
-        self._indicator_volatility = self._cache_manager._indicator_volatility
-        self._cache_access_history = self._cache_manager._access_history
+        # ✅ REFACTORING COMPLETE: Caching fully delegated to CacheManager component
+        # All cache operations now go through self._cache_manager public API
 
         self._time_driven_indicators: Dict[str, TimeDrivenSchedule] = {}
         self._time_scheduler_task: Optional[asyncio.Task] = None
@@ -447,42 +442,6 @@ class StreamingIndicatorEngine:
             })
 
 
-    def _update_indicator_volatility(self) -> None:
-        """✅ PHASE 2 FIX: Update indicator volatility scores based on recent calculations"""
-        current_time = time.time()
-        if current_time - self._last_volatility_update < self._volatility_update_interval:
-            return
-
-        self._last_volatility_update = current_time
-
-        # Analyze recent cache access patterns to determine volatility
-        recent_accesses = [access for access in self._cache_access_history
-                          if current_time - access['timestamp'] < 600]  # Last 10 minutes
-
-        indicator_stats = {}
-        for access in recent_accesses:
-            indicator_type = access['key'].split(':')[0] if ':' in access['key'] else 'UNKNOWN'
-            if indicator_type not in indicator_stats:
-                indicator_stats[indicator_type] = {'hits': 0, 'misses': 0, 'total': 0}
-            indicator_stats[indicator_type]['total'] += 1
-            if access['hit']:
-                indicator_stats[indicator_type]['hits'] += 1
-            else:
-                indicator_stats[indicator_type]['misses'] += 1
-
-        # Calculate volatility as miss rate (higher miss rate = higher volatility)
-        for indicator_type, stats in indicator_stats.items():
-            if stats['total'] > 0:
-                miss_rate = stats['misses'] / stats['total']
-                # Smooth volatility updates
-                current_volatility = self._indicator_volatility.get(indicator_type, 0.5)
-                self._indicator_volatility[indicator_type] = (current_volatility * 0.7) + (miss_rate * 0.3)
-
-        self.logger.debug("streaming_indicator_engine.volatility_updated", {
-            "indicators_analyzed": len(indicator_stats),
-            "volatility_scores": self._indicator_volatility
-        })
-
     # ✅ PHASE 1 FIX: Circuit breaker implementation
     def _is_circuit_breaker_open(self) -> bool:
         """Check if circuit breaker is open (blocking requests)"""
@@ -640,19 +599,6 @@ class StreamingIndicatorEngine:
             "cache_stats": self.get_cache_performance_stats(),
             "memory_stability": self.get_memory_stability_report()
         }
-
-    def _calculate_cache_hit_rate(self) -> float:
-        """✅ PHASE 2 FIX: Calculate actual cache hit rate from tracked metrics"""
-        total_requests = self._cache_hits + self._cache_misses
-        if total_requests == 0:
-            return 0.0
-
-        hit_rate = self._cache_hits / total_requests
-
-        # Update volatility analysis periodically
-        self._update_indicator_volatility()
-
-        return hit_rate
 
     def add_indicator(self,
                       symbol: str,
@@ -951,7 +897,7 @@ class StreamingIndicatorEngine:
                 "timestamp": current_time,
                 "memory_mb": memory_mb,
                 "indicators_count": len(self._indicators),
-                "cache_size": len(self._indicator_cache)
+                "cache_size": self._cache_manager.get_statistics()["size"]
             })
 
             # ✅ PHASE 2 FIX: Check for memory leaks
@@ -1072,9 +1018,7 @@ class StreamingIndicatorEngine:
                                 del self._indicators_by_symbol[symbol]
 
             # 2. Clear entire cache if needed
-            cache_size_before = len(self._indicator_cache)
-            self._indicator_cache.clear()
-            self._cache_access_order.clear()
+            cache_size_before = self._cache_manager.clear()
             cleanup_stats["cache_entries_removed"] = cache_size_before
 
             # 3. Aggressive data structure cleanup
@@ -4168,7 +4112,7 @@ class StreamingIndicatorEngine:
             self.logger.info("streaming_indicator_engine.cache_warmed", {
                 "symbol": symbol,
                 "indicators_warmed": warmed_count,
-                "cache_size": len(self._indicator_cache)
+                "cache_size": self._cache_manager.get_statistics()["size"]
             })
 
     def prefetch_related_indicators(self, indicator_key: str) -> None:
@@ -4226,29 +4170,24 @@ class StreamingIndicatorEngine:
                 })
 
     def get_cache_performance_stats(self) -> Dict[str, Any]:
-        """✅ PHASE 2 FIX: Get comprehensive cache performance statistics"""
-        total_requests = self._cache_hits + self._cache_misses
-        hit_rate = (self._cache_hits / total_requests) if total_requests > 0 else 0.0
+        """
+        ✅ REFACTORING: Get comprehensive cache performance statistics.
 
-        # Calculate hit rate over different time windows
-        current_time = time.time()
-        recent_accesses = [access for access in self._cache_access_history
-                          if current_time - access['timestamp'] < 300]  # Last 5 minutes
-
-        recent_hits = sum(1 for access in recent_accesses if access['hit'])
-        recent_total = len(recent_accesses)
-        recent_hit_rate = (recent_hits / recent_total) if recent_total > 0 else 0.0
+        Delegates to CacheManager for all cache metrics.
+        """
+        # Delegate to CacheManager for all cache statistics
+        stats = self._cache_manager.get_statistics()
 
         return {
-            "overall_hit_rate": hit_rate,
-            "recent_hit_rate_5m": recent_hit_rate,
-            "total_requests": total_requests,
-            "cache_hits": self._cache_hits,
-            "cache_misses": self._cache_misses,
-            "cache_size": len(self._indicator_cache),
-            "max_cache_size": self._max_cache_size,
-            "cache_utilization_pct": (len(self._indicator_cache) / self._max_cache_size) * 100,
-            "volatility_scores": self._indicator_volatility.copy(),
+            "overall_hit_rate": stats["hit_rate"],
+            "recent_hit_rate_5m": stats["recent_hit_rate_5m"],
+            "total_requests": stats["total_accesses"],
+            "cache_hits": stats["hits"],
+            "cache_misses": stats["misses"],
+            "cache_size": stats["size"],
+            "max_cache_size": stats["max_size"],
+            "cache_utilization_pct": stats["utilization_pct"],
+            "volatility_scores": stats["volatility_scores"],
             "adaptive_ttl_enabled": True,
             "lru_eviction_enabled": True,
             "cache_warming_enabled": self._cache_warming_enabled
