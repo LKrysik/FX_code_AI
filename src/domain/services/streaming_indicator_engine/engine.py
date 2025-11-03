@@ -1382,89 +1382,17 @@ class StreamingIndicatorEngine:
     # ✅ GOAL_03: Registered calculation functions for system indicators
     # These functions provide the unified interface for the indicator registry system
     
-    def _calculate_sma_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """SMA calculation wrapper for registry system"""
-        prices = calculation_params.get('prices', [])
-        period = calculation_params.get('period', 20)
-        
-        if len(prices) < period:
-            return None
-        return sum(prices[-period:]) / period
-
-    def _calculate_ema_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """EMA calculation wrapper for registry system"""
-        prices = calculation_params.get('prices', [])
-        period = calculation_params.get('period', 20)
-        
-        if len(prices) < period:
-            return None
-        return self._calculate_ema(prices, period)
-
-    def _calculate_rsi_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """RSI calculation wrapper for registry system"""
-        prices = calculation_params.get('prices', [])
-        period = calculation_params.get('period', 14)
-        
-        if len(prices) < period + 1:
-            return None
-        return self._calculate_rsi(prices, period)
-
-    def _calculate_macd_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """MACD calculation wrapper for registry system"""
-        prices = calculation_params.get('prices', [])
-        
-        if len(prices) < 26:  # Need enough data for slow EMA
-            return None
-        return self._calculate_macd(prices)
-
-    def _calculate_bollinger_bands_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """Bollinger Bands calculation wrapper for registry system"""
-        prices = calculation_params.get('prices', [])
-        period = calculation_params.get('period', 20)
-        
-        if len(prices) < period:
-            return None
-        return self._calculate_bollinger_bands(prices, period)
-
-    def _calculate_pump_magnitude_pct_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """Pump Magnitude calculation wrapper for registry system"""
-        prices = calculation_params.get('prices', [])
-        period = calculation_params.get('period', 20)
-        
-        if len(prices) < period:
-            return None
-        return self._calculate_pump_magnitude_pct(prices, period)
-
-    def _calculate_volume_surge_ratio_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """Volume Surge Ratio calculation wrapper for registry system"""
-        return self._calculate_volume_surge_ratio(indicator)
-
-    def _calculate_price_velocity_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """Price Velocity calculation wrapper for registry system"""
-        prices = calculation_params.get('prices', [])
-        period = calculation_params.get('period', 10)
-        
-        if len(prices) < period:
-            return None
-        return self._calculate_price_velocity(prices, period)
-
-    def _calculate_price_momentum_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """Price Momentum calculation wrapper for registry system"""
-        prices = calculation_params.get('prices', [])
-        period = calculation_params.get('period', 10)
-        
-        if len(prices) < period:
-            return None
-        return self._calculate_price_momentum(prices, period)
-
-    def _calculate_baseline_price_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """Baseline Price calculation wrapper for registry system"""
-        prices = calculation_params.get('prices', [])
-        period = calculation_params.get('period', 20)
-        
-        if len(prices) < period:
-            return None
-        return self._calculate_baseline_price(prices, period)
+    # ✅ REFACTORING: Dead code removed - unused _registered methods
+    # Removed 12 unused wrapper methods that were never called:
+    # - _calculate_sma_registered, _calculate_ema_registered, _calculate_rsi_registered
+    # - _calculate_macd_registered, _calculate_bollinger_bands_registered
+    # - _calculate_pump_magnitude_pct_registered, _calculate_volume_surge_ratio_registered
+    # - _calculate_price_velocity_registered, _calculate_price_momentum_registered
+    # - _calculate_baseline_price_registered, _calculate_order_price_registered
+    # - _calculate_close_order_price_registered, _calculate_volatility_registered
+    # - _calculate_risk_level_registered
+    #
+    # Only 2 _registered methods are actually used (kept below):
 
     def _calculate_stop_loss_price_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
         """Stop Loss Price calculation wrapper for registry system"""
@@ -1493,282 +1421,34 @@ class StreamingIndicatorEngine:
         else:
             return price * (1.0 + (risk_reward_ratio * 0.01))  # Simple percentage-based
 
-    def _calculate_order_price_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """Order Price calculation wrapper for registry system"""
-        price = calculation_params.get('price', 0.0)
-        method = calculation_params.get('method', 'market')
-        offset_pct = calculation_params.get('offset_pct', 0.0)
-        
-        if price == 0.0:
-            return None
-            
-        if method == 'market':
-            return price * (1.0 + offset_pct / 100.0)
-        elif method == 'limit':
-            return price * (1.0 + offset_pct / 100.0)
-        else:
-            return price  # Default to market price
+    # ✅ REFACTORING: Tech indicator methods (used by price aggregation calculations)
 
-    def _calculate_close_order_price_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """Close Order Price calculation wrapper for registry system"""
-        price = calculation_params.get('price', 0.0)
-        method = calculation_params.get('method', 'market')
-        offset_pct = calculation_params.get('offset_pct', 0.0)
-        
-        if price == 0.0:
-            return None
-            
-        if method == 'market':
-            return price * (1.0 + offset_pct / 100.0)
-        elif method == 'limit':
-            return price * (1.0 + offset_pct / 100.0)
-        else:
-            return price  # Default to market price
-
-    def _calculate_volatility_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """Volatility calculation wrapper for registry system"""
-        prices = calculation_params.get('prices', [])
-        period = calculation_params.get('period', 20)
-        
-        if len(prices) < period:
-            return None
-        return self._calculate_volatility(prices, period)
-
-    def _calculate_risk_level_registered(self, indicator: StreamingIndicator, calculation_params: Dict[str, Any]) -> Optional[float]:
-        """Risk Level calculation wrapper for registry system"""
-        return self._calculate_risk_level(indicator)
-    
     def _calculate_ema(self, prices: List[float], period: int) -> float:
-        """Calculate Exponential Moving Average"""
+        """
+        Calculate Exponential Moving Average.
+
+        ✅ REFACTORING NOTE: Only EMA remains - other tech indicators (RSI, MACD, Bollinger) removed.
+        They were never called and IndicatorCalculator provides better implementations.
+        """
         multiplier = 2.0 / (period + 1)
         ema = prices[0]  # Start with first price
-        
+
         for price in prices[1:]:
             ema = (price * multiplier) + (ema * (1 - multiplier))
-        
+
         return ema
-    
-    def _calculate_rsi(self, prices: List[float], period: int) -> float:
-        """Calculate Relative Strength Index"""
-        if len(prices) < period + 1:
-            return 50.0  # Neutral RSI
-        
-        gains = []
-        losses = []
-        
-        for i in range(1, len(prices)):
-            change = prices[i] - prices[i-1]
-            if change > 0:
-                gains.append(change)
-                losses.append(0)
-            else:
-                gains.append(0)
-                losses.append(abs(change))
-        
-        if len(gains) < period:
-            return 50.0
-        
-        avg_gain = sum(gains[-period:]) / period
-        avg_loss = sum(losses[-period:]) / period
-        
-        if avg_loss == 0:
-            return 100.0
-        
-        rs = avg_gain / avg_loss
-        rsi = 100 - (100 / (1 + rs))
-        
-        return rsi
-    
-    def _calculate_macd(self, prices: List[float]) -> float:
-        """Calculate MACD (simplified)"""
-        if len(prices) < 26:
-            return 0.0
-        
-        ema12 = self._calculate_ema(prices[-12:], 12)
-        ema26 = self._calculate_ema(prices[-26:], 26)
-        
-        return ema12 - ema26
-    
-    def _calculate_bollinger_bands(self, prices: List[float], period: int) -> float:
-        """Calculate Bollinger Bands middle band (SMA) with standard deviation available"""
-        if len(prices) < period:
-            return 0.0
 
     # ===== PHASE 3: PRIORITY 2 CORE FEATURES IMPLEMENTATIONS =====
-
-    def _calculate_trade_size_momentum(self, indicator: StreamingIndicator) -> Optional[float]:
-        """Calculate Trade_Size_Momentum - relative change in average trade size"""
-        params = indicator.metadata or {}
-        current_window = params.get("current_window", {"t1": 300, "t2": 0})  # 5 minutes default
-        baseline_window = params.get("baseline_window", {"t1": 1800, "t2": 300})  # 30-5 minutes ago default
-
-        # Calculate average trade size for current window
-        current_deals, _, _ = self._get_deals_for_window(indicator, current_window["t1"], current_window["t2"])
-        if not current_deals:
-            return None
-        current_avg_size = sum(d.get("volume", 0.0) for d in current_deals) / len(current_deals)
-
-        # Calculate average trade size for baseline window
-        baseline_deals, _, _ = self._get_deals_for_window(indicator, baseline_window["t1"], baseline_window["t2"])
-        if not baseline_deals:
-            return None
-        baseline_avg_size = sum(d.get("volume", 0.0) for d in baseline_deals) / len(baseline_deals)
-
-        if baseline_avg_size == 0:
-            return None
-
-        # Calculate momentum: current / baseline
-        momentum = current_avg_size / baseline_avg_size
-
-        self.logger.debug("trade_size_momentum_calculated", {
-            "symbol": indicator.symbol,
-            "current_avg_size": current_avg_size,
-            "baseline_avg_size": baseline_avg_size,
-            "momentum": momentum
-        })
-
-        return momentum
-
-    def _calculate_mid_price_velocity(self, indicator: StreamingIndicator) -> Optional[float]:
-        """Calculate Mid_Price_Velocity - velocity of order book mid price"""
-        params = indicator.metadata or {}
-        t = params.get("t", 300)  # comparison timeframe in seconds (default 5 minutes)
-
-        symbol = indicator.symbol
-
-        # Get current mid price (TW_MidPrice(0,0))
-        current_window, _, _ = self._get_orderbook_series_for_window(indicator, 0, 0)
-        if not current_window:
-            return None
-
-        current_mid = self._calculate_windowed_orderbook_aggregates(indicator, "TW_MIDPRICE", {"t1": 0, "t2": 0})
-        if current_mid is None:
-            return None
-
-        # Get baseline mid price (TW_MidPrice(t,0))
-        baseline_window, _, _ = self._get_orderbook_series_for_window(indicator, t, 0)
-        if not baseline_window:
-            return None
-
-        baseline_mid = self._calculate_windowed_orderbook_aggregates(indicator, "TW_MIDPRICE", {"t1": t, "t2": 0})
-        if baseline_mid is None or baseline_mid == 0:
-            return None
-
-        # Calculate velocity: (current - baseline) / baseline * 100
-        velocity = ((current_mid - baseline_mid) / baseline_mid) * 100
-
-        self.logger.debug("mid_price_velocity_calculated", {
-            "symbol": symbol,
-            "current_mid": current_mid,
-            "baseline_mid": baseline_mid,
-            "velocity": velocity
-        })
-
-        return velocity
-
-    def _calculate_total_liquidity(self, indicator: StreamingIndicator) -> Optional[float]:
-        """Calculate Total_Liquidity - combined bid and ask liquidity"""
-        params = indicator.metadata or {}
-        t1 = float(params.get("t1", 300))  # 5 minutes default
-        t2 = float(params.get("t2", 0))
-
-        # Use existing windowed orderbook aggregates method
-        total_liquidity = self._calculate_windowed_orderbook_aggregates(indicator, "TOTAL_LIQUIDITY", {"t1": t1, "t2": t2})
-
-        return total_liquidity
-
-    def _calculate_liquidity_ratio(self, indicator: StreamingIndicator) -> Optional[float]:
-        """Calculate Liquidity_Ratio - current vs baseline liquidity ratio"""
-        params = indicator.metadata or {}
-        current_window = params.get("current_window", {"t1": 300, "t2": 0})    # 5 minutes default
-        baseline_window = params.get("baseline_window", {"t1": 1800, "t2": 300}) # 30-5 minutes ago default
-
-        # Calculate current liquidity
-        current_liquidity = self._calculate_windowed_orderbook_aggregates(
-            indicator, "TOTAL_LIQUIDITY",
-            {"t1": current_window["t1"], "t2": current_window["t2"]}
-        )
-
-        # Calculate baseline liquidity
-        baseline_liquidity = self._calculate_windowed_orderbook_aggregates(
-            indicator, "TOTAL_LIQUIDITY",
-            {"t1": baseline_window["t1"], "t2": baseline_window["t2"]}
-        )
-
-        if current_liquidity is None or baseline_liquidity is None or baseline_liquidity == 0:
-            return None
-
-        ratio = current_liquidity / baseline_liquidity
-
-        self.logger.debug("liquidity_ratio_calculated", {
-            "symbol": indicator.symbol,
-            "current_liquidity": current_liquidity,
-            "baseline_liquidity": baseline_liquidity,
-            "ratio": ratio
-        })
-
-        return ratio
-
-    def _calculate_liquidity_drain_index(self, indicator: StreamingIndicator) -> Optional[float]:
-        """Calculate Liquidity_Drain_Index - liquidity depletion over time"""
-        params = indicator.metadata or {}
-        current_window = params.get("current_window", {"t1": 300, "t2": 0})    # 5 minutes default
-        baseline_window = params.get("baseline_window", {"t1": 600, "t2": 300}) # 10-5 minutes ago default
-
-        # Calculate current liquidity
-        current_liquidity = self._calculate_windowed_orderbook_aggregates(
-            indicator, "TOTAL_LIQUIDITY",
-            {"t1": current_window["t1"], "t2": current_window["t2"]}
-        )
-
-        # Calculate baseline liquidity
-        baseline_liquidity = self._calculate_windowed_orderbook_aggregates(
-            indicator, "TOTAL_LIQUIDITY",
-            {"t1": baseline_window["t1"], "t2": baseline_window["t2"]}
-        )
-
-        if baseline_liquidity is None or baseline_liquidity == 0:
-            return None
-
-        # Drain index: (baseline - current) / baseline
-        drain_index = (baseline_liquidity - (current_liquidity or 0)) / baseline_liquidity
-
-        self.logger.debug("liquidity_drain_index_calculated", {
-            "symbol": indicator.symbol,
-            "current_liquidity": current_liquidity,
-            "baseline_liquidity": baseline_liquidity,
-            "drain_index": drain_index
-        })
-
-        return drain_index
-
-    def _calculate_deal_vs_mid_deviation(self, indicator: StreamingIndicator) -> Optional[float]:
-        """Calculate Deal_vs_Mid_Deviation - price deviation from order book mid"""
-        params = indicator.metadata or {}
-        t1 = float(params.get("t1", 300))  # 5 minutes default
-        t2 = float(params.get("t2", 0))
-
-        # Get TWPA for deals in window
-        twpa = self._calculate_parametric_measure(indicator)  # This will call TWPA calculation
-        if twpa is None:
-            return None
-
-        # Get TW_MidPrice for same window
-        mid_price = self._calculate_windowed_orderbook_aggregates(indicator, "TW_MIDPRICE", {"t1": t1, "t2": t2})
-        if mid_price is None or mid_price == 0:
-            return None
-
-        # Calculate deviation: |TWPA - TW_MidPrice| / TW_MidPrice * 100
-        deviation = abs(twpa - mid_price) / mid_price * 100
-
-        self.logger.debug("deal_vs_mid_deviation_calculated", {
-            "symbol": indicator.symbol,
-            "twpa": twpa,
-            "mid_price": mid_price,
-            "deviation_pct": deviation
-        })
-
-        return deviation
+    # ✅ REFACTORING: Dead code removed - batch 1 (4 methods, ~112 lines)
+    # These methods were never called (verified by grep analysis):
+    # - _calculate_trade_size_momentum
+    # - _calculate_mid_price_velocity
+    # - _calculate_total_liquidity
+    # - _calculate_liquidity_ratio
+    #
+    # ✅ REFACTORING: Dead code removed - batch 2 (2 methods, ~58 lines)
+    # - _calculate_liquidity_drain_index
+    # - _calculate_deal_vs_mid_deviation
 
     def _calculate_inter_deal_intervals(self, indicator: StreamingIndicator) -> Optional[List[float]]:
         """Calculate Inter_Deal_Intervals - time intervals between consecutive trades"""
@@ -1800,385 +1480,30 @@ class StreamingIndicatorEngine:
 
         return intervals
 
-    def _calculate_decision_density_acceleration(self, indicator: StreamingIndicator) -> Optional[float]:
-        """Calculate Decision_Density_Acceleration - change in trading decision frequency"""
-        params = indicator.metadata or {}
-        current_window = params.get("current_window", {"t1": 300, "t2": 0})    # 5 minutes default
-        baseline_window = params.get("baseline_window", {"t1": 600, "t2": 300}) # 10-5 minutes ago default
-
-        # Get intervals for current window
-        current_intervals = self._calculate_inter_deal_intervals_for_window(
-            indicator, current_window["t1"], current_window["t2"]
-        )
-
-        # Get intervals for baseline window
-        baseline_intervals = self._calculate_inter_deal_intervals_for_window(
-            indicator, baseline_window["t1"], baseline_window["t2"]
-        )
-
-        if not current_intervals or not baseline_intervals:
-            return None
-
-        # Calculate median intervals
-        current_median = sorted(current_intervals)[len(current_intervals) // 2]
-        baseline_median = sorted(baseline_intervals)[len(baseline_intervals) // 2]
-
-        if baseline_median == 0:
-            return None
-
-        # Acceleration: median_baseline / median_current
-        # Higher values = faster decision making
-        acceleration = baseline_median / current_median
-
-        self.logger.debug("decision_density_acceleration_calculated", {
-            "symbol": indicator.symbol,
-            "current_median_interval": current_median,
-            "baseline_median_interval": baseline_median,
-            "acceleration": acceleration
-        })
-
-        return acceleration
-
-    def _calculate_inter_deal_intervals_for_window(self, indicator: StreamingIndicator, t1: float, t2: float) -> List[float]:
-        """Helper method to calculate inter-deal intervals for a specific window"""
-        deals, _, _ = self._get_deals_for_window(indicator, t1, t2)
-
-        if len(deals) < 2:
-            return []
-
-        deals.sort(key=lambda x: x["timestamp"])
-        intervals = []
-        for i in range(1, len(deals)):
-            interval = deals[i]["timestamp"] - deals[i-1]["timestamp"]
-            intervals.append(interval)
-
-        return intervals
-
-    def _calculate_trade_clustering_coefficient(self, indicator: StreamingIndicator) -> Optional[float]:
-        """Calculate Trade_Clustering_Coefficient - measure of trade timing clustering"""
-        params = indicator.metadata or {}
-        t1 = float(params.get("t1", 300))  # 5 minutes default
-        t2 = float(params.get("t2", 0))
-        min_deals = int(params.get("min_deals", 5))  # minimum deals required
-
-        # Get intervals
-        intervals = self._calculate_inter_deal_intervals_for_window(indicator, t1, t2)
-
-        if len(intervals) < min_deals - 1:  # Need at least min_deals - 1 intervals
-            return None
-
-        # Calculate coefficient: VARIANCE(intervals) / MEAN(intervals)┬▓
-        if not intervals:
-            return None
-
-        mean_interval = sum(intervals) / len(intervals)
-        variance = sum((interval - mean_interval) ** 2 for interval in intervals) / len(intervals)
-
-        if mean_interval == 0:
-            return None
-
-        coefficient = variance / (mean_interval ** 2)
-
-        self.logger.debug("trade_clustering_coefficient_calculated", {
-            "symbol": indicator.symbol,
-            "interval_count": len(intervals),
-            "mean_interval": mean_interval,
-            "variance": variance,
-            "coefficient": coefficient
-        })
-
-        return coefficient
-
-    def _calculate_price_volatility(self, indicator: StreamingIndicator) -> Optional[float]:
-        """Calculate Price_Volatility - standard deviation of price returns"""
-        params = indicator.metadata or {}
-        t1 = float(params.get("t1", 300))  # 5 minutes default
-        t2 = float(params.get("t2", 0))
-        min_deals = int(params.get("min_deals", 3))  # minimum deals required
-
-        # Get deals in window
-        deals, _, _ = self._get_deals_for_window(indicator, t1, t2)
-
-        if len(deals) < min_deals:
-            return None
-
-        # Calculate price returns: (price_i - price_{i-1}) / price_{i-1}
-        returns = []
-        for i in range(1, len(deals)):
-            prev_price = deals[i-1]["price"]
-            curr_price = deals[i]["price"]
-            if prev_price > 0:
-                ret = (curr_price - prev_price) / prev_price
-                returns.append(ret)
-
-        if not returns:
-            return None
-
-        # Calculate standard deviation of returns
-        mean_return = sum(returns) / len(returns)
-        variance = sum((ret - mean_return) ** 2 for ret in returns) / len(returns)
-        volatility = variance ** 0.5
-
-        self.logger.debug("price_volatility_calculated", {
-            "symbol": indicator.symbol,
-            "deal_count": len(deals),
-            "return_count": len(returns),
-            "volatility": volatility
-        })
-
-        return volatility
-
-    def _calculate_deal_size_volatility(self, indicator: StreamingIndicator) -> Optional[float]:
-        """Calculate Deal_Size_Volatility - variability in trade sizes"""
-        params = indicator.metadata or {}
-        t1 = float(params.get("t1", 300))  # 5 minutes default
-        t2 = float(params.get("t2", 0))
-
-        # Get deals in window
-        deals, _, _ = self._get_deals_for_window(indicator, t1, t2)
-
-        if len(deals) < 2:
-            return None
-
-        # Extract volumes
-        volumes = [deal["volume"] for deal in deals if deal.get("volume", 0) > 0]
-
-        if len(volumes) < 2:
-            return None
-
-        # Calculate coefficient of variation: STDEV(volumes) / MEAN(volumes)
-        mean_volume = sum(volumes) / len(volumes)
-        if mean_volume == 0:
-            return None
-
-        variance = sum((vol - mean_volume) ** 2 for vol in volumes) / len(volumes)
-        std_dev = variance ** 0.5
-        volatility = std_dev / mean_volume
-
-        self.logger.debug("deal_size_volatility_calculated", {
-            "symbol": indicator.symbol,
-            "deal_count": len(volumes),
-            "mean_volume": mean_volume,
-            "std_dev": std_dev,
-            "volatility": volatility
-        })
-
-        return volatility
-
-        # Calculate SMA (middle band of Bollinger Bands)
-        sma = sum(prices[-period:]) / period
-
-        # Calculate standard deviation for proper Bollinger Bands
-        # (This could be used for upper/lower bands in future extensions)
-        if len(prices) >= period:
-            squared_diff_sum = sum((price - sma) ** 2 for price in prices[-period:])
-            std_dev = (squared_diff_sum / period) ** 0.5
-
-            # Log the bands for debugging (full implementation would return all three)
-            upper_band = sma + (2 * std_dev)
-            lower_band = sma - (2 * std_dev)
-
-            self.logger.debug("bollinger_bands_calculated", {
-                "period": period,
-                "sma": sma,
-                "std_dev": std_dev,
-                "upper_band": upper_band,
-                "lower_band": lower_band,
-                "data_points": len(prices)
-            })
-
-        return sma
-
-    def _calculate_max_twpa(self, indicator: StreamingIndicator) -> Optional[float]:
-        """Calculate MAX_TWPA - maximum TWPA value over time window"""
-        params = indicator.metadata or {}
-        t1 = float(params.get("t1", 300))  # 5 minutes default
-        t2 = float(params.get("t2", 0))
-        measure = params.get("measure", "TWPA")  # TWPA variant to track
-
-        # Get TWPA series over the time window
-        twpa_values = self._get_twpa_series_for_window(indicator.symbol, t1, t2, measure)
-
-        if not twpa_values:
-            return None
-
-        return max(twpa_values)
-
-    def _calculate_min_twpa(self, indicator: StreamingIndicator) -> Optional[float]:
-        """Calculate MIN_TWPA - minimum TWPA value over time window"""
-        params = indicator.metadata or {}
-        t1 = float(params.get("t1", 300))  # 5 minutes default
-        t2 = float(params.get("t2", 0))
-        measure = params.get("measure", "TWPA")  # TWPA variant to track
-
-        # Get TWPA series over the time window
-        twpa_values = self._get_twpa_series_for_window(indicator.symbol, t1, t2, measure)
-
-        if not twpa_values:
-            return None
-
-        return min(twpa_values)
-
-    def _get_twpa_series_for_window(self, symbol: str, t1: float, t2: float, measure: str) -> List[float]:
-        """Get series of TWPA values over a time window for max/min calculations"""
-        # For now, we'll simulate TWPA values over time windows
-        # In a full implementation, this would track historical TWPA calculations
-
-        # Get price data for the window
-        price_key = f"{symbol}_1m"  # Use 1m timeframe for now
-        price_data = self._price_data.get(price_key, deque())
-
-        if not price_data:
-            return []
-
-        # Calculate TWPA at different points in the window
-        twpa_values = []
-        window_duration = t1 - t2
-        step_size = max(30, window_duration // 10)  # Calculate at 10 points or every 30s minimum
-
-        for offset in range(0, int(window_duration), int(step_size)):
-            # Calculate TWPA for a sub-window ending at this offset
-            sub_t1 = t1 - offset
-            sub_t2 = max(0, sub_t1 - step_size)
-
-            if sub_t1 <= sub_t2:
-                continue
-
-            # Get price series for this sub-window
-            window_prices = []
-            now_ts = time.time()
-            start_ts = now_ts - sub_t1
-            end_ts = now_ts - sub_t2
-
-            for price_point in price_data:
-                if start_ts <= price_point["timestamp"] <= end_ts:
-                    window_prices.append((price_point["timestamp"], price_point["price"]))
-
-            if len(window_prices) >= 2:
-                twpa_value = self._calc_twpa(window_prices, start_ts, end_ts)
-                if twpa_value is not None:
-                    twpa_values.append(twpa_value)
-
-        return twpa_values
-
-    def _calculate_vtwpa(self, indicator: StreamingIndicator) -> Optional[float]:
-        """Calculate VTWPA - Volume-Time Weighted Price Average"""
-        params = indicator.metadata or {}
-        t1 = float(params.get("t1", 300))  # 5 minutes default
-        t2 = float(params.get("t2", 0))
-
-        # Get deals within the time window
-        deals, start_ts, end_ts = self._get_deals_for_window(indicator, t1, t2)
-
-        if not deals:
-            return None
-
-        # Calculate VTWPA: ╬ú(price_i ├Ś volume_i ├Ś duration_i) / ╬ú(volume_i ├Ś duration_i)
-        total_weighted_price = 0.0
-        total_weight = 0.0
-
-        # Sort deals by timestamp
-        deals.sort(key=lambda x: x["timestamp"])
-
-        for i, deal in enumerate(deals):
-            price = deal["price"]
-            volume = deal["volume"]
-            timestamp = deal["timestamp"]
-
-            # Calculate duration (time this price level was maintained)
-            if i == 0:
-                # First deal - duration from window start to next deal
-                duration_start = max(timestamp, start_ts)
-            else:
-                # Duration from previous deal to this one
-                duration_start = deals[i-1]["timestamp"]
-
-            if i == len(deals) - 1:
-                # Last deal - duration to window end
-                duration_end = min(timestamp + 60, end_ts)  # Assume 60s duration for last deal
-            else:
-                # Duration to next deal
-                duration_end = deals[i+1]["timestamp"]
-
-            duration = max(1, duration_end - duration_start)  # Minimum 1 second
-
-            # Weight by volume and duration
-            weight = volume * duration
-            total_weighted_price += price * weight
-            total_weight += weight
-
-        if total_weight == 0:
-            return None
-
-        vtwpa = total_weighted_price / total_weight
-
-        self.logger.debug("vtwpa_calculated", {
-            "symbol": indicator.symbol,
-            "t1": t1,
-            "t2": t2,
-            "deals_count": len(deals),
-            "vtwpa": vtwpa
-        })
-
-        return vtwpa
-
-    def _calculate_velocity_cascade(self, indicator: StreamingIndicator) -> Optional[List[float]]:
-        """Calculate Velocity_Cascade - multi-timeframe velocity analysis"""
-        params = indicator.metadata or {}
-        timeframes = params.get("timeframes", [30, 60, 120, 300, 600, 900])  # Default timeframes in seconds
-        price_method = params.get("price_method", "TWPA")
-
-        velocities = []
-        symbol = indicator.symbol
-
-        for timeframe in timeframes:
-            try:
-                # Calculate velocity for this timeframe
-                # Velocity = (current_price - baseline_price) / baseline_price * 100
-                # Using TWPA as price method for stability
-
-                # Current window: (0, 0) to now
-                # Baseline window: (timeframe, 0) to timeframe seconds ago
-                current_params = {"t1": 0, "t2": 0}
-                baseline_params = {"t1": timeframe, "t2": 0}
-
-                # Get current price (simplified - using last price for now)
-                price_key = f"{symbol}_{indicator.timeframe}"
-                price_data = self._price_data.get(price_key, deque())
-                if not price_data:
-                    velocities.append(0.0)
-                    continue
-
-                current_price = price_data[-1]["price"] if price_data else 0.0
-
-                # Get baseline price using TWPA
-                baseline_window, _, _ = self._get_price_series_for_window(indicator, timeframe, 0)
-                if baseline_window:
-                    baseline_price = self._calc_twpa(baseline_window, time.time() - timeframe, time.time())
-                else:
-                    baseline_price = current_price
-
-                if baseline_price > 0:
-                    velocity = ((current_price - baseline_price) / baseline_price) * 100
-                    velocities.append(velocity)
-                else:
-                    velocities.append(0.0)
-
-            except Exception as e:
-                self.logger.debug("velocity_cascade_calculation_error", {
-                    "symbol": symbol,
-                    "timeframe": timeframe,
-                    "error": str(e)
-                })
-                velocities.append(0.0)
-
-        self.logger.debug("velocity_cascade_calculated", {
-            "symbol": symbol,
-            "timeframes": timeframes,
-            "velocities": velocities
-        })
-
-        return velocities
+    # ✅ REFACTORING: Dead code removed - batch 3 (3 methods, ~86 lines)
+    # Removed methods that were never called:
+    # - _calculate_decision_density_acceleration (38 lines)
+    # - _calculate_inter_deal_intervals_for_window (14 lines)
+    # - _calculate_trade_clustering_coefficient (34 lines)
+
+    # ✅ REFACTORING: Dead code removed - batch 4 part 1
+    # Removed _calculate_price_volatility (39 lines) - never called
+
+    # ✅ REFACTORING: Dead code removed - batch 4 part 2
+    # Removed _calculate_deal_size_volatility (62 lines) - never called
+    # Also removed orphaned Bollinger Bands code (unreachable after return)
+
+    # ✅ REFACTORING: Dead code removed - batch 4 part 3
+    # Removed 3 methods (~72 lines):
+    # - _calculate_max_twpa (15 lines) - never called
+    # - _calculate_min_twpa (15 lines) - never called
+    # - _get_twpa_series_for_window (42+ lines) - helper used only by dead methods
+
+    # ✅ REFACTORING: Dead code removed - batch 4 part 4
+    # Removed _calculate_vtwpa (61 lines) - never called
+
+    # ✅ REFACTORING: Dead code removed - batch 5
+    # Removed _calculate_velocity_cascade (57 lines) - never called
 
     def _calculate_velocity_acceleration(self, indicator: StreamingIndicator) -> Optional[float]:
         """Calculate Velocity_Acceleration - velocity rate of change"""
