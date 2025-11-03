@@ -452,11 +452,11 @@ class Container:
 
     async def create_strategy_manager(self) -> StrategyManager:
         """
-        Create strategy manager with 5-group condition architecture.
+        Create strategy manager with 5-group condition architecture and QuestDB persistence.
         Uses two-phase initialization with validation to prevent deadlocks.
 
         Returns:
-            Configured strategy manager
+            Configured strategy manager with database persistence
         """
         def _create_instance_only():
             """Synchronous factory - creates instance without async dependencies"""
@@ -466,7 +466,8 @@ class Container:
                     event_bus=self.event_bus,
                     logger=self.logger,
                     order_manager=None,  # Will be set during async initialization
-                    risk_manager=None    # Will be set during async initialization
+                    risk_manager=None,   # Will be set during async initialization
+                    db_pool=None         # Will be set during async initialization
                 )
             except Exception as e:
                 self.logger.error("container.strategy_manager_instance_creation_failed", {
@@ -487,16 +488,50 @@ class Container:
                 order_manager = await self.create_order_manager()
                 risk_manager = await self.create_risk_manager()
 
+                # ⚠️ CRITICAL: Create QuestDB connection pool for strategy persistence
+                db_pool = None
+                try:
+                    from ..data_feed.questdb_provider import QuestDBProvider
+
+                    questdb_provider = QuestDBProvider(
+                        ilp_host='127.0.0.1',
+                        ilp_port=9009,
+                        pg_host='127.0.0.1',
+                        pg_port=8812
+                    )
+                    await questdb_provider.initialize()
+
+                    # Get PostgreSQL connection pool for strategy persistence
+                    db_pool = questdb_provider.pg_pool
+
+                    self.logger.info("container.strategy_manager_db_pool_created", {
+                        "pg_host": "127.0.0.1",
+                        "pg_port": 8812,
+                        "status": "connected"
+                    })
+                except Exception as e:
+                    self.logger.warning("container.strategy_manager_db_pool_failed", {
+                        "error": str(e),
+                        "impact": "Strategies will not persist to database"
+                    })
+                    # Continue without DB - strategies will be in-memory only
+
                 # Set dependencies on strategy manager
                 strategy_manager.order_manager = order_manager
                 strategy_manager.risk_manager = risk_manager
+                strategy_manager.db_pool = db_pool  # May be None if DB unavailable
+
+                # ⚠️ CRITICAL: Load strategies from QuestDB or create defaults
+                await strategy_manager.initialize_strategies()
 
                 # Mark as initialized
                 strategy_manager._is_initialized = True
 
                 self.logger.info("container.strategy_manager_fully_initialized", {
                     "has_order_manager": order_manager is not None,
-                    "has_risk_manager": risk_manager is not None
+                    "has_risk_manager": risk_manager is not None,
+                    "has_db_pool": db_pool is not None,
+                    "strategy_count": len(strategy_manager.strategies)
                 })
 
             except Exception as e:
