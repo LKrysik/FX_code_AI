@@ -12,5 +12,6 @@ while keeping the main server class focused on orchestration.
 """
 
 from .session_store import SessionStore
+from .connection_lifecycle import ConnectionLifecycle
 
-__all__ = ["SessionStore"]
+__all__ = ["SessionStore", "ConnectionLifecycle"]
