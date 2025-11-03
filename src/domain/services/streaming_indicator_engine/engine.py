@@ -86,7 +86,8 @@ class StreamingIndicatorEngine:
             # ⚠️ FALLBACK PATH: Create standalone registry (for tests or when repository is None)
             # This path should NOT be used in production (repository should always be injected)
             try:
-                from .indicators.algorithm_registry import IndicatorAlgorithmRegistry
+                # ✅ IMPORT FIX: algorithm_registry is in ../indicators/ (sibling directory), not ./indicators/
+                from ..indicators.algorithm_registry import IndicatorAlgorithmRegistry
                 self._algorithm_registry = IndicatorAlgorithmRegistry(self.logger)
 
                 # Load all algorithms through registry
@@ -98,8 +99,8 @@ class StreamingIndicatorEngine:
                         "reason": "auto_discovery_found_no_algorithms"
                     })
 
-                    from .indicators.twpa import twpa_algorithm
-                    from .indicators.twpa_ratio import twpa_ratio_algorithm
+                    from ..indicators.twpa import twpa_algorithm
+                    from ..indicators.twpa_ratio import twpa_ratio_algorithm
 
                     self._algorithm_registry.register_algorithm(twpa_algorithm)
                     self._algorithm_registry.register_algorithm(twpa_ratio_algorithm)
