@@ -298,11 +298,18 @@ class StreamingIndicatorEngine:
         # ✅ CRITICAL FIX: Thread-safe synchronization
         self._data_lock = RLock()  # Reentrant lock for nested operations
 
-        # ✅ PHASE 2 FIX: Enhanced memory management for 24/7 stability (MOVED UP)
+        # ✅ REFACTORING: Initialize extracted components
+        from .caching.cache_manager import CacheManager
+        from .memory.memory_monitor import MemoryMonitor
+        from .health.health_monitor import HealthMonitor
+
         self.MAX_MEMORY_MB = 500  # Hard memory limit
         self.MAX_INDICATORS_PER_SYMBOL = 100  # Prevent indicator explosion
-        self._memory_check_interval = 30  # Check memory every 30 seconds (more frequent)
-        self._last_memory_check = time.time()
+
+        # Create component instances (delegation pattern)
+        self._cache_manager = CacheManager(logger=logger, max_size=10000)
+        self._memory_monitor = MemoryMonitor(logger=logger, max_memory_mb=self.MAX_MEMORY_MB)
+        self._health_monitor = HealthMonitor(logger=logger)
 
         # ✅ ARCHITECTURE FIX: Use algorithm registry from variant_repository (SINGLE SOURCE OF TRUTH)
         # If variant_repository is provided, reuse its algorithm_registry to avoid duplication.
@@ -373,17 +380,7 @@ class StreamingIndicatorEngine:
         self._max_series_length = 1000
         self._supported_timeframes = ["1m", "5m", "15m", "1h"]
 
-        # ✅ PHASE 2 FIX: Memory leak detection and monitoring
-        self._memory_samples = deque(maxlen=100)  # Track memory usage over time
-        self._memory_leak_threshold_mb = 50  # Alert if memory grows by 50MB in short time
-        self._memory_growth_window_minutes = 10  # Monitor growth over 10 minutes
-        self._last_memory_growth_check = time.time()
-        self._memory_alerts_triggered = 0
-
-        # ✅ PHASE 2 FIX: Aggressive cleanup thresholds for stability
-        self._memory_cleanup_threshold_pct = 75  # Start cleanup at 75% of limit
-        self._memory_force_cleanup_threshold_pct = 85  # Force cleanup at 85%
-        self._memory_emergency_threshold_pct = 95  # Emergency cleanup at 95%
+        # ✅ REFACTORING: Memory monitoring moved to MemoryMonitor component
 
         # ✅ CRITICAL FIX: TTL cleanup for data structures to prevent memory leaks (more aggressive)
         self._data_ttl_seconds = 600  # 10 minutes TTL for unused data (reduced from 1 hour)
@@ -404,53 +401,19 @@ class StreamingIndicatorEngine:
         # ✅ CRITICAL FIX: Incremental indicator calculators for performance
         self._incremental_indicators: Dict[str, Any] = {}  # Cache for incremental calculations
 
-        # ✅ PHASE 2 FIX: Advanced hierarchical caching system with performance tracking
-        self._indicator_cache: Dict[str, Dict[str, Any]] = {}  # cache_key -> {"value": float, "timestamp": float, "ttl": int, "hits": int, "access_time": float}
-        self._cache_ttl_seconds = 60  # 1 minute base cache TTL for indicators
-        self._cache_bucket_size = 60  # 1 minute time buckets for cache keys
-
-        # ✅ PHASE 2 FIX: Cache performance tracking for >90% hit ratio optimization
-        self._cache_hits = 0
-        self._cache_misses = 0
-        self._cache_access_history: deque = deque(maxlen=1000)  # Track recent cache accesses
-        self._cache_performance_window = 300  # 5 minutes performance window
-
-        # ✅ PHASE 2 FIX: Adaptive TTL based on indicator volatility
-        self._indicator_volatility: Dict[str, float] = {}  # indicator_type -> volatility score
-        self._volatility_update_interval = 600  # Update volatility every 10 minutes
-        self._last_volatility_update = time.time()
-
-        # ✅ PHASE 2 FIX: LRU cache eviction with access tracking
-        self._cache_access_order: Dict[str, float] = {}  # cache_key -> last_access_time
-        self._max_cache_size = 10000  # Maximum cache entries
-        self._cache_high_watermark = 8000  # Start eviction at 80% capacity
+        # ✅ REFACTORING: Caching moved to CacheManager component
+        # ⚠️ TEMPORARY: Keep old fields for backward compatibility until full migration
+        self._indicator_cache = self._cache_manager._cache  # Direct reference to cache storage
+        self._cache_ttl_seconds = 60
+        self._cache_access_order = self._cache_manager._access_order
+        self._indicator_volatility = self._cache_manager._indicator_volatility
+        self._cache_access_history = self._cache_manager._access_history
 
         self._time_driven_indicators: Dict[str, TimeDrivenSchedule] = {}
         self._time_scheduler_task: Optional[asyncio.Task] = None
         self._scheduler_sleep_floor = 0.25
 
-        # ✅ PHASE 1 FIX: Circuit breaker for indicator calculations
-        self._circuit_breaker_state = {
-            "failure_count": 0,
-            "last_failure_time": 0,
-            "state": "CLOSED",  # CLOSED, OPEN, HALF_OPEN
-            "success_count": 0,
-            "next_attempt_time": 0
-        }
-        self._circuit_breaker_config = {
-            "failure_threshold": 5,  # Open after 5 failures
-            "recovery_timeout": 60,  # Try again after 60 seconds
-            "success_threshold": 3,  # Close after 3 successes in HALF_OPEN
-            "timeout_seconds": 5.0   # Max calculation time before timeout
-        }
-
-        # ✅ PHASE 1 FIX: Indicator health monitoring
-        self._health_monitoring = {
-            "calculation_times": deque(maxlen=100),  # Last 100 calculation times
-            "error_counts": {},  # Error counts by indicator type
-            "last_health_check": time.time(),
-            "health_status": "HEALTHY"  # HEALTHY, DEGRADED, UNHEALTHY
-        }
+        # ✅ REFACTORING: Health monitoring and circuit breaker moved to HealthMonitor component
 
         # Subscribe to market data (will be done when event loop is available)
         self._subscription_task = None
@@ -589,112 +552,20 @@ class StreamingIndicatorEngine:
         return await self._calculate_with_circuit_breaker("", indicator, 0.0, time.time())
 
     def _resolve_cache_bucket(self, indicator_type: str, params: Dict[str, Any]) -> int:
-        """Derive cache bucket size using algorithm registry."""
-        algorithm = self._algorithm_registry.get_algorithm(indicator_type)
-        if algorithm:
-            try:
-                from .indicators.base_algorithm import IndicatorParameters
-                wrapped_params = IndicatorParameters(params)
-                refresh_interval = algorithm.calculate_refresh_interval(wrapped_params)
-                return max(1, int(round(refresh_interval)))
-            except Exception as e:
-                self.logger.warning("streaming_indicator_engine.algorithm_cache_bucket_failed", {
-                    "indicator_type": indicator_type,
-                    "error": str(e)
-                })
-        
-        return self._cache_bucket_size
+        """✅ REFACTORING: Delegate to CacheManager"""
+        return self._cache_manager.resolve_bucket(indicator_type, params)
 
     def _get_cache_key(self, indicator_type: str, symbol: str, timeframe: str, params: Dict[str, Any]) -> str:
-        """✅ PHASE 1 FIX: Generate cache key with timestamp bucket for time-sensitive indicators"""
-        bucket_size = self._resolve_cache_bucket(indicator_type, params)
-        current_time = int(time.time() // bucket_size) * bucket_size
-
-        # ✅ PHASE 1 FIX: Enhanced time-bucketed caching for all time-sensitive indicators
-        time_sensitive_indicators = [
-            "TWPA", "VTWPA", "VELOCITY", "VOLUME_SURGE", "TW_MIDPRICE",
-            "MAX_PRICE", "MIN_PRICE", "FIRST_PRICE", "LAST_PRICE",
-            "SUM_VOLUME", "AVG_VOLUME", "COUNT_DEALS", "VWAP",
-            "VOLUME_CONCENTRATION", "VOLUME_ACCELERATION", "TRADE_FREQUENCY",
-            "AVERAGE_TRADE_SIZE", "BID_ASK_IMBALANCE", "SPREAD_PERCENTAGE",
-            "SPREAD_VOLATILITY", "VOLUME_PRICE_CORRELATION"
-        ]
-
-        if indicator_type in time_sensitive_indicators:
-            # Include window parameters and time bucket for precise caching
-            t1 = params.get('t1', 0)
-            t2 = params.get('t2', 0)
-            param_str = f"{t1}:{t2}:{current_time}:{bucket_size}"
-        else:
-            # For non-time-sensitive indicators, use period and time bucket
-            param_str = f"{params.get('period', 20)}:{current_time}"
-
-        cache_key = f"{indicator_type}:{symbol}:{timeframe}:{param_str}"
-
-        # ✅ PHASE 1 FIX: Log cache key generation for debugging
-        self.logger.debug("streaming_indicator_engine.cache_key_generated", {
-            "indicator_type": indicator_type,
-            "symbol": symbol,
-            "time_bucket": current_time,
-            "cache_key": cache_key
-        })
-
-        return cache_key
+        """✅ REFACTORING: Delegate to CacheManager"""
+        return self._cache_manager.get_cache_key(indicator_type, symbol, timeframe, params)
 
     def _get_cached_value(self, cache_key: str) -> Optional[float]:
-        """✅ PHASE 2 FIX: Get cached indicator value with hit tracking and LRU updates"""
-        if cache_key not in self._indicator_cache:
-            self._cache_misses += 1
-            self._record_cache_access(cache_key, False)
-            return None
-
-        cache_entry = self._indicator_cache[cache_key]
-        current_time = time.time()
-
-        # Check if expired
-        if current_time - cache_entry["timestamp"] > cache_entry["ttl"]:
-            # Expired, remove
-            del self._indicator_cache[cache_key]
-            self._cache_access_order.pop(cache_key, None)
-            self._cache_misses += 1
-            self._record_cache_access(cache_key, False)
-            return None
-
-        # Cache hit - update access tracking
-        self._cache_hits += 1
-        cache_entry["hits"] = cache_entry.get("hits", 0) + 1
-        cache_entry["access_time"] = current_time
-        self._cache_access_order[cache_key] = current_time
-        self._record_cache_access(cache_key, True)
-
-        # ✅ PHASE 2 FIX: Trigger prefetching for related indicators on cache hit
-        if cache_entry["hits"] > 3:  # Only prefetch for frequently accessed indicators
-            self.prefetch_related_indicators(cache_key.split(':')[1] if ':' in cache_key else cache_key)
-
-        return cache_entry["value"]
+        """✅ REFACTORING: Delegate to CacheManager"""
+        return self._cache_manager.get(cache_key)
 
     def _set_cached_value(self, cache_key: str, value: float, ttl: int = None) -> None:
-        """✅ PHASE 2 FIX: Cache indicator value with adaptive TTL and LRU eviction"""
-        current_time = time.time()
-
-        # Determine adaptive TTL based on indicator volatility
-        if ttl is None:
-            ttl = self._calculate_adaptive_ttl(cache_key)
-
-        # Check cache size limits and evict if necessary
-        self._enforce_cache_limits()
-
-        # Cache the value with enhanced metadata
-        self._indicator_cache[cache_key] = {
-            "value": value,
-            "timestamp": current_time,
-            "ttl": ttl,
-            "hits": 0,
-            "access_time": current_time
-        }
-
-        # Update LRU tracking
-        self._cache_access_order[cache_key] = current_time
+        """✅ REFACTORING: Delegate to CacheManager"""
+        self._cache_manager.set(cache_key, value, ttl)
 
     def _cleanup_cache(self) -> None:
         """Clean expired cache entries"""
