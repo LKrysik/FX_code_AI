@@ -114,9 +114,10 @@ class ConditionGroup:
 
 @dataclass
 class Strategy:
-    """Complete strategy with 5 condition groups"""
+    """Complete strategy with 5 condition groups + SHORT support"""
     strategy_name: str
     enabled: bool = True
+    direction: str = "LONG"  # "LONG", "SHORT", or "BOTH"
 
     # 5 Groups of Conditions (user_feedback.md specification)
     signal_detection: ConditionGroup = field(default_factory=lambda: ConditionGroup("signal_detection"))  # S1
@@ -139,6 +140,23 @@ class Strategy:
     cooldown_until: Optional[datetime] = None  # When cooldown expires
     last_signal_cancelled: Optional[datetime] = None  # O1 cooldown
     last_emergency_exit: Optional[datetime] = None  # E1 cooldown
+
+    def get_entry_order_type(self) -> OrderType:
+        """Get entry order type based on strategy direction
+
+        Returns:
+            OrderType.BUY for LONG strategies
+            OrderType.SHORT for SHORT strategies
+
+        Raises:
+            ValueError: If direction is "BOTH" (not yet supported)
+        """
+        if self.direction == "LONG":
+            return OrderType.BUY
+        elif self.direction == "SHORT":
+            return OrderType.SHORT
+        else:
+            raise ValueError(f"Unsupported direction for single entry: {self.direction}. Use 'LONG' or 'SHORT'.")
 
     def evaluate_signal_detection(self, indicator_values: Dict[str, Any]) -> ConditionResult:
         """Evaluate signal detection conditions"""
@@ -1122,15 +1140,21 @@ class StrategyManager:
                         order_value = base_capital * position_size_pct
                         quantity = order_value / current_price
 
-                        # Submit buy order
+                        # Submit entry order (BUY for LONG, SHORT for SHORT)
+                        entry_order_type = strategy.get_entry_order_type()
                         pump_signal_strength = indicator_values.get("pump_magnitude_pct", 0.0) / 100.0
+
+                        # Get leverage from global_limits (default to 1.0 for no leverage)
+                        leverage = strategy.global_limits.get("max_leverage", 1.0)
+
                         order_id = await self.order_manager.submit_order(
                             symbol=strategy.symbol,
-                            order_type=OrderType.BUY,
+                            order_type=entry_order_type,
                             quantity=quantity,
                             price=current_price,
                             strategy_name=strategy.strategy_name,
-                            pump_signal_strength=pump_signal_strength
+                            pump_signal_strength=pump_signal_strength,
+                            leverage=leverage
                         )
 
                         # Update position params with order info
@@ -1373,6 +1397,13 @@ class StrategyManager:
             errors.append("strategy_name is required")
         elif not isinstance(config.get("strategy_name"), str) or len(config.get("strategy_name", "")) < 3:
             errors.append("strategy_name must be a string with at least 3 characters")
+
+        # Direction validation (SHORT support)
+        direction = config.get("direction", "LONG")
+        if direction not in ["LONG", "SHORT", "BOTH"]:
+            errors.append(f"direction must be 'LONG', 'SHORT', or 'BOTH', got: {direction}")
+        elif direction == "BOTH":
+            warnings.append("direction='BOTH' is not yet fully implemented. Use 'LONG' or 'SHORT' for now.")
 
         # Global limits validation
         global_limits = config.get("global_limits", {})
