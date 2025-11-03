@@ -443,162 +443,55 @@ class StreamingIndicatorEngine:
 
 
     # ✅ PHASE 1 FIX: Circuit breaker implementation
-    def _is_circuit_breaker_open(self) -> bool:
-        """Check if circuit breaker is open (blocking requests)"""
-        state = self._circuit_breaker_state
-        config = self._circuit_breaker_config
-        current_time = time.time()
-
-        if state["state"] == "OPEN":
-            if current_time >= state["next_attempt_time"]:
-                # Time to try again - move to HALF_OPEN
-                state["state"] = "HALF_OPEN"
-                state["success_count"] = 0
-                self.logger.info("streaming_indicator_engine.circuit_breaker_half_open", {
-                    "failure_count": state["failure_count"],
-                    "recovery_timeout": config["recovery_timeout"]
-                })
-                return False
-            return True  # Still open
-        return False
-
-    def _record_calculation_success(self) -> None:
-        """Record successful calculation for circuit breaker"""
-        state = self._circuit_breaker_state
-        config = self._circuit_breaker_config
-
-        state["failure_count"] = 0  # Reset failure count on success
-
-        if state["state"] == "HALF_OPEN":
-            state["success_count"] += 1
-            if state["success_count"] >= config["success_threshold"]:
-                # Enough successes - close the circuit
-                state["state"] = "CLOSED"
-                self.logger.info("streaming_indicator_engine.circuit_breaker_closed", {
-                    "success_count": state["success_count"],
-                    "success_threshold": config["success_threshold"]
-                })
-
-    def _record_calculation_failure(self, error: Exception) -> None:
-        """Record failed calculation for circuit breaker"""
-        state = self._circuit_breaker_state
-        config = self._circuit_breaker_config
-        current_time = time.time()
-
-        state["failure_count"] += 1
-        state["last_failure_time"] = current_time
-
-        # Update error counts for health monitoring
-        error_type = type(error).__name__
-        self._health_monitoring["error_counts"][error_type] = \
-            self._health_monitoring["error_counts"].get(error_type, 0) + 1
-
-        if state["state"] == "HALF_OPEN":
-            # Any failure in HALF_OPEN goes back to OPEN
-            state["state"] = "OPEN"
-            state["next_attempt_time"] = current_time + config["recovery_timeout"]
-            self.logger.warning("streaming_indicator_engine.circuit_breaker_reopened", {
-                "error_type": error_type,
-                "failure_count": state["failure_count"]
-            })
-        elif state["failure_count"] >= config["failure_threshold"] and state["state"] == "CLOSED":
-            # Open the circuit
-            state["state"] = "OPEN"
-            state["next_attempt_time"] = current_time + config["recovery_timeout"]
-            self.logger.warning("streaming_indicator_engine.circuit_breaker_opened", {
-                "failure_threshold": config["failure_threshold"],
-                "failure_count": state["failure_count"],
-                "error_type": error_type
-            })
+    # ✅ REFACTORING: Circuit breaker methods removed - delegated to HealthMonitor
+    # Removed: _is_circuit_breaker_open(), _record_calculation_success(), _record_calculation_failure()
+    # All circuit breaker logic now handled by self._health_monitor
 
     async def _calculate_with_circuit_breaker(self, indicator_key: str, indicator: StreamingIndicator,
                                               price: float, timestamp: Any) -> Optional[float]:
-        """Calculate indicator value with circuit breaker protection"""
-        # Check if circuit breaker is open
-        if self._is_circuit_breaker_open():
-            self.logger.debug("streaming_indicator_engine.circuit_breaker_open_blocking", {
-                "indicator_key": indicator_key,
-                "state": self._circuit_breaker_state["state"]
-            })
-            return None  # Return None instead of failing
+        """
+        ✅ REFACTORING: Calculate indicator value with circuit breaker protection.
 
-        # Perform calculation with timeout
-        try:
-            import asyncio
-            calculation_coro = self._calculate_indicator_value_incremental(indicator_key, indicator, price, timestamp)
+        Delegates to HealthMonitor for circuit breaker and timeout protection.
+        """
+        # Create calculation coroutine
+        calculation_coro = self._calculate_indicator_value_incremental(indicator_key, indicator, price, timestamp)
 
-            # Run with timeout protection
-            start_time = time.time()
-            result = await asyncio.wait_for(calculation_coro, timeout=self._circuit_breaker_config["timeout_seconds"])
-            calculation_time = time.time() - start_time
+        # Delegate to HealthMonitor for circuit breaker protection
+        result = await self._health_monitor.execute_with_protection(
+            coro=calculation_coro,
+            context=f"indicator:{indicator_key}"
+        )
 
-            # Record success and performance metrics
-            self._record_calculation_success()
-            self._health_monitoring["calculation_times"].append(calculation_time)
+        return result
 
-            return result
-
-        except asyncio.TimeoutError:
-            error = TimeoutError(f"Calculation timeout after {self._circuit_breaker_config['timeout_seconds']}s")
-            self._record_calculation_failure(error)
-            self.logger.warning("streaming_indicator_engine.calculation_timeout", {
-                "indicator_key": indicator_key,
-                "timeout_seconds": self._circuit_breaker_config["timeout_seconds"]
-            })
-            return None
-        except Exception as e:
-            self._record_calculation_failure(e)
-            self.logger.error("streaming_indicator_engine.calculation_error_with_circuit_breaker", {
-                "indicator_key": indicator_key,
-                "error": str(e),
-                "error_type": type(e).__name__
-            })
-            return None
-
-    # ✅ PHASE 1 FIX: Health monitoring methods
-    def _update_health_status(self) -> None:
-        """Update overall health status based on metrics"""
-        current_time = time.time()
-        if current_time - self._health_monitoring["last_health_check"] < 60:
-            return  # Check health every minute
-
-        self._health_monitoring["last_health_check"] = current_time
-
-        # Calculate health metrics
-        calculation_times = list(self._health_monitoring["calculation_times"])
-        if not calculation_times:
-            self._health_monitoring["health_status"] = "UNKNOWN"
-            return
-
-        avg_calculation_time = sum(calculation_times) / len(calculation_times)
-        error_rate = sum(self._health_monitoring["error_counts"].values()) / max(1, len(calculation_times))
-
-        # Determine health status
-        if avg_calculation_time > 1.0 or error_rate > 0.1:  # >1s avg or >10% errors
-            self._health_monitoring["health_status"] = "UNHEALTHY"
-        elif avg_calculation_time > 0.5 or error_rate > 0.05:  # >500ms avg or >5% errors
-            self._health_monitoring["health_status"] = "DEGRADED"
-        else:
-            self._health_monitoring["health_status"] = "HEALTHY"
+    # ✅ REFACTORING: Health monitoring fully delegated to HealthMonitor
+    # Removed: _update_health_status() - delegated to HealthMonitor.update_health_status()
 
     def get_health_status(self) -> Dict[str, Any]:
-        """Get comprehensive health status"""
-        self._update_health_status()
+        """
+        ✅ REFACTORING: Get comprehensive health status.
 
-        return {
-            "overall_status": self._health_monitoring["health_status"],
-            "circuit_breaker": self._circuit_breaker_state.copy(),
-            "performance": {
-                "avg_calculation_time_ms": (
-                    sum(self._health_monitoring["calculation_times"]) /
-                    max(1, len(self._health_monitoring["calculation_times"]))
-                ) * 1000,
-                "total_calculations": len(self._health_monitoring["calculation_times"]),
-                "error_counts": self._health_monitoring["error_counts"].copy()
-            },
-            "cache_stats": self.get_cache_performance_stats(),
-            "memory_stability": self.get_memory_stability_report()
-        }
+        Delegates health and circuit breaker monitoring to HealthMonitor,
+        adds cache and memory stats from respective monitors.
+        """
+        # Get health status from HealthMonitor (includes circuit breaker and performance)
+        health_data = self._health_monitor.get_health_status()
+
+        # Augment with cache and memory stats
+        health_data["cache_stats"] = self.get_cache_performance_stats()
+        health_data["memory_stability"] = self._memory_monitor.get_stability_report()
+
+        return health_data
+
+    def get_algorithm_registry(self):
+        """
+        ✅ ENCAPSULATION FIX: Public accessor for algorithm registry.
+
+        Returns:
+            IndicatorAlgorithmRegistry instance
+        """
+        return self._algorithm_registry
 
     def add_indicator(self,
                       symbol: str,
@@ -608,8 +501,8 @@ class StreamingIndicatorEngine:
                       **kwargs) -> str:
         """Add a streaming indicator with memory and concurrency safety"""
         with self._data_lock:
-            # ✅ CRITICAL FIX: Check memory limits before adding
-            if not self._check_memory_limits():
+            # ✅ REFACTORING: Delegate memory check to MemoryMonitor
+            if not self._memory_monitor.check_limits():
                 raise MemoryError(f"Memory limit exceeded ({self.MAX_MEMORY_MB}MB). Cannot add indicator.")
 
             # ✅ CRITICAL FIX: Check indicator limits per symbol
@@ -879,64 +772,31 @@ class StreamingIndicatorEngine:
             })
 
     def _check_memory_limits(self) -> bool:
-        """✅ PHASE 2 FIX: Enhanced memory monitoring with leak detection for 24/7 stability"""
-        current_time = time.time()
+        """
+        ✅ REFACTORING: Check memory limits and trigger appropriate cleanup.
 
-        # Only check memory periodically to avoid overhead
-        if current_time - self._last_memory_check < self._memory_check_interval:
+        Delegates monitoring to MemoryMonitor, engine handles data cleanup.
+        """
+        # Delegate monitoring to MemoryMonitor
+        within_limits = self._memory_monitor.check_limits()
+
+        if within_limits:
             return True
 
-        try:
-            process = psutil.Process()
-            memory_mb = process.memory_info().rss / 1024 / 1024
-            self._performance_metrics["memory_usage_mb"] = memory_mb
-            self._last_memory_check = current_time
+        # Memory limit exceeded - determine cleanup level from MemoryMonitor metrics
+        metrics = self._memory_monitor.get_metrics()
+        memory_mb = metrics["memory_usage_mb"]
+        memory_pct = (memory_mb / self.MAX_MEMORY_MB) * 100
 
-            # ✅ PHASE 2 FIX: Track memory samples for leak detection
-            self._memory_samples.append({
-                "timestamp": current_time,
-                "memory_mb": memory_mb,
-                "indicators_count": len(self._indicators),
-                "cache_size": self._cache_manager.get_statistics()["size"]
-            })
+        # Execute appropriate cleanup based on severity
+        if memory_pct >= 95:  # Emergency threshold
+            self._emergency_cleanup()
+        elif memory_pct >= 85:  # Force cleanup threshold
+            self._force_cleanup()
+        else:  # Standard cleanup threshold (70%)
+            self._cleanup_expired_data()
 
-            # ✅ PHASE 2 FIX: Check for memory leaks
-            self._detect_memory_leaks()
-
-            # ✅ PHASE 2 FIX: Progressive cleanup based on memory usage levels
-            memory_pct = (memory_mb / self.MAX_MEMORY_MB) * 100
-
-            if memory_pct >= self._memory_emergency_threshold_pct:
-                # Emergency cleanup - most aggressive
-                self.logger.error("streaming_indicator_engine.emergency_memory_cleanup", {
-                    "memory_mb": memory_mb,
-                    "memory_pct": memory_pct,
-                    "limit_mb": self.MAX_MEMORY_MB
-                })
-                self._emergency_cleanup()
-                return False
-            elif memory_pct >= self._memory_force_cleanup_threshold_pct:
-                # Force cleanup - aggressive
-                self.logger.warning("streaming_indicator_engine.force_memory_cleanup", {
-                    "memory_mb": memory_mb,
-                    "memory_pct": memory_pct,
-                    "limit_mb": self.MAX_MEMORY_MB
-                })
-                self._force_cleanup()
-                return False
-            elif memory_pct >= self._memory_cleanup_threshold_pct:
-                # Standard cleanup - moderate
-                self.logger.info("streaming_indicator_engine.standard_memory_cleanup", {
-                    "memory_mb": memory_mb,
-                    "memory_pct": memory_pct,
-                    "limit_mb": self.MAX_MEMORY_MB
-                })
-                self._cleanup_expired_data()
-
-            return True
-        except Exception as e:
-            self.logger.error("streaming_indicator_engine.memory_check_error", {"error": str(e)})
-            return True  # Allow operation if check fails
+        return False  # Indicate cleanup was triggered
 
     def _force_cleanup(self) -> None:
         """✅ CRITICAL FIX: Force cleanup when memory limits exceeded"""
@@ -1042,51 +902,6 @@ class StreamingIndicatorEngine:
 
             self.logger.error("streaming_indicator_engine.emergency_cleanup_completed", cleanup_stats)
 
-    def _detect_memory_leaks(self) -> None:
-        """✅ PHASE 2 FIX: Detect potential memory leaks for 24/7 stability monitoring"""
-        if len(self._memory_samples) < 10:  # Need minimum samples
-            return
-
-        current_time = time.time()
-        if current_time - self._last_memory_growth_check < (self._memory_growth_window_minutes * 60):
-            return
-
-        self._last_memory_growth_check = current_time
-
-        # Analyze memory growth over the monitoring window
-        recent_samples = [s for s in self._memory_samples
-                         if current_time - s['timestamp'] < (self._memory_growth_window_minutes * 60)]
-
-        if len(recent_samples) < 5:
-            return
-
-        # Calculate memory growth trend
-        earliest = min(recent_samples, key=lambda x: x['timestamp'])
-        latest = max(recent_samples, key=lambda x: x['timestamp'])
-        memory_growth = latest['memory_mb'] - earliest['memory_mb']
-
-        # Calculate growth rate (MB per hour)
-        time_span_hours = (latest['timestamp'] - earliest['timestamp']) / 3600
-        if time_span_hours > 0:
-            growth_rate_mbh = memory_growth / time_span_hours
-
-            if memory_growth > self._memory_leak_threshold_mb:
-                self._memory_alerts_triggered += 1
-                self.logger.warning("streaming_indicator_engine.memory_leak_detected", {
-                    "memory_growth_mb": memory_growth,
-                    "growth_rate_mb_per_hour": growth_rate_mbh,
-                    "time_span_hours": time_span_hours,
-                    "alerts_triggered": self._memory_alerts_triggered,
-                    "samples_analyzed": len(recent_samples)
-                })
-
-                # Trigger preventive cleanup if growth is concerning
-                if growth_rate_mbh > 10:  # Growing faster than 10MB/hour
-                    self.logger.warning("streaming_indicator_engine.preventive_cleanup_triggered", {
-                        "reason": "high_memory_growth_rate",
-                        "growth_rate_mb_per_hour": growth_rate_mbh
-                    })
-                    self._cleanup_expired_data()
 
     def _cleanup_all_data_structures(self) -> int:
         """✅ PHASE 2 FIX: Aggressive cleanup of all data structures for emergency situations"""
@@ -1118,81 +933,6 @@ class StreamingIndicatorEngine:
 
         return cleaned_count
 
-    def get_memory_stability_report(self) -> Dict[str, Any]:
-        """✅ PHASE 2 FIX: Generate comprehensive memory stability report for 24/7 monitoring"""
-        if not self._memory_samples:
-            return {"status": "no_data", "message": "No memory samples collected yet"}
-
-        current_time = time.time()
-
-        # Analyze memory trends
-        recent_samples = [s for s in self._memory_samples
-                         if current_time - s['timestamp'] < 3600]  # Last hour
-
-        if not recent_samples:
-            return {"status": "insufficient_data", "message": "No recent memory samples"}
-
-        # Calculate statistics
-        memory_values = [s['memory_mb'] for s in recent_samples]
-        avg_memory = sum(memory_values) / len(memory_values)
-        max_memory = max(memory_values)
-        min_memory = min(memory_values)
-        memory_variance = sum((x - avg_memory) ** 2 for x in memory_values) / len(memory_values)
-
-        # Calculate stability score (lower variance = more stable)
-        stability_score = max(0, 100 - (memory_variance * 10))  # Scale variance to 0-100 score
-
-        # Determine stability status
-        if stability_score >= 90:
-            status = "EXCELLENT"
-        elif stability_score >= 75:
-            status = "GOOD"
-        elif stability_score >= 60:
-            status = "FAIR"
-        elif stability_score >= 40:
-            status = "POOR"
-        else:
-            status = "CRITICAL"
-
-        # Memory growth analysis
-        if len(recent_samples) >= 2:
-            oldest = min(recent_samples, key=lambda x: x['timestamp'])
-            newest = max(recent_samples, key=lambda x: x['timestamp'])
-            growth_mb = newest['memory_mb'] - oldest['memory_mb']
-            time_span_hours = (newest['timestamp'] - oldest['timestamp']) / 3600
-            growth_rate_mbh = growth_mb / time_span_hours if time_span_hours > 0 else 0
-        else:
-            growth_mb = 0
-            growth_rate_mbh = 0
-
-        return {
-            "status": status,
-            "stability_score": stability_score,
-            "memory_stats": {
-                "average_mb": round(avg_memory, 2),
-                "max_mb": round(max_memory, 2),
-                "min_mb": round(min_memory, 2),
-                "variance": round(memory_variance, 4),
-                "current_mb": self._performance_metrics.get("memory_usage_mb", 0)
-            },
-            "growth_analysis": {
-                "growth_mb": round(growth_mb, 2),
-                "growth_rate_mb_per_hour": round(growth_rate_mbh, 2),
-                "samples_analyzed": len(recent_samples)
-            },
-            "cleanup_stats": {
-                "alerts_triggered": self._memory_alerts_triggered,
-                "last_cleanup": self._last_cleanup_time,
-                "cleanup_frequency_hours": self._cleanup_interval_seconds / 3600
-            },
-            "thresholds": {
-                "max_memory_mb": self.MAX_MEMORY_MB,
-                "cleanup_threshold_pct": self._memory_cleanup_threshold_pct,
-                "force_cleanup_threshold_pct": self._memory_force_cleanup_threshold_pct,
-                "emergency_threshold_pct": self._memory_emergency_threshold_pct,
-                "leak_threshold_mb": self._memory_leak_threshold_mb
-            }
-        }
 
     def _init_incremental_calculator(self, indicator_key: str, indicator_type: str, period: int) -> None:
         """✅ CRITICAL FIX: Initialize incremental calculator for performance"""
@@ -1230,8 +970,8 @@ class StreamingIndicatorEngine:
         """Handle market data update with thread safety and error handling"""
         start_time = time.time()
 
-        # ✅ CRITICAL FIX: Check memory limits before processing
-        if not self._check_memory_limits():
+        # ✅ REFACTORING: Delegate memory check to MemoryMonitor
+        if not self._memory_monitor.check_limits():
             return
 
         symbol = data.get("symbol")
