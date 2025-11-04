@@ -300,39 +300,16 @@ export default function BacktestingPage() {
         message: 'Backtest functionality requires reimplementation after Strategy Builder removal',
         severity: 'warning'
       });
-      setLoading(false);
       return;
-
-      /* COMMENTED OUT - Requires strategy_graph from Visual Builder
-      const backtestData = {
-        session_type: 'backtest',
-        symbols: backtestForm.symbols,
-        strategy_graph: strategyGraph, // Send single strategy graph
-        config: {
-          ...backtestForm.config,
-          date_range: {
-            start: backtestForm.start_date.toISOString(),
-            end: backtestForm.end_date.toISOString()
-          },
-          data_sources: backtestForm.data_sources // Selected historical sessions
-        },
-        idempotent: true
-      };
-
-      const response2 = await apiService.startSession(backtestData);
-      setSnackbar({
-        open: true,
-        message: `Backtest started: ${response2.data?.session_id}`,
-        severity: 'success'
-      });
-      setDialogOpen(false);
-      loadBacktestSessions();
     } catch (error) {
+      console.error('Failed to start backtest:', error);
       setSnackbar({
         open: true,
         message: 'Failed to start backtest',
         severity: 'error'
       });
+    } finally {
+      setLoading(false);
     }
   };
 
