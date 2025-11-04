@@ -86,20 +86,37 @@ psql -h localhost -p 8812 -U admin -d qdb
 
 ### Run Tests
 
+**⚠️ Use the unified E2E test launcher for all tests:**
+
 ```bash
-# All tests
-pytest
+# All tests (224 tests: 213 API + 9 Frontend + 2 Integration)
+python run_tests.py
 
-# Specific layer
-pytest tests/domain/
+# Only API tests (backend endpoints)
+python run_tests.py --api
 
-# Specific type
-pytest -m unit
-pytest -m integration
+# Only Frontend tests (UI flows with Playwright)
+python run_tests.py --frontend
 
-# With coverage
-pytest --cov=src --cov-report=html
+# Only Integration tests (full E2E flows)
+python run_tests.py --integration
+
+# Fast tests (skip slow tests)
+python run_tests.py --fast
+
+# With coverage report
+python run_tests.py --coverage
+
+# With HTML report
+python run_tests.py --html-report
+
+# Verbose mode (debugging)
+python run_tests.py --verbose
 ```
+
+**📚 Complete test documentation:**
+- **Quick Start**: `QUICK_START_TESTS.md` (3-minute setup)
+- **Full Guide**: `README_TESTS.md` (complete documentation)
 
 ## 🏗️ Architecture (Critical Concepts)
 
@@ -305,62 +322,171 @@ Tests mirror src/ structure:
 
 ## 📊 Testing
 
+### E2E Test Suite
+
+**CRITICAL**: This project uses a comprehensive E2E test suite with a unified launcher.
+
+**📖 Full Documentation**: See `README_TESTS.md` and `QUICK_START_TESTS.md`
+
 ### Running Tests
 
 ```bash
-# All tests
-pytest
+# Single launcher for ALL tests
+python run_tests.py
 
-# Specific layer (mirrors src/)
-pytest tests/domain/
-pytest tests/api/
-pytest tests/infrastructure/
+# Category-specific
+python run_tests.py --api          # 213 API endpoint tests
+python run_tests.py --frontend     # 9 UI flow tests (Playwright)
+python run_tests.py --integration  # 2 complete workflow tests
 
-# Specific type
-pytest -m unit          # Fast tests (<1s)
-pytest -m integration   # Integration tests (<10s)
-pytest -m e2e           # End-to-end tests (>10s)
-pytest -m slow          # Long-running tests
+# Options
+python run_tests.py --fast         # Skip slow tests
+python run_tests.py --coverage     # Generate coverage report
+python run_tests.py --html-report  # Generate HTML test report
+python run_tests.py --verbose      # Debug mode
 
-# With coverage
-pytest --cov=src --cov-report=html
-# Open: htmlcov/index.html
+# Combinations
+python run_tests.py --api --coverage --verbose
 ```
 
 ### Test Organization
 
 ```
-tests/
-├── unit/           # Fast unit tests
-├── integration/    # Integration tests
-├── e2e/            # End-to-end tests
-├── api/            # Mirrors src/api/
-├── domain/         # Mirrors src/domain/
-├── infrastructure/ # Mirrors src/infrastructure/
-├── core/           # Mirrors src/core/
-└── fixtures/       # Shared test data
+tests_e2e/                          # E2E test suite (224 tests)
+├── pytest.ini                      # Pytest configuration
+├── conftest.py                     # Shared fixtures (auth, clients)
+│
+├── api/                            # Backend API tests (213 tests)
+│   ├── test_auth.py                # Authentication (13 tests)
+│   ├── test_strategies.py          # Strategy CRUD (22 tests)
+│   ├── test_sessions.py            # Session management (11 tests)
+│   ├── test_health.py              # Health checks (17 tests)
+│   ├── test_data_analysis.py       # Data collection (25 tests)
+│   ├── test_indicator_variants.py  # Indicator variants (44 tests)
+│   └── test_ops.py                 # Operations dashboard (36 tests)
+│
+├── frontend/                       # Frontend UI tests (9 tests)
+│   ├── test_auth_flow.py           # Login/logout flows (5 tests)
+│   └── test_dashboard.py           # Dashboard rendering (2 tests)
+│
+├── integration/                    # Full E2E flows (2 tests)
+│   └── test_complete_flow.py       # Complete workflows
+│
+└── fixtures/                       # Test data (JSON)
+    ├── strategies.json
+    ├── users.json
+    └── sessions.json
 ```
 
 ### Writing Tests
 
+**API Tests** (Backend):
+
 ```python
+# tests_e2e/api/test_my_feature.py
 import pytest
-from tests.fixtures import sample_price_data
 
+@pytest.mark.api
+def test_my_endpoint(authenticated_client):
+    """Test my new endpoint"""
+    response = authenticated_client.get("/api/my-endpoint")
+    assert response.status_code == 200
 
-@pytest.mark.unit
-def test_indicator_calculation(sample_price_data):
-    """Test RSI calculation"""
-    indicator = RSIIndicator(period=14)
-    result = indicator.calculate(sample_price_data)
-    assert 0 <= result <= 100
+    data = response.json()
+    assert "data" in data
+```
 
+**Frontend Tests** (UI with Playwright):
+
+```python
+# tests_e2e/frontend/test_my_page.py
+import pytest
+from playwright.sync_api import Page, expect
+
+@pytest.mark.frontend
+def test_my_page_loads(authenticated_page: Page, test_config):
+    """Test that my page loads"""
+    authenticated_page.goto(f"{test_config['frontend_base_url']}/my-page")
+
+    # Verify element
+    expect(authenticated_page.locator('h1')).to_contain_text("My Page")
+```
+
+**Integration Tests** (Full Flow):
+
+```python
+# tests_e2e/integration/test_my_flow.py
+import pytest
 
 @pytest.mark.integration
-async def test_data_flow():
-    """Test complete data collection flow"""
-    # Integration test
-    pass
+@pytest.mark.slow
+def test_complete_flow(authenticated_client, page, test_config):
+    """Test complete user workflow"""
+    # Step 1: API call
+    response = authenticated_client.post("/api/action", json={...})
+    assert response.status_code == 200
+
+    # Step 2: UI verification
+    page.goto(f"{test_config['frontend_base_url']}/results")
+    expect(page.locator('.status')).to_contain_text("Success")
+```
+
+### Available Fixtures
+
+```python
+# API fixtures
+authenticated_client       # Authenticated TestClient (FastAPI)
+api_client                 # Non-authenticated client
+test_config               # Test configuration dict
+valid_strategy_config     # Sample strategy
+
+# Frontend fixtures
+authenticated_page        # Logged-in Playwright Page
+page                      # Playwright Page (no auth)
+browser                   # Browser instance
+context                   # Browser context
+
+# Utility fixtures
+assert_response_ok        # Assert 200 OK
+assert_response_error     # Assert error response
+load_fixture_json         # Load JSON fixture
+```
+
+### Test Markers
+
+```python
+@pytest.mark.api           # API test (backend endpoint)
+@pytest.mark.frontend      # Frontend test (UI with Playwright)
+@pytest.mark.integration   # Integration test (full flow)
+@pytest.mark.slow          # Slow test (skipped with --fast)
+@pytest.mark.auth          # Authentication-related
+@pytest.mark.strategies    # Strategy-related
+@pytest.mark.sessions      # Session-related
+```
+
+### Prerequisites
+
+**Tests require running backend and frontend:**
+
+```bash
+# Option 1: Use start_all.ps1
+.\start_all.ps1
+
+# Option 2: Manual start
+# Terminal 1: Backend
+python -m uvicorn src.api.unified_server:create_unified_app --factory --host 0.0.0.0 --port 8080 --reload
+
+# Terminal 2: Frontend
+cd frontend
+npm run dev
+```
+
+**Install test dependencies:**
+
+```bash
+pip install pytest pytest-asyncio pytest-xdist httpx pytest-timeout pytest-cov
+pip install playwright
+playwright install chromium
 ```
 
 ## 🗄️ Database (QuestDB)

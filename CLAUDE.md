@@ -318,10 +318,13 @@ From `.github/copilot-instructions.md` - **MUST follow for ALL code changes:**
 - **NO code duplication** - extract to shared functions/classes
 - **NO backward compatibility hacks** - fix the root cause
 
-**Testing (Special Protocol):**
-- **NO automated test code creation** - user handles all testing manually
-- Run backend and frontend servers manually for integration testing
-- pyproject.toml has test configuration but tests are user-managed
+**Testing:**
+- **Use unified E2E test suite** - 224 automated tests (213 API + 9 Frontend + 2 Integration)
+- **Single test launcher**: `python run_tests.py` (see `README_TESTS.md` and `QUICK_START_TESTS.md`)
+- **Test structure**: `tests_e2e/` directory with API, frontend (Playwright), and integration tests
+- **Prerequisites**: Backend and frontend must be running (use `.\start_all.ps1`)
+- **Options**: `--api`, `--frontend`, `--integration`, `--fast`, `--coverage`, `--html-report`, `--verbose`
+- **Complete documentation**: `README_TESTS.md` (full guide) and `QUICK_START_TESTS.md` (3-minute setup)
 
 ## Current Sprint Status
 
