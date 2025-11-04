@@ -513,6 +513,23 @@ def create_unified_app():
             if not validation_result["valid"]:
                 return _json_error("validation_error", f"Strategy validation failed: {', '.join(validation_result['errors'])}")
 
+            # TIER 1.4 FIX: Map z1_entry.leverage → global_limits.max_leverage
+            # Frontend saves leverage in z1_entry.leverage
+            # Backend reads leverage from global_limits.max_leverage
+            # This conversion ensures compatibility between frontend and backend schemas
+            z1_leverage = body.get("z1_entry", {}).get("leverage")
+            if z1_leverage is not None and z1_leverage > 1.0:
+                if "global_limits" not in body:
+                    body["global_limits"] = {}
+                # Set max_leverage in global_limits if not already set
+                if "max_leverage" not in body["global_limits"]:
+                    body["global_limits"]["max_leverage"] = z1_leverage
+                    logger.info("api.strategy_leverage_mapped", {
+                        "strategy_name": body.get("strategy_name"),
+                        "z1_leverage": z1_leverage,
+                        "mapped_to": "global_limits.max_leverage"
+                    })
+
             # Get strategy storage from app state
             strategy_storage = getattr(app.state, 'strategy_storage', None)
             if not strategy_storage:
@@ -598,6 +615,21 @@ def create_unified_app():
             validation_result = validate_strategy_config(body)
             if not validation_result["valid"]:
                 return _json_error("validation_error", f"Strategy validation failed: {', '.join(validation_result['errors'])}")
+
+            # TIER 1.4 FIX: Map z1_entry.leverage → global_limits.max_leverage
+            # Same conversion as in create_strategy endpoint
+            z1_leverage = body.get("z1_entry", {}).get("leverage")
+            if z1_leverage is not None and z1_leverage > 1.0:
+                if "global_limits" not in body:
+                    body["global_limits"] = {}
+                if "max_leverage" not in body["global_limits"]:
+                    body["global_limits"]["max_leverage"] = z1_leverage
+                    logger.info("api.strategy_leverage_mapped", {
+                        "strategy_id": strategy_id,
+                        "strategy_name": body.get("strategy_name"),
+                        "z1_leverage": z1_leverage,
+                        "mapped_to": "global_limits.max_leverage"
+                    })
 
             # Use StrategyStorage to update strategy
             await strategy_storage.update_strategy(strategy_id, body)

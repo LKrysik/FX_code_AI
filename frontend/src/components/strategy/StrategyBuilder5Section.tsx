@@ -37,6 +37,12 @@ import {
 } from '@mui/icons-material';
 import { ConditionBlock } from './ConditionBlock';
 import {
+  calculateLiquidationPrice,
+  formatLiquidationPrice,
+  assessLeverageRisk,
+  getRecommendedLeverage,
+} from '@/utils/leverageCalculator';
+import {
   Strategy5Section,
   Condition,
   IndicatorVariant,
@@ -1222,6 +1228,154 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                     </Box>
                   )}
                 </Box>
+              </Box>
+
+              {/* TIER 1.4: Leverage Controls for Futures Trading */}
+              <Box sx={{ mt: 3, p: 2, bgcolor: 'info.lighter', borderRadius: 1, border: 1, borderColor: 'info.light' }}>
+                <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  ⚡ Leverage (Futures Trading)
+                  {strategyData.direction === 'SHORT' && (
+                    <Typography component="span" variant="caption" color="text.secondary">
+                      - Recommended: 3x for SHORT strategies
+                    </Typography>
+                  )}
+                </Typography>
+
+                <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start', mt: 2 }}>
+                  <FormControl size="small" sx={{ minWidth: 180 }}>
+                    <InputLabel>Leverage Multiplier</InputLabel>
+                    <Select
+                      value={strategyData.z1_entry.leverage || 1}
+                      label="Leverage Multiplier"
+                      onChange={(e) => handleZ1OrderConfigChange({
+                        leverage: Number(e.target.value)
+                      })}
+                    >
+                      <MenuItem value={1}>
+                        <Box>
+                          <Typography variant="body2">1x - No leverage</Typography>
+                          <Typography variant="caption" color="text.secondary">Safest (no liquidation risk)</Typography>
+                        </Box>
+                      </MenuItem>
+                      <MenuItem value={2}>
+                        <Box>
+                          <Typography variant="body2">2x - Conservative</Typography>
+                          <Typography variant="caption" color="text.secondary">Liquidation: -50% (LONG) / +50% (SHORT)</Typography>
+                        </Box>
+                      </MenuItem>
+                      <MenuItem value={3}>
+                        <Box>
+                          <Typography variant="body2" color="success.main">3x - RECOMMENDED ⭐</Typography>
+                          <Typography variant="caption" color="text.secondary">Optimal for SHORT: -33% / +33%</Typography>
+                        </Box>
+                      </MenuItem>
+                      <MenuItem value={5}>
+                        <Box>
+                          <Typography variant="body2" color="warning.main">5x - High risk ⚠️</Typography>
+                          <Typography variant="caption" color="text.secondary">Liquidation: -20% / +20%</Typography>
+                        </Box>
+                      </MenuItem>
+                      <MenuItem value={10}>
+                        <Box>
+                          <Typography variant="body2" color="error.main">10x - EXTREME RISK 🔴</Typography>
+                          <Typography variant="caption" color="text.secondary">Liquidation: -10% / +10%</Typography>
+                        </Box>
+                      </MenuItem>
+                    </Select>
+                  </FormControl>
+
+                  {/* Liquidation Price Display */}
+                  {strategyData.z1_entry.leverage && strategyData.z1_entry.leverage > 1 && (
+                    <Box sx={{ flex: 1, p: 1.5, bgcolor: 'background.paper', borderRadius: 1, border: 1, borderColor: 'divider' }}>
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        Liquidation Price (example @ $50,000 entry):
+                      </Typography>
+                      <Typography variant="body1" fontWeight="bold" color="error.main">
+                        {formatLiquidationPrice(
+                          calculateLiquidationPrice(
+                            50000,
+                            strategyData.z1_entry.leverage,
+                            strategyData.direction || 'LONG'
+                          ),
+                          strategyData.direction || 'LONG'
+                        )}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {(() => {
+                          const liqPrice = calculateLiquidationPrice(50000, strategyData.z1_entry.leverage, strategyData.direction || 'LONG');
+                          const distance = Math.abs(((liqPrice - 50000) / 50000) * 100);
+                          return `${distance.toFixed(1)}% from entry price`;
+                        })()}
+                      </Typography>
+                    </Box>
+                  )}
+                </Box>
+
+                {/* Risk Level Indicator */}
+                {strategyData.z1_entry.leverage && strategyData.z1_entry.leverage > 1 && (
+                  <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Typography variant="caption" fontWeight="bold">
+                      Risk Level:
+                    </Typography>
+                    <Box
+                      sx={{
+                        px: 1.5,
+                        py: 0.5,
+                        borderRadius: 1,
+                        bgcolor: (() => {
+                          const risk = assessLeverageRisk(strategyData.z1_entry.leverage);
+                          if (risk === 'LOW') return 'success.light';
+                          if (risk === 'MODERATE') return 'info.light';
+                          if (risk === 'HIGH') return 'warning.light';
+                          return 'error.light';
+                        })(),
+                        color: (() => {
+                          const risk = assessLeverageRisk(strategyData.z1_entry.leverage);
+                          if (risk === 'LOW') return 'success.dark';
+                          if (risk === 'MODERATE') return 'info.dark';
+                          if (risk === 'HIGH') return 'warning.dark';
+                          return 'error.dark';
+                        })(),
+                      }}
+                    >
+                      <Typography variant="caption" fontWeight="bold">
+                        {assessLeverageRisk(strategyData.z1_entry.leverage)}
+                      </Typography>
+                    </Box>
+                    <Typography variant="caption" color="text.secondary">
+                      Margin requirement: {(100 / strategyData.z1_entry.leverage).toFixed(1)}%
+                    </Typography>
+                  </Box>
+                )}
+
+                {/* Warning Banners */}
+                {strategyData.z1_entry.leverage && strategyData.z1_entry.leverage > 3 && (
+                  <Alert severity="warning" sx={{ mt: 2 }}>
+                    <strong>High Leverage Warning!</strong> {strategyData.z1_entry.leverage}x leverage means your position
+                    will be liquidated if price moves just {(100 / strategyData.z1_entry.leverage).toFixed(1)}%
+                    {strategyData.direction === 'SHORT' ? ' upward' : ' downward'}.
+                    For pump & dump SHORT strategies, <strong>3x leverage is recommended</strong> as it balances
+                    profit potential with acceptable liquidation risk during volatility.
+                  </Alert>
+                )}
+
+                {strategyData.z1_entry.leverage && strategyData.z1_entry.leverage > 5 && (
+                  <Alert severity="error" sx={{ mt: 1 }}>
+                    <strong>EXTREME RISK!</strong> {strategyData.z1_entry.leverage}x leverage is <strong>NOT recommended</strong> for
+                    pump & dump strategies due to extreme volatility (±30-50% swings). High probability of liquidation.
+                    Consider reducing to 3x leverage.
+                  </Alert>
+                )}
+
+                {/* Info Box for No Leverage */}
+                {(!strategyData.z1_entry.leverage || strategyData.z1_entry.leverage === 1) && (
+                  <Box sx={{ mt: 2, p: 1.5, bgcolor: 'grey.50', borderRadius: 1 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      💡 <strong>Tip:</strong> For SHORT strategies on pump & dump, using 3x leverage multiplies profits by 3x
+                      while keeping liquidation risk reasonable (±33% price movement). Without leverage, SHORT profits are minimal.
+                    </Typography>
+                  </Box>
+                )}
               </Box>
             </Box>
           </AccordionDetails>
