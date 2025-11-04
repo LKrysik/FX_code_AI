@@ -37,6 +37,12 @@ import {
 } from '@mui/icons-material';
 import { ConditionBlock } from './ConditionBlock';
 import {
+  calculateLiquidationPrice,
+  formatLiquidationPrice,
+  assessLeverageRisk,
+  getRecommendedLeverage,
+} from '@/utils/leverageCalculator';
+import {
   Strategy5Section,
   Condition,
   IndicatorVariant,
