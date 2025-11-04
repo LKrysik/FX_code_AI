@@ -1,0 +1,490 @@
+"""
+MEXC Futures Adapter - Futures API Integration for SHORT Selling
+=================================================================
+Extends MEXC adapter with futures trading support (margin trading, leverage, funding rates).
+
+Key differences from SPOT API:
+- Base URL: https://contract.mexc.com (not api.mexc.com)
+- Endpoints: /fapi/v1/* (not /api/v3/*)
+- Position management: LONG/SHORT positions with leverage
+- Funding rates: Applied every 8 hours
+- Margin types: ISOLATED or CROSS
+
+Usage:
+    async with MexcFuturesAdapter(api_key, api_secret, logger) as adapter:
+        # Set leverage before opening position
+        await adapter.set_leverage("BTC_USDT", 3)
+
+        # Open SHORT position
+        order = await adapter.place_futures_order(
+            symbol="BTC_USDT",
+            side="SELL",
+            position_side="SHORT",
+            order_type="MARKET",
+            quantity=0.001,
+            leverage=3.0
+        )
+
+        # Get funding rate
+        funding = await adapter.get_funding_rate("BTC_USDT")
+"""
+
+import asyncio
+import time
+from typing import Dict, Any, Optional, List, Literal
+from datetime import datetime
+
+from .mexc_adapter import MexcRealAdapter
+from ...core.logger import StructuredLogger
+
+
+class MexcFuturesAdapter(MexcRealAdapter):
+    """
+    MEXC Futures API adapter for margin trading and SHORT selling.
+
+    Inherits authentication, rate limiting, and resilience from MexcRealAdapter.
+    Adds futures-specific functionality:
+    - Position management (LONG/SHORT)
+    - Leverage configuration
+    - Funding rate queries
+    - Margin type management (ISOLATED/CROSS)
+    """
+
+    def __init__(self,
+                 api_key: str,
+                 api_secret: str,
+                 logger: StructuredLogger,
+                 base_url: str = "https://contract.mexc.com",  # Futures base URL
+                 timeout: int = 30):
+        """
+        Initialize MEXC Futures adapter.
+
+        Args:
+            api_key: MEXC API key
+            api_secret: MEXC API secret
+            logger: Structured logger
+            base_url: Futures API base URL (default: https://contract.mexc.com)
+            timeout: Request timeout in seconds
+        """
+        # Initialize parent with futures base URL
+        super().__init__(api_key, api_secret, logger, base_url, timeout)
+
+        # Futures-specific rate limiting (futures API may have different limits)
+        # MEXC futures: 100 requests per second per IP
+        self.rate_limiter["requests_per_second"] = 100
+
+        # Track leverage settings per symbol
+        self._leverage_cache: Dict[str, int] = {}
+
+        self.logger.info("mexc_futures_adapter.initialized", {
+            "base_url": self.base_url,
+            "rate_limit": self.rate_limiter["requests_per_second"]
+        })
+
+    async def set_leverage(self,
+                          symbol: str,
+                          leverage: int,
+                          margin_type: Literal["ISOLATED", "CROSS"] = "ISOLATED") -> Dict[str, Any]:
+        """
+        Set leverage for a symbol.
+
+        IMPORTANT: Must be called BEFORE opening a position!
+
+        Args:
+            symbol: Trading symbol (e.g., 'BTC_USDT')
+            leverage: Leverage multiplier (1-200, but recommend 1-10 for safety)
+            margin_type: Margin type (ISOLATED or CROSS)
+
+        Returns:
+            Response with leverage confirmation
+
+        Raises:
+            Exception: If leverage setting fails
+
+        Example:
+            await adapter.set_leverage("BTC_USDT", 3, "ISOLATED")
+        """
+        if leverage < 1 or leverage > 200:
+            raise ValueError(f"Leverage must be between 1 and 200, got {leverage}")
+
+        params = {
+            "symbol": symbol.upper(),
+            "leverage": int(leverage)
+        }
+
+        try:
+            self.logger.info("mexc_futures_adapter.set_leverage", {
+                "symbol": symbol,
+                "leverage": leverage,
+                "margin_type": margin_type
+            })
+
+            # Set leverage via futures API
+            response = await self._make_request("POST", "/fapi/v1/leverage", params, signed=True)
+
+            # Cache leverage setting
+            self._leverage_cache[symbol.upper()] = leverage
+
+            return {
+                "success": True,
+                "symbol": symbol,
+                "leverage": leverage,
+                "margin_type": margin_type,
+                "response": response
+            }
+
+        except Exception as e:
+            self.logger.error("mexc_futures_adapter.set_leverage_error", {
+                "symbol": symbol,
+                "leverage": leverage,
+                "error": str(e)
+            })
+            raise
+
+    async def get_leverage(self, symbol: str) -> int:
+        """
+        Get current leverage for symbol.
+
+        Args:
+            symbol: Trading symbol
+
+        Returns:
+            Current leverage (from cache or API)
+        """
+        symbol_upper = symbol.upper()
+
+        # Check cache first
+        if symbol_upper in self._leverage_cache:
+            return self._leverage_cache[symbol_upper]
+
+        # Query from API
+        try:
+            position = await self.get_position(symbol)
+            if position and "leverage" in position:
+                leverage = int(position["leverage"])
+                self._leverage_cache[symbol_upper] = leverage
+                return leverage
+        except Exception as e:
+            self.logger.warning("mexc_futures_adapter.get_leverage_fallback", {
+                "symbol": symbol,
+                "error": str(e)
+            })
+
+        # Default to 1x if unknown
+        return 1
+
+    async def place_futures_order(self,
+                                  symbol: str,
+                                  side: Literal["BUY", "SELL"],
+                                  position_side: Literal["LONG", "SHORT"],
+                                  order_type: Literal["MARKET", "LIMIT"],
+                                  quantity: float,
+                                  price: Optional[float] = None,
+                                  time_in_force: str = "GTC",
+                                  reduce_only: bool = False) -> Dict[str, Any]:
+        """
+        Place a futures order (supports SHORT selling).
+
+        Args:
+            symbol: Trading symbol (e.g., 'BTC_USDT')
+            side: Order side (BUY or SELL)
+            position_side: Position side (LONG or SHORT)
+                - LONG + BUY = Open long position
+                - SHORT + SELL = Open short position
+                - LONG + SELL = Close long position
+                - SHORT + BUY = Close short position (cover)
+            order_type: MARKET or LIMIT
+            quantity: Order quantity (in base currency)
+            price: Limit price (required for LIMIT orders)
+            time_in_force: Time in force (GTC, IOC, FOK)
+            reduce_only: Only reduce position (don't increase)
+
+        Returns:
+            Order response with order_id, status, etc.
+
+        Raises:
+            Exception: If order placement fails
+
+        Example (Open SHORT):
+            order = await adapter.place_futures_order(
+                symbol="BTC_USDT",
+                side="SELL",
+                position_side="SHORT",
+                order_type="MARKET",
+                quantity=0.001
+            )
+
+        Example (Close SHORT - Cover):
+            order = await adapter.place_futures_order(
+                symbol="BTC_USDT",
+                side="BUY",
+                position_side="SHORT",
+                order_type="MARKET",
+                quantity=0.001,
+                reduce_only=True
+            )
+        """
+        params = {
+            "symbol": symbol.upper(),
+            "side": side.upper(),
+            "positionSide": position_side.upper(),  # KEY DIFFERENCE from spot API
+            "type": order_type.upper(),
+            "quantity": str(quantity)
+        }
+
+        if order_type.upper() == "LIMIT":
+            if price is None:
+                raise ValueError("Price required for LIMIT orders")
+            params["price"] = str(price)
+            params["timeInForce"] = time_in_force
+
+        if reduce_only:
+            params["reduceOnly"] = "true"
+
+        try:
+            self.logger.info("mexc_futures_adapter.place_order", {
+                "symbol": symbol,
+                "side": side,
+                "position_side": position_side,
+                "order_type": order_type,
+                "quantity": quantity,
+                "price": price
+            })
+
+            # Use futures order endpoint
+            response = await self._make_request("POST", "/fapi/v1/order", params, signed=True)
+
+            result = {
+                "order_id": response.get("orderId"),
+                "status": response.get("status"),
+                "symbol": response.get("symbol"),
+                "side": response.get("side"),
+                "position_side": response.get("positionSide"),
+                "type": response.get("type"),
+                "quantity": float(response.get("origQty", 0)),
+                "price": float(response.get("price", 0)),
+                "avg_price": float(response.get("avgPrice", 0)),
+                "source": "mexc_futures_api",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+
+            self.logger.info("mexc_futures_adapter.order_placed", result)
+            return result
+
+        except Exception as e:
+            self.logger.error("mexc_futures_adapter.place_order_error", {
+                "symbol": symbol,
+                "side": side,
+                "position_side": position_side,
+                "error": str(e)
+            })
+            raise
+
+    async def get_position(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """
+        Get current position for symbol.
+
+        Args:
+            symbol: Trading symbol
+
+        Returns:
+            Position info or None if no position
+
+        Example response:
+            {
+                "symbol": "BTC_USDT",
+                "position_side": "SHORT",
+                "position_amount": -0.001,  # Negative = SHORT
+                "entry_price": 50000.0,
+                "leverage": 3,
+                "liquidation_price": 66666.67,
+                "unrealized_pnl": 50.0,
+                "margin_type": "ISOLATED"
+            }
+        """
+        params = {"symbol": symbol.upper()}
+
+        try:
+            response = await self._make_request("GET", "/fapi/v1/positionRisk", params, signed=True)
+
+            # MEXC returns array of positions (for both LONG and SHORT)
+            for position in response:
+                pos_amt = float(position.get("positionAmt", 0))
+                if pos_amt != 0:  # Active position
+                    return {
+                        "symbol": position.get("symbol"),
+                        "position_side": position.get("positionSide"),
+                        "position_amount": pos_amt,
+                        "entry_price": float(position.get("entryPrice", 0)),
+                        "leverage": int(position.get("leverage", 1)),
+                        "liquidation_price": float(position.get("liquidationPrice", 0)),
+                        "unrealized_pnl": float(position.get("unRealizedProfit", 0)),
+                        "margin_type": position.get("marginType", "ISOLATED"),
+                        "source": "mexc_futures_api"
+                    }
+
+            return None  # No active position
+
+        except Exception as e:
+            self.logger.error("mexc_futures_adapter.get_position_error", {
+                "symbol": symbol,
+                "error": str(e)
+            })
+            raise
+
+    async def get_funding_rate(self, symbol: str) -> Dict[str, Any]:
+        """
+        Get current and next funding rate for symbol.
+
+        Funding rates are applied every 8 hours in futures markets.
+        - Positive rate: LONG pays SHORT
+        - Negative rate: SHORT pays LONG
+
+        Args:
+            symbol: Trading symbol
+
+        Returns:
+            Funding rate info
+
+        Example response:
+            {
+                "symbol": "BTC_USDT",
+                "funding_rate": 0.0001,  # 0.01%
+                "funding_time": "2025-11-04T16:00:00",
+                "next_funding_time": "2025-11-05T00:00:00"
+            }
+        """
+        params = {"symbol": symbol.upper()}
+
+        try:
+            response = await self._make_request("GET", "/fapi/v1/fundingRate", params, signed=False)
+
+            if isinstance(response, list) and len(response) > 0:
+                latest = response[0]
+                return {
+                    "symbol": latest.get("symbol"),
+                    "funding_rate": float(latest.get("fundingRate", 0)),
+                    "funding_time": datetime.fromtimestamp(
+                        int(latest.get("fundingTime", 0)) / 1000
+                    ).isoformat(),
+                    "mark_price": float(latest.get("markPrice", 0)),
+                    "source": "mexc_futures_api"
+                }
+            else:
+                # Fallback if no data
+                return {
+                    "symbol": symbol,
+                    "funding_rate": 0.0,
+                    "funding_time": None,
+                    "mark_price": 0.0,
+                    "source": "mexc_futures_api"
+                }
+
+        except Exception as e:
+            self.logger.error("mexc_futures_adapter.get_funding_rate_error", {
+                "symbol": symbol,
+                "error": str(e)
+            })
+            raise
+
+    async def calculate_funding_cost(self,
+                                     symbol: str,
+                                     position_amount: float,
+                                     holding_hours: float) -> float:
+        """
+        Calculate expected funding cost for a position.
+
+        Args:
+            symbol: Trading symbol
+            position_amount: Position size (positive = LONG, negative = SHORT)
+            holding_hours: Expected holding period in hours
+
+        Returns:
+            Expected funding cost (negative = you pay, positive = you earn)
+
+        Example:
+            # SHORT 0.001 BTC @ $50,000 for 24 hours
+            cost = await adapter.calculate_funding_cost("BTC_USDT", -0.001, 24)
+            # Returns: -0.15 USDT (you pay $0.15)
+        """
+        try:
+            funding_info = await self.get_funding_rate(symbol)
+            funding_rate = funding_info["funding_rate"]
+            mark_price = funding_info.get("mark_price", 0)
+
+            # Funding is applied every 8 hours
+            funding_intervals = holding_hours / 8
+
+            # Notional value
+            notional_value = abs(position_amount) * mark_price
+
+            # For SHORT positions (negative amount), we PAY if funding is positive
+            # For LONG positions (positive amount), we PAY if funding is negative
+            total_funding = position_amount * mark_price * funding_rate * funding_intervals
+
+            return -total_funding  # Negative = cost, positive = earning
+
+        except Exception as e:
+            self.logger.warning("mexc_futures_adapter.calculate_funding_cost_error", {
+                "symbol": symbol,
+                "error": str(e)
+            })
+            return 0.0  # Return 0 if calculation fails
+
+    async def close_position(self,
+                            symbol: str,
+                            position_side: Literal["LONG", "SHORT"],
+                            order_type: Literal["MARKET", "LIMIT"] = "MARKET",
+                            price: Optional[float] = None) -> Dict[str, Any]:
+        """
+        Close an entire position.
+
+        Args:
+            symbol: Trading symbol
+            position_side: Position to close (LONG or SHORT)
+            order_type: MARKET or LIMIT
+            price: Limit price (for LIMIT orders)
+
+        Returns:
+            Order response
+
+        Example (Close SHORT position):
+            order = await adapter.close_position("BTC_USDT", "SHORT", "MARKET")
+        """
+        # Get current position to determine quantity
+        position = await self.get_position(symbol)
+
+        if not position or position["position_side"] != position_side:
+            raise ValueError(f"No {position_side} position found for {symbol}")
+
+        quantity = abs(position["position_amount"])
+
+        # Determine order side (opposite of position)
+        # To close SHORT: BUY
+        # To close LONG: SELL
+        side = "BUY" if position_side == "SHORT" else "SELL"
+
+        return await self.place_futures_order(
+            symbol=symbol,
+            side=side,
+            position_side=position_side,
+            order_type=order_type,
+            quantity=quantity,
+            price=price,
+            reduce_only=True  # Only close, don't open opposite position
+        )
+
+    # Override parent's place_order to warn about SPOT API usage
+    async def place_order(self, *args, **kwargs):
+        """
+        DEPRECATED: Use place_futures_order() instead.
+
+        This method is for SPOT trading only and won't work for SHORT positions.
+        """
+        self.logger.warning("mexc_futures_adapter.deprecated_method", {
+            "message": "place_order() is for SPOT trading. Use place_futures_order() for futures/SHORT."
+        })
+        raise NotImplementedError(
+            "For futures trading, use place_futures_order() instead of place_order(). "
+            "Futures API requires positionSide parameter which SPOT API doesn't support."
+        )
