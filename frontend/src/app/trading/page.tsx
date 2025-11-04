@@ -118,14 +118,42 @@ export default function TradingPage() {
     }
   });
 
-  useEffect(() => {
-    loadData();
+  // ✅ FIX: Define data loading functions BEFORE using them in useEffect/useVisibilityAwareInterval
+  // This prevents "Cannot access before initialization" TDZ error
+  const loadSessions = useCallback(async (): Promise<Session[]> => {
+    try {
+      // Get current session status
+      const statusResponse = await apiService.getExecutionStatus();
+      if (statusResponse && statusResponse.session_id) {
+        return [{
+          session_id: statusResponse.session_id,
+          session_type: statusResponse.session_type || 'unknown',
+          status: statusResponse.status || 'unknown',
+          symbols: statusResponse.symbols || [],
+          start_time: statusResponse.start_time,
+          total_signals: statusResponse.total_signals,
+          total_trades: statusResponse.total_trades,
+          win_rate: statusResponse.win_rate,
+          total_pnl: statusResponse.total_pnl,
+          active_strategies: statusResponse.active_strategies || []
+        }];
+      }
+      return [];
+    } catch (error) {
+      return [];
+    }
   }, []);
 
-  // Auto-refresh every 30 seconds; pause when tab hidden
-  useVisibilityAwareInterval(loadData, 30000);
+  const loadStrategies = useCallback(async (): Promise<Strategy[]> => {
+    try {
+      const response = await apiService.getStrategyStatus();
+      return response || [];
+    } catch (error) {
+      return [];
+    }
+  }, []);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const [sessionsData, strategiesData] = await Promise.all([
@@ -148,40 +176,14 @@ export default function TradingPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [loadSessions, loadStrategies]);
 
-  const loadSessions = async (): Promise<Session[]> => {
-    try {
-      // Get current session status
-      const statusResponse = await apiService.getExecutionStatus();
-      if (statusResponse && statusResponse.session_id) {
-        return [{
-          session_id: statusResponse.session_id,
-          session_type: statusResponse.session_type || 'unknown',
-          status: statusResponse.status || 'unknown',
-          symbols: statusResponse.symbols || [],
-          start_time: statusResponse.start_time,
-          total_signals: statusResponse.total_signals,
-          total_trades: statusResponse.total_trades,
-          win_rate: statusResponse.win_rate,
-          total_pnl: statusResponse.total_pnl,
-          active_strategies: statusResponse.active_strategies || []
-        }];
-      }
-      return [];
-    } catch (error) {
-      return [];
-    }
-  };
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
-  const loadStrategies = async (): Promise<Strategy[]> => {
-    try {
-      const response = await apiService.getStrategyStatus();
-      return response || [];
-    } catch (error) {
-      return [];
-    }
-  };
+  // Auto-refresh every 30 seconds; pause when tab hidden
+  useVisibilityAwareInterval(loadData, 30000);
 
   const handleStartSession = () => {
     setDialogOpen(true);
