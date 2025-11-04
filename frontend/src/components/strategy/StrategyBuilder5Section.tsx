@@ -61,6 +61,7 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
   const [strategyData, setStrategyData] = useState<Strategy5Section>(
     strategy || {
       name: '',
+      direction: 'LONG',  // ⚠️ CRITICAL FIX: Default direction for new strategies
       s1_signal: { conditions: [] },
       z1_entry: {
         conditions: [],
@@ -107,6 +108,7 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
     if (strategy) {
       setStrategyData(prev => ({
         name: strategy.name || '',
+        direction: strategy.direction || 'LONG',  // ⚠️ CRITICAL FIX: Include direction field
         s1_signal: strategy.s1_signal || { conditions: [] },
         z1_entry: {
           conditions: strategy.z1_entry?.conditions || [],
@@ -407,6 +409,49 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
           onChange={(e) => updateStrategyData({ name: e.target.value })}
           sx={{ mb: 2 }}
         />
+
+        {/* Direction Selector - SHORT Support */}
+        <FormControl fullWidth sx={{ mb: 2 }}>
+          <InputLabel>Trading Direction</InputLabel>
+          <Select
+            value={strategyData.direction || 'LONG'}
+            label="Trading Direction"
+            onChange={(e) => updateStrategyData({ direction: e.target.value as 'LONG' | 'SHORT' | 'BOTH' })}
+          >
+            <MenuItem value="LONG">
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography>🔼 LONG</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  - Profit from price increase (Buy low, Sell high)
+                </Typography>
+              </Box>
+            </MenuItem>
+            <MenuItem value="SHORT">
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography>🔽 SHORT</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  - Profit from price drop (Short high, Cover low)
+                </Typography>
+              </Box>
+            </MenuItem>
+            <MenuItem value="BOTH" disabled>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography>⚡ BOTH</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  - (Not yet implemented)
+                </Typography>
+              </Box>
+            </MenuItem>
+          </Select>
+          {strategyData.direction === 'SHORT' && (
+            <Box sx={{ mt: 1, p: 1.5, bgcolor: 'warning.lighter', borderRadius: 1 }}>
+              <Typography variant="caption" color="warning.dark">
+                ⚠️ SHORT selling strategies profit from price drops. Ideal for pump & dump detection.
+                Ensure your indicators detect downward momentum.
+              </Typography>
+            </Box>
+          )}
+        </FormControl>
       </Box>
 
       {/* 5-Section Accordions */}

@@ -116,6 +116,7 @@ export interface EmergencyConfig {
 export interface Strategy5Section {
   id?: string;
   name: string;
+  direction?: 'LONG' | 'SHORT' | 'BOTH';  // Trading direction (default: LONG)
   s1_signal: {
     conditions: Condition[];
   };

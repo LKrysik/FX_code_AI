@@ -10,15 +10,22 @@ Implements the complete strategy system with 5 groups of conditions:
 """
 
 import asyncio
+import json
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from datetime import datetime, timedelta
+from uuid import uuid4
 
 from ...core.event_bus import EventBus
 from ...core.logger import StructuredLogger
 from .order_manager import OrderManager, OrderType
 from .risk_manager import RiskManager, RiskMetrics
+
+try:
+    import asyncpg
+except ImportError:
+    asyncpg = None  # QuestDB persistence optional
 
 
 class StrategyState(Enum):
@@ -114,9 +121,10 @@ class ConditionGroup:
 
 @dataclass
 class Strategy:
-    """Complete strategy with 5 condition groups"""
+    """Complete strategy with 5 condition groups + SHORT support"""
     strategy_name: str
     enabled: bool = True
+    direction: str = "LONG"  # "LONG", "SHORT", or "BOTH"
 
     # 5 Groups of Conditions (user_feedback.md specification)
     signal_detection: ConditionGroup = field(default_factory=lambda: ConditionGroup("signal_detection"))  # S1
@@ -139,6 +147,23 @@ class Strategy:
     cooldown_until: Optional[datetime] = None  # When cooldown expires
     last_signal_cancelled: Optional[datetime] = None  # O1 cooldown
     last_emergency_exit: Optional[datetime] = None  # E1 cooldown
+
+    def get_entry_order_type(self) -> OrderType:
+        """Get entry order type based on strategy direction
+
+        Returns:
+            OrderType.BUY for LONG strategies
+            OrderType.SHORT for SHORT strategies
+
+        Raises:
+            ValueError: If direction is "BOTH" (not yet supported)
+        """
+        if self.direction == "LONG":
+            return OrderType.BUY
+        elif self.direction == "SHORT":
+            return OrderType.SHORT
+        else:
+            raise ValueError(f"Unsupported direction for single entry: {self.direction}. Use 'LONG' or 'SHORT'.")
 
     def evaluate_signal_detection(self, indicator_values: Dict[str, Any]) -> ConditionResult:
         """Evaluate signal detection conditions"""
@@ -325,13 +350,15 @@ class StrategyManager:
                  event_bus: EventBus,
                  logger: StructuredLogger,
                  order_manager: Optional[OrderManager] = None,
-                 risk_manager: Optional[RiskManager] = None):
+                 risk_manager: Optional[RiskManager] = None,
+                 db_pool: Optional['asyncpg.Pool'] = None):  # QuestDB connection pool for persistence
         self.event_bus = event_bus
         self.logger = logger
         self.order_manager = order_manager
         self.risk_manager = risk_manager
+        self.db_pool = db_pool  # PostgreSQL wire protocol connection to QuestDB
 
-        # Strategy storage
+        # Strategy storage (in-memory cache + DB persistence)
         self.strategies: Dict[str, Strategy] = {}
         self.active_strategies: Dict[str, List[Strategy]] = {}  # symbol -> strategies
 
@@ -357,11 +384,12 @@ class StrategyManager:
         self._max_concurrent_signals = 3  # Configurable global limit
         self._symbol_locks = {}  # symbol -> locking_strategy_name
 
-        # Load default strategies
-        self._load_default_strategies()
+        # Strategy loading will be done asynchronously after initialization
+        # See: initialize_strategies() method
 
         self.logger.info("strategy_manager.initialized", {
-            "order_manager_enabled": order_manager is not None
+            "order_manager_enabled": order_manager is not None,
+            "db_pool_enabled": db_pool is not None
         })
 
     def validate_dependencies(self) -> None:
@@ -429,9 +457,35 @@ class StrategyManager:
             "symbol_locks": dict(self._symbol_locks)
         }
 
-    def _load_default_strategies(self) -> None:
-        """Load default strategies from configuration files"""
-        # ✅ CRITICAL FIX: Create comprehensive pump/dump detection strategy
+    async def initialize_strategies(self) -> None:
+        """Load strategies from QuestDB or create default strategies if DB empty
+
+        This method should be called after StrategyManager initialization.
+        It first attempts to load strategies from QuestDB. If no strategies
+        are found (or DB not configured), it creates default pump/dump strategies.
+        """
+        # Try to load from QuestDB first
+        loaded_count = 0
+        if self.db_pool:
+            try:
+                loaded_count = await self.load_strategies_from_db()
+                if loaded_count > 0:
+                    self.logger.info("strategy_manager.strategies_loaded", {
+                        "source": "questdb",
+                        "count": loaded_count
+                    })
+                    return  # Successfully loaded from DB, no need for defaults
+            except Exception as e:
+                self.logger.error("strategy_manager.db_load_error", {
+                    "error": str(e)
+                })
+
+        # No strategies loaded from DB or DB not configured - create defaults
+        self.logger.info("strategy_manager.creating_default_strategies", {
+            "reason": "no_db_strategies" if self.db_pool else "db_not_configured"
+        })
+
+        # ✅ Create comprehensive pump/dump detection strategy
         try:
             # Create advanced pump_dump_detection strategy
             pump_strategy = Strategy(
@@ -652,6 +706,7 @@ class StrategyManager:
         strategy = Strategy(
             strategy_name=config.get("strategy_name", "unnamed_strategy"),
             enabled=config.get("enabled", True),
+            direction=config.get("direction", "LONG"),  # ⚠️ CRITICAL FIX: Support SHORT strategies
             global_limits=config.get("global_limits", {})
         )
 
@@ -755,6 +810,315 @@ class StrategyManager:
 
         return strategy
 
+    # ============================================================================
+    # QUESTDB PERSISTENCE METHODS
+    # ============================================================================
+
+    def _strategy_to_json(self, strategy: Strategy) -> str:
+        """Convert Strategy object to JSON string for database storage
+
+        Args:
+            strategy: Strategy object to serialize
+
+        Returns:
+            JSON string representation
+        """
+        # Serialize conditions
+        def serialize_conditions(conditions: List[Condition]) -> List[Dict[str, Any]]:
+            return [
+                {
+                    "name": c.name,
+                    "condition_type": c.condition_type,
+                    "operator": c.operator,
+                    "value": c.value,
+                    "description": c.description
+                }
+                for c in conditions
+            ]
+
+        strategy_dict = {
+            "strategy_name": strategy.strategy_name,
+            "enabled": strategy.enabled,
+            "direction": strategy.direction,
+            "global_limits": strategy.global_limits,
+            "signal_detection": {
+                "conditions": serialize_conditions(strategy.signal_detection.conditions)
+            },
+            "signal_cancellation": {
+                "conditions": serialize_conditions(strategy.signal_cancellation.conditions)
+            },
+            "entry_conditions": {
+                "conditions": serialize_conditions(strategy.entry_conditions.conditions)
+            },
+            "close_order_detection": {
+                "conditions": serialize_conditions(strategy.close_order_detection.conditions)
+            },
+            "emergency_exit": {
+                "conditions": serialize_conditions(strategy.emergency_exit.conditions)
+            }
+        }
+
+        return json.dumps(strategy_dict)
+
+    def _strategy_from_json(self, strategy_json: str, strategy_name: str, direction: str, enabled: bool) -> Strategy:
+        """Reconstruct Strategy object from JSON string
+
+        Args:
+            strategy_json: JSON string from database
+            strategy_name: Strategy name (from direction column)
+            direction: Trading direction (from direction column)
+            enabled: Enabled status (from enabled column)
+
+        Returns:
+            Reconstructed Strategy object
+        """
+        config = json.loads(strategy_json)
+
+        # Create strategy with metadata
+        strategy = Strategy(
+            strategy_name=strategy_name,
+            enabled=enabled,
+            direction=direction,
+            global_limits=config.get("global_limits", {})
+        )
+
+        # Reconstruct conditions
+        def deserialize_conditions(condition_list: List[Dict[str, Any]]) -> List[Condition]:
+            return [
+                Condition(
+                    name=c["name"],
+                    condition_type=c["condition_type"],
+                    operator=c["operator"],
+                    value=c["value"],
+                    description=c.get("description", "")
+                )
+                for c in condition_list
+            ]
+
+        # S1: Signal detection
+        if "signal_detection" in config:
+            strategy.signal_detection.conditions = deserialize_conditions(
+                config["signal_detection"].get("conditions", [])
+            )
+
+        # O1: Signal cancellation
+        if "signal_cancellation" in config:
+            strategy.signal_cancellation.conditions = deserialize_conditions(
+                config["signal_cancellation"].get("conditions", [])
+            )
+
+        # Z1: Entry conditions
+        if "entry_conditions" in config:
+            strategy.entry_conditions.conditions = deserialize_conditions(
+                config["entry_conditions"].get("conditions", [])
+            )
+
+        # ZE1: Close order detection
+        if "close_order_detection" in config:
+            strategy.close_order_detection.conditions = deserialize_conditions(
+                config["close_order_detection"].get("conditions", [])
+            )
+
+        # E1: Emergency exit
+        if "emergency_exit" in config:
+            strategy.emergency_exit.conditions = deserialize_conditions(
+                config["emergency_exit"].get("conditions", [])
+            )
+
+        return strategy
+
+    async def save_strategy_to_db(self, strategy: Strategy) -> bool:
+        """Persist strategy to QuestDB strategies table
+
+        Args:
+            strategy: Strategy object to save
+
+        Returns:
+            True if saved successfully, False otherwise
+        """
+        if not self.db_pool:
+            self.logger.warning("strategy_manager.db_persistence_disabled", {
+                "strategy_name": strategy.strategy_name,
+                "reason": "db_pool not configured"
+            })
+            return False
+
+        try:
+            strategy_json = self._strategy_to_json(strategy)
+            strategy_id = str(uuid4())
+            now = datetime.now()
+
+            async with self.db_pool.acquire() as conn:
+                # Check if strategy exists
+                existing = await conn.fetchrow(
+                    "SELECT id FROM strategies WHERE strategy_name = $1",
+                    strategy.strategy_name
+                )
+
+                if existing:
+                    # UPDATE existing strategy
+                    await conn.execute(
+                        """
+                        UPDATE strategies
+                        SET direction = $1,
+                            enabled = $2,
+                            strategy_json = $3,
+                            updated_at = $4
+                        WHERE strategy_name = $5
+                        """,
+                        strategy.direction,
+                        strategy.enabled,
+                        strategy_json,
+                        now,
+                        strategy.strategy_name
+                    )
+                    self.logger.info("strategy_manager.strategy_updated_in_db", {
+                        "strategy_name": strategy.strategy_name
+                    })
+                else:
+                    # INSERT new strategy
+                    await conn.execute(
+                        """
+                        INSERT INTO strategies (
+                            id, strategy_name, description, direction, enabled,
+                            strategy_json, author, category, tags, template_id,
+                            created_at, updated_at, last_activated_at
+                        )
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                        """,
+                        strategy_id,
+                        strategy.strategy_name,
+                        f"Strategy: {strategy.strategy_name}",  # description
+                        strategy.direction,
+                        strategy.enabled,
+                        strategy_json,
+                        "user",  # author
+                        "custom",  # category
+                        "",  # tags (empty for now)
+                        None,  # template_id (null)
+                        now,  # created_at
+                        now,  # updated_at
+                        None  # last_activated_at (null initially)
+                    )
+                    self.logger.info("strategy_manager.strategy_saved_to_db", {
+                        "strategy_name": strategy.strategy_name,
+                        "id": strategy_id
+                    })
+
+            return True
+
+        except Exception as e:
+            self.logger.error("strategy_manager.db_save_failed", {
+                "strategy_name": strategy.strategy_name,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            return False
+
+    async def load_strategies_from_db(self) -> int:
+        """Load all enabled strategies from QuestDB
+
+        Returns:
+            Number of strategies loaded
+        """
+        if not self.db_pool:
+            self.logger.warning("strategy_manager.db_persistence_disabled", {
+                "reason": "db_pool not configured"
+            })
+            return 0
+
+        try:
+            async with self.db_pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT strategy_name, direction, enabled, strategy_json
+                    FROM strategies
+                    WHERE enabled = true
+                    ORDER BY created_at DESC
+                    """
+                )
+
+            loaded_count = 0
+            for row in rows:
+                try:
+                    strategy = self._strategy_from_json(
+                        strategy_json=row["strategy_json"],
+                        strategy_name=row["strategy_name"],
+                        direction=row["direction"],
+                        enabled=row["enabled"]
+                    )
+
+                    # Add to in-memory storage
+                    self.strategies[strategy.strategy_name] = strategy
+
+                    # Initialize telemetry
+                    if strategy.strategy_name not in self._strategy_telemetry:
+                        self._strategy_telemetry[strategy.strategy_name] = {
+                            "last_event": None,
+                            "last_state_change": None,
+                            "active_symbols": set()
+                        }
+
+                    loaded_count += 1
+
+                except Exception as e:
+                    self.logger.error("strategy_manager.strategy_load_failed", {
+                        "strategy_name": row["strategy_name"],
+                        "error": str(e)
+                    })
+                    continue
+
+            self.logger.info("strategy_manager.strategies_loaded_from_db", {
+                "count": loaded_count
+            })
+
+            return loaded_count
+
+        except Exception as e:
+            self.logger.error("strategy_manager.db_load_failed", {
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            return 0
+
+    async def delete_strategy_from_db(self, strategy_name: str) -> bool:
+        """Delete strategy from QuestDB
+
+        Args:
+            strategy_name: Name of strategy to delete
+
+        Returns:
+            True if deleted successfully, False otherwise
+        """
+        if not self.db_pool:
+            self.logger.warning("strategy_manager.db_persistence_disabled", {
+                "strategy_name": strategy_name,
+                "reason": "db_pool not configured"
+            })
+            return False
+
+        try:
+            async with self.db_pool.acquire() as conn:
+                result = await conn.execute(
+                    "DELETE FROM strategies WHERE strategy_name = $1",
+                    strategy_name
+                )
+
+            self.logger.info("strategy_manager.strategy_deleted_from_db", {
+                "strategy_name": strategy_name,
+                "result": result
+            })
+
+            return True
+
+        except Exception as e:
+            self.logger.error("strategy_manager.db_delete_failed", {
+                "strategy_name": strategy_name,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            return False
+
     def add_strategy(self, strategy: Strategy) -> None:
         """Add a strategy to the manager"""
         self.strategies[strategy.strategy_name] = strategy
@@ -768,8 +1132,8 @@ class StrategyManager:
             "strategy_name": strategy.strategy_name
         })
 
-    def remove_strategy(self, strategy_name: str) -> bool:
-        """Remove strategy from registry and deactivate from all symbols"""
+    async def remove_strategy(self, strategy_name: str) -> bool:
+        """Remove strategy from registry, deactivate from all symbols, and delete from QuestDB"""
         # Deactivate across all symbols
         try:
             for symbol, strategies in list(self.active_strategies.items()):
@@ -784,6 +1148,10 @@ class StrategyManager:
             try:
                 self.strategies.pop(strategy_name, None)
                 removed = True
+
+                # ⚠️ CRITICAL: Delete from QuestDB
+                await self.delete_strategy_from_db(strategy_name)
+
             except Exception:
                 removed = False
         if removed:
@@ -1122,15 +1490,21 @@ class StrategyManager:
                         order_value = base_capital * position_size_pct
                         quantity = order_value / current_price
 
-                        # Submit buy order
+                        # Submit entry order (BUY for LONG, SHORT for SHORT)
+                        entry_order_type = strategy.get_entry_order_type()
                         pump_signal_strength = indicator_values.get("pump_magnitude_pct", 0.0) / 100.0
+
+                        # Get leverage from global_limits (default to 1.0 for no leverage)
+                        leverage = strategy.global_limits.get("max_leverage", 1.0)
+
                         order_id = await self.order_manager.submit_order(
                             symbol=strategy.symbol,
-                            order_type=OrderType.BUY,
+                            order_type=entry_order_type,
                             quantity=quantity,
                             price=current_price,
                             strategy_name=strategy.strategy_name,
-                            pump_signal_strength=pump_signal_strength
+                            pump_signal_strength=pump_signal_strength,
+                            leverage=leverage
                         )
 
                         # Update position params with order info
@@ -1314,6 +1688,7 @@ class StrategyManager:
         return {
             "strategy_name": strategy.strategy_name,
             "enabled": strategy.enabled,
+            "direction": strategy.direction,  # ⚠️ CRITICAL FIX: Return direction field
             "current_state": strategy.current_state.value,
             "symbol": strategy.symbol,
             "position_active": strategy.position_active,
@@ -1341,6 +1716,7 @@ class StrategyManager:
             {
                 "strategy_name": strategy.strategy_name,
                 "enabled": strategy.enabled,
+                "direction": strategy.direction,  # ⚠️ CRITICAL FIX: Return direction field
                 "current_state": strategy.current_state.value,
                 "symbol": strategy.symbol
             }
@@ -1355,6 +1731,7 @@ class StrategyManager:
             results.append({
                 "strategy_name": name,
                 "enabled": strategy.enabled,
+                "direction": strategy.direction,  # ⚠️ CRITICAL FIX: Return direction field
                 "current_state": strategy.current_state.value,
                 "symbol": strategy.symbol,
                 "active_symbols_count": len(tel.get("active_symbols", set())),
@@ -1373,6 +1750,13 @@ class StrategyManager:
             errors.append("strategy_name is required")
         elif not isinstance(config.get("strategy_name"), str) or len(config.get("strategy_name", "")) < 3:
             errors.append("strategy_name must be a string with at least 3 characters")
+
+        # Direction validation (SHORT support)
+        direction = config.get("direction", "LONG")
+        if direction not in ["LONG", "SHORT", "BOTH"]:
+            errors.append(f"direction must be 'LONG', 'SHORT', or 'BOTH', got: {direction}")
+        elif direction == "BOTH":
+            warnings.append("direction='BOTH' is not yet fully implemented. Use 'LONG' or 'SHORT' for now.")
 
         # Global limits validation
         global_limits = config.get("global_limits", {})
@@ -1438,8 +1822,8 @@ class StrategyManager:
             "warnings": warnings
         }
 
-    def upsert_strategy(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """Upsert (update or insert) strategy with validation"""
+    async def upsert_strategy(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Upsert (update or insert) strategy with validation and QuestDB persistence"""
         # Validate configuration first
         validation_result = self.validate_strategy_config(config)
         if not validation_result["valid"]:
@@ -1471,6 +1855,9 @@ class StrategyManager:
                 # Replace in registry
                 self.strategies[strategy_name] = new_strategy
 
+                # ⚠️ CRITICAL: Persist to QuestDB
+                await self.save_strategy_to_db(new_strategy)
+
                 self.logger.info("strategy_manager.strategy_updated", {
                     "strategy_name": strategy_name
                 })
@@ -1485,6 +1872,9 @@ class StrategyManager:
                 # Create new strategy
                 new_strategy = self.create_strategy_from_config(config)
                 self.add_strategy(new_strategy)
+
+                # ⚠️ CRITICAL: Persist to QuestDB
+                await self.save_strategy_to_db(new_strategy)
 
                 self.logger.info("strategy_manager.strategy_created", {
                     "strategy_name": strategy_name

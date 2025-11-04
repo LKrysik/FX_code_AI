@@ -24,30 +24,103 @@ class OrderStatus(Enum):
 
 
 class OrderType(Enum):
-    """Order direction"""
+    """Order type for trading operations
+
+    BUY: Open long position (spot/margin)
+    SELL: Close long position (spot/margin)
+    SHORT: Open short position (margin/futures)
+    COVER: Close short position (margin/futures)
+    """
     BUY = "buy"
     SELL = "sell"
+    SHORT = "short"
+    COVER = "cover"
+
+    def is_opening_order(self) -> bool:
+        """Check if order opens a position"""
+        return self in (OrderType.BUY, OrderType.SHORT)
+
+    def is_closing_order(self) -> bool:
+        """Check if order closes a position"""
+        return self in (OrderType.SELL, OrderType.COVER)
+
+    def get_position_type(self) -> str:
+        """Get resulting position type"""
+        if self in (OrderType.BUY, OrderType.SELL):
+            return "LONG"
+        else:
+            return "SHORT"
 
 
 @dataclass
 class OrderRecord:
+    """Order record with SHORT support, leverage, and slippage tracking"""
     order_id: str
     symbol: str
     side: OrderType
-    quantity: float
+    quantity: float  # Positive for BUY/SHORT, negative not used (side determines direction)
     price: float
     status: OrderStatus
     created_at: datetime = field(default_factory=datetime.utcnow)
     updated_at: datetime = field(default_factory=datetime.utcnow)
     strategy_name: str = ""
     pump_signal_strength: float = 0.0
+    leverage: float = 1.0  # 1.0 = no leverage, 3.0 = 3x leverage
+    order_kind: str = "MARKET"  # MARKET or LIMIT
+    max_slippage_pct: float = 1.0  # Maximum allowed slippage percentage
+    actual_slippage_pct: float = 0.0  # Actual slippage at execution (paper trading)
 
 
 @dataclass
 class PositionRecord:
+    """Position record with SHORT support and leverage tracking
+
+    Convention: quantity sign determines position type
+    - quantity > 0: LONG position
+    - quantity < 0: SHORT position
+    - quantity = 0: No position
+    """
     symbol: str
-    quantity: float = 0.0
+    quantity: float = 0.0  # Positive = LONG, Negative = SHORT
     average_price: float = 0.0
+    leverage: float = 1.0  # 1.0 = no leverage, 3.0 = 3x leverage
+    liquidation_price: Optional[float] = None  # Price at which position is liquidated
+    unrealized_pnl: float = 0.0  # Unrealized profit/loss in quote currency
+    unrealized_pnl_pct: float = 0.0  # Unrealized P&L as percentage
+
+    @property
+    def position_type(self) -> str:
+        """Get position type based on quantity sign"""
+        if self.quantity > 0:
+            return "LONG"
+        elif self.quantity < 0:
+            return "SHORT"
+        else:
+            return "NONE"
+
+    @property
+    def position_size(self) -> float:
+        """Get absolute position size"""
+        return abs(self.quantity)
+
+    def update_unrealized_pnl(self, current_price: float) -> None:
+        """Update unrealized P&L based on current price
+
+        Args:
+            current_price: Current market price
+        """
+        if self.quantity == 0 or self.average_price == 0:
+            self.unrealized_pnl = 0.0
+            self.unrealized_pnl_pct = 0.0
+            return
+
+        if self.quantity > 0:  # LONG position
+            self.unrealized_pnl = self.quantity * (current_price - self.average_price)
+            self.unrealized_pnl_pct = ((current_price - self.average_price) / self.average_price) * 100
+        else:  # SHORT position (quantity < 0)
+            # For SHORT: profit when price drops, loss when price rises
+            self.unrealized_pnl = abs(self.quantity) * (self.average_price - current_price)
+            self.unrealized_pnl_pct = ((self.average_price - current_price) / self.average_price) * 100
 
 
 class OrderManager:
@@ -64,24 +137,102 @@ class OrderManager:
         self._order_sequence += 1
         return f"paper_order_{self._order_sequence:06d}"
 
+    def _simulate_slippage(self, price: float, order_type: OrderType, max_slippage_pct: float) -> tuple[float, float]:
+        """Simulate slippage for paper trading
+
+        Args:
+            price: Requested price
+            order_type: Order type (BUY/SHORT/SELL/COVER)
+            max_slippage_pct: Maximum allowed slippage percentage
+
+        Returns:
+            tuple of (actual_price, actual_slippage_pct)
+        """
+        import random
+
+        # Simulate slippage as random value between 0 and max_slippage_pct
+        slippage_pct = random.uniform(0, max_slippage_pct)
+
+        # BUY/SHORT: slippage increases price (worse fill)
+        # SELL/COVER: slippage decreases price (worse fill)
+        if order_type in (OrderType.BUY, OrderType.SHORT):
+            actual_price = price * (1 + slippage_pct / 100)
+        else:  # SELL or COVER
+            actual_price = price * (1 - slippage_pct / 100)
+
+        return actual_price, slippage_pct
+
+    def _calculate_liquidation_price(self, entry_price: float, leverage: float, is_long: bool) -> Optional[float]:
+        """Calculate liquidation price for leveraged position
+
+        Args:
+            entry_price: Entry price
+            leverage: Leverage multiplier
+            is_long: True for LONG, False for SHORT
+
+        Returns:
+            Liquidation price, or None if no leverage (1.0)
+        """
+        if leverage <= 1.0:
+            return None  # No liquidation for non-leveraged positions
+
+        if is_long:
+            # LONG: liquidation = entry × (1 - 1/leverage)
+            # Example: entry=$100, leverage=3x → liq=$66.67
+            return entry_price * (1 - 1 / leverage)
+        else:
+            # SHORT: liquidation = entry × (1 + 1/leverage)
+            # Example: entry=$100, leverage=3x → liq=$133.33
+            return entry_price * (1 + 1 / leverage)
+
     async def submit_order(self,
                           symbol: str,
                           order_type: OrderType,
                           quantity: float,
                           price: float,
                           strategy_name: str = "",
-                          pump_signal_strength: float = 0.0) -> str:
+                          pump_signal_strength: float = 0.0,
+                          leverage: float = 1.0,
+                          order_kind: str = "MARKET",
+                          max_slippage_pct: float = 1.0) -> str:
+        """Submit order with SHORT support, leverage, and slippage simulation
+
+        Args:
+            symbol: Trading symbol (e.g., 'BTC_USDT')
+            order_type: Order type (BUY, SELL, SHORT, COVER)
+            quantity: Order quantity (always positive)
+            price: Target price
+            strategy_name: Name of strategy placing order
+            pump_signal_strength: Pump detection signal strength
+            leverage: Leverage multiplier (1.0 = no leverage, 3.0 = 3x)
+            order_kind: Order kind (MARKET or LIMIT)
+            max_slippage_pct: Maximum allowed slippage percentage
+
+        Returns:
+            Order ID
+        """
         order_id = self._generate_order_id()
+
+        # Simulate slippage for MARKET orders
+        actual_price = price
+        actual_slippage_pct = 0.0
+        if order_kind == "MARKET":
+            actual_price, actual_slippage_pct = self._simulate_slippage(price, order_type, max_slippage_pct)
+
         status = OrderStatus.FILLED  # Paper mode fills immediately
         record = OrderRecord(
             order_id=order_id,
             symbol=symbol.upper(),
             side=order_type,
             quantity=float(quantity),
-            price=float(price),
+            price=float(actual_price),
             status=status,
             strategy_name=strategy_name,
             pump_signal_strength=float(pump_signal_strength),
+            leverage=float(leverage),
+            order_kind=order_kind,
+            max_slippage_pct=float(max_slippage_pct),
+            actual_slippage_pct=float(actual_slippage_pct),
         )
         self._orders[order_id] = record
         self._update_position(record)
@@ -90,25 +241,67 @@ class OrderManager:
             "symbol": record.symbol,
             "side": record.side.value,
             "quantity": record.quantity,
-            "price": record.price
+            "price": record.price,
+            "leverage": record.leverage,
+            "slippage_pct": record.actual_slippage_pct
         })
         return order_id
 
-    async def take_profit(self, symbol: str, current_price: float) -> Optional[str]:
+    async def close_position(self,
+                            symbol: str,
+                            current_price: float,
+                            strategy_name: str = "close_position",
+                            leverage: float = 1.0,
+                            order_kind: str = "MARKET",
+                            max_slippage_pct: float = 1.0) -> Optional[str]:
+        """Universal position close method for both LONG and SHORT
+
+        Args:
+            symbol: Trading symbol
+            current_price: Current market price
+            strategy_name: Reason for closing (e.g., 'take_profit', 'emergency_exit')
+            leverage: Leverage for the close order
+            order_kind: MARKET or LIMIT
+            max_slippage_pct: Maximum allowed slippage
+
+        Returns:
+            Order ID if position closed, None if no position
+        """
         position = self._positions.get(symbol.upper())
-        if not position or position.quantity <= 0:
+        if not position or position.quantity == 0:
             return None
-        order_id = await self.submit_order(symbol, OrderType.SELL, position.quantity, current_price,
-                                           strategy_name="take_profit")
+
+        # Determine close order type based on current position
+        if position.quantity > 0:
+            # Close LONG position with SELL
+            order_type = OrderType.SELL
+            close_quantity = position.quantity
+        else:
+            # Close SHORT position with COVER
+            order_type = OrderType.COVER
+            close_quantity = abs(position.quantity)
+
+        # Submit close order
+        order_id = await self.submit_order(
+            symbol=symbol,
+            order_type=order_type,
+            quantity=close_quantity,
+            price=current_price,
+            strategy_name=strategy_name,
+            leverage=leverage,
+            order_kind=order_kind,
+            max_slippage_pct=max_slippage_pct
+        )
+
         return order_id
 
+    async def take_profit(self, symbol: str, current_price: float) -> Optional[str]:
+        """Close position for take profit - supports both LONG and SHORT"""
+        return await self.close_position(symbol, current_price, strategy_name="take_profit")
+
     async def emergency_exit(self, symbol: str, current_price: float) -> Optional[str]:
-        position = self._positions.get(symbol.upper())
-        if not position or position.quantity <= 0:
-            return None
-        order_id = await self.submit_order(symbol, OrderType.SELL, position.quantity, current_price,
-                                           strategy_name="emergency_exit")
-        return order_id
+        """Emergency close position - supports both LONG and SHORT"""
+        return await self.close_position(symbol, current_price, strategy_name="emergency_exit")
 
     def get_order_status(self, order_id: str) -> Optional[Dict[str, Any]]:
         record = self._orders.get(order_id)
@@ -117,6 +310,11 @@ class OrderManager:
         return self._serialize_order(record)
 
     def get_position(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Get position with SHORT support and extended fields
+
+        Returns:
+            Position dict with all fields, or None if no position
+        """
         position = self._positions.get(symbol.upper())
         if not position or position.quantity == 0:
             return None
@@ -124,6 +322,12 @@ class OrderManager:
             "symbol": position.symbol,
             "quantity": position.quantity,
             "average_price": position.average_price,
+            "position_type": position.position_type,
+            "position_size": position.position_size,
+            "leverage": position.leverage,
+            "liquidation_price": position.liquidation_price,
+            "unrealized_pnl": position.unrealized_pnl,
+            "unrealized_pnl_pct": position.unrealized_pnl_pct
         }
 
     def get_performance_summary(self) -> Dict[str, Any]:
@@ -140,11 +344,18 @@ class OrderManager:
         return [self._serialize_order(o) for o in self._orders.values()]
 
     def get_all_positions(self) -> List[Dict[str, Any]]:
+        """Get all open positions with SHORT support and extended fields"""
         return [
             {
                 "symbol": pos.symbol,
                 "quantity": pos.quantity,
-                "average_price": pos.average_price
+                "average_price": pos.average_price,
+                "position_type": pos.position_type,
+                "position_size": pos.position_size,
+                "leverage": pos.leverage,
+                "liquidation_price": pos.liquidation_price,
+                "unrealized_pnl": pos.unrealized_pnl,
+                "unrealized_pnl_pct": pos.unrealized_pnl_pct
             }
             for pos in self._positions.values()
             if pos.quantity != 0
@@ -170,22 +381,128 @@ class OrderManager:
             "created_at": record.created_at.isoformat(),
             "updated_at": record.updated_at.isoformat(),
             "strategy_name": record.strategy_name,
-            "pump_signal_strength": record.pump_signal_strength
+            "pump_signal_strength": record.pump_signal_strength,
+            "leverage": record.leverage,
+            "order_kind": record.order_kind,
+            "max_slippage_pct": record.max_slippage_pct,
+            "actual_slippage_pct": record.actual_slippage_pct
         }
 
     def _update_position(self, order: OrderRecord) -> None:
+        """Update position with SHORT support using quantity sign convention
+
+        Convention:
+        - quantity > 0: LONG position
+        - quantity < 0: SHORT position
+        - quantity = 0: No position
+
+        Order types:
+        - BUY: Opens/increases LONG (adds positive quantity)
+        - SELL: Closes/decreases LONG (reduces positive quantity)
+        - SHORT: Opens/increases SHORT (adds negative quantity)
+        - COVER: Closes/decreases SHORT (reduces negative quantity)
+        """
         position = self._positions.setdefault(order.symbol, PositionRecord(symbol=order.symbol))
+
         if order.side == OrderType.BUY:
-            new_total = position.quantity + order.quantity
-            if new_total == 0:
-                position.quantity = 0.0
-                position.average_price = 0.0
+            # BUY: Open/increase LONG position
+            old_quantity = position.quantity
+            new_quantity = old_quantity + order.quantity
+
+            if old_quantity <= 0:
+                # Opening new LONG or flipping from SHORT to LONG
+                position.quantity = new_quantity
+                position.average_price = order.price
+                position.leverage = order.leverage
+                position.liquidation_price = self._calculate_liquidation_price(
+                    order.price, order.leverage, is_long=True
+                )
+            else:
+                # Increasing existing LONG position (average up)
+                position.average_price = (
+                    (old_quantity * position.average_price) + (order.quantity * order.price)
+                ) / new_quantity
+                position.quantity = new_quantity
+                # Keep existing leverage, recalculate liquidation
+                position.liquidation_price = self._calculate_liquidation_price(
+                    position.average_price, position.leverage, is_long=True
+                )
+
+        elif order.side == OrderType.SELL:
+            # SELL: Close/decrease LONG position
+            old_quantity = position.quantity
+            new_quantity = old_quantity - order.quantity
+
+            if old_quantity <= 0:
+                # ERROR: Trying to SELL when not LONG
+                self.logger.warning("order_manager.invalid_sell", {
+                    "symbol": order.symbol,
+                    "current_position": old_quantity,
+                    "order_quantity": order.quantity
+                })
                 return
-            position.average_price = (
-                (position.quantity * position.average_price) + (order.quantity * order.price)
-            ) / new_total
-            position.quantity = new_total
-        else:
-            position.quantity = max(0.0, position.quantity - order.quantity)
-            if position.quantity == 0:
+
+            position.quantity = new_quantity
+            if new_quantity <= 0:
+                # Position closed or flipped to SHORT
                 position.average_price = 0.0
+                position.leverage = 1.0
+                position.liquidation_price = None
+
+        elif order.side == OrderType.SHORT:
+            # SHORT: Open/increase SHORT position (negative quantity)
+            old_quantity = position.quantity
+            new_quantity = old_quantity - order.quantity  # Subtract to make more negative
+
+            if old_quantity >= 0:
+                # Opening new SHORT or flipping from LONG to SHORT
+                position.quantity = new_quantity
+                position.average_price = order.price
+                position.leverage = order.leverage
+                position.liquidation_price = self._calculate_liquidation_price(
+                    order.price, order.leverage, is_long=False
+                )
+            else:
+                # Increasing existing SHORT position (average down)
+                total_short_qty = abs(new_quantity)
+                old_short_qty = abs(old_quantity)
+                position.average_price = (
+                    (old_short_qty * position.average_price) + (order.quantity * order.price)
+                ) / total_short_qty
+                position.quantity = new_quantity
+                # Keep existing leverage, recalculate liquidation
+                position.liquidation_price = self._calculate_liquidation_price(
+                    position.average_price, position.leverage, is_long=False
+                )
+
+        elif order.side == OrderType.COVER:
+            # COVER: Close/decrease SHORT position
+            old_quantity = position.quantity
+            new_quantity = old_quantity + order.quantity  # Add to reduce negative
+
+            if old_quantity >= 0:
+                # ERROR: Trying to COVER when not SHORT
+                self.logger.warning("order_manager.invalid_cover", {
+                    "symbol": order.symbol,
+                    "current_position": old_quantity,
+                    "order_quantity": order.quantity
+                })
+                return
+
+            position.quantity = new_quantity
+            if new_quantity >= 0:
+                # Position closed or flipped to LONG
+                position.average_price = 0.0
+                position.leverage = 1.0
+                position.liquidation_price = None
+
+        # Log position update
+        self.logger.info("order_manager.position_updated", {
+            "symbol": order.symbol,
+            "order_side": order.side.value,
+            "new_quantity": position.quantity,
+            "position_type": position.position_type,
+            "average_price": position.average_price,
+            "leverage": position.leverage,
+            "liquidation_price": position.liquidation_price
+        })
