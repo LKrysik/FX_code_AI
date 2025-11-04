@@ -53,6 +53,11 @@ from src.api.ops.ops_routes import router as ops_router
 # Import indicators API
 from src.api.indicators_routes import router as indicators_router
 
+# Import paper trading API (TIER 1.2)
+from src.api.paper_trading_routes import router as paper_trading_router
+import src.api.paper_trading_routes as paper_trading_routes_module
+from src.domain.services.paper_trading_persistence import PaperTradingPersistenceService
+
 
 class LoginRequest(BaseModel):
     username: str
@@ -150,6 +155,19 @@ def create_unified_app():
         app.state.strategy_storage = strategy_storage
         logger.info("Strategy storage initialized with QuestDB persistence")
 
+        # Initialize paper trading persistence (TIER 1.2)
+        paper_trading_persistence = PaperTradingPersistenceService(
+            host="127.0.0.1",
+            port=8812,
+            user="admin",
+            password="quest",
+            database="qdb",
+            logger=logger
+        )
+        await paper_trading_persistence.initialize()
+        app.state.paper_trading_persistence = paper_trading_persistence
+        logger.info("Paper trading persistence initialized with QuestDB")
+
         # Initialize ops API with proper dependencies
         ops_api = await container.create_ops_api()
         # Replace the global instance with properly injected one
@@ -197,6 +215,12 @@ def create_unified_app():
             "streaming_engine_id": id(streaming_engine),
             "questdb_provider_id": id(questdb_provider)
         })
+
+        # Initialize paper trading routes (TIER 1.2)
+        paper_trading_routes_module.initialize_paper_trading_dependencies(
+            persistence_service=paper_trading_persistence
+        )
+        logger.info("paper_trading_routes initialized with QuestDB persistence")
 
         # Initialize health monitoring
         global health_monitor
@@ -449,6 +473,14 @@ def create_unified_app():
         except Exception as e:
             logger.warning(f"Strategy storage shutdown error: {e}")
 
+        # Shutdown paper trading persistence (TIER 1.2)
+        try:
+            if hasattr(app.state, 'paper_trading_persistence'):
+                await app.state.paper_trading_persistence.close()
+                logger.info("Paper trading persistence connection pool closed successfully")
+        except Exception as e:
+            logger.warning(f"Paper trading persistence shutdown error: {e}")
+
         # Shutdown health monitoring
         try:
             health_monitor.stop_monitoring()
@@ -472,6 +504,9 @@ def create_unified_app():
 
     # Include indicators API router
     app.include_router(indicators_router)
+
+    # Include paper trading API router (TIER 1.2)
+    app.include_router(paper_trading_router)
 
     # JWT Authentication dependency
     async def get_current_user(request: Request) -> UserSession:
