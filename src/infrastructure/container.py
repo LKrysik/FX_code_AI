@@ -23,6 +23,7 @@ from ..domain.services.pump_detector import PumpDetectionService
 from ..domain.services.risk_assessment import RiskAssessmentService
 from ..domain.services.strategy_manager import StrategyManager
 from ..domain.services.order_manager import OrderManager
+from ..domain.services.order_manager_live import LiveOrderManager
 from ..domain.services.risk_manager import RiskManager
 from ..application.use_cases.detect_pump_signals import DetectPumpSignalsUseCase
 from ..domain.interfaces.market_data import IMarketDataProvider
@@ -41,6 +42,7 @@ from ..application.services.position_management_service import PositionManagemen
 from ..application.controllers.unified_trading_controller import UnifiedTradingController
 from ..infrastructure.adapters.mexc_adapter import MexcRealAdapter
 from ..infrastructure.adapters.mexc_paper_adapter import MexcPaperAdapter
+from ..infrastructure.adapters.mexc_futures_adapter import MexcFuturesAdapter
 from ..api.broadcast_provider import BroadcastProvider
 from ..api.event_bridge import EventBridge
 from ..api.execution_processor import ExecutionProcessor
@@ -411,23 +413,45 @@ class Container:
     
     async def create_order_manager(self) -> OrderManager:
         """
-        Create order manager for mock trading simulation.
+        Create order manager - paper mode or live mode based on configuration.
         Uses singleton pattern to prevent multiple instances.
 
         Returns:
-            Configured order manager
+            OrderManager (paper) or LiveOrderManager (live) instance
+
+        Raises:
+            RuntimeError: If OrderManager creation fails
         """
-        def _create():
+        async def _create_async():
             try:
-                return OrderManager(logger=self.logger)
+                # Check if live trading is enabled in settings
+                live_trading_enabled = getattr(self.settings.trading, 'live_trading_enabled', False)
+
+                if live_trading_enabled:
+                    # Live mode: create LiveOrderManager with MEXC futures adapter
+                    self.logger.info("container.creating_live_order_manager")
+
+                    # Create MEXC futures adapter for live trading
+                    futures_adapter = await self.create_mexc_futures_adapter()
+
+                    return LiveOrderManager(
+                        logger=self.logger,
+                        exchange_adapter=futures_adapter
+                    )
+                else:
+                    # Paper mode: create basic OrderManager (in-memory simulation)
+                    self.logger.info("container.creating_paper_order_manager")
+                    return OrderManager(logger=self.logger)
+
             except Exception as e:
                 self.logger.error("container.order_manager_creation_failed", {
                     "error": str(e),
-                    "error_type": type(e).__name__
+                    "error_type": type(e).__name__,
+                    "live_trading": live_trading_enabled
                 })
                 raise RuntimeError(f"Failed to create order manager: {str(e)}") from e
 
-        return await self._get_or_create_singleton_async("order_manager", _create)
+        return await self._get_or_create_singleton_async("order_manager", _create_async)
 
     async def create_risk_manager(self) -> RiskManager:
         """
@@ -582,6 +606,45 @@ class Container:
                 raise RuntimeError(f"Failed to create MEXC adapter: {str(e)}") from e
 
         return await self._get_or_create_singleton_async("mexc_adapter", _create)
+
+    async def create_mexc_futures_adapter(self):
+        """
+        Create MEXC Futures adapter for margin trading and SHORT selling.
+
+        Returns:
+            Configured MEXC futures adapter (or paper adapter if no credentials)
+
+        Raises:
+            RuntimeError: If adapter creation fails
+        """
+        def _create():
+            try:
+                # Get API credentials from settings
+                api_key = self.settings.exchanges.mexc_api_key
+                api_secret = self.settings.exchanges.mexc_api_secret
+
+                if not api_key or not api_secret or api_key == "" or api_secret == "":
+                    self.logger.warning("container.mexc_futures_no_credentials", {
+                        "message": "MEXC futures API credentials not configured, using paper adapter"
+                    })
+                    return MexcPaperAdapter(logger=self.logger)
+
+                self.logger.info("container.creating_mexc_futures_adapter")
+                return MexcFuturesAdapter(
+                    api_key=api_key,
+                    api_secret=api_secret,
+                    logger=self.logger,
+                    base_url="https://contract.mexc.com"  # Futures base URL
+                )
+
+            except Exception as e:
+                self.logger.error("container.mexc_futures_adapter_creation_failed", {
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                })
+                raise RuntimeError(f"Failed to create MEXC futures adapter: {str(e)}") from e
+
+        return await self._get_or_create_singleton_async("mexc_futures_adapter", _create)
 
     async def create_wallet_service(self):
         """
