@@ -1,5 +1,22 @@
 # Testing Standards and Procedures
 
+> **⚠️ DEPRECATED**: This document is outdated and no longer reflects the current testing approach.
+>
+> **✅ USE INSTEAD**:
+> - **Quick Start**: `QUICK_START_TESTS.md` (3-minute setup)
+> - **Complete Guide**: `README_TESTS.md` (full E2E test suite documentation)
+> - **Agent Instructions**: `.claude/instructions.md` (Testing section)
+>
+> The project now uses a unified E2E test suite with 224 automated tests (213 API + 9 Frontend + 2 Integration).
+>
+> **Single command to run all tests**: `python run_tests.py`
+>
+> See the files above for current testing practices.
+
+---
+
+## ARCHIVED CONTENT (Historical Reference Only)
+
 ## 1. Overview
 
 This document defines the mandatory testing standards for this project. Its purpose is to ensure that all code is rigorously tested, meets quality standards, and that the testing process is applied consistently across all development activities. All commands that involve testing (`/start_sprint`, `/work`, `/verify_implementation`, `/end_sprint`) must adhere to the standards defined herein.
