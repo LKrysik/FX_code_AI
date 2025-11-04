@@ -81,6 +81,18 @@ def validate_strategy_config(config: Dict[str, Any]) -> Dict[str, Any]:
                 elif not _is_number(tp["offsetPercent"]) or tp["offsetPercent"] < 0 or tp["offsetPercent"] > 1000:
                     errors.append("z1_entry.takeProfit.offsetPercent must be between 0 and 1000")
 
+        # Validate leverage (TIER 1.4 - Futures trading)
+        if "leverage" in z1 and z1["leverage"] is not None:
+            leverage = z1["leverage"]
+            if not _is_number(leverage):
+                errors.append("z1_entry.leverage must be a number")
+            elif leverage < 1 or leverage > 10:
+                errors.append("z1_entry.leverage must be between 1 and 10 (recommended: 1-3x for SHORT strategies)")
+            elif leverage > 5:
+                warnings.append(f"z1_entry.leverage={leverage}x is HIGH RISK. Liquidation occurs at {(100/leverage):.1f}% price movement. Recommended: 1-3x for SHORT strategies")
+            elif leverage > 3:
+                warnings.append(f"z1_entry.leverage={leverage}x is MODERATE RISK. Consider 3x or lower for pump & dump strategies with high volatility")
+
     # Validate ZE1 Close section
     if "ze1_close" in config and isinstance(config["ze1_close"], dict):
        ze1 = config["ze1_close"]

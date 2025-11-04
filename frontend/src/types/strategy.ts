@@ -63,6 +63,7 @@ export interface OrderConfig {
       highRiskScale: number;
     };
   };
+  leverage?: number; // TIER 1.4: Leverage multiplier for futures trading (1-10x, default: 1)
   riskAdjustment?: {
     enabled: boolean;
     indicatorId: string;

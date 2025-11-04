@@ -44,7 +44,13 @@ class TradingSettings(BaseSettings):
     """Core trading configuration"""
     mode: TradingMode = Field(default=TradingMode.BACKTEST, description="Trading mode")
     paper_trading: PaperTradingSettings = Field(default_factory=PaperTradingSettings)
-    
+
+    # Live trading (TIER 1.1)
+    live_trading_enabled: bool = Field(
+        default=False,
+        description="Enable LIVE trading with real exchange orders (DANGEROUS! Only enable with proper risk management)"
+    )
+
     # Symbol configuration
     default_symbols: List[str] = Field(default_factory=lambda: ['BTC_USDT', 'ETH_USDT'], description="Trading symbols (must be configured)")
     

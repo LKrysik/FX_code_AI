@@ -1,0 +1,31 @@
+{
+  "comment": "Example configuration for LIVE TRADING mode with MEXC Futures",
+  "WARNING": "THIS WILL PLACE REAL ORDERS! Only enable after thorough testing!",
+
+  "trading": {
+    "mode": "live",
+    "live_trading_enabled": true,
+    "default_symbols": ["BTC_USDT"],
+    "max_open_positions": 1,
+    "max_position_size_usdt": 100,
+    "max_slippage_pct": 1.0
+  },
+
+  "exchanges": {
+    "mexc_api_key": "YOUR_MEXC_API_KEY_HERE",
+    "mexc_api_secret": "YOUR_MEXC_API_SECRET_HERE"
+  },
+
+  "risk": {
+    "max_budget_per_symbol_usdt": 100,
+    "max_total_budget_usdt": 500,
+    "max_loss_per_trade_pct": 2.0,
+    "max_leverage": 3,
+    "enable_emergency_stop": true
+  },
+
+  "paper_trading": {
+    "enabled": false,
+    "initial_balance_usdt": 10000
+  }
+}
