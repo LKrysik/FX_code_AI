@@ -116,6 +116,7 @@ def valid_strategy_config() -> Dict[str, Any]:
     return {
         "strategy_name": "Test Momentum Strategy",
         "description": "Test strategy for E2E testing",
+        "direction": "LONG",  # Trading direction (LONG, SHORT, or BOTH)
         "s1_signal": {
             "conditions": [
                 {
@@ -142,6 +143,7 @@ def valid_strategy_config() -> Dict[str, Any]:
         },
         "o1_cancel": {
             "timeoutSeconds": 300,
+            "cooldownMinutes": 5,
             "conditions": [
                 {
                     "id": "price_velocity_cancel",
@@ -158,6 +160,68 @@ def valid_strategy_config() -> Dict[str, Any]:
                     "indicatorId": "price_velocity",
                     "operator": "<",
                     "value": -1.0
+                }
+            ],
+            "cooldownMinutes": 60,
+            "actions": {
+                "cancelPending": True,
+                "closePosition": True,
+                "logEvent": True
+            }
+        }
+    }
+
+
+@pytest.fixture
+def valid_short_strategy_config() -> Dict[str, Any]:
+    """Valid SHORT strategy configuration for testing pump & dump detection"""
+    return {
+        "strategy_name": "Test SHORT Pump Dump Strategy",
+        "description": "Test SHORT strategy for E2E testing",
+        "direction": "SHORT",  # SHORT selling strategy
+        "s1_signal": {
+            "conditions": [
+                {
+                    "id": "pump_magnitude",
+                    "indicatorId": "pump_magnitude_pct",
+                    "operator": ">=",
+                    "value": 15.0
+                },
+                {
+                    "id": "volume_surge",
+                    "indicatorId": "volume_surge_ratio",
+                    "operator": ">=",
+                    "value": 3.0
+                }
+            ]
+        },
+        "z1_entry": {
+            "conditions": [],
+            "positionSize": {
+                "type": "percentage",
+                "value": 2.0  # Conservative sizing for SHORT
+            },
+            "timeoutSeconds": 60
+        },
+        "o1_cancel": {
+            "timeoutSeconds": 300,
+            "cooldownMinutes": 5,
+            "conditions": [
+                {
+                    "id": "momentum_continues",
+                    "indicatorId": "momentum_reversal",
+                    "operator": "<",
+                    "value": -20.0
+                }
+            ]
+        },
+        "emergency_exit": {
+            "conditions": [
+                {
+                    "id": "emergency_reversal",
+                    "indicatorId": "momentum_reversal",
+                    "operator": ">=",
+                    "value": 50.0
                 }
             ],
             "cooldownMinutes": 60,
