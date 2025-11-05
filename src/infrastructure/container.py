@@ -842,7 +842,8 @@ class Container:
                     logger=self.logger,
                     data_path=data_path,
                     wallet_service=wallet_service,
-                    order_manager=order_manager
+                    order_manager=order_manager,
+                    indicator_engine=None  # Will be set during async initialization
                 )
 
                 return controller
@@ -867,10 +868,16 @@ class Container:
                 order_manager = await self.create_order_manager()
                 market_data_provider = await self.create_market_data_provider()
 
+                # ✅ FIX: Create indicator engine with full configuration (variant persistence)
+                # Previously UnifiedTradingController used IndicatorEngineFactory (DEPRECATED)
+                # Now uses Container for proper DI with variant_repository
+                indicator_engine = await self.create_streaming_indicator_engine()
+
                 # Set dependencies on controller
                 controller.wallet_service = wallet_service
                 controller.order_manager = order_manager
                 controller.market_data_provider = market_data_provider
+                controller.indicator_engine = indicator_engine  # ✅ NEW: Inject complete engine
 
                 # Initialize the controller asynchronously
                 await controller.initialize()
@@ -878,7 +885,9 @@ class Container:
                 self.logger.info("container.unified_trading_controller_fully_initialized", {
                     "mode": mode,
                     "has_wallet": wallet_service is not None,
-                    "has_order_manager": order_manager is not None
+                    "has_order_manager": order_manager is not None,
+                    "has_indicator_engine": indicator_engine is not None,
+                    "indicator_engine_has_repository": hasattr(indicator_engine, '_variant_repository') and indicator_engine._variant_repository is not None
                 })
 
             except Exception as e:

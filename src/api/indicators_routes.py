@@ -119,12 +119,14 @@ def _ensure_support_services() -> Tuple[IndicatorPersistenceService, OfflineIndi
     """
     global _persistence_service, _offline_indicator_engine, _event_bus
 
+    # ✅ FIX: Fail-fast instead of creating duplicate EventBus
+    # Creating duplicate EventBus breaks event propagation between components
     if _event_bus is None:
-        # Fallback: create EventBus if not injected
-        logger.warning("indicators_routes.lazy_eventbus_init", {
-            "message": "EventBus not injected - creating fallback instance. Use initialize_indicators_dependencies()!"
-        })
-        _event_bus = EventBus()
+        raise RuntimeError(
+            "EventBus not injected into indicators_routes. "
+            "Call initialize_indicators_dependencies() from unified_server.py during startup. "
+            "This is required for proper event propagation between API and indicator engine."
+        )
 
     if _persistence_service is None:
         _persistence_service = IndicatorPersistenceService(

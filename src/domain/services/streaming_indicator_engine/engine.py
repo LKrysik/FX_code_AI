@@ -48,9 +48,33 @@ class StreamingIndicatorEngine:
     """
     Real-time indicator calculation engine.
     Event-driven with efficient sliding window algorithms.
+
+    ⚠️ IMPORTANT: For production use, ALWAYS inject variant_repository via Container:
+        engine = await container.create_streaming_indicator_engine()
+
+    Without variant_repository:
+    - ❌ Variants cannot be persisted to QuestDB
+    - ❌ create_variant(), update_variant(), delete_variant() will FAIL
+    - ❌ Variants not shared between API and controller layers
+    - ⚠️ Fallback creates duplicate algorithm registry (memory waste)
+
+    variant_repository=None is supported ONLY for legacy tests.
     """
-    
+
     def __init__(self, event_bus: EventBus, logger: StructuredLogger, variant_repository=None):
+        """
+        Initialize StreamingIndicatorEngine.
+
+        Args:
+            event_bus: Central event bus for communication (required)
+            logger: Structured logger (required)
+            variant_repository: IndicatorVariantRepository for QuestDB persistence
+                ⚠️ STRONGLY RECOMMENDED: Inject via Container.create_streaming_indicator_engine()
+                Without repository: variant persistence disabled, registry duplicated
+
+        Raises:
+            RuntimeError: If algorithm registry cannot be initialized
+        """
         self.event_bus = event_bus
         self.logger = logger
         self._variant_repository = variant_repository  # ✅ NEW: Repository for variant persistence

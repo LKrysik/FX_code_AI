@@ -1,8 +1,18 @@
 """
 Indicator Engine Factory
 ========================
-Factory for creating appropriate indicator engines based on execution mode.
-Enhanced with caching for improved performance and resource management.
+⚠️ DEPRECATED: Use Container.create_streaming_indicator_engine() instead.
+
+This factory creates indicator engines WITHOUT variant_repository, which means:
+- Variants cannot be persisted to QuestDB
+- No shared algorithm registry with repository
+- Inconsistent configuration across components
+
+For production use, inject engine via Container:
+    engine = await container.create_streaming_indicator_engine()
+
+This factory is kept ONLY for backward compatibility with legacy tests.
+Will be removed in future versions.
 """
 
 from typing import Optional, Dict
@@ -24,11 +34,17 @@ class ExecutionMode(Enum):
 
 class IndicatorEngineFactory:
     """
-    Factory for creating indicator engines based on execution context.
-    Features:
-    - Instance caching for improved performance
-    - Proper resource management with weak references
-    - Direct engine creation without adapter layer
+    ⚠️ DEPRECATED: Use Container instead for proper dependency injection.
+
+    This factory creates incomplete engine instances without variant_repository.
+
+    Legacy factory kept for backward compatibility. New code should use:
+        container.create_streaming_indicator_engine()  # ✅ CORRECT
+
+    Issues with this factory:
+    - No variant persistence (variant_repository=None)
+    - Duplicate algorithm registry creation
+    - Cannot share state with API layer
     """
     
     # Class-level cache for engine instances
@@ -40,9 +56,12 @@ class IndicatorEngineFactory:
                      logger: Optional[StructuredLogger] = None,
                      use_cache: bool = True) -> IIndicatorEngine:
         """
-        Create appropriate indicator engine for the given mode.
+        ⚠️ DEPRECATED: Use Container.create_streaming_indicator_engine() instead.
 
-        ✅ REMOVED: data_path parameter (backward compatibility removed per CLAUDE.md)
+        Creates indicator engine WITHOUT variant_repository (incomplete configuration).
+
+        For production code, use proper DI:
+            engine = await container.create_streaming_indicator_engine()
 
         Args:
             mode: Execution mode (live, backtest, historical)
@@ -51,11 +70,17 @@ class IndicatorEngineFactory:
             use_cache: Whether to use cached instances (default: True)
 
         Returns:
-            IIndicatorEngine: Appropriate engine instance
+            IIndicatorEngine: Incomplete engine instance (no variant persistence)
 
         Raises:
             ValueError: If required parameters are missing for the mode
         """
+        import warnings
+        warnings.warn(
+            "IndicatorEngineFactory is deprecated. Use Container.create_streaming_indicator_engine() instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         # Generate cache key based on mode only
         cache_key = IndicatorEngineFactory._generate_cache_key(mode)
 
