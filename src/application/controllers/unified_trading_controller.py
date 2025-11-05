@@ -10,8 +10,6 @@ from typing import Optional, List, Dict, Any
 from ...core.event_bus import EventBus
 from ...core.logger import StructuredLogger
 from ...domain.interfaces.market_data import IMarketDataProvider
-# ✅ REMOVED: IndicatorEngineFactory import (DEPRECATED - use Container instead)
-# from ...domain.factories.indicator_engine_factory import IndicatorEngineFactory, ExecutionMode
 from .execution_controller import ExecutionController
 from ..services.execution_monitor import ExecutionMonitor
 from ..services.command_processor import AsyncCommandProcessor, CommandType

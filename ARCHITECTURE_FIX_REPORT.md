@@ -6,6 +6,22 @@
 
 ---
 
+## 🔥 BREAKING CHANGES (2025-11-05 Update)
+
+**User requested:** NO backward compatibility, NO parallel solutions, target architecture only
+
+**Changes made:**
+1. ✅ **IndicatorEngineFactory DELETED** (not deprecated - completely removed)
+2. ✅ **variant_repository now REQUIRED** in StreamingIndicatorEngine (fail-fast)
+3. ✅ **All fallback/lazy init REMOVED** from indicators_routes (fail-fast only)
+4. ✅ **Single source of truth:** Container.create_streaming_indicator_engine() ONLY
+
+**Justification:** Per CLAUDE.md: *"NO backward compatibility workarounds"*
+
+
+
+---
+
 ## Executive Summary
 
 Fixed **4 critical architectural issues** in indicator system after removal of `UnifiedIndicatorEngine`:
