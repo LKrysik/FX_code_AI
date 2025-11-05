@@ -492,34 +492,58 @@ class AsyncCommandProcessor:
     
     # Command validators
     async def _validate_start_backtest(self, parameters: Dict[str, Any]) -> CommandValidationResult:
-        """Validate START_BACKTEST command"""
+        """
+        Validate START_BACKTEST command
+
+        ✅ ARCHITECTURE FIX: Added session_id validation to enforce fail-fast principle.
+        Previously, session_id validation only occurred during execution (after lock acquisition),
+        wasting resources and providing poor error messaging. Now validates at the validation phase.
+
+        Required parameters:
+        - session_id: Data collection session to replay (from QuestDB)
+        - symbols: List of trading symbols (or "ALL" to use session symbols)
+
+        Optional parameters:
+        - acceleration_factor: Playback speed multiplier (default: 10.0)
+        """
         errors = []
         warnings = []
-        
+
+        # ✅ CRITICAL FIX: Validate session_id is present
+        # Backtest requires a data collection session to replay historical data from QuestDB.
+        # This check prevents resource locks from being acquired for requests that will fail.
+        # See: docs/database/QUESTDB.md for session management details
+        if "session_id" not in parameters or not parameters["session_id"]:
+            errors.append(
+                "session_id parameter is required for backtest. "
+                "Specify the data collection session to replay for backtesting. "
+                "Use GET /api/data-collection/sessions to list available sessions."
+            )
+
         # Check required parameters
         if "symbols" not in parameters:
             errors.append("Missing required parameter: symbols")
         else:
             symbols = parameters["symbols"]
             if isinstance(symbols, str) and symbols.upper() == "ALL":
-                # Will be resolved to actual symbols
+                # Will be resolved to actual symbols from session metadata
                 pass
             elif isinstance(symbols, list):
                 if not symbols:
                     errors.append("Symbols list cannot be empty")
             else:
                 errors.append("Symbols must be a list or 'ALL'")
-        
+
         # Check optional parameters
         acceleration_factor = parameters.get("acceleration_factor", 10.0)
         if not isinstance(acceleration_factor, (int, float)) or acceleration_factor <= 0:
             errors.append("Acceleration factor must be a positive number")
-        
+
         # Check if execution is already running
         current_session = self.execution_controller.get_current_session()
         if current_session and current_session.status.value in ["running", "starting"]:
             errors.append("Another execution is already running")
-        
+
         return CommandValidationResult(
             valid=len(errors) == 0,
             errors=errors,
