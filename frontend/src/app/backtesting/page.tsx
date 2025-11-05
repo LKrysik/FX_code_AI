@@ -88,8 +88,6 @@ interface BacktestResult {
   performance: any;
 }
 
-const commonSymbols = ['BTC_USDT', 'ETH_USDT', 'ADA_USDT', 'SOL_USDT', 'DOT_USDT'];
-
 interface DataSource {
   session_id: string;
   symbols: string[];
@@ -102,6 +100,8 @@ export default function BacktestingPage() {
   const [selectedSession, setSelectedSession] = useState<BacktestResult | null>(null);
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
   const [availableStrategies, setAvailableStrategies] = useState<any[]>([]);
+  const [availableSymbols, setAvailableSymbols] = useState<string[]>([]);
+  const [symbolsLoading, setSymbolsLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [snackbar, setSnackbar] = useState<{open: boolean, message: string, severity: 'success' | 'error' | 'info' | 'warning'}>({
@@ -142,6 +142,7 @@ export default function BacktestingPage() {
     loadBacktestSessions();
     loadDataSources();
     loadAvailableStrategies();
+    loadAvailableSymbols();
   }, []);
 
   const loadAvailableStrategies = async () => {
@@ -160,6 +161,34 @@ export default function BacktestingPage() {
         message: 'Failed to load strategies. Please ensure backend is running.',
         severity: 'error'
       });
+    }
+  };
+
+  const loadAvailableSymbols = async () => {
+    setSymbolsLoading(true);
+    try {
+      const symbols = await apiService.getSymbols();
+      if (symbols && symbols.length > 0) {
+        setAvailableSymbols(symbols);
+        // Update default symbol in form to first available symbol
+        setBacktestForm(prev => ({
+          ...prev,
+          symbols: [symbols[0]]
+        }));
+      } else {
+        setAvailableSymbols([]);
+      }
+    } catch (error) {
+      console.error('Failed to load available symbols:', error);
+      // Fallback to default symbols if API fails
+      const fallbackSymbols = ['BTC_USDT', 'ETH_USDT', 'ADA_USDT', 'SOL_USDT', 'DOT_USDT'];
+      setAvailableSymbols(fallbackSymbols);
+      setBacktestForm(prev => ({
+        ...prev,
+        symbols: [fallbackSymbols[0]]
+      }));
+    } finally {
+      setSymbolsLoading(false);
     }
   };
 
@@ -822,6 +851,7 @@ export default function BacktestingPage() {
                   multiple
                   value={backtestForm.symbols}
                   label="Symbols"
+                  disabled={symbolsLoading}
                   onChange={(e) => setBacktestForm(prev => ({
                     ...prev,
                     symbols: typeof e.target.value === 'string' ? [e.target.value] : e.target.value
@@ -834,9 +864,23 @@ export default function BacktestingPage() {
                     </Box>
                   )}
                 >
-                  {commonSymbols.map(symbol => (
-                    <MenuItem key={symbol} value={symbol}>{symbol}</MenuItem>
-                  ))}
+                  {symbolsLoading ? (
+                    <MenuItem disabled>
+                      <Typography variant="body2" color="text.secondary">
+                        Loading symbols...
+                      </Typography>
+                    </MenuItem>
+                  ) : availableSymbols.length === 0 ? (
+                    <MenuItem disabled>
+                      <Typography variant="body2" color="text.secondary">
+                        No symbols available. Check backend configuration.
+                      </Typography>
+                    </MenuItem>
+                  ) : (
+                    availableSymbols.map(symbol => (
+                      <MenuItem key={symbol} value={symbol}>{symbol}</MenuItem>
+                    ))
+                  )}
                 </Select>
               </FormControl>
 
