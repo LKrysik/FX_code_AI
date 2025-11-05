@@ -80,12 +80,12 @@ interface StoredStrategy {
   strategy_json?: any;
 }
 
-const commonSymbols = ['BTC_USDT', 'ETH_USDT', 'ADA_USDT', 'SOL_USDT', 'DOT_USDT'];
-
 export default function TradingPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [availableStrategies, setAvailableStrategies] = useState<StoredStrategy[]>([]);
+  const [availableSymbols, setAvailableSymbols] = useState<string[]>([]);
+  const [symbolsLoading, setSymbolsLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [activeSession, setActiveSession] = useState<Session | null>(null);
@@ -166,6 +166,34 @@ export default function TradingPage() {
     }
   }, []);
 
+  const loadAvailableSymbols = useCallback(async () => {
+    setSymbolsLoading(true);
+    try {
+      const symbols = await apiService.getSymbols();
+      if (symbols && symbols.length > 0) {
+        setAvailableSymbols(symbols);
+        // Update default symbol in form to first available symbol
+        setSessionForm(prev => ({
+          ...prev,
+          symbols: [symbols[0]]
+        }));
+      } else {
+        setAvailableSymbols([]);
+      }
+    } catch (error) {
+      console.error('Failed to load available symbols:', error);
+      // Fallback to default symbols if API fails
+      const fallbackSymbols = ['BTC_USDT', 'ETH_USDT', 'ADA_USDT', 'SOL_USDT', 'DOT_USDT'];
+      setAvailableSymbols(fallbackSymbols);
+      setSessionForm(prev => ({
+        ...prev,
+        symbols: [fallbackSymbols[0]]
+      }));
+    } finally {
+      setSymbolsLoading(false);
+    }
+  }, []);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
@@ -193,7 +221,8 @@ export default function TradingPage() {
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+    loadAvailableSymbols();
+  }, [loadData, loadAvailableSymbols]);
 
   // Auto-refresh every 30 seconds; pause when tab hidden
   useVisibilityAwareInterval(loadData, 30000);
@@ -536,6 +565,7 @@ export default function TradingPage() {
                 multiple
                 value={sessionForm.symbols}
                 label="Symbols"
+                disabled={symbolsLoading}
                 onChange={(e) => setSessionForm(prev => ({
                   ...prev,
                   symbols: typeof e.target.value === 'string' ? [e.target.value] : e.target.value
@@ -548,9 +578,23 @@ export default function TradingPage() {
                   </Box>
                 )}
               >
-                {commonSymbols.map(symbol => (
-                  <MenuItem key={symbol} value={symbol}>{symbol}</MenuItem>
-                ))}
+                {symbolsLoading ? (
+                  <MenuItem disabled>
+                    <Typography variant="body2" color="text.secondary">
+                      Loading symbols...
+                    </Typography>
+                  </MenuItem>
+                ) : availableSymbols.length === 0 ? (
+                  <MenuItem disabled>
+                    <Typography variant="body2" color="text.secondary">
+                      No symbols available. Check backend configuration.
+                    </Typography>
+                  </MenuItem>
+                ) : (
+                  availableSymbols.map(symbol => (
+                    <MenuItem key={symbol} value={symbol}>{symbol}</MenuItem>
+                  ))
+                )}
               </Select>
             </FormControl>
 

@@ -89,13 +89,13 @@ interface BacktestResult {
   performance: any;
 }
 
-const commonSymbols = ['BTC_USDT', 'ETH_USDT', 'ADA_USDT', 'SOL_USDT', 'DOT_USDT'];
-
 export default function BacktestingPage() {
   const [sessions, setSessions] = useState<BacktestSession[]>([]);
   const [selectedSession, setSelectedSession] = useState<BacktestResult | null>(null);
   const [selectedDataSession, setSelectedDataSession] = useState<string>(''); // ✅ NEW: Selected data collection session ID
   const [availableStrategies, setAvailableStrategies] = useState<any[]>([]);
+  const [availableSymbols, setAvailableSymbols] = useState<string[]>([]); // ✅ FROM MAIN: Dynamic symbols
+  const [symbolsLoading, setSymbolsLoading] = useState(false); // ✅ FROM MAIN
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [snackbar, setSnackbar] = useState<{open: boolean, message: string, severity: 'success' | 'error' | 'info' | 'warning'}>({
@@ -132,6 +132,7 @@ export default function BacktestingPage() {
   useEffect(() => {
     loadBacktestSessions();
     loadAvailableStrategies();
+    loadAvailableSymbols(); // ✅ FROM MAIN
   }, []);
 
   const loadAvailableStrategies = async () => {
@@ -153,6 +154,34 @@ export default function BacktestingPage() {
     }
   };
 
+  // ✅ FROM MAIN: Load available symbols dynamically
+  const loadAvailableSymbols = async () => {
+    setSymbolsLoading(true);
+    try {
+      const symbols = await apiService.getSymbols();
+      if (symbols && symbols.length > 0) {
+        setAvailableSymbols(symbols);
+        // Update default symbol in form to first available symbol
+        setBacktestForm(prev => ({
+          ...prev,
+          symbols: [symbols[0]]
+        }));
+      } else {
+        setAvailableSymbols([]);
+      }
+    } catch (error) {
+      console.error('Failed to load available symbols:', error);
+      // Fallback to default symbols if API fails
+      const fallbackSymbols = ['BTC_USDT', 'ETH_USDT', 'ADA_USDT', 'SOL_USDT', 'DOT_USDT'];
+      setAvailableSymbols(fallbackSymbols);
+      setBacktestForm(prev => ({
+        ...prev,
+        symbols: [fallbackSymbols[0]]
+      }));
+    } finally {
+      setSymbolsLoading(false);
+    }
+  };
 
   const loadBacktestSessions = async () => {
     setLoading(true);
@@ -800,7 +829,7 @@ export default function BacktestingPage() {
           <DialogTitle>Start New Backtest</DialogTitle>
           <DialogContent>
             <Box sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <FormControl fullWidth>
+              <FormControl fullWidth disabled={symbolsLoading}>
                 <InputLabel>Symbols</InputLabel>
                 <Select
                   multiple
@@ -818,10 +847,15 @@ export default function BacktestingPage() {
                     </Box>
                   )}
                 >
-                  {commonSymbols.map(symbol => (
+                  {availableSymbols.map(symbol => (
                     <MenuItem key={symbol} value={symbol}>{symbol}</MenuItem>
                   ))}
                 </Select>
+                {symbolsLoading && (
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+                    Loading symbols...
+                  </Typography>
+                )}
               </FormControl>
 
               <FormControl fullWidth>
