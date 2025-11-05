@@ -44,6 +44,7 @@ class PaperTradingPersistenceService:
                  password: str,
                  database: str = "qdb",
                  logger: Optional[StructuredLogger] = None,
+                 event_bus: Optional[Any] = None,
                  min_pool_size: int = 2,
                  max_pool_size: int = 10):
         """
@@ -56,6 +57,7 @@ class PaperTradingPersistenceService:
             password: Database password
             database: Database name
             logger: Structured logger
+            event_bus: Event bus for publishing real-time updates (TIER 1.3)
             min_pool_size: Minimum connection pool size
             max_pool_size: Maximum connection pool size
         """
@@ -65,6 +67,7 @@ class PaperTradingPersistenceService:
         self.password = password
         self.database = database
         self.logger = logger
+        self.event_bus = event_bus
         self.min_pool_size = min_pool_size
         self.max_pool_size = max_pool_size
 
@@ -74,7 +77,8 @@ class PaperTradingPersistenceService:
             self.logger.info("paper_trading_persistence.initialized", {
                 "host": host,
                 "port": port,
-                "database": database
+                "database": database,
+                "event_bus_enabled": event_bus is not None
             })
 
     async def initialize(self) -> None:
@@ -347,6 +351,21 @@ class PaperTradingPersistenceService:
                     "side": order_data.get("side")
                 })
 
+            # TIER 1.3: Publish real-time event to WebSocket clients
+            if self.event_bus:
+                await self.event_bus.publish("paper_trading.order_filled", {
+                    "session_id": session_id,
+                    "order_id": order_data.get("order_id"),
+                    "symbol": order_data.get("symbol"),
+                    "side": order_data.get("side"),
+                    "position_side": order_data.get("position_side"),
+                    "quantity": order_data.get("quantity", 0.0),
+                    "price": order_data.get("price", 0.0),
+                    "slippage_pct": order_data.get("slippage_pct", 0.0),
+                    "status": order_data.get("status", "FILLED"),
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+
         finally:
             if conn:
                 await self._release_connection(conn)
@@ -459,6 +478,23 @@ class PaperTradingPersistenceService:
                 metrics.get("total_funding_cost", 0.0),
                 datetime.utcnow()
             )
+
+            # TIER 1.3: Publish real-time performance update to WebSocket clients
+            if self.event_bus:
+                await self.event_bus.publish("paper_trading.performance_updated", {
+                    "session_id": session_id,
+                    "current_balance": metrics.get("current_balance", 0.0),
+                    "total_pnl": metrics.get("total_pnl", 0.0),
+                    "total_return_pct": metrics.get("total_return_pct", 0.0),
+                    "win_rate": metrics.get("win_rate", 0.0),
+                    "total_trades": metrics.get("total_trades", 0),
+                    "winning_trades": metrics.get("winning_trades", 0),
+                    "losing_trades": metrics.get("losing_trades", 0),
+                    "max_drawdown": metrics.get("max_drawdown", 0.0),
+                    "current_drawdown": metrics.get("current_drawdown", 0.0),
+                    "sharpe_ratio": metrics.get("sharpe_ratio", 0.0),
+                    "timestamp": datetime.utcnow().isoformat()
+                })
 
         finally:
             if conn:
