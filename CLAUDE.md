@@ -194,12 +194,13 @@ User starts live trading → POST /sessions/start
 
 ### QuestDB as Single Source of Truth
 
-**CRITICAL ARCHITECTURAL DECISION:** CSV storage is being phased out. QuestDB is now the primary database:
+**CRITICAL ARCHITECTURAL DECISION:** CSV/file storage is being phased out. QuestDB is now the primary database:
 - Data collection writes **directly** to QuestDB (no CSV fallback)
 - Backtests read **exclusively** from QuestDB
 - Session metadata only in QuestDB
+- **Strategy storage (2025-11-05):** QuestDB only (file-based fallback removed)
 
-**Why this matters:** Do not add CSV-related code. The system is moving away from dual-storage complexity.
+**Why this matters:** Do not add CSV/file-related code. The system is moving away from dual-storage complexity.
 
 ### Key Tables
 
@@ -241,6 +242,29 @@ CREATE TABLE data_collection_sessions (
     orderbook_count INT
 );
 ```
+
+**strategies** (trading strategy configuration):
+```sql
+CREATE TABLE strategies (
+    id STRING,
+    strategy_name STRING,
+    description STRING,
+    direction STRING,
+    enabled BOOLEAN,
+    strategy_json STRING,
+    author STRING,
+    category STRING,
+    tags STRING,
+    template_id STRING,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP,
+    last_activated_at TIMESTAMP,
+    is_deleted BOOLEAN,
+    deleted_at TIMESTAMP
+);
+```
+
+**Migration:** Use `scripts/migrate_strategy_json_to_questdb.py` to migrate from legacy JSON files.
 
 ### Accessing QuestDB
 
