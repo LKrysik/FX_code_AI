@@ -69,12 +69,24 @@ class VWAPSignalValidator:
         )
 
     async def _generate_vwap_signals(self, data: List[Dict], window_minutes: int) -> List[TradeSignal]:
-        """Generate BUY/SELL signals based on VWAP crossovers."""
-        signals = []
+        """
+        Generate BUY/SELL signals based on VWAP crossovers.
 
-        # Use StreamingIndicatorEngine to calculate VWAP
-        event_bus = EventBus()
-        engine = StreamingIndicatorEngine(event_bus)
+        ⚠️ BROKEN AFTER SPRINT 16: StreamingIndicatorEngine requires Container initialization.
+        This script needs to be rewritten to use Container for proper DI.
+
+        DEPRECATED: Use Container.create_streaming_indicator_engine() instead.
+        """
+        raise NotImplementedError(
+            "This method is broken after Sprint 16 changes. "
+            "StreamingIndicatorEngine now requires variant_repository (must be created via Container). "
+            "\n\nTo fix: Use Container.create_streaming_indicator_engine() with proper async context."
+        )
+
+        # OLD CODE (BROKEN):
+        # signals = []
+        # event_bus = EventBus()
+        # engine = StreamingIndicatorEngine(event_bus)  # ❌ Missing logger, variant_repository
 
         # Register VWAP indicator
         engine.register_vwap_indicator(window_minutes=window_minutes, update_interval_seconds=1.0)
