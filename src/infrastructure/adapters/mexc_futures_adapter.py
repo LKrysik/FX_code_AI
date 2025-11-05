@@ -107,20 +107,27 @@ class MexcFuturesAdapter(MexcRealAdapter):
 
         Args:
             symbol: Trading symbol (e.g., 'BTC_USDT')
-            leverage: Leverage multiplier (1-200, but recommend 1-10 for safety)
+            leverage: Leverage multiplier (1-10, enforced for safety)
             margin_type: Margin type (ISOLATED or CROSS)
 
         Returns:
             Response with leverage confirmation
 
         Raises:
-            Exception: If leverage setting fails
+            ValueError: If leverage is outside safe range (1-10)
 
         Example:
             await adapter.set_leverage("BTC_USDT", 3, "ISOLATED")
+
+        Note (TIER 3.1):
+            While MEXC API allows up to 200x leverage, this adapter enforces
+            a maximum of 10x for safety. Leverage >10x has extreme liquidation
+            risk and is not recommended for algorithmic trading.
         """
-        if leverage < 1 or leverage > 200:
-            raise ValueError(f"Leverage must be between 1 and 200, got {leverage}")
+        # TIER 3.1: Enforce safe leverage limits (1-10) instead of MEXC API max (1-200)
+        if leverage < 1 or leverage > 10:
+            raise ValueError(f"Leverage must be between 1 and 10 for safety, got {leverage}. "
+                           f"Leverage >10x has extreme liquidation risk (<10% price movement).")
 
         params = {
             "symbol": symbol.upper(),

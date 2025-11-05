@@ -176,8 +176,11 @@ def validate_strategy_config(config: Dict[str, Any]) -> Dict[str, Any]:
 
         if "max_leverage" in gl:
             val = gl["max_leverage"]
-            if not _is_number(val) or val < 1 or val > 100:
-                errors.append("global_limits.max_leverage must be between 1 and 100")
+            # TIER 3.1: Synchronized with order_manager and mexc_futures_adapter (1-10)
+            if not _is_number(val) or val < 1 or val > 10:
+                errors.append("global_limits.max_leverage must be between 1 and 10 (synchronized with system-wide limits)")
+            elif val > 5:
+                warnings.append(f"global_limits.max_leverage={val}x is HIGH RISK. Liquidation at {(100/val):.1f}% price movement. Recommended: 1-3x")
 
         if "stop_loss_buffer_pct" in gl:
             val = gl["stop_loss_buffer_pct"]

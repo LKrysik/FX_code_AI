@@ -132,20 +132,44 @@ class LiveOrderManager(OrderManager):
             price: Target price
             strategy_name: Strategy name
             pump_signal_strength: Signal strength
-            leverage: Leverage multiplier
+            leverage: Leverage multiplier (1.0-10.0)
             order_kind: MARKET or LIMIT
             max_slippage_pct: Max slippage %
 
         Returns:
             Order ID
+
+        Raises:
+            ValueError: If leverage is invalid (must be 1-10)
         """
         if not self.is_live_mode:
-            # Paper mode: use parent's implementation
+            # Paper mode: use parent's implementation (includes validation)
             return await super().submit_order(
                 symbol, order_type, quantity, price,
                 strategy_name, pump_signal_strength,
                 leverage, order_kind, max_slippage_pct
             )
+
+        # TIER 3.1: Validate leverage before live order submission
+        if leverage < 1.0 or leverage > 10.0:
+            error_msg = f"Leverage must be between 1.0 and 10.0, got {leverage}"
+            self.logger.error("order_manager_live.invalid_leverage", {
+                "leverage": leverage,
+                "symbol": symbol,
+                "order_type": order_type.name,
+                "strategy_name": strategy_name
+            })
+            raise ValueError(error_msg)
+
+        # Log warning for high leverage (>5x) in live mode
+        if leverage > 5.0:
+            self.logger.warning("order_manager_live.high_leverage_warning", {
+                "leverage": leverage,
+                "symbol": symbol,
+                "order_type": order_type.name,
+                "liquidation_distance_pct": round(100 / leverage, 1),
+                "warning": f"HIGH RISK LIVE ORDER: {leverage}x leverage. Liquidation at {(100/leverage):.1f}% price movement"
+            })
 
         # Live mode: submit to MEXC Futures
         try:
