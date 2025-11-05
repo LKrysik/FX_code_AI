@@ -146,16 +146,18 @@ export default function BacktestingPage() {
 
   const loadAvailableStrategies = async () => {
     try {
-      // Load 5-section strategies from backend API
-      const strategies = await apiService.get4SectionStrategies();
+      // Load 5-section strategies from /api/strategies endpoint
+      // Full 5-section format: s1_signal, z1_entry, o1_cancel, emergency_exit, ze1_close
+      const response = await apiService.get('/api/strategies');
+      const strategies = response?.data?.strategies || [];
       setAvailableStrategies(strategies);
-      console.log('Loaded strategies:', strategies);
+      console.log(`[Backtest] Loaded ${strategies.length} strategies from /api/strategies`);
     } catch (error) {
-      console.error('Failed to load available strategies:', error);
+      console.error('[Backtest] Failed to load available strategies:', error);
       setAvailableStrategies([]);
       setSnackbar({
         open: true,
-        message: 'Failed to load available strategies',
+        message: 'Failed to load strategies. Please ensure backend is running.',
         severity: 'error'
       });
     }
@@ -874,7 +876,7 @@ export default function BacktestingPage() {
                   )}
                 </Select>
                 <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
-                  Select a 5-section strategy to test against historical data.
+                  Select a 5-section strategy (s1_signal, z1_entry, o1_cancel, emergency_exit, ze1_close) to test against historical market data.
                 </Typography>
               </FormControl>
 
@@ -993,9 +995,11 @@ export default function BacktestingPage() {
 
               <Alert severity="info">
                 <Typography variant="body2">
-                  <strong>Backtesting:</strong> Historical data simulation to test strategies
+                  <strong>Backtesting:</strong> Test your 5-section strategies against historical market data
                   <br />
-                  Results will be available after completion for detailed analysis
+                  <strong>Strategy Format:</strong> s1_signal → z1_entry → o1_cancel → emergency_exit → ze1_close
+                  <br />
+                  Results will be available after completion for detailed performance analysis
                 </Typography>
               </Alert>
             </Box>
