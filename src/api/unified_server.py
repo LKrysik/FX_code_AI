@@ -39,7 +39,8 @@ from src.core.health_monitor import (
     HealthStatus
 )
 from src.api.auth_handler import AuthHandler, UserSession
-from src.domain.services.strategy_storage_questdb import QuestDBStrategyStorage, StrategyStorageError, StrategyNotFoundError, StrategyValidationError
+from src.domain.services.strategy_storage_questdb import StrategyStorageError, StrategyNotFoundError, StrategyValidationError
+from src.domain.services.strategy_storage_resilient import ResilientStrategyStorage
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -143,17 +144,26 @@ def create_unified_app():
         app.state.session_manager = session_manager
         app.state.metrics_exporter = metrics_exporter
 
-        # Initialize strategy storage with QuestDB persistence
-        strategy_storage = QuestDBStrategyStorage(
-            host="127.0.0.1",
-            port=8812,
-            user="admin",
-            password="quest",
-            database="qdb"
+        # Initialize strategy storage with resilient fallback
+        # Primary: QuestDB (preferred), Fallback: File-based (config/strategies/*.json)
+        strategy_storage = ResilientStrategyStorage(
+            questdb_host="127.0.0.1",
+            questdb_port=8812,
+            questdb_user="admin",
+            questdb_password="quest",
+            questdb_database="qdb",
+            logger=logger
         )
         await strategy_storage.initialize()
         app.state.strategy_storage = strategy_storage
-        logger.info("Strategy storage initialized with QuestDB persistence")
+
+        # Log backend status
+        backend_status = strategy_storage.get_backend_status()
+        logger.info("Strategy storage initialized with resilient fallback", {
+            "primary": backend_status["primary_backend"],
+            "fallback": backend_status["fallback_backend"],
+            "active": backend_status["current_backend"]
+        })
 
         # Initialize paper trading persistence (TIER 1.2)
         paper_trading_persistence = PaperTradingPersistenceService(

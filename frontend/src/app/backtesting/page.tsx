@@ -50,8 +50,6 @@ import {
   PieChart as PieChartIcon,
 } from '@mui/icons-material';
 import { apiService } from '@/services/api';
-// DEPRECATED: Visual Strategy Builder removed - only 5-section strategies supported
-// import { strategyBuilderApi, StrategyBlueprintSummary } from '@/services/strategyBuilderApi';
 import { SystemStatusIndicator } from '@/components/common/SystemStatusIndicator';
 import {
   getSessionStatusColor,
@@ -103,8 +101,7 @@ export default function BacktestingPage() {
   const [sessions, setSessions] = useState<BacktestSession[]>([]);
   const [selectedSession, setSelectedSession] = useState<BacktestResult | null>(null);
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
-  // DEPRECATED: Visual Strategy Builder removed
-  // const [availableStrategies, setAvailableStrategies] = useState<StrategyBlueprintSummary[]>([]);
+  const [availableStrategies, setAvailableStrategies] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [snackbar, setSnackbar] = useState<{open: boolean, message: string, severity: 'success' | 'error' | 'info' | 'warning'}>({
@@ -144,25 +141,25 @@ export default function BacktestingPage() {
   useEffect(() => {
     loadBacktestSessions();
     loadDataSources();
-    // DEPRECATED: Visual Strategy Builder removed
-    // loadAvailableStrategies();
+    loadAvailableStrategies();
   }, []);
 
-  // DEPRECATED: Visual Strategy Builder removed - only 5-section strategies supported
-  // const loadAvailableStrategies = async () => {
-  //   try {
-  //     const response = await strategyBuilderApi.listBlueprints();
-  //     setAvailableStrategies(response.blueprints);
-  //   } catch (error) {
-  //     console.error('Failed to load available strategies:', error);
-  //     setAvailableStrategies([]);
-  //     setSnackbar({
-  //       open: true,
-  //       message: 'Failed to load available strategies',
-  //       severity: 'error'
-  //     });
-  //   }
-  // };
+  const loadAvailableStrategies = async () => {
+    try {
+      // Load 5-section strategies from backend API
+      const strategies = await apiService.get4SectionStrategies();
+      setAvailableStrategies(strategies);
+      console.log('Loaded strategies:', strategies);
+    } catch (error) {
+      console.error('Failed to load available strategies:', error);
+      setAvailableStrategies([]);
+      setSnackbar({
+        open: true,
+        message: 'Failed to load available strategies',
+        severity: 'error'
+      });
+    }
+  };
 
   const loadDataSources = async () => {
     try {
@@ -276,8 +273,9 @@ export default function BacktestingPage() {
   };
 
   const handleCreateBacktest = async () => {
+    setLoading(true);
     try {
-      // For now, support single strategy - take first selected
+      // Validate strategy selection
       if (backtestForm.selected_strategies.length === 0) {
         setSnackbar({
           open: true,
@@ -287,25 +285,43 @@ export default function BacktestingPage() {
         return;
       }
 
-      // DEPRECATED: Visual Strategy Builder removed
-      // Load the selected strategy graph
-      // const strategyId = backtestForm.selected_strategies[0];
-      // const response = await strategyBuilderApi.getBlueprint(strategyId);
-      // const strategyGraph = response.blueprint.graph;
+      // Get selected strategy details
+      const strategyId = backtestForm.selected_strategies[0];
+      const selectedStrategy = availableStrategies.find(s => s.id === strategyId);
 
-      // DEPRECATED: Backtest requires reimplementation with 5-section strategies
-      // Visual Strategy Builder has been removed
-      setSnackbar({
-        open: true,
-        message: 'Backtest functionality requires reimplementation after Strategy Builder removal',
-        severity: 'warning'
+      if (!selectedStrategy) {
+        setSnackbar({
+          open: true,
+          message: 'Selected strategy not found',
+          severity: 'error'
+        });
+        return;
+      }
+
+      // Start backtest session with selected strategy
+      const response = await apiService.startBacktest(backtestForm.symbols, {
+        strategy_config: selectedStrategy,
+        acceleration_factor: 10,
+        budget: backtestForm.config.budget
       });
-      return;
-    } catch (error) {
+
+      if (response.status === 'success' || response.data) {
+        setSnackbar({
+          open: true,
+          message: 'Backtest started successfully',
+          severity: 'success'
+        });
+        setDialogOpen(false);
+        // Refresh sessions list
+        await loadBacktestSessions();
+      } else {
+        throw new Error(response.error_message || 'Failed to start backtest');
+      }
+    } catch (error: any) {
       console.error('Failed to start backtest:', error);
       setSnackbar({
         open: true,
-        message: 'Failed to start backtest',
+        message: error.message || 'Failed to start backtest',
         severity: 'error'
       });
     } finally {
@@ -822,54 +838,45 @@ export default function BacktestingPage() {
                 </Select>
               </FormControl>
 
-              {/* DEPRECATED: Visual Strategy Builder removed */}
-              {/* <FormControl fullWidth>
-                <InputLabel>Strategies to Test</InputLabel>
+              <FormControl fullWidth>
+                <InputLabel>Strategy to Test</InputLabel>
                 <Select
-                  multiple
-                  value={backtestForm.selected_strategies}
-                  label="Strategies to Test"
+                  value={backtestForm.selected_strategies[0] || ''}
+                  label="Strategy to Test"
                   onChange={(e) => setBacktestForm(prev => ({
                     ...prev,
-                    selected_strategies: typeof e.target.value === 'string' ? [e.target.value] : e.target.value
+                    selected_strategies: e.target.value ? [e.target.value] : []
                   }))}
-                  renderValue={(selected) => (
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {selected.map((value) => {
-                        const strategy = availableStrategies.find(s => s.id === value);
-                        return (
-                          <Chip
-                            key={value}
-                            label={strategy ? strategy.name : value}
-                            size="small"
-                            color="primary"
-                          />
-                        );
-                      })}
-                    </Box>
-                  )}
+                  renderValue={(selected) => {
+                    const strategy = availableStrategies.find(s => s.id === selected);
+                    return strategy ? strategy.strategy_name : 'Select a strategy';
+                  }}
                 >
-                  {availableStrategies.map(strategy => (
-                    <MenuItem key={strategy.id} value={strategy.id}>
-                      <Box>
-                        <Typography variant="body2" fontWeight="bold">
-                          {strategy.name} (v{strategy.version})
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {strategy.description || 'No description'} | {strategy.node_count} nodes, {strategy.edge_count} edges
-                        </Typography>
-                      </Box>
+                  {availableStrategies.length === 0 ? (
+                    <MenuItem disabled>
+                      <Typography variant="body2" color="text.secondary">
+                        No strategies available. Create a strategy first.
+                      </Typography>
                     </MenuItem>
-                  ))}
+                  ) : (
+                    availableStrategies.map(strategy => (
+                      <MenuItem key={strategy.id} value={strategy.id}>
+                        <Box>
+                          <Typography variant="body2" fontWeight="bold">
+                            {strategy.strategy_name}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {strategy.direction || 'LONG'} | Created: {strategy.created_at ? new Date(strategy.created_at).toLocaleDateString() : 'Unknown'}
+                          </Typography>
+                        </Box>
+                      </MenuItem>
+                    ))
+                  )}
                 </Select>
                 <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
-                  Select strategy blueprints from Strategy Builder to test against historical data. Multiple strategies can be compared.
+                  Select a 5-section strategy to test against historical data.
                 </Typography>
-              </FormControl> */}
-
-              <Alert severity="warning" sx={{ mt: 2, mb: 2 }}>
-                Backtest functionality temporarily disabled. Strategy Builder removed - only 5-section strategies supported.
-              </Alert>
+              </FormControl>
 
               <FormControl fullWidth>
                 <InputLabel>Data Sources (Historical Sessions)</InputLabel>
