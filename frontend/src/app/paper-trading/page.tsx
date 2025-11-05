@@ -99,6 +99,8 @@ export default function PaperTradingPage() {
   const router = useRouter();
   const [sessions, setSessions] = useState<PaperTradingSession[]>([]);
   const [strategies, setStrategies] = useState<Strategy[]>([]);
+  const [availableSymbols, setAvailableSymbols] = useState<string[]>([]);
+  const [symbolsLoading, setSymbolsLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [formData, setFormData] = useState<CreateSessionFormData>({
@@ -158,13 +160,42 @@ export default function PaperTradingPage() {
     }
   }, []);
 
+  const loadAvailableSymbols = useCallback(async () => {
+    setSymbolsLoading(true);
+    try {
+      const symbols = await apiService.getSymbols();
+      if (symbols && symbols.length > 0) {
+        setAvailableSymbols(symbols);
+        // Update default symbol in form to first available symbol
+        setFormData(prev => ({
+          ...prev,
+          symbols: [symbols[0]]
+        }));
+      } else {
+        setAvailableSymbols([]);
+      }
+    } catch (error) {
+      console.error('Failed to load available symbols:', error);
+      // Fallback to default symbols if API fails
+      const fallbackSymbols = ['BTC_USDT', 'ETH_USDT', 'ADA_USDT', 'SOL_USDT', 'DOT_USDT', 'MATIC_USDT', 'AVAX_USDT'];
+      setAvailableSymbols(fallbackSymbols);
+      setFormData(prev => ({
+        ...prev,
+        symbols: [fallbackSymbols[0]]
+      }));
+    } finally {
+      setSymbolsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchSessions();
     fetchStrategies();
+    loadAvailableSymbols();
     // Poll for updates every 5 seconds
     const interval = setInterval(fetchSessions, 5000);
     return () => clearInterval(interval);
-  }, [fetchSessions, fetchStrategies]);
+  }, [fetchSessions, fetchStrategies, loadAvailableSymbols]);
 
   // ============================================
   // Session Management Handlers
@@ -336,8 +367,6 @@ export default function PaperTradingPage() {
     const sign = value >= 0 ? '+' : '';
     return `${sign}${value.toFixed(2)}%`;
   };
-
-  const commonSymbols = ['BTC_USDT', 'ETH_USDT', 'ADA_USDT', 'SOL_USDT', 'DOT_USDT', 'MATIC_USDT', 'AVAX_USDT'];
 
   // ============================================
   // Render
@@ -558,6 +587,7 @@ export default function PaperTradingPage() {
                     value={formData.symbols}
                     onChange={handleSymbolsChange}
                     label="Trading Symbols *"
+                    disabled={symbolsLoading}
                     renderValue={(selected) => (
                       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                         {selected.map((value) => (
@@ -566,11 +596,25 @@ export default function PaperTradingPage() {
                       </Box>
                     )}
                   >
-                    {commonSymbols.map((symbol) => (
-                      <MenuItem key={symbol} value={symbol}>
-                        {symbol}
+                    {symbolsLoading ? (
+                      <MenuItem disabled>
+                        <Typography variant="body2" color="text.secondary">
+                          Loading symbols...
+                        </Typography>
                       </MenuItem>
-                    ))}
+                    ) : availableSymbols.length === 0 ? (
+                      <MenuItem disabled>
+                        <Typography variant="body2" color="text.secondary">
+                          No symbols available. Check backend configuration.
+                        </Typography>
+                      </MenuItem>
+                    ) : (
+                      availableSymbols.map((symbol) => (
+                        <MenuItem key={symbol} value={symbol}>
+                          {symbol}
+                        </MenuItem>
+                      ))
+                    )}
                   </Select>
                 </FormControl>
               </Grid>
