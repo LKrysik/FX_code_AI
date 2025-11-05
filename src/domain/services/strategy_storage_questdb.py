@@ -10,6 +10,7 @@ Connection: PostgreSQL protocol (port 8812)
 
 import uuid
 import json
+import traceback
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import asyncpg
@@ -167,6 +168,13 @@ class QuestDBStrategyStorage:
         except asyncpg.UniqueViolationError:
             raise StrategyStorageError(f"Strategy with name '{strategy_name}' already exists")
         except Exception as e:
+            # Enhanced error logging with traceback
+            error_details = {
+                "strategy_name": strategy_data.get("strategy_name"),
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "traceback": traceback.format_exc()
+            }
             raise StrategyStorageError(f"Failed to create strategy: {e}")
         finally:
             if conn:
@@ -174,7 +182,7 @@ class QuestDBStrategyStorage:
 
     async def read_strategy(self, strategy_id: str) -> Dict[str, Any]:
         """
-        Read strategy by UUID.
+        Read active (not deleted) strategy by UUID.
 
         Args:
             strategy_id: Strategy UUID
@@ -183,7 +191,7 @@ class QuestDBStrategyStorage:
             Strategy configuration dict
 
         Raises:
-            StrategyNotFoundError: If strategy doesn't exist
+            StrategyNotFoundError: If strategy doesn't exist or is deleted
             StrategyStorageError: If database operation fails
         """
         conn = None
@@ -195,13 +203,13 @@ class QuestDBStrategyStorage:
                        strategy_json, author, category, tags, template_id,
                        created_at, updated_at, last_activated_at
                 FROM strategies
-                WHERE id = $1
+                WHERE id = $1 AND is_deleted = false
             """
 
             row = await conn.fetchrow(query, strategy_id)
 
             if not row:
-                raise StrategyNotFoundError(f"Strategy {strategy_id} not found")
+                raise StrategyNotFoundError(f"Strategy {strategy_id} not found or deleted")
 
             # Deserialize JSON config
             strategy_data = json.loads(row['strategy_json'])
@@ -217,6 +225,13 @@ class QuestDBStrategyStorage:
         except StrategyNotFoundError:
             raise
         except Exception as e:
+            # Enhanced error logging with traceback
+            error_details = {
+                "strategy_id": strategy_id,
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "traceback": traceback.format_exc()
+            }
             raise StrategyStorageError(f"Failed to read strategy {strategy_id}: {e}")
         finally:
             if conn:
@@ -251,38 +266,48 @@ class QuestDBStrategyStorage:
             # Serialize full config as JSON
             strategy_json = json.dumps(strategy_data)
 
-            # Update timestamp
+            # Update timestamp - use literal value for QuestDB compatibility
+            # QuestDB does not support bind variables for TIMESTAMP in UPDATE statements
             now = datetime.utcnow()
+            now_str = now.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
 
             # Update in QuestDB
             conn = await self._get_connection()
 
-            query = """
+            # TIMESTAMP as literal string, other fields as bind variables
+            query = f"""
                 UPDATE strategies
-                SET strategy_name = $2,
-                    description = $3,
-                    direction = $4,
-                    enabled = $5,
-                    strategy_json = $6,
-                    category = $7,
-                    tags = $8,
-                    updated_at = $9
-                WHERE id = $1
+                SET strategy_name = $1,
+                    description = $2,
+                    direction = $3,
+                    enabled = $4,
+                    strategy_json = $5,
+                    category = $6,
+                    tags = $7,
+                    updated_at = '{now_str}'
+                WHERE id = $8 AND is_deleted = false
             """
 
             result = await conn.execute(
                 query,
-                strategy_id, strategy_name, description, direction, enabled,
-                strategy_json, category, tags, now
+                strategy_name, description, direction, enabled,
+                strategy_json, category, tags, strategy_id
             )
 
             # Check if any rows were updated
             if result == "UPDATE 0":
-                raise StrategyNotFoundError(f"Strategy {strategy_id} not found")
+                raise StrategyNotFoundError(f"Strategy {strategy_id} not found or already deleted")
 
         except StrategyNotFoundError:
             raise
         except Exception as e:
+            # Enhanced error logging with traceback
+            error_details = {
+                "strategy_id": strategy_id,
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "traceback": traceback.format_exc()
+            }
             raise StrategyStorageError(f"Failed to update strategy {strategy_id}: {e}")
         finally:
             if conn:
@@ -290,28 +315,45 @@ class QuestDBStrategyStorage:
 
     async def delete_strategy(self, strategy_id: str) -> None:
         """
-        Delete strategy by UUID.
+        Soft delete strategy by UUID (sets is_deleted = true, deleted_at = timestamp).
+        Does not permanently remove data - allows recovery and maintains audit trail.
 
         Args:
             strategy_id: Strategy UUID
 
         Raises:
-            StrategyNotFoundError: If strategy doesn't exist
+            StrategyNotFoundError: If strategy doesn't exist or already deleted
             StrategyStorageError: If database operation fails
         """
         conn = None
         try:
             conn = await self._get_connection()
 
-            query = "DELETE FROM strategies WHERE id = $1"
+            # Use literal TIMESTAMP value for QuestDB compatibility
+            deleted_at = datetime.utcnow()
+            deleted_at_str = deleted_at.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+
+            # Soft delete: UPDATE instead of DELETE
+            query = f"""
+                UPDATE strategies
+                SET is_deleted = true, deleted_at = '{deleted_at_str}'
+                WHERE id = $1 AND is_deleted = false
+            """
             result = await conn.execute(query, strategy_id)
 
-            if result == "DELETE 0":
-                raise StrategyNotFoundError(f"Strategy {strategy_id} not found")
+            if result == "UPDATE 0":
+                raise StrategyNotFoundError(f"Strategy {strategy_id} not found or already deleted")
 
         except StrategyNotFoundError:
             raise
         except Exception as e:
+            # Enhanced error logging with traceback
+            error_details = {
+                "strategy_id": strategy_id,
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "traceback": traceback.format_exc()
+            }
             raise StrategyStorageError(f"Failed to delete strategy {strategy_id}: {e}")
         finally:
             if conn:
@@ -319,7 +361,7 @@ class QuestDBStrategyStorage:
 
     async def list_strategies(self) -> List[Dict[str, Any]]:
         """
-        List all strategies with basic metadata.
+        List all active (not deleted) strategies with basic metadata.
 
         Returns:
             List of strategy summary dicts
@@ -335,6 +377,7 @@ class QuestDBStrategyStorage:
                 SELECT id, strategy_name, direction, enabled,
                        created_at, updated_at, last_activated_at
                 FROM strategies
+                WHERE is_deleted = false
                 ORDER BY updated_at DESC
             """
 
@@ -355,6 +398,12 @@ class QuestDBStrategyStorage:
             return strategies
 
         except Exception as e:
+            # Enhanced error logging with traceback
+            error_details = {
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "traceback": traceback.format_exc()
+            }
             raise StrategyStorageError(f"Failed to list strategies: {e}")
         finally:
             if conn:
@@ -375,16 +424,26 @@ class QuestDBStrategyStorage:
         try:
             conn = await self._get_connection()
 
+            # Use literal TIMESTAMP value for QuestDB compatibility
             now = datetime.utcnow()
-            query = "UPDATE strategies SET last_activated_at = $2 WHERE id = $1"
-            result = await conn.execute(query, strategy_id, now)
+            now_str = now.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+
+            query = f"UPDATE strategies SET last_activated_at = '{now_str}' WHERE id = $1 AND is_deleted = false"
+            result = await conn.execute(query, strategy_id)
 
             if result == "UPDATE 0":
-                raise StrategyNotFoundError(f"Strategy {strategy_id} not found")
+                raise StrategyNotFoundError(f"Strategy {strategy_id} not found or already deleted")
 
         except StrategyNotFoundError:
             raise
         except Exception as e:
+            # Enhanced error logging with traceback
+            error_details = {
+                "strategy_id": strategy_id,
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "traceback": traceback.format_exc()
+            }
             raise StrategyStorageError(f"Failed to mark strategy as activated: {e}")
         finally:
             if conn:
@@ -392,7 +451,7 @@ class QuestDBStrategyStorage:
 
     async def get_enabled_strategies(self) -> List[Dict[str, Any]]:
         """
-        Get all enabled strategies.
+        Get all enabled and active (not deleted) strategies.
 
         Returns:
             List of enabled strategy dicts
@@ -409,7 +468,7 @@ class QuestDBStrategyStorage:
                        strategy_json, author, category, tags, template_id,
                        created_at, updated_at, last_activated_at
                 FROM strategies
-                WHERE enabled = true
+                WHERE enabled = true AND is_deleted = false
                 ORDER BY strategy_name
             """
 
@@ -426,6 +485,12 @@ class QuestDBStrategyStorage:
             return strategies
 
         except Exception as e:
+            # Enhanced error logging with traceback
+            error_details = {
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "traceback": traceback.format_exc()
+            }
             raise StrategyStorageError(f"Failed to get enabled strategies: {e}")
         finally:
             if conn:
