@@ -36,6 +36,10 @@ import {
 } from '@mui/icons-material';
 import { apiService } from '@/services/api';
 import LiquidationAlert from '@/components/trading/LiquidationAlert';
+import EquityCurveChart from '@/components/charts/EquityCurveChart';
+import DrawdownChart from '@/components/charts/DrawdownChart';
+import WinRatePieChart from '@/components/charts/WinRatePieChart';
+import PnLDistributionChart from '@/components/charts/PnLDistributionChart';
 
 // ============================================
 // TypeScript Interfaces
@@ -119,6 +123,7 @@ export default function PaperTradingDetailPage() {
 
   const [session, setSession] = useState<PaperTradingSession | null>(null);
   const [performance, setPerformance] = useState<Performance | null>(null);
+  const [performanceTimeSeries, setPerformanceTimeSeries] = useState<any[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
   const [loading, setLoading] = useState(false);
@@ -160,7 +165,17 @@ export default function PaperTradingDetailPage() {
     try {
       const response = await apiService.get(`/api/paper-trading/sessions/${sessionId}/performance`);
       if (response.success && response.performance) {
-        setPerformance(response.performance);
+        // API returns array of performance snapshots over time
+        const performanceData = Array.isArray(response.performance)
+          ? response.performance
+          : [response.performance];
+
+        setPerformanceTimeSeries(performanceData);
+
+        // Set current performance to latest snapshot
+        if (performanceData.length > 0) {
+          setPerformance(performanceData[performanceData.length - 1]);
+        }
       }
     } catch (error: any) {
       console.error('Failed to fetch performance:', error);
@@ -565,7 +580,7 @@ export default function PaperTradingDetailPage() {
         <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
           <Tab label={`Orders (${orders.length})`} />
           <Tab label={`Positions (${positions.length})`} />
-          <Tab label="Charts" disabled icon={<ShowChartIcon />} />
+          <Tab label="Charts" icon={<ShowChartIcon />} />
         </Tabs>
 
         {/* Orders Tab */}
@@ -653,15 +668,33 @@ export default function PaperTradingDetailPage() {
           </Box>
         )}
 
-        {/* Charts Tab (Placeholder) */}
+        {/* Charts Tab (TIER 2.1) */}
         {tabValue === 2 && (
           <Box sx={{ p: 2 }}>
-            <Alert severity="info">
-              <Typography variant="body2">
-                <strong>Coming Soon:</strong> Performance charts (Equity Curve, Drawdown, P&L Distribution)
-                will be available in Task 1.2 Phase 2.
-              </Typography>
-            </Alert>
+            <Grid container spacing={3}>
+              {/* Equity Curve Chart */}
+              <Grid item xs={12}>
+                <EquityCurveChart
+                  data={performanceTimeSeries}
+                  initialBalance={session?.initial_balance || 10000}
+                />
+              </Grid>
+
+              {/* Drawdown Chart */}
+              <Grid item xs={12}>
+                <DrawdownChart data={performanceTimeSeries} />
+              </Grid>
+
+              {/* Win Rate Pie Chart */}
+              <Grid item xs={12} md={6}>
+                <WinRatePieChart data={performance} />
+              </Grid>
+
+              {/* P&L Distribution Chart */}
+              <Grid item xs={12} md={6}>
+                <PnLDistributionChart data={performance} />
+              </Grid>
+            </Grid>
           </Box>
         )}
       </Paper>
