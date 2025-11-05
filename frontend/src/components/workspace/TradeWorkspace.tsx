@@ -28,10 +28,11 @@ import { apiService } from '@/services/api';
 
 export const TradeWorkspace: React.FC = () => {
   // Zustand stores
-  const { activeSession, positions: storePositions, performance, walletBalance } = useTradingStore();
-  const { startSession, stopSession, fetchTradingPerformance, fetchWalletBalance } = useTradingActions();
+  const { currentSession, performance, walletBalance } = useTradingStore();
+  const { startSession, stopSession, fetchTradingPerformance, fetchWalletBalance, fetchExecutionStatus } = useTradingActions();
 
   // Local state
+  const [fullSession, setFullSession] = useState<any>(null); // Full session with all API fields
   const [positions, setPositions] = useState<Position[]>([]);
   const [signals, setSignals] = useState<any[]>([]);
   const [snackbar, setSnackbar] = useState<{
@@ -78,10 +79,34 @@ export const TradeWorkspace: React.FC = () => {
     };
   }, []);
 
-  // Convert store positions to Position[] format
-  useEffect(() => {
-    if (storePositions && Array.isArray(storePositions)) {
-      const formattedPositions: Position[] = storePositions.map((pos: any) => ({
+  const loadData = async () => {
+    try {
+      await Promise.all([
+        fetchTradingPerformance(),
+        fetchWalletBalance(),
+        loadPositions(),
+        loadFullSession(),
+      ]);
+    } catch (error) {
+      console.error('Failed to load data:', error);
+    }
+  };
+
+  const loadFullSession = async () => {
+    try {
+      const session = await apiService.getExecutionStatus();
+      setFullSession(session);
+    } catch (error) {
+      console.error('Failed to load session:', error);
+      setFullSession(null);
+    }
+  };
+
+  const loadPositions = async () => {
+    try {
+      const positionsData = await apiService.getPositions();
+
+      const formattedPositions: Position[] = positionsData.map((pos: any) => ({
         id: pos.id || pos.position_id || String(Math.random()),
         symbol: pos.symbol || 'UNKNOWN',
         side: (pos.side || 'long').toLowerCase() as 'long' | 'short',
@@ -102,17 +127,10 @@ export const TradeWorkspace: React.FC = () => {
       // Calculate total risk
       const risk = formattedPositions.reduce((sum, pos) => sum + (pos.riskPct || 0), 0);
       setTotalRisk(risk);
-    }
-  }, [storePositions]);
-
-  const loadData = async () => {
-    try {
-      await Promise.all([
-        fetchTradingPerformance(),
-        fetchWalletBalance(),
-      ]);
     } catch (error) {
-      console.error('Failed to load data:', error);
+      console.error('Failed to load positions:', error);
+      setPositions([]);
+      setTotalRisk(0);
     }
   };
 
@@ -164,10 +182,10 @@ export const TradeWorkspace: React.FC = () => {
   };
 
   const handleStopSession = async () => {
-    if (!activeSession) return;
+    if (!currentSession?.sessionId) return;
 
     try {
-      await apiService.stopSession(activeSession.session_id);
+      await apiService.stopSession(currentSession.sessionId);
 
       setSnackbar({
         open: true,
@@ -289,15 +307,15 @@ export const TradeWorkspace: React.FC = () => {
       <Paper sx={{ width: 300, p: 2, overflow: 'auto' }} elevation={2}>
         <QuickSessionStarter
           onStart={handleStartSession}
-          disabled={!!activeSession && activeSession.status === 'running'}
-          currentSession={activeSession}
+          disabled={!!currentSession && currentSession.status === 'running'}
+          currentSession={currentSession}
         />
       </Paper>
 
       {/* CENTER: Live Monitor - real-time updates */}
       <Paper sx={{ flex: 1, p: 2, overflow: 'auto' }} elevation={2}>
         <LiveMonitor
-          session={activeSession}
+          session={fullSession}
           performance={performance}
           walletBalance={walletBalance}
           signals={signals}
