@@ -10,7 +10,6 @@ from typing import Optional, List, Dict, Any
 from ...core.event_bus import EventBus
 from ...core.logger import StructuredLogger
 from ...domain.interfaces.market_data import IMarketDataProvider
-from ...domain.factories.indicator_engine_factory import IndicatorEngineFactory, ExecutionMode
 from .execution_controller import ExecutionController
 from ..services.execution_monitor import ExecutionMonitor
 from ..services.command_processor import AsyncCommandProcessor, CommandType
@@ -29,7 +28,8 @@ class UnifiedTradingController:
                  logger: StructuredLogger,
                  data_path: str = "data",
                  wallet_service = None,
-                 order_manager = None):
+                 order_manager = None,
+                 indicator_engine = None):  # ✅ NEW: DI parameter for indicator engine
 
         self.market_data_provider = market_data_provider
         self.event_bus = event_bus
@@ -38,7 +38,11 @@ class UnifiedTradingController:
 
         # Store event_bus reference for adapters
         self._event_bus = event_bus
-        self.indicator_engine = IndicatorEngineFactory.create_engine(ExecutionMode.LIVE, event_bus, logger=logger)
+
+        # ✅ FIX: Indicator engine injected via Container instead of Factory
+        # Factory is DEPRECATED and creates incomplete engine (no variant_repository)
+        # Container creates engine with full configuration (variant persistence, shared registry)
+        self.indicator_engine = indicator_engine  # Will be set during Container initialization
 
         # Trading components (optional for backtesting)
         self.wallet_service = wallet_service
@@ -70,6 +74,14 @@ class UnifiedTradingController:
         """Async initialization to prevent blocking startup"""
         if self._is_initialized:
             return
+
+        # ✅ VALIDATION: Indicator engine must be injected by Container
+        if self.indicator_engine is None:
+            raise RuntimeError(
+                "indicator_engine is required but was not injected. "
+                "UnifiedTradingController must be created via Container.create_unified_trading_controller() "
+                "to ensure proper dependency injection with variant persistence."
+            )
 
         # Create market data provider factory
         from ...infrastructure.factories.market_data_factory import MarketDataProviderFactory

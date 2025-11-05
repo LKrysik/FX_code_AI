@@ -48,12 +48,40 @@ class StreamingIndicatorEngine:
     """
     Real-time indicator calculation engine.
     Event-driven with efficient sliding window algorithms.
+
+    ARCHITECTURE: Single source of truth - ALWAYS created via Container
+        engine = await container.create_streaming_indicator_engine()
+
+    variant_repository is REQUIRED for:
+    - ✅ Variant persistence to QuestDB
+    - ✅ Shared algorithm registry (no duplication)
+    - ✅ Consistent state across API and controller layers
     """
-    
-    def __init__(self, event_bus: EventBus, logger: StructuredLogger, variant_repository=None):
+
+    def __init__(self, event_bus: EventBus, logger: StructuredLogger, variant_repository):
+        """
+        Initialize StreamingIndicatorEngine.
+
+        Args:
+            event_bus: Central event bus for communication (required)
+            logger: Structured logger (required)
+            variant_repository: IndicatorVariantRepository for QuestDB persistence (required)
+                Must be injected via Container.create_streaming_indicator_engine()
+
+        Raises:
+            ValueError: If variant_repository is None
+            RuntimeError: If algorithm registry cannot be initialized
+        """
+        if variant_repository is None:
+            raise ValueError(
+                "variant_repository is REQUIRED for StreamingIndicatorEngine. "
+                "Create engine via Container.create_streaming_indicator_engine() "
+                "to ensure proper dependency injection with full configuration."
+            )
+
         self.event_bus = event_bus
         self.logger = logger
-        self._variant_repository = variant_repository  # ✅ NEW: Repository for variant persistence
+        self._variant_repository = variant_repository
 
         # ✅ CRITICAL FIX: Thread-safe synchronization
         self._data_lock = RLock()  # Reentrant lock for nested operations
@@ -71,57 +99,22 @@ class StreamingIndicatorEngine:
         self._memory_monitor = MemoryMonitor(logger=logger, max_memory_mb=self.MAX_MEMORY_MB)
         self._health_monitor = HealthMonitor(logger=logger)
 
-        # ✅ ARCHITECTURE FIX: Use algorithm registry from variant_repository (SINGLE SOURCE OF TRUTH)
-        # If variant_repository is provided, reuse its algorithm_registry to avoid duplication.
-        # If not provided (e.g., tests without DI), create standalone registry (fallback).
-        if variant_repository is not None and hasattr(variant_repository, 'algorithms'):
-            # ✅ PREFERRED PATH: Reuse registry from repository (no duplication)
-            self._algorithm_registry = variant_repository.algorithms
-            algorithm_count = len(self._algorithm_registry.get_all_algorithms())
-            self.logger.info("streaming_indicator_engine.algorithm_registry_from_repository", {
-                "algorithms_count": algorithm_count,
-                "source": "variant_repository.algorithms"
-            })
-        else:
-            # ⚠️ FALLBACK PATH: Create standalone registry (for tests or when repository is None)
-            # This path should NOT be used in production (repository should always be injected)
-            try:
-                # ✅ IMPORT FIX: algorithm_registry is in ../indicators/ (sibling directory), not ./indicators/
-                from ..indicators.algorithm_registry import IndicatorAlgorithmRegistry
-                self._algorithm_registry = IndicatorAlgorithmRegistry(self.logger)
+        # ✅ ARCHITECTURE: Use algorithm registry from variant_repository (SINGLE SOURCE OF TRUTH)
+        # No fallback - repository is required, validated above
+        if not hasattr(variant_repository, 'algorithms'):
+            raise RuntimeError(
+                f"variant_repository must have 'algorithms' attribute. "
+                f"Got {type(variant_repository).__name__} without algorithm registry. "
+                f"Ensure repository is created via Container with proper configuration."
+            )
 
-                # Load all algorithms through registry
-                discovered_count = self._algorithm_registry.auto_discover_algorithms()
-
-                # If auto-discovery failed, manually register critical algorithms
-                if discovered_count == 0:
-                    self.logger.info("streaming_indicator_engine.manual_algorithm_registration", {
-                        "reason": "auto_discovery_found_no_algorithms"
-                    })
-
-                    from ..indicators.twpa import twpa_algorithm
-                    from ..indicators.twpa_ratio import twpa_ratio_algorithm
-
-                    self._algorithm_registry.register_algorithm(twpa_algorithm)
-                    self._algorithm_registry.register_algorithm(twpa_ratio_algorithm)
-
-                    manual_count = len(self._algorithm_registry.get_all_algorithms())
-                    self.logger.info("streaming_indicator_engine.manual_registration_completed", {
-                        "algorithms_registered": manual_count
-                    })
-
-                algorithm_count = len(self._algorithm_registry.get_all_algorithms())
-                self.logger.warning("streaming_indicator_engine.algorithm_registry_fallback", {
-                    "algorithms_count": algorithm_count,
-                    "source": "standalone_registry",
-                    "reason": "variant_repository_not_provided",
-                    "recommendation": "Inject variant_repository via Container for production use"
-                })
-            except ImportError as import_error:
-                self.logger.error("streaming_indicator_engine.algorithm_registry_import_failed", {
-                    "error": str(import_error)
-                })
-                raise RuntimeError("Algorithm registry is required - cannot continue without it") from import_error
+        self._algorithm_registry = variant_repository.algorithms
+        algorithm_count = len(self._algorithm_registry.get_all_algorithms())
+        self.logger.info("streaming_indicator_engine.initialized_with_repository", {
+            "algorithms_count": algorithm_count,
+            "source": "variant_repository.algorithms",
+            "repository_type": type(variant_repository).__name__
+        })
         
         # ✅ Old _register_system_indicators() call removed - using new registry systems
 
@@ -2595,22 +2588,15 @@ class StreamingIndicatorEngine:
         Load all variants from database into memory cache (async startup operation).
 
         Process:
-        1. Check if repository is configured
-        2. Load all active variants from database
-        3. Populate memory cache (_variants, _variants_by_type, _variant_parameters)
-        4. Auto-generate parameter definitions from algorithms
+        1. Load all active variants from database (variant_repository is always present)
+        2. Populate memory cache (_variants, _variants_by_type, _variant_parameters)
+        3. Auto-generate parameter definitions from algorithms
 
         Called during start() for engine initialization.
         """
-        if not self._variant_repository:
-            self.logger.warning("variant_repository_not_configured", {
-                "action": "skipping_database_load",
-                "reason": "repository_is_none"
-            })
-            return
-
         try:
             # Load all active variants from database
+            # variant_repository is guaranteed to exist (validated in __init__)
             variants = await self._variant_repository.load_all_variants()
 
             loaded_count = 0
@@ -2680,8 +2666,7 @@ class StreamingIndicatorEngine:
         """
         with self._data_lock:
             # Check repository configuration
-            if not self._variant_repository:
-                raise RuntimeError("Variant repository not configured - cannot create variant")
+            # variant_repository is always present (validated in __init__)
 
             # Validate variant type using enum
             valid_types = VariantType.get_valid_types()
@@ -2770,8 +2755,7 @@ class StreamingIndicatorEngine:
             ValueError: If parameter validation fails
         """
         with self._data_lock:
-            if not self._variant_repository:
-                raise RuntimeError("Variant repository not configured - cannot update variant")
+            # variant_repository is always present (validated in __init__)
 
             if variant_id not in self._variants:
                 return False
@@ -2813,8 +2797,7 @@ class StreamingIndicatorEngine:
             RuntimeError: If repository is not configured
         """
         with self._data_lock:
-            if not self._variant_repository:
-                raise RuntimeError("Variant repository not configured - cannot delete variant")
+            # variant_repository is always present (validated in __init__)
 
             if variant_id not in self._variants:
                 return False
