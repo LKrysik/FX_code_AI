@@ -112,57 +112,60 @@ def initialize_indicators_dependencies(
 
 def _ensure_support_services() -> Tuple[IndicatorPersistenceService, OfflineIndicatorEngine]:
     """
-    ⚠️ DEPRECATED: Use initialize_indicators_dependencies() for proper DI.
+    Get injected services or fail-fast if not initialized.
 
-    This function provides fallback lazy initialization for backward compatibility.
-    Will be removed once unified_server calls initialize_indicators_dependencies().
+    Services MUST be injected via initialize_indicators_dependencies() during startup.
+    No fallback lazy initialization - enforces proper DI architecture.
+
+    Raises:
+        RuntimeError: If services not injected (configuration error)
     """
     global _persistence_service, _offline_indicator_engine, _event_bus
 
-    # ✅ FIX: Fail-fast instead of creating duplicate EventBus
-    # Creating duplicate EventBus breaks event propagation between components
     if _event_bus is None:
         raise RuntimeError(
             "EventBus not injected into indicators_routes. "
-            "Call initialize_indicators_dependencies() from unified_server.py during startup. "
-            "This is required for proper event propagation between API and indicator engine."
+            "Call initialize_indicators_dependencies() from unified_server.py during startup."
         )
 
     if _persistence_service is None:
-        _persistence_service = IndicatorPersistenceService(
-            _event_bus,
-            logger
+        raise RuntimeError(
+            "IndicatorPersistenceService not initialized. "
+            "Call initialize_indicators_dependencies() from unified_server.py during startup."
         )
 
     if _offline_indicator_engine is None:
-        _offline_indicator_engine = OfflineIndicatorEngine()
+        raise RuntimeError(
+            "OfflineIndicatorEngine not initialized. "
+            "Call initialize_indicators_dependencies() from unified_server.py during startup."
+        )
 
     return _persistence_service, _offline_indicator_engine
 
 
 def _ensure_questdb_providers() -> Tuple[QuestDBProvider, QuestDBDataProvider]:
     """
-    Ensure QuestDB providers are initialized (lazy initialization).
+    Get injected QuestDB providers or fail-fast if not initialized.
 
-    ✅ BUG-002 FIX: Initialize QuestDB providers for database access
+    Providers MUST be injected via initialize_indicators_dependencies() during startup.
+    No fallback lazy initialization - enforces proper DI architecture.
 
-    Returns:
-        Tuple of (QuestDBProvider, QuestDBDataProvider)
+    Raises:
+        RuntimeError: If providers not injected (configuration error)
     """
     global _questdb_provider, _questdb_data_provider
 
     if _questdb_provider is None:
-        _questdb_provider = QuestDBProvider(
-            ilp_host='127.0.0.1',
-            ilp_port=9009,
-            pg_host='127.0.0.1',
-            pg_port=8812
+        raise RuntimeError(
+            "QuestDBProvider not injected into indicators_routes. "
+            "Call initialize_indicators_dependencies() from unified_server.py during startup."
         )
 
     if _questdb_data_provider is None:
-        # ✅ LOGGER FIX: Use get_logger() instead of direct StructuredLogger instantiation
-        logger = get_logger("indicators_routes_questdb")
-        _questdb_data_provider = QuestDBDataProvider(_questdb_provider, logger)
+        raise RuntimeError(
+            "QuestDBDataProvider not initialized. "
+            "Call initialize_indicators_dependencies() from unified_server.py during startup."
+        )
 
     return _questdb_provider, _questdb_data_provider
 
