@@ -475,9 +475,12 @@ python scripts/test_subscription_race_condition.py
 
 ### 6.2 Integration Testing
 
-**Script**: `scripts/diagnostic_snapshot_issue.py`
+**Script**: ~~`scripts/diagnostic_snapshot_issue.py`~~ (REMOVED - dead code, bug fixed 2025-11-01)
 
-Uruchom podczas data collection:
+> **Note**: The diagnostic script has been removed as dead code since the bug was fixed and verified.
+> Historical reference preserved in git history if needed for future debugging.
+
+Original usage (for reference):
 ```bash
 # Terminal 1: Backend
 python -m uvicorn src.api.unified_server:create_unified_app --factory --port 8080
@@ -565,7 +568,7 @@ Bug potwierdzony i root cause zidentyfikowany:
 
 **Test Scripts**:
 - `scripts/test_subscription_race_condition.py` - Unit test reproducing bug
-- `scripts/diagnostic_snapshot_issue.py` - Live monitoring tool
+- ~~`scripts/diagnostic_snapshot_issue.py`~~ - (REMOVED - dead code, bug fixed)
 - `scripts/enhanced_logging_patch.py` - Logging enhancement guide
 
 **Documentation**:

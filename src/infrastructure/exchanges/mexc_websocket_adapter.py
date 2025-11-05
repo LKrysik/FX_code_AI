@@ -2249,11 +2249,7 @@ class MexcWebSocketAdapter(IMarketDataProvider):
     async def health_check(self) -> bool:
         """Check adapter health"""
         return self._running and len(self._connections) > 0
-    
-    async def get_market_data_stream(self, symbol: str):
-        """Get real-time market data stream - use EventBus subscription instead"""
-        raise NotImplementedError("Use EventBus subscription to 'market.price_update' instead")
-    
+
     def get_subscribed_symbols(self) -> Set[str]:
         """Get all currently subscribed symbols"""
         return self._subscribed_symbols.copy()
@@ -2413,26 +2409,25 @@ class MexcWebSocketAdapter(IMarketDataProvider):
         data_queue = asyncio.Queue(maxsize=100)
 
         # Subscribe to market data events for this symbol
-        def market_data_handler(event_type: str, data: dict):
+        async def market_data_handler(data: dict):
             """Handle incoming market data events"""
             try:
-                if event_type in ["market.price_update", "market.orderbook_update"]:
-                    event_symbol = data.get("symbol", "").upper()
-                    if event_symbol == symbol.upper():
-                        # Put data in queue for the consumer
+                # Event type is implicit from subscription - only subscribed events are received
+                event_symbol = data.get("symbol", "").upper()
+                if event_symbol == symbol.upper():
+                    # Put data in queue for the consumer
+                    try:
+                        data_queue.put_nowait(data)
+                    except asyncio.QueueFull:
+                        # Drop oldest data if queue is full
                         try:
+                            data_queue.get_nowait()
                             data_queue.put_nowait(data)
-                        except asyncio.QueueFull:
-                            # Drop oldest data if queue is full
-                            try:
-                                data_queue.get_nowait()
-                                data_queue.put_nowait(data)
-                            except asyncio.QueueEmpty:
-                                pass
+                        except asyncio.QueueEmpty:
+                            pass
             except Exception as e:
                 self.logger.error("mexc_adapter.stream_handler_error", {
                     "symbol": symbol,
-                    "event_type": event_type,
                     "error": str(e)
                 })
 
@@ -2455,15 +2450,9 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                     break
         finally:
             # Unsubscribe from events when done
-            try:
-                # Check if subscribed before unsubscribing to avoid warnings
-                subscribers = await self.event_bus.get_subscribers()
-                if "market.price_update" in subscribers and market_data_handler in [s.handler_name for s in subscribers["market.price_update"]]:
-                    self.event_bus.unsubscribe("market.price_update", market_data_handler)
-                if "market.orderbook_update" in subscribers and market_data_handler in [s.handler_name for s in subscribers["market.orderbook_update"]]:
-                    self.event_bus.unsubscribe("market.orderbook_update", market_data_handler)
-            except Exception:
-                pass
+            # EventBus.unsubscribe() handles "not found" cases gracefully with silent=True
+            self.event_bus.unsubscribe("market.price_update", market_data_handler, silent=True)
+            self.event_bus.unsubscribe("market.orderbook_update", market_data_handler, silent=True)
     
     
     async def get_24h_volume(self, symbol: str) -> Optional[float]:

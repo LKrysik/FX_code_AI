@@ -394,7 +394,7 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
       case 'ze1':
         return availableIndicators.filter(ind =>
           ind.type === 'general' || ind.type === 'risk' ||
-          ind.type === 'close_order'
+          ind.type === 'close_price'
         );
       default:
         return availableIndicators;
@@ -560,9 +560,9 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                     <em>Use market price</em>
                   </MenuItem>
                   {availableIndicators
-                    .filter(ind => 
-                      ind.type === 'general' && 
-                      ['TWPA', 'VWAP', 'MAX_PRICE', 'MIN_PRICE', 'FIRST_PRICE', 'LAST_PRICE', 'SMA', 'EMA'].includes(ind.baseType)
+                    .filter(ind =>
+                      ind.type === 'order_price' ||
+                      (ind.type === 'general' && ['TWPA', 'VWAP', 'MAX_PRICE', 'MIN_PRICE', 'FIRST_PRICE', 'LAST_PRICE', 'SMA', 'EMA'].includes(ind.baseType))
                     )
                     .map((indicator) => (
                       <MenuItem key={indicator.id} value={indicator.id}>
@@ -628,7 +628,7 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                           Stop Loss Method
                         </Typography>
                         <RadioGroup
-                          value={strategyData.z1_entry.stopLoss?.indicatorId ? 'indicator' : 'relative'}
+                          value={strategyData.z1_entry.stopLoss?.indicatorId !== undefined ? 'indicator' : 'relative'}
                           onChange={(e) => {
                             const isIndicator = e.target.value === 'indicator';
                             handleZ1OrderConfigChange({
@@ -640,15 +640,15 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                             });
                           }}
                         >
-                          <FormControlLabel 
-                            value="indicator" 
-                            control={<Radio size="small" />} 
-                            label="Use indicator + offset" 
+                          <FormControlLabel
+                            value="indicator"
+                            control={<Radio size="small" />}
+                            label="Use indicator + offset"
                           />
-                          <FormControlLabel 
-                            value="relative" 
-                            control={<Radio size="small" />} 
-                            label="Relative to Entry (Short) - percentage" 
+                          <FormControlLabel
+                            value="relative"
+                            control={<Radio size="small" />}
+                            label="Relative to Entry - percentage"
                           />
                         </RadioGroup>
                       </FormControl>
@@ -672,9 +672,9 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                                 <em>Select indicator</em>
                               </MenuItem>
                               {availableIndicators
-                                .filter(ind => 
-                                  ind.type === 'general' && 
-                                  ['TWPA', 'VWAP', 'MAX_PRICE', 'MIN_PRICE', 'FIRST_PRICE', 'LAST_PRICE', 'SMA', 'EMA'].includes(ind.baseType)
+                                .filter(ind =>
+                                  ind.type === 'stop_loss_price' ||
+                                  (ind.type === 'general' && ['TWPA', 'VWAP', 'MAX_PRICE', 'MIN_PRICE', 'FIRST_PRICE', 'LAST_PRICE', 'SMA', 'EMA'].includes(ind.baseType))
                                 )
                                 .map((indicator) => (
                                   <MenuItem key={indicator.id} value={indicator.id}>
@@ -704,7 +704,7 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                       {strategyData.z1_entry.stopLoss?.indicatorId === undefined && (
                         <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 2 }}>
                           <TextField
-                            label="Stop Loss %"
+                            label={strategyData.direction === 'SHORT' ? "Stop Loss % (above entry)" : "Stop Loss % (below entry)"}
                             type="number"
                             size="small"
                             value={strategyData.z1_entry.stopLoss?.offsetPercent || 1.5}
@@ -714,25 +714,13 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                                 offsetPercent: parseFloat(e.target.value) || 1.5,
                               },
                             })}
-                            sx={{ width: 120 }}
-                            helperText="% below entry price"
+                            sx={{ width: 200 }}
+                            helperText={
+                              strategyData.direction === 'SHORT'
+                                ? "Protection: price rises above entry"
+                                : "Protection: price falls below entry"
+                            }
                           />
-                          <FormControl size="small" sx={{ minWidth: 150 }}>
-                            <InputLabel>Calculation Mode</InputLabel>
-                            <Select
-                              value={strategyData.z1_entry.stopLoss?.calculationMode || 'RELATIVE_TO_ENTRY'}
-                              label="Calculation Mode"
-                              onChange={(e) => handleZ1OrderConfigChange({
-                                stopLoss: {
-                                  ...strategyData.z1_entry.stopLoss!,
-                                  calculationMode: e.target.value as 'ABSOLUTE' | 'RELATIVE_TO_ENTRY',
-                                },
-                              })}
-                            >
-                              <MenuItem value="RELATIVE_TO_ENTRY">Relative to Entry</MenuItem>
-                              <MenuItem value="ABSOLUTE">Absolute</MenuItem>
-                            </Select>
-                          </FormControl>
                         </Box>
                       )}
 
@@ -881,61 +869,108 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                   />
 
                   {strategyData.z1_entry.takeProfit?.enabled && (
-                    <Box sx={{ ml: 4, mt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <Box sx={{ display: 'flex', gap: 2 }}>
-                        <FormControl size="small" sx={{ minWidth: 200 }}>
-                          <InputLabel>TP Indicator</InputLabel>
-                          <Select
-                            value={strategyData.z1_entry.takeProfit?.indicatorId || ''}
-                            label="TP Indicator"
+                    <Box sx={{ ml: 4, mt: 2, p: 2, border: 1, borderColor: 'grey.300', borderRadius: 1 }}>
+                      {/* Take Profit Method Selection */}
+                      <FormControl component="fieldset" sx={{ mb: 2 }}>
+                        <Typography variant="subtitle2" gutterBottom>
+                          Take Profit Method
+                        </Typography>
+                        <RadioGroup
+                          value={strategyData.z1_entry.takeProfit?.indicatorId !== undefined ? 'indicator' : 'relative'}
+                          onChange={(e) => {
+                            const isIndicator = e.target.value === 'indicator';
+                            handleZ1OrderConfigChange({
+                              takeProfit: {
+                                ...strategyData.z1_entry.takeProfit!,
+                                indicatorId: isIndicator ? '' : undefined,
+                                offsetPercent: isIndicator ? 0 : (strategyData.z1_entry.takeProfit?.offsetPercent || 2.0),
+                              },
+                            });
+                          }}
+                        >
+                          <FormControlLabel
+                            value="indicator"
+                            control={<Radio size="small" />}
+                            label="Use indicator + offset"
+                          />
+                          <FormControlLabel
+                            value="relative"
+                            control={<Radio size="small" />}
+                            label="Relative to Entry - percentage"
+                          />
+                        </RadioGroup>
+                      </FormControl>
+
+                      {/* Option A: Indicator + Offset */}
+                      {strategyData.z1_entry.takeProfit?.indicatorId !== undefined && (
+                        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 2 }}>
+                          <FormControl size="small" sx={{ minWidth: 180 }}>
+                            <InputLabel>Price Indicator</InputLabel>
+                            <Select
+                              value={strategyData.z1_entry.takeProfit?.indicatorId || ''}
+                              label="Price Indicator"
+                              onChange={(e) => handleZ1OrderConfigChange({
+                                takeProfit: {
+                                  ...strategyData.z1_entry.takeProfit!,
+                                  indicatorId: e.target.value,
+                                },
+                              })}
+                            >
+                              <MenuItem value="">
+                                <em>Select indicator</em>
+                              </MenuItem>
+                              {availableIndicators
+                                .filter(ind =>
+                                  ind.type === 'take_profit_price' ||
+                                  (ind.type === 'general' && ['TWPA', 'VWAP', 'MAX_PRICE', 'MIN_PRICE', 'FIRST_PRICE', 'LAST_PRICE', 'SMA', 'EMA'].includes(ind.baseType))
+                                )
+                                .map((indicator) => (
+                                  <MenuItem key={indicator.id} value={indicator.id}>
+                                    {indicator.name} ({indicator.baseType})
+                                  </MenuItem>
+                                ))}
+                            </Select>
+                          </FormControl>
+                          <TextField
+                            label="Offset %"
+                            type="number"
+                            size="small"
+                            value={strategyData.z1_entry.takeProfit?.offsetPercent || 0}
                             onChange={(e) => handleZ1OrderConfigChange({
                               takeProfit: {
                                 ...strategyData.z1_entry.takeProfit!,
-                                indicatorId: e.target.value,
+                                offsetPercent: parseFloat(e.target.value) || 0,
                               },
                             })}
-                          >
-                            {availableIndicators
-                              .filter(ind => ind.type === 'take_profit')
-                              .map((indicator) => (
-                                <MenuItem key={indicator.id} value={indicator.id}>
-                                  {indicator.name} ({indicator.baseType})
-                                </MenuItem>
-                              ))}
-                          </Select>
-                        </FormControl>
+                            sx={{ width: 100 }}
+                            helperText="+ increases, - decreases"
+                          />
+                        </Box>
+                      )}
 
-                        <TextField
-                          label="Base Offset %"
-                          type="number"
-                          size="small"
-                          value={strategyData.z1_entry.takeProfit?.offsetPercent || 0}
-                          onChange={(e) => handleZ1OrderConfigChange({
-                            takeProfit: {
-                              ...strategyData.z1_entry.takeProfit!,
-                              offsetPercent: parseFloat(e.target.value) || 0,
-                            },
-                          })}
-                          sx={{ width: 120 }}
-                        />
-
-                        <FormControl size="small" sx={{ minWidth: 150 }}>
-                          <InputLabel>Calculation Mode</InputLabel>
-                          <Select
-                            value={strategyData.z1_entry.takeProfit?.calculationMode || 'ABSOLUTE'}
-                            label="Calculation Mode"
+                      {/* Option B: Relative to Entry */}
+                      {strategyData.z1_entry.takeProfit?.indicatorId === undefined && (
+                        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 2 }}>
+                          <TextField
+                            label={strategyData.direction === 'SHORT' ? "Take Profit % (below entry)" : "Take Profit % (above entry)"}
+                            type="number"
+                            size="small"
+                            value={strategyData.z1_entry.takeProfit?.offsetPercent || 2.0}
                             onChange={(e) => handleZ1OrderConfigChange({
                               takeProfit: {
                                 ...strategyData.z1_entry.takeProfit!,
-                                calculationMode: e.target.value as 'ABSOLUTE' | 'RELATIVE_TO_ENTRY',
+                                offsetPercent: parseFloat(e.target.value) || 2.0,
                               },
                             })}
-                          >
-                            <MenuItem value="ABSOLUTE">Absolute %</MenuItem>
-                            <MenuItem value="RELATIVE_TO_ENTRY">Relative to Entry (SHORT)</MenuItem>
-                          </Select>
-                        </FormControl>
-                      </Box>
+                            sx={{ width: 200 }}
+                            helperText={
+                              strategyData.direction === 'SHORT'
+                                ? "Profit: price drops below entry"
+                                : "Profit: price rises above entry"
+                            }
+                          />
+                        </Box>
+                      )}
 
                       {/* Risk Scaling for Take Profit - SPRINT_GOAL_04 Enhancement */}
                       <Box sx={{ ml: 2 }}>
@@ -1548,10 +1583,10 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
               <FormControl size="small" sx={{ maxWidth: 300 }}>
                 <InputLabel>Price Calculation Method</InputLabel>
                 <Select
-                  value={strategyData.ze1_close.priceIndicatorId ? 'indicator' : 'market'}
+                  value={strategyData.ze1_close.priceIndicatorId !== undefined ? 'indicator' : 'market'}
                   label="Price Calculation Method"
                   onChange={(e) => handleZE1OrderConfigChange({
-                    priceIndicatorId: e.target.value === 'market' ? undefined : strategyData.ze1_close.priceIndicatorId
+                    priceIndicatorId: e.target.value === 'indicator' ? '' : undefined
                   })}
                 >
                   <MenuItem value="market">Use market price</MenuItem>
@@ -1559,7 +1594,7 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                 </Select>
               </FormControl>
 
-              {strategyData.ze1_close.priceIndicatorId && (
+              {strategyData.ze1_close.priceIndicatorId !== undefined && (
                 <FormControl size="small" sx={{ maxWidth: 300 }}>
                   <InputLabel>Close Order Indicator</InputLabel>
                   <Select
@@ -1568,7 +1603,10 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                     onChange={(e) => handleZE1OrderConfigChange({ priceIndicatorId: e.target.value })}
                   >
                     {availableIndicators
-                      .filter(ind => ind.type === 'close_order')
+                      .filter(ind =>
+                        ind.type === 'close_price' ||
+                        (ind.type === 'general' && ['TWPA', 'VWAP', 'MAX_PRICE', 'MIN_PRICE', 'FIRST_PRICE', 'LAST_PRICE', 'SMA', 'EMA'].includes(ind.baseType))
+                      )
                       .map((indicator) => (
                         <MenuItem key={indicator.id} value={indicator.id}>
                           {indicator.name} ({indicator.baseType})
@@ -1579,7 +1617,7 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
               )}
 
               {/* ZE1 Risk-Adjusted Close Pricing - SPRINT_GOAL_04 Enhancement */}
-              {strategyData.ze1_close.priceIndicatorId && (
+              {strategyData.ze1_close.priceIndicatorId !== undefined && (
                 <Box sx={{ mt: 2 }}>
                   <FormControlLabel
                     control={

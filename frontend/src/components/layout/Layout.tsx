@@ -23,7 +23,6 @@ import {
   Dashboard as DashboardIcon,
   Build as BuildIcon,
   ShowChart as ChartIcon,
-  AccountBalanceWallet as WalletIcon,
   Settings as SettingsIcon,
   PlayArrow as PlayIcon,
   Assessment as AssessmentIcon,
@@ -73,12 +72,6 @@ const menuItems = [
     icon: <BuildIcon />,
     path: '/strategy-builder',
     description: 'Visual strategy creation and editing'
-  },
-  {
-    text: 'Portfolio',
-    icon: <WalletIcon />,
-    path: '/portfolio',
-    description: 'Portfolio management and balances'
   },
   {
     text: 'Risk Management',
