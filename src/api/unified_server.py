@@ -8,6 +8,7 @@ import os
 import time
 import secrets
 import uuid
+import traceback
 from typing import Any, Dict, Optional, List
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -707,12 +708,33 @@ def create_unified_app():
             })
 
         except StrategyNotFoundError as e:
+            logger.error("api.update_strategy.not_found", {
+                "strategy_id": strategy_id,
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            })
             return _json_error("not_found", str(e), status=404)
         except StrategyValidationError as e:
+            logger.error("api.update_strategy.validation_error", {
+                "strategy_id": strategy_id,
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            })
             return _json_error("validation_error", str(e))
         except StrategyStorageError as e:
+            logger.error("api.update_strategy.storage_error", {
+                "strategy_id": strategy_id,
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            })
             return _json_error("storage_error", str(e))
         except Exception as e:
+            logger.error("api.update_strategy.unexpected_error", {
+                "strategy_id": strategy_id,
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "traceback": traceback.format_exc()
+            })
             return _json_error("update_failed", f"Failed to update strategy: {str(e)}")
 
     @app.delete("/api/strategies/{strategy_id}")
@@ -737,10 +759,26 @@ def create_unified_app():
             })
 
         except StrategyNotFoundError as e:
+            logger.error("api.delete_strategy.not_found", {
+                "strategy_id": strategy_id,
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            })
             return _json_error("not_found", str(e), status=404)
         except StrategyStorageError as e:
+            logger.error("api.delete_strategy.storage_error", {
+                "strategy_id": strategy_id,
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            })
             return _json_error("storage_error", str(e))
         except Exception as e:
+            logger.error("api.delete_strategy.unexpected_error", {
+                "strategy_id": strategy_id,
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "traceback": traceback.format_exc()
+            })
             return _json_error("delete_failed", f"Failed to delete strategy: {str(e)}")
 
     @app.post("/api/strategies/validate")

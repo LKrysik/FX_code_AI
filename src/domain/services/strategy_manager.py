@@ -1082,7 +1082,7 @@ class StrategyManager:
             return 0
 
     async def delete_strategy_from_db(self, strategy_name: str) -> bool:
-        """Delete strategy from QuestDB
+        """Soft delete strategy from QuestDB (sets is_deleted = true, deleted_at = timestamp)
 
         Args:
             strategy_name: Name of strategy to delete
@@ -1098,15 +1098,22 @@ class StrategyManager:
             return False
 
         try:
+            # Use literal TIMESTAMP for QuestDB compatibility
+            from datetime import datetime
+            deleted_at = datetime.utcnow()
+            deleted_at_str = deleted_at.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+
             async with self.db_pool.acquire() as conn:
+                # Soft delete: UPDATE instead of DELETE
                 result = await conn.execute(
-                    "DELETE FROM strategies WHERE strategy_name = $1",
+                    f"UPDATE strategies SET is_deleted = true, deleted_at = '{deleted_at_str}' WHERE strategy_name = $1 AND is_deleted = false",
                     strategy_name
                 )
 
             self.logger.info("strategy_manager.strategy_deleted_from_db", {
                 "strategy_name": strategy_name,
-                "result": result
+                "result": result,
+                "soft_delete": True
             })
 
             return True
