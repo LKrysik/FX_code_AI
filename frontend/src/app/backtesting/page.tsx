@@ -94,7 +94,11 @@ interface DataSource {
   session_id: string;
   symbols: string[];
   created_at: string;
+  end_time?: string;
+  duration_seconds?: number;
   data_types: string[];
+  records_collected?: number;
+  prices_count?: number;
 }
 
 export default function BacktestingPage() {
@@ -125,16 +129,15 @@ export default function BacktestingPage() {
   // Form state for new backtest
   const [backtestForm, setBacktestForm] = useState({
     symbols: ['BTC_USDT'],
-    data_sources: [] as string[], // Selected session IDs
+    session_id: '', // ✅ FIX: Single historical session ID (required by backend)
     selected_strategies: [] as string[], // Selected strategy blueprint IDs
-    start_date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // 30 days ago
-    end_date: new Date(),
     config: {
       budget: {
         global_cap: 10000,
         allocations: {}
       },
-      timeframe: '1h'
+      timeframe: '1h',
+      acceleration_factor: 10 // Speed multiplier for backtest replay
     }
   });
 
@@ -165,27 +168,38 @@ export default function BacktestingPage() {
 
   const loadDataSources = async () => {
     try {
-      // Load available data sessions from the data directory
-      // In a real implementation, this would come from an API endpoint
-      // For now, we'll simulate with the existing data structure
-      const mockDataSources: DataSource[] = [
-        {
-          session_id: 'session_20250909_130028_8eb70dba',
-          symbols: ['ALU_USDT', 'ADA_USDT', 'BTC_USDT', 'ETH_USDT', 'LTC_USDT'],
-          created_at: '2025-09-09T13:00:28Z',
-          data_types: ['price', 'orderbook']
-        },
-        {
-          session_id: 'session_20250909_125616_c0b6a833',
-          symbols: ['BTC_USDT', 'ETH_USDT'],
-          created_at: '2025-09-09T12:56:16Z',
-          data_types: ['price', 'orderbook', 'trades']
-        }
-      ];
-      setDataSources(mockDataSources);
+      // ✅ FIX: Load historical data collection sessions from API
+      const response = await apiService.getDataCollectionSessions(50, false);
+
+      if (response && response.sessions) {
+        // Transform API response to DataSource format
+        const sources: DataSource[] = response.sessions
+          .filter((session: any) => session.status === 'completed' || session.status === 'stopped')
+          .map((session: any) => ({
+            session_id: session.session_id,
+            symbols: Array.isArray(session.symbols) ? session.symbols :
+                     typeof session.symbols === 'string' ? JSON.parse(session.symbols) : [],
+            created_at: session.start_time || session.created_at,
+            end_time: session.end_time,
+            duration_seconds: session.duration_seconds,
+            data_types: ['price', 'orderbook'], // Default data types
+            records_collected: session.records_collected || 0,
+            prices_count: session.prices_count || 0
+          }));
+
+        setDataSources(sources);
+        console.log(`[Backtest] Loaded ${sources.length} data collection sessions from API`);
+      } else {
+        setDataSources([]);
+      }
     } catch (error) {
-      console.error('Failed to load data sources:', error);
+      console.error('[Backtest] Failed to load data sources:', error);
       setDataSources([]);
+      setSnackbar({
+        open: true,
+        message: 'Failed to load historical sessions. Please ensure backend is running.',
+        severity: 'error'
+      });
     }
   };
 
@@ -277,6 +291,17 @@ export default function BacktestingPage() {
   const handleCreateBacktest = async () => {
     setLoading(true);
     try {
+      // ✅ FIX: Validate historical session selection (required by backend)
+      if (!backtestForm.session_id) {
+        setSnackbar({
+          open: true,
+          message: 'Please select a historical data session to backtest against',
+          severity: 'error'
+        });
+        setLoading(false);
+        return;
+      }
+
       // Validate strategy selection
       if (backtestForm.selected_strategies.length === 0) {
         setSnackbar({
@@ -284,6 +309,7 @@ export default function BacktestingPage() {
           message: 'Please select at least one strategy',
           severity: 'error'
         });
+        setLoading(false);
         return;
       }
 
@@ -297,13 +323,15 @@ export default function BacktestingPage() {
           message: 'Selected strategy not found',
           severity: 'error'
         });
+        setLoading(false);
         return;
       }
 
-      // Start backtest session with selected strategy
+      // ✅ FIX: Pass session_id to backend (required parameter)
       const response = await apiService.startBacktest(backtestForm.symbols, {
+        session_id: backtestForm.session_id,
         strategy_config: selectedStrategy,
-        acceleration_factor: 10,
+        acceleration_factor: backtestForm.config.acceleration_factor,
         budget: backtestForm.config.budget
       });
 
@@ -880,47 +908,60 @@ export default function BacktestingPage() {
                 </Typography>
               </FormControl>
 
-              <FormControl fullWidth>
-                <InputLabel>Data Sources (Historical Sessions)</InputLabel>
+              <FormControl fullWidth required>
+                <InputLabel>Historical Data Session *</InputLabel>
                 <Select
-                  multiple
-                  value={backtestForm.data_sources}
-                  label="Data Sources (Historical Sessions)"
+                  value={backtestForm.session_id}
+                  label="Historical Data Session *"
                   onChange={(e) => setBacktestForm(prev => ({
                     ...prev,
-                    data_sources: typeof e.target.value === 'string' ? [e.target.value] : e.target.value
+                    session_id: e.target.value
                   }))}
-                  renderValue={(selected) => (
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {selected.map((value) => {
-                        const source = dataSources.find(ds => ds.session_id === value);
-                        return (
-                          <Chip
-                            key={value}
-                            label={source ? `${source.session_id.split('_')[1]} (${source.symbols.length} symbols)` : value}
-                            size="small"
-                            color="secondary"
-                          />
-                        );
-                      })}
-                    </Box>
-                  )}
+                  renderValue={(selected) => {
+                    const source = dataSources.find(ds => ds.session_id === selected);
+                    if (!source) return 'Select a session';
+                    const startDate = new Date(source.created_at).toLocaleDateString();
+                    const duration = source.duration_seconds
+                      ? `${Math.round(source.duration_seconds / 60)} min`
+                      : 'Unknown duration';
+                    return `${startDate} - ${source.symbols.length} symbols (${duration})`;
+                  }}
                 >
-                  {dataSources.map(source => (
-                    <MenuItem key={source.session_id} value={source.session_id}>
-                      <Box>
-                        <Typography variant="body2" fontWeight="bold">
-                          {source.session_id.split('_')[1]} - {new Date(source.created_at).toLocaleDateString()}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          Symbols: {source.symbols.join(', ')} | Types: {source.data_types.join(', ')}
-                        </Typography>
-                      </Box>
+                  {dataSources.length === 0 ? (
+                    <MenuItem disabled>
+                      <Typography variant="body2" color="text.secondary">
+                        No completed data collection sessions available
+                      </Typography>
                     </MenuItem>
-                  ))}
+                  ) : (
+                    dataSources.map(source => {
+                      const startDate = new Date(source.created_at).toLocaleString();
+                      const endDate = source.end_time ? new Date(source.end_time).toLocaleString() : 'In progress';
+                      const duration = source.duration_seconds
+                        ? `${Math.round(source.duration_seconds / 60)} minutes`
+                        : 'Unknown';
+                      const dataPoints = source.prices_count || source.records_collected || 0;
+
+                      return (
+                        <MenuItem key={source.session_id} value={source.session_id}>
+                          <Box sx={{ width: '100%' }}>
+                            <Typography variant="body2" fontWeight="bold">
+                              {startDate}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" display="block">
+                              Symbols: {source.symbols.join(', ')}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" display="block">
+                              Duration: {duration} | Data Points: {dataPoints.toLocaleString()}
+                            </Typography>
+                          </Box>
+                        </MenuItem>
+                      );
+                    })
+                  )}
                 </Select>
                 <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
-                  Select historical data sessions to use for backtesting. Leave empty to use all available data.
+                  Select a completed historical session to replay for backtesting. The backtest will use all data from this session's time range.
                 </Typography>
               </FormControl>
 
@@ -928,48 +969,40 @@ export default function BacktestingPage() {
                 <Grid item xs={12} md={6}>
                   <TextField
                     fullWidth
-                    label="Start Date"
-                    type="date"
-                    value={backtestForm.start_date.toISOString().split('T')[0]}
+                    label="Acceleration Factor"
+                    type="number"
+                    value={backtestForm.config.acceleration_factor}
                     onChange={(e) => setBacktestForm(prev => ({
                       ...prev,
-                      start_date: new Date(e.target.value)
+                      config: {
+                        ...prev.config,
+                        acceleration_factor: parseFloat(e.target.value) || 10
+                      }
                     }))}
-                    InputLabelProps={{ shrink: true }}
+                    helperText="Speed multiplier for backtest replay (1-1000)"
+                    inputProps={{ min: 1, max: 1000, step: 1 }}
                   />
                 </Grid>
                 <Grid item xs={12} md={6}>
                   <TextField
                     fullWidth
-                    label="End Date"
-                    type="date"
-                    value={backtestForm.end_date.toISOString().split('T')[0]}
+                    label="Global Budget Cap (USD)"
+                    type="number"
+                    value={backtestForm.config.budget.global_cap}
                     onChange={(e) => setBacktestForm(prev => ({
                       ...prev,
-                      end_date: new Date(e.target.value)
+                      config: {
+                        ...prev.config,
+                        budget: {
+                          ...prev.config.budget,
+                          global_cap: parseFloat(e.target.value) || 10000
+                        }
+                      }
                     }))}
-                    InputLabelProps={{ shrink: true }}
+                    helperText="Maximum total budget for backtest"
                   />
                 </Grid>
               </Grid>
-
-              <TextField
-                fullWidth
-                label="Global Budget Cap (USD)"
-                type="number"
-                value={backtestForm.config.budget.global_cap}
-                onChange={(e) => setBacktestForm(prev => ({
-                  ...prev,
-                  config: {
-                    ...prev.config,
-                    budget: {
-                      ...prev.config.budget,
-                      global_cap: parseFloat(e.target.value) || 10000
-                    }
-                  }
-                }))}
-                helperText="Maximum total budget for backtest"
-              />
 
               <FormControl fullWidth>
                 <InputLabel>Timeframe</InputLabel>
@@ -995,9 +1028,11 @@ export default function BacktestingPage() {
 
               <Alert severity="info">
                 <Typography variant="body2">
-                  <strong>Backtesting:</strong> Test your 5-section strategies against historical market data
+                  <strong>Backtesting:</strong> Test your 5-section strategies against historical market data from completed data collection sessions
                   <br />
                   <strong>Strategy Format:</strong> s1_signal → z1_entry → o1_cancel → emergency_exit → ze1_close
+                  <br />
+                  <strong>Note:</strong> The backtest will replay the entire historical session at your selected acceleration factor
                   <br />
                   Results will be available after completion for detailed performance analysis
                 </Typography>
