@@ -439,6 +439,21 @@ class EventBridge(IEventBridge):
         )
         self.stream_processors["health_check"] = health_processor
 
+        # Paper trading processor (TIER 1.3) - Real-time updates for paper trading sessions
+        paper_trading_processor = StreamProcessor(
+            stream_type="paper_trading",
+            event_patterns=[
+                "paper_trading.order_filled",
+                "paper_trading.position_updated",
+                "paper_trading.performance_updated",
+                "paper_trading.session_started",
+                "paper_trading.session_stopped",
+                "paper_trading.liquidation_warning"
+            ],
+            batch_aggregator=None  # No batching for immediate updates
+        )
+        self.stream_processors["paper_trading"] = paper_trading_processor
+
     async def start(self):
         """Start the EventBridge and setup event subscriptions"""
         if self.is_running:
