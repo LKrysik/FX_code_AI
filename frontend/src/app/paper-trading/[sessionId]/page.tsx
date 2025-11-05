@@ -35,6 +35,7 @@ import {
   ShowChart as ShowChartIcon,
 } from '@mui/icons-material';
 import { apiService } from '@/services/api';
+import LiquidationAlert from '@/components/trading/LiquidationAlert';
 
 // ============================================
 // TypeScript Interfaces
@@ -333,6 +334,15 @@ export default function PaperTradingDetailPage() {
           )}
         </Box>
       </Box>
+
+      {/* Liquidation Risk Alerts (TIER 1.4) */}
+      {session.leverage > 1 && session.status === 'RUNNING' && (
+        <LiquidationAlert
+          sessionId={sessionId as string}
+          enableToastNotifications={true}
+          autoHideDelay={15000}
+        />
+      )}
 
       {/* Session Info Card */}
       <Paper sx={{ p: 3, mb: 3 }}>
