@@ -21,10 +21,9 @@
     "symbols": ["BTC_USDT"],
     "session_type": "backtest",
     "config": {
-      "backtest": {
-        "start_date": "2024-01-01",
-        "end_date": "2024-01-02"
-      }
+      "session_id": "<data_collection_session_id_placeholder>",
+      "acceleration_factor": 10.0,
+      "_comment": "session_id must reference a valid data collection session from QuestDB. Use GET /api/data-collection/sessions to list available sessions. This fixture is a template only - tests must replace session_id with actual session ID."
     }
   }
 }
