@@ -11,6 +11,41 @@ def _is_number(x: Any) -> bool:
     return isinstance(x, (int, float)) and not isinstance(x, bool)
 
 
+def _validate_risk_scaling(path: str, risk_scaling: Dict[str, Any], errors: List[str]) -> None:
+    """Validate risk scaling configuration."""
+    if not isinstance(risk_scaling, dict):
+        errors.append(f"{path} must be an object")
+        return
+
+    if not risk_scaling.get("enabled"):
+        return  # Skip validation if disabled
+
+    # Required fields when enabled
+    if "riskIndicatorId" not in risk_scaling or not risk_scaling["riskIndicatorId"]:
+        errors.append(f"{path}.riskIndicatorId is required when enabled")
+
+    # Thresholds validation
+    for field in ["lowRiskThreshold", "highRiskThreshold"]:
+        if field in risk_scaling:
+            val = risk_scaling[field]
+            if not _is_number(val) or val < 0 or val > 100:
+                errors.append(f"{path}.{field} must be between 0 and 100")
+
+    # Scales validation
+    for field in ["lowRiskScale", "highRiskScale"]:
+        if field in risk_scaling:
+            val = risk_scaling[field]
+            if not _is_number(val) or val < 10 or val > 200:
+                errors.append(f"{path}.{field} must be between 10 and 200 (percentage)")
+
+    # Cross-field validation
+    if "lowRiskThreshold" in risk_scaling and "highRiskThreshold" in risk_scaling:
+        low = risk_scaling["lowRiskThreshold"]
+        high = risk_scaling["highRiskThreshold"]
+        if _is_number(low) and _is_number(high) and low >= high:
+            errors.append(f"{path}: lowRiskThreshold must be less than highRiskThreshold")
+
+
 def validate_strategy_config(config: Dict[str, Any]) -> Dict[str, Any]:
     """Validate 5-section strategy config against schema.
 
@@ -64,6 +99,10 @@ def validate_strategy_config(config: Dict[str, Any]) -> Dict[str, Any]:
             if not _is_number(pos_size.get("value", 0)) or pos_size["value"] < 0:
                 errors.append("z1_entry.positionSize.value must be a non-negative number")
 
+            # Validate riskScaling if present
+            if "riskScaling" in pos_size:
+                _validate_risk_scaling("z1_entry.positionSize.riskScaling", pos_size["riskScaling"], errors)
+
         # Validate stop loss
         if "stopLoss" in z1 and isinstance(z1["stopLoss"], dict):
             sl = z1["stopLoss"]
@@ -71,6 +110,16 @@ def validate_strategy_config(config: Dict[str, Any]) -> Dict[str, Any]:
                 offset = sl["offsetPercent"]
                 if not _is_number(offset) or offset < 0 or offset > 100:
                     errors.append("z1_entry.stopLoss.offsetPercent must be between 0 and 100")
+
+            # Validate calculationMode if present
+            if "calculationMode" in sl:
+                mode = sl["calculationMode"]
+                if mode not in ["ABSOLUTE", "RELATIVE_TO_ENTRY"]:
+                    errors.append("z1_entry.stopLoss.calculationMode must be 'ABSOLUTE' or 'RELATIVE_TO_ENTRY'")
+
+            # Validate riskScaling if present
+            if "riskScaling" in sl:
+                _validate_risk_scaling("z1_entry.stopLoss.riskScaling", sl["riskScaling"], errors)
 
         # Validate take profit (required if enabled)
         if "takeProfit" in z1 and isinstance(z1["takeProfit"], dict):
@@ -80,6 +129,16 @@ def validate_strategy_config(config: Dict[str, Any]) -> Dict[str, Any]:
                     errors.append("z1_entry.takeProfit.offsetPercent is required when enabled")
                 elif not _is_number(tp["offsetPercent"]) or tp["offsetPercent"] < 0 or tp["offsetPercent"] > 1000:
                     errors.append("z1_entry.takeProfit.offsetPercent must be between 0 and 1000")
+
+            # Validate calculationMode if present
+            if "calculationMode" in tp:
+                mode = tp["calculationMode"]
+                if mode not in ["ABSOLUTE", "RELATIVE_TO_ENTRY"]:
+                    errors.append("z1_entry.takeProfit.calculationMode must be 'ABSOLUTE' or 'RELATIVE_TO_ENTRY'")
+
+            # Validate riskScaling if present
+            if "riskScaling" in tp:
+                _validate_risk_scaling("z1_entry.takeProfit.riskScaling", tp["riskScaling"], errors)
 
         # Validate leverage (TIER 1.4 - Futures trading)
         if "leverage" in z1 and z1["leverage"] is not None:
