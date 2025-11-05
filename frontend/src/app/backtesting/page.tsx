@@ -51,6 +51,7 @@ import {
 } from '@mui/icons-material';
 import { apiService } from '@/services/api';
 import { SystemStatusIndicator } from '@/components/common/SystemStatusIndicator';
+import { SessionSelector } from '@/components/backtest/SessionSelector';
 import {
   getSessionStatusColor,
   getSessionStatusIcon,
@@ -88,24 +89,13 @@ interface BacktestResult {
   performance: any;
 }
 
-interface DataSource {
-  session_id: string;
-  symbols: string[];
-  created_at: string;
-  end_time?: string;
-  duration_seconds?: number;
-  data_types: string[];
-  records_collected?: number;
-  prices_count?: number;
-}
-
 export default function BacktestingPage() {
   const [sessions, setSessions] = useState<BacktestSession[]>([]);
   const [selectedSession, setSelectedSession] = useState<BacktestResult | null>(null);
-  const [dataSources, setDataSources] = useState<DataSource[]>([]);
+  const [selectedDataSession, setSelectedDataSession] = useState<string>(''); // ✅ NEW: Selected data collection session ID
   const [availableStrategies, setAvailableStrategies] = useState<any[]>([]);
-  const [availableSymbols, setAvailableSymbols] = useState<string[]>([]);
-  const [symbolsLoading, setSymbolsLoading] = useState(false);
+  const [availableSymbols, setAvailableSymbols] = useState<string[]>([]); // ✅ FROM MAIN: Dynamic symbols
+  const [symbolsLoading, setSymbolsLoading] = useState(false); // ✅ FROM MAIN
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [snackbar, setSnackbar] = useState<{open: boolean, message: string, severity: 'success' | 'error' | 'info' | 'warning'}>({
@@ -129,23 +119,20 @@ export default function BacktestingPage() {
   // Form state for new backtest
   const [backtestForm, setBacktestForm] = useState({
     symbols: ['BTC_USDT'],
-    session_id: '', // ✅ FIX: Single historical session ID (required by backend)
     selected_strategies: [] as string[], // Selected strategy blueprint IDs
+    acceleration_factor: 10, // ✅ NEW: Playback speed multiplier
     config: {
       budget: {
         global_cap: 10000,
         allocations: {}
-      },
-      timeframe: '1h',
-      acceleration_factor: 10 // Speed multiplier for backtest replay
+      }
     }
   });
 
   useEffect(() => {
     loadBacktestSessions();
-    loadDataSources();
     loadAvailableStrategies();
-    loadAvailableSymbols();
+    loadAvailableSymbols(); // ✅ FROM MAIN
   }, []);
 
   const loadAvailableStrategies = async () => {
@@ -167,6 +154,7 @@ export default function BacktestingPage() {
     }
   };
 
+  // ✅ FROM MAIN: Load available symbols dynamically
   const loadAvailableSymbols = async () => {
     setSymbolsLoading(true);
     try {
@@ -192,43 +180,6 @@ export default function BacktestingPage() {
       }));
     } finally {
       setSymbolsLoading(false);
-    }
-  };
-
-  const loadDataSources = async () => {
-    try {
-      // ✅ FIX: Load historical data collection sessions from API
-      const response = await apiService.getDataCollectionSessions(50, false);
-
-      if (response && response.sessions) {
-        // Transform API response to DataSource format
-        const sources: DataSource[] = response.sessions
-          .filter((session: any) => session.status === 'completed' || session.status === 'stopped')
-          .map((session: any) => ({
-            session_id: session.session_id,
-            symbols: Array.isArray(session.symbols) ? session.symbols :
-                     typeof session.symbols === 'string' ? JSON.parse(session.symbols) : [],
-            created_at: session.start_time || session.created_at,
-            end_time: session.end_time,
-            duration_seconds: session.duration_seconds,
-            data_types: ['price', 'orderbook'], // Default data types
-            records_collected: session.records_collected || 0,
-            prices_count: session.prices_count || 0
-          }));
-
-        setDataSources(sources);
-        console.log(`[Backtest] Loaded ${sources.length} data collection sessions from API`);
-      } else {
-        setDataSources([]);
-      }
-    } catch (error) {
-      console.error('[Backtest] Failed to load data sources:', error);
-      setDataSources([]);
-      setSnackbar({
-        open: true,
-        message: 'Failed to load historical sessions. Please ensure backend is running.',
-        severity: 'error'
-      });
     }
   };
 
@@ -320,11 +271,11 @@ export default function BacktestingPage() {
   const handleCreateBacktest = async () => {
     setLoading(true);
     try {
-      // ✅ FIX: Validate historical session selection (required by backend)
-      if (!backtestForm.session_id) {
+      // ✅ VALIDATION: Check session_id is selected
+      if (!selectedDataSession) {
         setSnackbar({
           open: true,
-          message: 'Please select a historical data session to backtest against',
+          message: 'Please select a data collection session',
           severity: 'error'
         });
         setLoading(false);
@@ -356,13 +307,17 @@ export default function BacktestingPage() {
         return;
       }
 
-      // ✅ FIX: Pass session_id to backend (required parameter)
-      const response = await apiService.startBacktest(backtestForm.symbols, {
-        session_id: backtestForm.session_id,
-        strategy_config: selectedStrategy,
-        acceleration_factor: backtestForm.config.acceleration_factor,
-        budget: backtestForm.config.budget
-      });
+      // ✅ ARCHITECTURE FIX: Pass session_id to startBacktest()
+      // This fixes the validation error from backend: "session_id parameter is required for backtest"
+      const response = await apiService.startBacktest(
+        backtestForm.symbols,
+        selectedDataSession,  // ✅ CRITICAL: Pass selected data collection session ID
+        {
+          strategy_config: selectedStrategy,
+          acceleration_factor: backtestForm.acceleration_factor,
+          budget: backtestForm.config.budget
+        }
+      );
 
       if (response.status === 'success' || response.data) {
         setSnackbar({
@@ -371,6 +326,7 @@ export default function BacktestingPage() {
           severity: 'success'
         });
         setDialogOpen(false);
+        setSelectedDataSession(''); // Reset selection
         // Refresh sessions list
         await loadBacktestSessions();
       } else {
@@ -873,13 +829,12 @@ export default function BacktestingPage() {
           <DialogTitle>Start New Backtest</DialogTitle>
           <DialogContent>
             <Box sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <FormControl fullWidth>
+              <FormControl fullWidth disabled={symbolsLoading}>
                 <InputLabel>Symbols</InputLabel>
                 <Select
                   multiple
                   value={backtestForm.symbols}
                   label="Symbols"
-                  disabled={symbolsLoading}
                   onChange={(e) => setBacktestForm(prev => ({
                     ...prev,
                     symbols: typeof e.target.value === 'string' ? [e.target.value] : e.target.value
@@ -892,24 +847,15 @@ export default function BacktestingPage() {
                     </Box>
                   )}
                 >
-                  {symbolsLoading ? (
-                    <MenuItem disabled>
-                      <Typography variant="body2" color="text.secondary">
-                        Loading symbols...
-                      </Typography>
-                    </MenuItem>
-                  ) : availableSymbols.length === 0 ? (
-                    <MenuItem disabled>
-                      <Typography variant="body2" color="text.secondary">
-                        No symbols available. Check backend configuration.
-                      </Typography>
-                    </MenuItem>
-                  ) : (
-                    availableSymbols.map(symbol => (
-                      <MenuItem key={symbol} value={symbol}>{symbol}</MenuItem>
-                    ))
-                  )}
+                  {availableSymbols.map(symbol => (
+                    <MenuItem key={symbol} value={symbol}>{symbol}</MenuItem>
+                  ))}
                 </Select>
+                {symbolsLoading && (
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+                    Loading symbols...
+                  </Typography>
+                )}
               </FormControl>
 
               <FormControl fullWidth>
@@ -952,131 +898,54 @@ export default function BacktestingPage() {
                 </Typography>
               </FormControl>
 
-              <FormControl fullWidth required>
-                <InputLabel>Historical Data Session *</InputLabel>
-                <Select
-                  value={backtestForm.session_id}
-                  label="Historical Data Session *"
-                  onChange={(e) => setBacktestForm(prev => ({
-                    ...prev,
-                    session_id: e.target.value
-                  }))}
-                  renderValue={(selected) => {
-                    const source = dataSources.find(ds => ds.session_id === selected);
-                    if (!source) return 'Select a session';
-                    const startDate = new Date(source.created_at).toLocaleDateString();
-                    const duration = source.duration_seconds
-                      ? `${Math.round(source.duration_seconds / 60)} min`
-                      : 'Unknown duration';
-                    return `${startDate} - ${source.symbols.length} symbols (${duration})`;
-                  }}
-                >
-                  {dataSources.length === 0 ? (
-                    <MenuItem disabled>
-                      <Typography variant="body2" color="text.secondary">
-                        No completed data collection sessions available
-                      </Typography>
-                    </MenuItem>
-                  ) : (
-                    dataSources.map(source => {
-                      const startDate = new Date(source.created_at).toLocaleString();
-                      const endDate = source.end_time ? new Date(source.end_time).toLocaleString() : 'In progress';
-                      const duration = source.duration_seconds
-                        ? `${Math.round(source.duration_seconds / 60)} minutes`
-                        : 'Unknown';
-                      const dataPoints = source.prices_count || source.records_collected || 0;
+              {/* ✅ NEW: Session Selector with preview and validation */}
+              <SessionSelector
+                value={selectedDataSession}
+                onChange={setSelectedDataSession}
+                requiredSymbols={backtestForm.symbols}
+                minRecords={1000}
+                autoRefresh={true}
+                refreshInterval={30000}
+                error={!selectedDataSession && backtestForm.selected_strategies.length > 0}
+                helperText="Select a completed data collection session to use as historical data source"
+              />
 
-                      return (
-                        <MenuItem key={source.session_id} value={source.session_id}>
-                          <Box sx={{ width: '100%' }}>
-                            <Typography variant="body2" fontWeight="bold">
-                              {startDate}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary" display="block">
-                              Symbols: {source.symbols.join(', ')}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary" display="block">
-                              Duration: {duration} | Data Points: {dataPoints.toLocaleString()}
-                            </Typography>
-                          </Box>
-                        </MenuItem>
-                      );
-                    })
-                  )}
-                </Select>
-                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
-                  Select a completed historical session to replay for backtesting. The backtest will use all data from this session's time range.
-                </Typography>
-              </FormControl>
+              <TextField
+                fullWidth
+                label="Acceleration Factor (Playback Speed)"
+                type="number"
+                value={backtestForm.acceleration_factor}
+                onChange={(e) => setBacktestForm(prev => ({
+                  ...prev,
+                  acceleration_factor: Math.max(1, parseFloat(e.target.value) || 10)
+                }))}
+                helperText="How fast to replay historical data (10x = 10 times faster than real-time)"
+                inputProps={{ min: 1, max: 100, step: 1 }}
+              />
 
-              <Grid container spacing={2}>
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    label="Acceleration Factor"
-                    type="number"
-                    value={backtestForm.config.acceleration_factor}
-                    onChange={(e) => setBacktestForm(prev => ({
-                      ...prev,
-                      config: {
-                        ...prev.config,
-                        acceleration_factor: parseFloat(e.target.value) || 10
-                      }
-                    }))}
-                    helperText="Speed multiplier for backtest replay (1-1000)"
-                    inputProps={{ min: 1, max: 1000, step: 1 }}
-                  />
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    label="Global Budget Cap (USD)"
-                    type="number"
-                    value={backtestForm.config.budget.global_cap}
-                    onChange={(e) => setBacktestForm(prev => ({
-                      ...prev,
-                      config: {
-                        ...prev.config,
-                        budget: {
-                          ...prev.config.budget,
-                          global_cap: parseFloat(e.target.value) || 10000
-                        }
-                      }
-                    }))}
-                    helperText="Maximum total budget for backtest"
-                  />
-                </Grid>
-              </Grid>
-
-              <FormControl fullWidth>
-                <InputLabel>Timeframe</InputLabel>
-                <Select
-                  value={backtestForm.config.timeframe}
-                  label="Timeframe"
-                  onChange={(e) => setBacktestForm(prev => ({
-                    ...prev,
-                    config: {
-                      ...prev.config,
-                      timeframe: e.target.value
+              <TextField
+                fullWidth
+                label="Global Budget Cap (USD)"
+                type="number"
+                value={backtestForm.config.budget.global_cap}
+                onChange={(e) => setBacktestForm(prev => ({
+                  ...prev,
+                  config: {
+                    ...prev.config,
+                    budget: {
+                      ...prev.config.budget,
+                      global_cap: parseFloat(e.target.value) || 10000
                     }
-                  }))}
-                >
-                  <MenuItem value="1m">1 Minute</MenuItem>
-                  <MenuItem value="5m">5 Minutes</MenuItem>
-                  <MenuItem value="15m">15 Minutes</MenuItem>
-                  <MenuItem value="1h">1 Hour</MenuItem>
-                  <MenuItem value="4h">4 Hours</MenuItem>
-                  <MenuItem value="1d">1 Day</MenuItem>
-                </Select>
-              </FormControl>
+                  }
+                }))}
+                helperText="Maximum total budget for backtest"
+              />
 
               <Alert severity="info">
                 <Typography variant="body2">
-                  <strong>Backtesting:</strong> Test your 5-section strategies against historical market data from completed data collection sessions
+                  <strong>Backtesting:</strong> Test your 5-section strategies against historical market data
                   <br />
                   <strong>Strategy Format:</strong> s1_signal → z1_entry → o1_cancel → emergency_exit → ze1_close
-                  <br />
-                  <strong>Note:</strong> The backtest will replay the entire historical session at your selected acceleration factor
                   <br />
                   Results will be available after completion for detailed performance analysis
                 </Typography>
