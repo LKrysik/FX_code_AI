@@ -621,7 +621,7 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                   />
 
                   {strategyData.z1_entry.stopLoss?.enabled && (
-                    <Box sx={{ ml: 4, mt: 2, p: 2, border: 1, borderColor: 'grey.300', borderRadius: 1 }}>
+                    <Box sx={{ ml: 4, mt: 2, p: 2, bgcolor: 'grey.50', border: 1, borderColor: 'grey.300', borderRadius: 1 }}>
                       {/* Stop Loss Method Selection */}
                       <FormControl component="fieldset" sx={{ mb: 2 }}>
                         <Typography variant="subtitle2" gutterBottom>
@@ -743,9 +743,9 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                         label="Enable risk-adjusted scaling"
                         sx={{ mb: 1 }}
                       />
-                      
+
                       {strategyData.z1_entry.stopLoss?.riskScaling?.enabled && (
-                        <Box sx={{ ml: 4, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                        <Box sx={{ ml: 4, p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
                           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
                             Scale SL based on risk level (lower risk = tighter SL, higher risk = looser SL)
                           </Typography>
@@ -869,7 +869,7 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                   />
 
                   {strategyData.z1_entry.takeProfit?.enabled && (
-                    <Box sx={{ ml: 4, mt: 2, p: 2, border: 1, borderColor: 'grey.300', borderRadius: 1 }}>
+                    <Box sx={{ ml: 4, mt: 2, p: 2, bgcolor: 'grey.50', border: 1, borderColor: 'grey.300', borderRadius: 1 }}>
                       {/* Take Profit Method Selection */}
                       <FormControl component="fieldset" sx={{ mb: 2 }}>
                         <Typography variant="subtitle2" gutterBottom>
@@ -993,7 +993,7 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                         />
 
                         {strategyData.z1_entry.takeProfit?.riskScaling?.enabled && (
-                          <Box sx={{ ml: 4, mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                          <Box sx={{ ml: 4, mt: 1, p: 2, bgcolor: 'grey.100', borderRadius: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
                             <Typography variant="caption" color="text.secondary">
                               Scale TP based on risk level (lower risk = more profit target, higher risk = less profit target)
                             </Typography>
@@ -1140,7 +1140,7 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                 </Box>
 
                 {/* Risk Scaling for Position Size - SPRINT_GOAL_04 Enhancement */}
-                <Box sx={{ mt: 2, ml: 2 }}>
+                <Box sx={{ mt: 2, ml: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
                   <FormControlLabel
                     control={
                       <Checkbox
@@ -1160,7 +1160,7 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                   />
 
                   {strategyData.z1_entry.positionSize.riskScaling?.enabled && (
-                    <Box sx={{ ml: 4, mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <Box sx={{ ml: 4, mt: 1, p: 2, bgcolor: 'grey.100', borderRadius: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
                       <Typography variant="caption" color="text.secondary">
                         Scale position size based on risk level (lower risk = larger position, higher risk = smaller position)
                       </Typography>
@@ -1618,7 +1618,7 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
 
               {/* ZE1 Risk-Adjusted Close Pricing - SPRINT_GOAL_04 Enhancement */}
               {strategyData.ze1_close.priceIndicatorId !== undefined && (
-                <Box sx={{ mt: 2 }}>
+                <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
                   <FormControlLabel
                     control={
                       <Checkbox
@@ -1635,7 +1635,7 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                   />
 
                   {strategyData.ze1_close.riskAdjustedPricing?.enabled && (
-                    <Box sx={{ ml: 4, mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <Box sx={{ ml: 4, mt: 1, p: 2, bgcolor: 'grey.100', borderRadius: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
                       <Typography variant="caption" color="text.secondary">
                         Adjust close price based on risk level (lower risk = better price, higher risk = worse price)
                       </Typography>
