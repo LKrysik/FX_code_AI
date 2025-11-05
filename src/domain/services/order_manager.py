@@ -204,13 +204,37 @@ class OrderManager:
             price: Target price
             strategy_name: Name of strategy placing order
             pump_signal_strength: Pump detection signal strength
-            leverage: Leverage multiplier (1.0 = no leverage, 3.0 = 3x)
+            leverage: Leverage multiplier (1.0 = no leverage, 3.0 = 3x, max 10x)
             order_kind: Order kind (MARKET or LIMIT)
             max_slippage_pct: Maximum allowed slippage percentage
 
         Returns:
             Order ID
+
+        Raises:
+            ValueError: If leverage is invalid (must be 1-10)
         """
+        # TIER 3.1: Validate leverage before order submission
+        if leverage < 1.0 or leverage > 10.0:
+            error_msg = f"Leverage must be between 1.0 and 10.0, got {leverage}"
+            self.logger.error("order_manager.invalid_leverage", {
+                "leverage": leverage,
+                "symbol": symbol,
+                "order_type": order_type.name,
+                "strategy_name": strategy_name
+            })
+            raise ValueError(error_msg)
+
+        # Log warning for high leverage (>5x)
+        if leverage > 5.0:
+            self.logger.warning("order_manager.high_leverage_warning", {
+                "leverage": leverage,
+                "symbol": symbol,
+                "order_type": order_type.name,
+                "liquidation_distance_pct": round(100 / leverage, 1),
+                "warning": f"HIGH RISK: {leverage}x leverage. Liquidation at {(100/leverage):.1f}% price movement"
+            })
+
         order_id = self._generate_order_id()
 
         # Simulate slippage for MARKET orders

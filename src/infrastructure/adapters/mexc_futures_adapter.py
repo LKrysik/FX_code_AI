@@ -1,7 +1,8 @@
 """
-MEXC Futures Adapter - Futures API Integration for SHORT Selling
-=================================================================
+MEXC Futures Adapter - Futures API Integration for SHORT Selling (TIER 2.2 Enhanced)
+====================================================================================
 Extends MEXC adapter with futures trading support (margin trading, leverage, funding rates).
+Includes circuit breaker fallback strategies and graceful degradation patterns.
 
 Key differences from SPOT API:
 - Base URL: https://contract.mexc.com (not api.mexc.com)
@@ -10,12 +11,21 @@ Key differences from SPOT API:
 - Funding rates: Applied every 8 hours
 - Margin types: ISOLATED or CROSS
 
+Circuit Breaker Integration (TIER 2.2):
+- Inherits ResilientService from parent class (MexcRealAdapter)
+- Automatic retry with exponential backoff (3 attempts, 1s → 2s → 4s)
+- Circuit breaker protection (opens after 5 consecutive failures, 60s recovery)
+- Fallback strategies for non-critical operations
+- Graceful degradation when API is temporarily unavailable
+
 Usage:
     async with MexcFuturesAdapter(api_key, api_secret, logger) as adapter:
+        # Circuit breaker is automatic - no configuration needed
+
         # Set leverage before opening position
         await adapter.set_leverage("BTC_USDT", 3)
 
-        # Open SHORT position
+        # Open SHORT position (protected by circuit breaker)
         order = await adapter.place_futures_order(
             symbol="BTC_USDT",
             side="SELL",
@@ -25,8 +35,13 @@ Usage:
             leverage=3.0
         )
 
-        # Get funding rate
+        # Get funding rate (with fallback on failure)
         funding = await adapter.get_funding_rate("BTC_USDT")
+
+        # Monitor circuit breaker status
+        status = adapter.get_circuit_breaker_metrics()
+        if status['state'] == 'open':
+            logger.warning(f"Circuit breaker is OPEN - API calls will be rejected")
 """
 
 import asyncio
@@ -92,20 +107,27 @@ class MexcFuturesAdapter(MexcRealAdapter):
 
         Args:
             symbol: Trading symbol (e.g., 'BTC_USDT')
-            leverage: Leverage multiplier (1-200, but recommend 1-10 for safety)
+            leverage: Leverage multiplier (1-10, enforced for safety)
             margin_type: Margin type (ISOLATED or CROSS)
 
         Returns:
             Response with leverage confirmation
 
         Raises:
-            Exception: If leverage setting fails
+            ValueError: If leverage is outside safe range (1-10)
 
         Example:
             await adapter.set_leverage("BTC_USDT", 3, "ISOLATED")
+
+        Note (TIER 3.1):
+            While MEXC API allows up to 200x leverage, this adapter enforces
+            a maximum of 10x for safety. Leverage >10x has extreme liquidation
+            risk and is not recommended for algorithmic trading.
         """
-        if leverage < 1 or leverage > 200:
-            raise ValueError(f"Leverage must be between 1 and 200, got {leverage}")
+        # TIER 3.1: Enforce safe leverage limits (1-10) instead of MEXC API max (1-200)
+        if leverage < 1 or leverage > 10:
+            raise ValueError(f"Leverage must be between 1 and 10 for safety, got {leverage}. "
+                           f"Leverage >10x has extreme liquidation risk (<10% price movement).")
 
         params = {
             "symbol": symbol.upper(),
@@ -488,3 +510,181 @@ class MexcFuturesAdapter(MexcRealAdapter):
             "For futures trading, use place_futures_order() instead of place_order(). "
             "Futures API requires positionSide parameter which SPOT API doesn't support."
         )
+
+    # ============================================================================
+    # Circuit Breaker Management Methods (TIER 2.2)
+    # ============================================================================
+
+    def get_circuit_breaker_metrics(self) -> Dict[str, Any]:
+        """
+        Get detailed circuit breaker metrics for monitoring and observability.
+
+        Returns comprehensive status including:
+        - Current state (CLOSED, OPEN, HALF_OPEN)
+        - Success/failure rates
+        - Request counts
+        - Last failure/success timestamps
+        - Configuration settings
+
+        Returns:
+            Dict with circuit breaker metrics and status
+
+        Example:
+            >>> metrics = adapter.get_circuit_breaker_metrics()
+            >>> print(f"State: {metrics['circuit_breaker']['state']}")
+            >>> print(f"Success rate: {metrics['circuit_breaker']['metrics']['success_rate_percent']}%")
+            >>> print(f"Total requests: {metrics['circuit_breaker']['metrics']['total_requests']}")
+        """
+        return self.get_circuit_breaker_status()
+
+    def is_circuit_breaker_healthy(self) -> bool:
+        """
+        Check if circuit breaker is in healthy state (CLOSED or recovering).
+
+        Returns:
+            True if CLOSED or HALF_OPEN, False if OPEN
+
+        Example:
+            >>> if not adapter.is_circuit_breaker_healthy():
+            >>>     logger.warning("Circuit breaker is OPEN - degraded service")
+            >>>     # Use fallback strategies or skip non-critical operations
+        """
+        try:
+            status = self.get_circuit_breaker_metrics()
+            state = status.get('circuit_breaker', {}).get('state', 'unknown')
+            return state in ['closed', 'half_open']
+        except Exception:
+            return False
+
+    def get_circuit_breaker_state(self) -> str:
+        """
+        Get current circuit breaker state (CLOSED, OPEN, or HALF_OPEN).
+
+        Returns:
+            State string: 'closed', 'open', 'half_open', or 'unknown'
+        """
+        try:
+            status = self.get_circuit_breaker_metrics()
+            return status.get('circuit_breaker', {}).get('state', 'unknown')
+        except Exception:
+            return 'unknown'
+
+    async def get_leverage_with_fallback(self, symbol: str, default_leverage: int = 1) -> int:
+        """
+        Get leverage with fallback to default if circuit breaker is open or API fails.
+
+        This is a graceful degradation pattern - returns cached or default value
+        when API is unavailable instead of raising exception.
+
+        Args:
+            symbol: Trading symbol
+            default_leverage: Default leverage to return on failure (default: 1)
+
+        Returns:
+            Leverage value (from API, cache, or default)
+
+        Example:
+            >>> leverage = await adapter.get_leverage_with_fallback("BTC_USDT", default_leverage=3)
+            >>> # Always returns a value, never throws exception
+        """
+        symbol_upper = symbol.upper()
+
+        # First try cache
+        if symbol_upper in self._leverage_cache:
+            self.logger.debug("mexc_futures_adapter.leverage_from_cache", {
+                "symbol": symbol,
+                "leverage": self._leverage_cache[symbol_upper]
+            })
+            return self._leverage_cache[symbol_upper]
+
+        # Try API if circuit breaker is healthy
+        if self.is_circuit_breaker_healthy():
+            try:
+                return await self.get_leverage(symbol)
+            except Exception as e:
+                self.logger.warning("mexc_futures_adapter.leverage_fallback_to_default", {
+                    "symbol": symbol,
+                    "error": str(e),
+                    "default_leverage": default_leverage
+                })
+        else:
+            self.logger.warning("mexc_futures_adapter.leverage_circuit_breaker_open", {
+                "symbol": symbol,
+                "default_leverage": default_leverage,
+                "circuit_breaker_state": self.get_circuit_breaker_state()
+            })
+
+        # Fallback to default
+        return default_leverage
+
+    async def get_funding_rate_with_fallback(self, symbol: str) -> Dict[str, Any]:
+        """
+        Get funding rate with fallback to zero if circuit breaker is open or API fails.
+
+        Non-critical operation - funding rate is informational and can be approximated.
+
+        Args:
+            symbol: Trading symbol
+
+        Returns:
+            Funding rate info (real or fallback)
+
+        Example:
+            >>> funding = await adapter.get_funding_rate_with_fallback("BTC_USDT")
+            >>> # Always returns data, even if API is down
+        """
+        if not self.is_circuit_breaker_healthy():
+            self.logger.warning("mexc_futures_adapter.funding_rate_circuit_breaker_open", {
+                "symbol": symbol,
+                "circuit_breaker_state": self.get_circuit_breaker_state()
+            })
+            return {
+                "symbol": symbol,
+                "funding_rate": 0.0,
+                "funding_time": None,
+                "mark_price": 0.0,
+                "source": "fallback_circuit_breaker_open"
+            }
+
+        try:
+            return await self.get_funding_rate(symbol)
+        except Exception as e:
+            self.logger.warning("mexc_futures_adapter.funding_rate_fallback", {
+                "symbol": symbol,
+                "error": str(e)
+            })
+            return {
+                "symbol": symbol,
+                "funding_rate": 0.0,
+                "funding_time": None,
+                "mark_price": 0.0,
+                "source": "fallback_exception"
+            }
+
+    def log_circuit_breaker_status(self):
+        """
+        Log current circuit breaker status for debugging/monitoring.
+
+        Useful for periodic health checks or troubleshooting.
+
+        Example:
+            >>> adapter.log_circuit_breaker_status()
+            >>> # Logs detailed circuit breaker metrics
+        """
+        try:
+            metrics = self.get_circuit_breaker_metrics()
+            cb_metrics = metrics.get('circuit_breaker', {}).get('metrics', {})
+
+            self.logger.info("mexc_futures_adapter.circuit_breaker_status", {
+                "state": metrics.get('circuit_breaker', {}).get('state', 'unknown'),
+                "success_rate_percent": cb_metrics.get('success_rate_percent', 0),
+                "total_requests": cb_metrics.get('total_requests', 0),
+                "failed_requests": cb_metrics.get('failed_requests', 0),
+                "rejected_requests": cb_metrics.get('rejected_requests', 0),
+                "consecutive_failures": cb_metrics.get('consecutive_failures', 0),
+                "state_changes": cb_metrics.get('state_changes', 0)
+            })
+        except Exception as e:
+            self.logger.error("mexc_futures_adapter.circuit_breaker_status_error", {
+                "error": str(e)
+            })

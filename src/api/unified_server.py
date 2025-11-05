@@ -166,18 +166,29 @@ def create_unified_app():
             "active": backend_status["current_backend"]
         })
 
-        # Initialize paper trading persistence (TIER 1.2)
+        # Initialize paper trading persistence (TIER 1.2 & 1.3)
         paper_trading_persistence = PaperTradingPersistenceService(
             host="127.0.0.1",
             port=8812,
             user="admin",
             password="quest",
             database="qdb",
-            logger=logger
+            logger=logger,
+            event_bus=event_bus  # TIER 1.3: Enable real-time events
         )
         await paper_trading_persistence.initialize()
         app.state.paper_trading_persistence = paper_trading_persistence
         logger.info("Paper trading persistence initialized with QuestDB")
+
+        # Initialize liquidation monitor (TIER 1.4)
+        from src.domain.services.liquidation_monitor import LiquidationMonitor
+        liquidation_monitor = LiquidationMonitor(
+            event_bus=event_bus,
+            logger=logger
+        )
+        await liquidation_monitor.start()
+        app.state.liquidation_monitor = liquidation_monitor
+        logger.info("Liquidation monitor started - tracking leveraged positions")
 
         # Initialize ops API with proper dependencies
         ops_api = await container.create_ops_api()
@@ -483,6 +494,14 @@ def create_unified_app():
                 logger.info("Strategy storage connection pool closed successfully")
         except Exception as e:
             logger.warning(f"Strategy storage shutdown error: {e}")
+
+        # Shutdown liquidation monitor (TIER 1.4)
+        try:
+            if hasattr(app.state, 'liquidation_monitor'):
+                await app.state.liquidation_monitor.stop()
+                logger.info("Liquidation monitor stopped successfully")
+        except Exception as e:
+            logger.warning(f"Liquidation monitor shutdown error: {e}")
 
         # Shutdown paper trading persistence (TIER 1.2)
         try:
