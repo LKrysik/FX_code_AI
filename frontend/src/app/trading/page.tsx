@@ -71,12 +71,21 @@ interface Strategy {
   symbol?: string;
 }
 
-const sessionTypes = ['live', 'paper'];
+interface StoredStrategy {
+  id: string;
+  strategy_name: string;
+  description?: string;
+  direction: string;
+  enabled: boolean;
+  strategy_json?: any;
+}
+
 const commonSymbols = ['BTC_USDT', 'ETH_USDT', 'ADA_USDT', 'SOL_USDT', 'DOT_USDT'];
 
 export default function TradingPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [strategies, setStrategies] = useState<Strategy[]>([]);
+  const [availableStrategies, setAvailableStrategies] = useState<StoredStrategy[]>([]);
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [activeSession, setActiveSession] = useState<Session | null>(null);
@@ -103,13 +112,7 @@ export default function TradingPage() {
   const [sessionForm, setSessionForm] = useState({
     session_type: 'paper',
     symbols: ['BTC_USDT'],
-    strategy_config: {
-      pump_dump_detector: {
-        scan_interval: 60,
-        min_pump_magnitude: 5.0,
-        min_volume_surge: 2.0
-      }
-    },
+    selected_strategy_ids: [] as string[],
     config: {
       budget: {
         global_cap: 1000,
@@ -153,6 +156,16 @@ export default function TradingPage() {
     }
   }, []);
 
+  const loadAvailableStrategies = useCallback(async () => {
+    try {
+      const response = await apiService.get4SectionStrategies();
+      setAvailableStrategies(response || []);
+    } catch (error) {
+      console.error('Failed to load available strategies:', error);
+      setAvailableStrategies([]);
+    }
+  }, []);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
@@ -185,7 +198,8 @@ export default function TradingPage() {
   // Auto-refresh every 30 seconds; pause when tab hidden
   useVisibilityAwareInterval(loadData, 30000);
 
-  const handleStartSession = () => {
+  const handleStartSession = async () => {
+    await loadAvailableStrategies();
     setDialogOpen(true);
   };
 
@@ -211,10 +225,42 @@ export default function TradingPage() {
 
   const handleCreateSession = async () => {
     try {
+      // Validate that at least one strategy is selected
+      if (sessionForm.selected_strategy_ids.length === 0) {
+        setSnackbar({
+          open: true,
+          message: 'Please select at least one strategy',
+          severity: 'error'
+        });
+        return;
+      }
+
+      // Build strategy_config from selected strategies
+      const strategy_config: Record<string, any> = {};
+
+      for (const strategyId of sessionForm.selected_strategy_ids) {
+        try {
+          const strategyData = await apiService.get4SectionStrategy(strategyId);
+          if (strategyData && strategyData.strategy) {
+            const strategyName = strategyData.strategy.strategy_name;
+            // Use the full strategy JSON as the config
+            strategy_config[strategyName] = strategyData.strategy.strategy_json || strategyData.strategy;
+          }
+        } catch (error) {
+          console.error(`Failed to load strategy ${strategyId}:`, error);
+          setSnackbar({
+            open: true,
+            message: `Failed to load strategy configuration`,
+            severity: 'error'
+          });
+          return;
+        }
+      }
+
       const sessionData = {
         session_type: sessionForm.session_type,
         symbols: sessionForm.symbols,
-        strategy_config: sessionForm.strategy_config,
+        strategy_config: strategy_config,
         config: sessionForm.config,
         idempotent: true
       };
@@ -481,7 +527,6 @@ export default function TradingPage() {
               >
                 <MenuItem value="paper">Paper Trading (Virtual)</MenuItem>
                 <MenuItem value="live">Live Trading (Real Money)</MenuItem>
-                <MenuItem value="backtest">Backtesting (Historical)</MenuItem>
               </Select>
             </FormControl>
 
@@ -509,6 +554,70 @@ export default function TradingPage() {
               </Select>
             </FormControl>
 
+            <FormControl fullWidth required>
+              <InputLabel>Strategies</InputLabel>
+              <Select
+                multiple
+                value={sessionForm.selected_strategy_ids}
+                label="Strategies"
+                onChange={(e) => setSessionForm(prev => ({
+                  ...prev,
+                  selected_strategy_ids: typeof e.target.value === 'string' ? [e.target.value] : e.target.value
+                }))}
+                renderValue={(selected) => (
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                    {selected.map((strategyId) => {
+                      const strategy = availableStrategies.find(s => s.id === strategyId);
+                      return (
+                        <Chip
+                          key={strategyId}
+                          label={strategy?.strategy_name || strategyId}
+                          size="small"
+                          color={strategy?.enabled ? 'primary' : 'default'}
+                        />
+                      );
+                    })}
+                  </Box>
+                )}
+              >
+                {availableStrategies.length === 0 ? (
+                  <MenuItem disabled value="">
+                    <Typography variant="body2" color="text.secondary">
+                      No strategies available. Create strategies in the Strategy Builder first.
+                    </Typography>
+                  </MenuItem>
+                ) : (
+                  availableStrategies.map(strategy => (
+                    <MenuItem
+                      key={strategy.id}
+                      value={strategy.id}
+                      disabled={!strategy.enabled}
+                    >
+                      <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="body1">{strategy.strategy_name}</Typography>
+                          <Chip
+                            label={strategy.direction}
+                            size="small"
+                            color={strategy.direction === 'LONG' ? 'success' : strategy.direction === 'SHORT' ? 'error' : 'default'}
+                            variant="outlined"
+                          />
+                          {!strategy.enabled && (
+                            <Chip label="Disabled" size="small" color="default" />
+                          )}
+                        </Box>
+                        {strategy.description && (
+                          <Typography variant="caption" color="text.secondary">
+                            {strategy.description}
+                          </Typography>
+                        )}
+                      </Box>
+                    </MenuItem>
+                  ))
+                )}
+              </Select>
+            </FormControl>
+
             <TextField
               fullWidth
               label="Global Budget Cap (USD)"
@@ -533,7 +642,7 @@ export default function TradingPage() {
                 <br />
                 <strong>Live Trading:</strong> Real money trades on exchange - use with caution
                 <br />
-                For historical backtesting, use the dedicated Backtesting tab
+                <strong>Note:</strong> At least one enabled strategy must be selected. For historical backtesting, use the dedicated Backtesting page.
               </Typography>
             </Alert>
           </Box>
