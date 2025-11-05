@@ -40,8 +40,12 @@ from src.core.health_monitor import (
     HealthStatus
 )
 from src.api.auth_handler import AuthHandler, UserSession
-from src.domain.services.strategy_storage_questdb import StrategyStorageError, StrategyNotFoundError, StrategyValidationError
-from src.domain.services.strategy_storage_resilient import ResilientStrategyStorage
+from src.domain.services.strategy_storage_questdb import (
+    QuestDBStrategyStorage,
+    StrategyStorageError,
+    StrategyNotFoundError,
+    StrategyValidationError
+)
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -145,26 +149,40 @@ def create_unified_app():
         app.state.session_manager = session_manager
         app.state.metrics_exporter = metrics_exporter
 
-        # Initialize strategy storage with resilient fallback
-        # Primary: QuestDB (preferred), Fallback: File-based (config/strategies/*.json)
-        strategy_storage = ResilientStrategyStorage(
-            questdb_host="127.0.0.1",
-            questdb_port=8812,
-            questdb_user="admin",
-            questdb_password="quest",
-            questdb_database="qdb",
-            logger=logger
+        # Initialize strategy storage (QuestDB required)
+        # ARCHITECTURE: Single source of truth - QuestDB only (no file-based fallback)
+        # Aligns with CLAUDE.md: "QuestDB is now the primary database" (no CSV/file fallback)
+        strategy_storage = QuestDBStrategyStorage(
+            host="127.0.0.1",
+            port=8812,
+            user="admin",
+            password="quest",
+            database="qdb"
         )
-        await strategy_storage.initialize()
-        app.state.strategy_storage = strategy_storage
 
-        # Log backend status
-        backend_status = strategy_storage.get_backend_status()
-        logger.info("Strategy storage initialized with resilient fallback", {
-            "primary": backend_status["primary_backend"],
-            "fallback": backend_status["fallback_backend"],
-            "active": backend_status["current_backend"]
-        })
+        # Fail-fast validation - QuestDB must be available
+        try:
+            await strategy_storage.initialize()
+            app.state.strategy_storage = strategy_storage
+            logger.info("strategy_storage.initialized", {
+                "backend": "QuestDB",
+                "host": "127.0.0.1",
+                "port": 8812,
+                "status": "connected"
+            })
+        except Exception as e:
+            logger.error("strategy_storage.initialization_failed", {
+                "backend": "QuestDB",
+                "error": str(e),
+                "solution": "Ensure QuestDB is running on port 8812. Run: python database/questdb/install_questdb.py"
+            })
+            # Re-raise to prevent server start with broken storage
+            raise RuntimeError(
+                f"Strategy storage initialization failed. QuestDB is required. "
+                f"Error: {e}. "
+                f"Solution: Ensure QuestDB is running (port 8812). "
+                f"See: docs/database/QUESTDB.md"
+            ) from e
 
         # Initialize paper trading persistence (TIER 1.2 & 1.3)
         paper_trading_persistence = PaperTradingPersistenceService(
