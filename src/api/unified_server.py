@@ -1753,6 +1753,14 @@ def create_unified_app():
             # Dispatch by session type
             try:
                 if session_type == "backtest":
+                    # ✅ ARCHITECTURE NOTE: Backtest requires session_id in config
+                    # The session_id identifies which data collection session to replay from QuestDB.
+                    # Required flow:
+                    #   1. Collect data → POST /sessions/start (session_type=collect)
+                    #   2. List sessions → GET /api/data-collection/sessions
+                    #   3. Start backtest → POST /sessions/start with config.session_id
+                    # If session_id is missing, validation will fail with clear error message.
+                    # See: command_processor.py:_validate_start_backtest() for validation logic
                     clean_cfg = _sanitize_start_config(config, ["strategy_config"])  # avoid duplicate kw
                     session_id = await controller.start_backtest(symbols=symbols, strategy_config=strategy_config, idempotent=idempotent, **clean_cfg)
                 elif session_type == "collect":
