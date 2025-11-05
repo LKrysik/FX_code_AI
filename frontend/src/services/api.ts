@@ -429,11 +429,43 @@ class ApiService {
 
   // Trading API Methods
 
-  async startBacktest(symbols: string[], config: any = {}): Promise<any> {
+  /**
+   * Start a backtest session
+   *
+   * @param symbols - List of trading symbols to backtest
+   * @param sessionId - Data collection session ID to replay (REQUIRED for backtest)
+   * @param config - Additional configuration (strategy_config, acceleration_factor, budget, etc.)
+   * @returns Promise<any> - API response with session_id
+   *
+   * ✅ ARCHITECTURE FIX: Added sessionId parameter to fix backtest validation error
+   * Backend requires session_id to identify which historical data to replay from QuestDB.
+   *
+   * Usage:
+   *   const response = await apiService.startBacktest(
+   *     ['BTC_USDT', 'ETH_USDT'],
+   *     'dc_20251105_203000_xyz',  // session_id from data collection
+   *     {
+   *       strategy_config: {...},
+   *       acceleration_factor: 10,
+   *       budget: { global_cap: 10000 }
+   *     }
+   *   );
+   */
+  async startBacktest(symbols: string[], sessionId: string, config: any = {}): Promise<any> {
+    if (!sessionId) {
+      throw new Error(
+        'session_id is required for backtest. ' +
+        'Please select a data collection session to replay. ' +
+        'Use getDataCollectionSessions() to list available sessions.'
+      );
+    }
+
     const response = await axios.post<ApiResponse>('/sessions/start', {
       session_type: 'backtest',
+      symbols: symbols,
       strategy_config: config.strategy_config || {},
       config: {
+        session_id: sessionId,  // ✅ CRITICAL: Pass session_id to backend
         acceleration_factor: config.acceleration_factor || 10,
         ...config
       }
