@@ -140,12 +140,12 @@ class BacktestMarketDataProvider:
                 query = f"""
                     SELECT
                         timestamp,
-                        first(open) as open,
-                        max(high) as high,
-                        min(low) as low,
-                        last(close) as close,
+                        first(price) as open,
+                        max(price) as high,
+                        min(price) as low,
+                        last(price) as close,
                         sum(volume) as volume
-                    FROM prices
+                    FROM tick_prices
                     WHERE symbol = $1
                       AND timestamp <= $2
                     SAMPLE BY {interval} ALIGN TO CALENDAR
@@ -153,10 +153,16 @@ class BacktestMarketDataProvider:
                     LIMIT 1
                 """
             else:
-                # Use raw 1s data
+                # Use raw 1s tick data - aggregate to OHLCV on-the-fly
                 query = """
-                    SELECT timestamp, open, high, low, close, volume
-                    FROM prices
+                    SELECT
+                        timestamp,
+                        first(price) as open,
+                        max(price) as high,
+                        min(price) as low,
+                        last(price) as close,
+                        sum(volume) as volume
+                    FROM tick_prices
                     WHERE symbol = $1
                       AND timestamp <= $2
                     ORDER BY timestamp DESC

@@ -891,7 +891,7 @@ class QuestDBProvider:
         """
         await self.initialize()
 
-        query = "SELECT * FROM prices WHERE symbol = $1"
+        query = "SELECT * FROM tick_prices WHERE symbol = $1"
         params = [symbol]
 
         if start_time:
@@ -928,7 +928,7 @@ class QuestDBProvider:
         await self.initialize()
 
         query = """
-            SELECT * FROM prices
+            SELECT * FROM tick_prices
             WHERE symbol = $1
             LATEST BY symbol
         """
@@ -1058,12 +1058,12 @@ class QuestDBProvider:
         query = f"""
             SELECT
                 timestamp,
-                first(open) as open,
-                max(high) as high,
-                min(low) as low,
-                last(close) as close,
+                first(price) as open,
+                max(price) as high,
+                min(price) as low,
+                last(price) as close,
                 sum(volume) as volume
-            FROM prices
+            FROM tick_prices
             WHERE symbol = $1
         """
         params = [symbol]

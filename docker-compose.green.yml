@@ -1,0 +1,84 @@
+version: '3.8'
+
+# Green Environment - Blue-Green Deployment
+# This is one of two production environments (Blue/Green)
+# The load balancer switches between Blue (8080) and Green (8081)
+
+networks:
+  internal:
+    external: true
+    name: trading-internal
+  external:
+    external: true
+    name: trading-external
+
+volumes:
+  questdb-data:
+    external: true
+    name: trading-questdb-data
+
+services:
+  # Backend - Green Environment
+  backend-green:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: trading-backend-green
+    ports:
+      - "8081:8080"  # Different external port, same internal port
+    environment:
+      # Database Configuration (shared QuestDB instance)
+      - QUESTDB_HOST=questdb
+      - QUESTDB_PORT=8812
+      - QUESTDB_USER=admin
+      - QUESTDB_PASSWORD=quest
+      - QUESTDB_DATABASE=qdb
+
+      # MEXC API Configuration
+      - MEXC_API_KEY=${MEXC_API_KEY}
+      - MEXC_API_SECRET=${MEXC_API_SECRET}
+      - MEXC_BASE_URL=${MEXC_BASE_URL:-https://api.mexc.com}
+
+      # Application Configuration
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - ENVIRONMENT=production-green
+      - MAX_POSITIONS=${MAX_POSITIONS:-3}
+      - MAX_POSITION_SIZE=${MAX_POSITION_SIZE:-0.1}
+      - DAILY_LOSS_LIMIT=${DAILY_LOSS_LIMIT:-0.05}
+
+      # Monitoring
+      - PROMETHEUS_ENABLED=true
+      - METRICS_PORT=8080
+    networks:
+      - internal
+      - external
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Frontend - Green Environment
+  frontend-green:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: trading-frontend-green
+    ports:
+      - "3002:3000"  # Different external port, same internal port
+    environment:
+      - NEXT_PUBLIC_API_URL=http://backend-green:8080
+      - NEXT_PUBLIC_WS_URL=ws://backend-green:8080/ws
+      - NODE_ENV=production
+    networks:
+      - external
+    depends_on:
+      - backend-green
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

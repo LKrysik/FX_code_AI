@@ -129,8 +129,10 @@ class CSVMigrator:
     async def check_session_exists(self, session_id: str) -> bool:
         """Check if session already exists in QuestDB"""
         try:
-            query = f"SELECT COUNT(*) as cnt FROM data_collection_sessions WHERE session_id = '{session_id}'"
-            result = await self.db_provider.execute_query(query)
+            # Use parameterized query to prevent SQL injection
+            # QuestDB PostgreSQL wire protocol supports prepared statements
+            query = "SELECT COUNT(*) as cnt FROM data_collection_sessions WHERE session_id = $1"
+            result = await self.db_provider.execute_query(query, session_id)
             return result[0]['cnt'] > 0 if result else False
         except Exception as e:
             self.logger.warning("migration.session_check_failed", {
