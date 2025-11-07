@@ -1,604 +1,576 @@
 """
-Risk Manager - Budget and Risk Management for Trading Strategies
-==================================================================
-Manages budget allocation, position limits, and risk assessment for strategies.
+Risk Manager - Live Trading Risk Management
+==========================================
+Implements 6 critical risk checks for live trading:
+1. Max position size (10% of capital)
+2. Max number of positions (3 concurrent)
+3. Position concentration (max 30% in one symbol)
+4. Daily loss limit (5% of capital)
+5. Total drawdown (15% from peak)
+6. Margin utilization (< 80% of available margin)
+
+All limits configurable via settings.py.
+Emits risk_alert events to EventBus.
+Thread-safe for async operations.
 """
 
-from typing import Dict, Any, List, Optional
-from dataclasses import dataclass, field
-from datetime import datetime
+import asyncio
+import logging
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from decimal import Decimal
+from typing import Dict, List, Optional, Any
 from enum import Enum
 
-from ...core.logger import StructuredLogger
+from ..models.trading import Position, Order, OrderSide
+from ...core.event_bus import EventBus
+from ...infrastructure.config.settings import AppSettings
+
+logger = logging.getLogger(__name__)
 
 
-class RiskLevel(Enum):
-    """Risk assessment levels"""
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
+class RiskAlertSeverity(str, Enum):
+    """Risk alert severity levels"""
+    CRITICAL = "CRITICAL"
+    WARNING = "WARNING"
+    INFO = "INFO"
 
 
-@dataclass
-class BudgetAllocation:
-    """Budget allocation for a strategy"""
-    strategy_name: str
-    allocated_amount: float
-    used_amount: float = 0.0
-    max_allocation_pct: float = 5.0  # Max 5% of total budget
-    last_updated: datetime = field(default_factory=datetime.now)
-
-    @property
-    def available_amount(self) -> float:
-        """Available budget for this strategy"""
-        return self.allocated_amount - self.used_amount
-
-    @property
-    def utilization_pct(self) -> float:
-        """Budget utilization percentage"""
-        if self.allocated_amount == 0:
-            return 0.0
-        return (self.used_amount / self.allocated_amount) * 100
+class RiskAlertType(str, Enum):
+    """Risk alert types"""
+    POSITION_SIZE_EXCEEDED = "POSITION_SIZE_EXCEEDED"
+    MAX_POSITIONS_EXCEEDED = "MAX_POSITIONS_EXCEEDED"
+    CONCENTRATION_EXCEEDED = "CONCENTRATION_EXCEEDED"
+    DAILY_LOSS_LIMIT = "DAILY_LOSS_LIMIT"
+    MAX_DRAWDOWN = "MAX_DRAWDOWN"
+    MARGIN_UTILIZATION_HIGH = "MARGIN_UTILIZATION_HIGH"
+    MARGIN_RATIO_LOW = "MARGIN_RATIO_LOW"
+    ORDER_REJECTED = "ORDER_REJECTED"
 
 
 @dataclass
-class RiskMetrics:
-    """Risk metrics for a position or strategy"""
-    symbol: str
-    position_size: float
-    volatility: float
-    max_drawdown: float
-    sharpe_ratio: float
-    var_95: float  # Value at Risk 95%
-    expected_return: float
-    risk_level: RiskLevel
+class RiskCheckResult:
+    """Result of risk validation"""
+    can_proceed: bool
+    reason: Optional[str] = None  # If False, explains why
+    risk_score: float = 0.0  # 0-100 (higher = riskier)
+    failed_checks: List[str] = None  # List of failed check names
 
-    def assess_risk_level(self) -> RiskLevel:
-        """Assess overall risk level based on metrics"""
-        risk_score = 0
-
-        # High volatility increases risk
-        if self.volatility > 0.05:  # 5% volatility
-            risk_score += 2
-        elif self.volatility > 0.03:  # 3% volatility
-            risk_score += 1
-
-        # Large drawdown increases risk
-        if self.max_drawdown > 0.10:  # 10% drawdown
-            risk_score += 2
-        elif self.max_drawdown > 0.05:  # 5% drawdown
-            risk_score += 1
-
-        # Low Sharpe ratio increases risk
-        if self.sharpe_ratio < 0.5:
-            risk_score += 2
-        elif self.sharpe_ratio < 1.0:
-            risk_score += 1
-
-        # High VaR increases risk
-        if self.var_95 > 0.08:  # 8% VaR
-            risk_score += 2
-        elif self.var_95 > 0.05:  # 5% VaR
-            risk_score += 1
-
-        # Large position size increases risk
-        if self.position_size > 0.05:  # 5% of portfolio
-            risk_score += 1
-
-        if risk_score >= 5:
-            return RiskLevel.CRITICAL
-        elif risk_score >= 3:
-            return RiskLevel.HIGH
-        elif risk_score >= 1:
-            return RiskLevel.MEDIUM
-        else:
-            return RiskLevel.LOW
+    def __post_init__(self):
+        if self.failed_checks is None:
+            self.failed_checks = []
 
 
 class RiskManager:
     """
-    Risk manager for budget allocation and risk assessment.
-    Handles strategy budget limits, position sizing, and risk monitoring.
+    Live trading risk manager with 6 safety checks.
+
+    Features:
+    - Configurable limits via settings.py (NO hardcoded values)
+    - Emits risk_alert events to EventBus
+    - Thread-safe (async-safe) state management
+    - Tracks equity peak for drawdown calculation
+    - Daily P&L tracking with automatic reset at midnight
     """
 
-    def __init__(self, logger: StructuredLogger, total_budget: float = 10000.0):
-        self.logger = logger
-        self.total_budget = total_budget
-        self.used_budget = 0.0
-
-        # Budget allocations per strategy
-        self.allocations: Dict[str, BudgetAllocation] = {}
-
-        # Risk limits
-        self.max_strategy_allocation_pct = 10.0  # Max 10% per strategy
-        self.max_total_utilization_pct = 80.0  # Max 80% total utilization
-        self.min_liquidity_buffer_pct = 20.0  # Keep 20% as liquidity buffer
-
-        # Risk thresholds
-        self.max_volatility_threshold = 0.08  # 8% max volatility
-        self.max_drawdown_threshold = 0.15  # 15% max drawdown
-        self.min_sharpe_threshold = 0.3  # Minimum Sharpe ratio
-
-        # Position sizing settings
-        self.default_position_size_pct = 2.0  # Default 2% of total budget per position
-        self.max_position_size_pct = 5.0  # Max 5% of total budget per position
-        self.kelly_fraction = 0.5  # Use half Kelly for safety
-
-        # Stop-loss settings
-        self.default_stop_loss_pct = 2.0  # Default 2% stop loss
-        self.trailing_stop_enabled = True
-        self.trailing_stop_distance_pct = 1.0  # 1% trailing stop distance
-
-        self.logger.info("risk_manager.initialized", {
-            "total_budget": total_budget,
-            "max_strategy_allocation_pct": self.max_strategy_allocation_pct,
-            "default_position_size_pct": self.default_position_size_pct
-        })
-
-    def allocate_budget(self, strategy_name: str, amount: float, max_allocation_pct: float = 5.0) -> bool:
-        """Allocate budget for a strategy"""
-        # Validate allocation limits
-        if amount <= 0:
-            self.logger.error("risk_manager.invalid_allocation", {
-                "strategy_name": strategy_name,
-                "amount": amount
-            })
-            return False
-
-        # Check strategy allocation limit
-        max_strategy_budget = self.total_budget * (max_allocation_pct / 100)
-        if amount > max_strategy_budget:
-            self.logger.warning("risk_manager.allocation_exceeds_limit", {
-                "strategy_name": strategy_name,
-                "requested": amount,
-                "max_allowed": max_strategy_budget
-            })
-            return False
-
-        # Check total budget availability
-        available_budget = self.total_budget - self.used_budget
-        if amount > available_budget:
-            self.logger.warning("risk_manager.insufficient_budget", {
-                "strategy_name": strategy_name,
-                "requested": amount,
-                "available": available_budget
-            })
-            return False
-
-        # Create or update allocation
-        if strategy_name in self.allocations:
-            self.allocations[strategy_name].allocated_amount = amount
-            self.allocations[strategy_name].max_allocation_pct = max_allocation_pct
-        else:
-            self.allocations[strategy_name] = BudgetAllocation(
-                strategy_name=strategy_name,
-                allocated_amount=amount,
-                max_allocation_pct=max_allocation_pct
-            )
-
-        self.logger.info("risk_manager.budget_allocated", {
-            "strategy_name": strategy_name,
-            "amount": amount,
-            "max_allocation_pct": max_allocation_pct
-        })
-
-        return True
-
-    def use_budget(self, strategy_name: str, amount: float) -> bool:
-        """Use budget for a trade"""
-        if strategy_name not in self.allocations:
-            self.logger.error("risk_manager.no_allocation", {
-                "strategy_name": strategy_name
-            })
-            return False
-
-        allocation = self.allocations[strategy_name]
-
-        if allocation.available_amount < amount:
-            self.logger.warning("risk_manager.insufficient_allocation", {
-                "strategy_name": strategy_name,
-                "requested": amount,
-                "available": allocation.available_amount
-            })
-            return False
-
-        allocation.used_amount += amount
-        allocation.last_updated = datetime.now()
-        self.used_budget += amount
-
-        self.logger.info("risk_manager.budget_used", {
-            "strategy_name": strategy_name,
-            "amount": amount,
-            "remaining": allocation.available_amount
-        })
-
-        return True
-
-    def release_budget(self, strategy_name: str, amount: float) -> bool:
-        """Release budget (e.g., when position is closed)"""
-        if strategy_name not in self.allocations:
-            return False
-
-        allocation = self.allocations[strategy_name]
-        released_amount = min(amount, allocation.used_amount)
-
-        allocation.used_amount -= released_amount
-        allocation.last_updated = datetime.now()
-        self.used_budget -= released_amount
-
-        self.logger.info("risk_manager.budget_released", {
-            "strategy_name": strategy_name,
-            "amount": released_amount
-        })
-
-        return True
-
-    def assess_position_risk(self,
-                           symbol: str,
-                           position_size: float,
-                           current_price: float,
-                           volatility: float = 0.0,
-                           max_drawdown: float = 0.0,
-                           sharpe_ratio: float = 1.0) -> RiskMetrics:
-        """Assess risk for a position"""
-        # Calculate VaR (simplified)
-        var_95 = volatility * 1.645  # 95% confidence
-
-        # Estimate expected return based on Sharpe ratio
-        expected_return = sharpe_ratio * volatility
-
-        risk_metrics = RiskMetrics(
-            symbol=symbol,
-            position_size=position_size,
-            volatility=volatility,
-            max_drawdown=max_drawdown,
-            sharpe_ratio=sharpe_ratio,
-            var_95=var_95,
-            expected_return=expected_return,
-            risk_level=RiskLevel.LOW  # Will be assessed
-        )
-
-        risk_metrics.risk_level = risk_metrics.assess_risk_level()
-
-        self.logger.debug("risk_manager.position_assessed", {
-            "symbol": symbol,
-            "position_size": position_size,
-            "risk_level": risk_metrics.risk_level.value,
-            "var_95": var_95
-        })
-
-        return risk_metrics
-
-    def can_open_position(self,
-                         strategy_name: str,
-                         symbol: str,
-                         position_size_usdt: float,
-                         risk_metrics: Optional[RiskMetrics] = None) -> Dict[str, Any]:
-        """Check if a position can be opened based on risk limits"""
-        result = {
-            "approved": True,
-            "reasons": [],
-            "warnings": []
-        }
-
-        # Check strategy allocation
-        if strategy_name not in self.allocations:
-            result["approved"] = False
-            result["reasons"].append(f"No budget allocation for strategy: {strategy_name}")
-            return result
-
-        allocation = self.allocations[strategy_name]
-
-        if allocation.available_amount < position_size_usdt:
-            result["approved"] = False
-            result["reasons"].append(
-                f"Insufficient budget: requested {position_size_usdt}, available {allocation.available_amount}"
-            )
-
-        # Check total utilization
-        total_utilization_pct = (self.used_budget / self.total_budget) * 100
-        if total_utilization_pct > self.max_total_utilization_pct:
-            result["approved"] = False
-            result["reasons"].append(
-                f"Total utilization too high: {total_utilization_pct:.1f}% > {self.max_total_utilization_pct}%"
-            )
-
-        # Check risk metrics if provided
-        if risk_metrics:
-            if risk_metrics.volatility > self.max_volatility_threshold:
-                result["approved"] = False
-                result["reasons"].append(
-                    f"Volatility too high: {risk_metrics.volatility:.3f} > {self.max_volatility_threshold}"
-                )
-
-            if risk_metrics.max_drawdown > self.max_drawdown_threshold:
-                result["approved"] = False
-                result["reasons"].append(
-                    f"Max drawdown too high: {risk_metrics.max_drawdown:.3f} > {self.max_drawdown_threshold}"
-                )
-
-            if risk_metrics.sharpe_ratio < self.min_sharpe_threshold:
-                result["warnings"].append(
-                    f"Low Sharpe ratio: {risk_metrics.sharpe_ratio:.2f} < {self.min_sharpe_threshold}"
-                )
-
-            if risk_metrics.risk_level in [RiskLevel.HIGH, RiskLevel.CRITICAL]:
-                result["warnings"].append(f"High risk level: {risk_metrics.risk_level.value}")
-
-        return result
-
-    def get_budget_summary(self) -> Dict[str, Any]:
-        """Get budget utilization summary"""
-        total_allocated = sum(alloc.allocated_amount for alloc in self.allocations.values())
-        total_used = sum(alloc.used_amount for alloc in self.allocations.values())
-
-        return {
-            "total_budget": self.total_budget,
-            "used_budget": self.used_budget,
-            "available_budget": self.total_budget - self.used_budget,
-            "utilization_pct": (self.used_budget / self.total_budget) * 100 if self.total_budget > 0 else 0,
-            "total_allocated": total_allocated,
-            "total_used": total_used,
-            "allocations": [
-                {
-                    "strategy_name": alloc.strategy_name,
-                    "allocated": alloc.allocated_amount,
-                    "used": alloc.used_amount,
-                    "available": alloc.available_amount,
-                    "utilization_pct": alloc.utilization_pct,
-                    "max_allocation_pct": alloc.max_allocation_pct
-                }
-                for alloc in self.allocations.values()
-            ]
-        }
-
-    def get_strategy_allocation(self, strategy_name: str) -> Optional[Dict[str, Any]]:
-        """Get budget allocation for a specific strategy"""
-        if strategy_name not in self.allocations:
-            return None
-
-        alloc = self.allocations[strategy_name]
-        return {
-            "strategy_name": alloc.strategy_name,
-            "allocated_amount": alloc.allocated_amount,
-            "used_amount": alloc.used_amount,
-            "available_amount": alloc.available_amount,
-            "utilization_pct": alloc.utilization_pct,
-            "max_allocation_pct": alloc.max_allocation_pct,
-            "last_updated": alloc.last_updated.isoformat()
-        }
-
-    def emergency_stop(self, strategy_name: Optional[str] = None) -> List[str]:
-        """Emergency stop - release all budget for strategy or all strategies"""
-        released_strategies = []
-
-        if strategy_name:
-            if strategy_name in self.allocations:
-                alloc = self.allocations[strategy_name]
-                released_amount = alloc.used_amount
-                alloc.used_amount = 0
-                self.used_budget -= released_amount
-                released_strategies.append(strategy_name)
-        else:
-            # Release all
-            for alloc in self.allocations.values():
-                released_amount = alloc.used_amount
-                alloc.used_amount = 0
-                self.used_budget -= released_amount
-                released_strategies.append(alloc.strategy_name)
-
-        if released_strategies:
-            self.logger.warning("risk_manager.emergency_stop", {
-                "released_strategies": released_strategies,
-                "total_released": sum(self.allocations[s].used_amount for s in released_strategies)
-            })
-
-        return released_strategies
-
-    def calculate_position_size(self,
-                              strategy_name: str,
-                              signal_confidence: float,
-                              current_price: float,
-                              volatility: float = 0.0,
-                              sizing_method: str = "percentage") -> Dict[str, Any]:
+    def __init__(self, event_bus: EventBus, settings: AppSettings, initial_capital: Decimal = Decimal('10000')):
         """
-        Calculate position size using various risk management methods.
+        Initialize RiskManager.
 
         Args:
-            strategy_name: Name of the strategy
-            signal_confidence: Signal confidence (0.0 to 1.0)
-            current_price: Current market price
-            volatility: Asset volatility (optional)
-            sizing_method: "percentage", "kelly", or "fixed"
+            event_bus: EventBus instance for publishing risk alerts
+            settings: Application settings
+            initial_capital: Initial capital in USDT
+        """
+        self.event_bus = event_bus
+        self.settings = settings
+        self.risk_config = settings.risk_management.risk_manager
+
+        # Capital tracking
+        self.initial_capital = initial_capital
+        self.current_capital = initial_capital
+        self.equity_peak = initial_capital
+
+        # Daily tracking
+        self.daily_pnl = Decimal('0')
+        self.daily_reset_date = datetime.utcnow().date()
+
+        # Thread safety
+        self._lock = asyncio.Lock()
+
+        logger.info(
+            "RiskManager initialized",
+            extra={
+                "initial_capital": float(initial_capital),
+                "max_position_size_pct": float(self.risk_config.max_position_size_percent),
+                "max_positions": self.risk_config.max_concurrent_positions,
+                "daily_loss_limit_pct": float(self.risk_config.daily_loss_limit_percent),
+                "max_drawdown_pct": float(self.risk_config.max_drawdown_percent)
+            }
+        )
+
+    async def can_open_position(
+        self,
+        symbol: str,
+        side: str,
+        quantity: Decimal,
+        price: Decimal,
+        current_positions: List[Position],
+        current_margin_ratio: Optional[Decimal] = None,
+        available_margin: Optional[Decimal] = None
+    ) -> RiskCheckResult:
+        """
+        Validate if new position can be opened.
+
+        Runs all 6 risk checks:
+        1. Max position size
+        2. Max number of positions
+        3. Position concentration
+        4. Daily loss limit
+        5. Total drawdown
+        6. Margin utilization
+
+        Args:
+            symbol: Trading symbol (e.g., "BTC_USDT")
+            side: "buy" or "sell" (long or short)
+            quantity: Position size
+            price: Entry price
+            current_positions: List of currently open positions
+            current_margin_ratio: Current margin ratio (equity / maintenance_margin)
+            available_margin: Available margin for new positions
 
         Returns:
-            Dict with position size details
+            RiskCheckResult with can_proceed=True/False and reason
         """
-        result = {
-            "position_size_usd": 0.0,
-            "position_size_pct": 0.0,
-            "max_position_usd": 0.0,
-            "risk_amount_usd": 0.0,
-            "stop_loss_price": 0.0,
-            "method_used": sizing_method,
-            "approved": False,
-            "reasons": []
-        }
+        async with self._lock:
+            # Reset daily P&L if new day
+            self._check_daily_reset()
 
-        # Get available budget for strategy
-        if strategy_name not in self.allocations:
-            result["reasons"].append(f"No budget allocation for strategy: {strategy_name}")
-            return result
+            # Calculate position notional value
+            position_value = quantity * price
 
-        allocation = self.allocations[strategy_name]
-        available_budget = allocation.available_amount
+            # Initialize result
+            result = RiskCheckResult(can_proceed=True, risk_score=0.0, failed_checks=[])
 
-        if available_budget <= 0:
-            result["reasons"].append("No available budget for strategy")
-            return result
+            # Check 1: Max position size
+            check1_passed, check1_reason, check1_score = self._check_max_position_size(position_value)
+            if not check1_passed:
+                result.can_proceed = False
+                result.failed_checks.append("max_position_size")
+                if result.reason is None:
+                    result.reason = check1_reason
+            result.risk_score += check1_score
 
-        # Calculate base position size
-        if sizing_method == "kelly":
-            position_size = self._calculate_kelly_position_size(
-                available_budget, signal_confidence, volatility
+            # Check 2: Max number of positions
+            check2_passed, check2_reason, check2_score = self._check_max_positions(current_positions)
+            if not check2_passed:
+                result.can_proceed = False
+                result.failed_checks.append("max_concurrent_positions")
+                if result.reason is None:
+                    result.reason = check2_reason
+            result.risk_score += check2_score
+
+            # Check 3: Position concentration
+            check3_passed, check3_reason, check3_score = self._check_position_concentration(
+                symbol, position_value, current_positions
             )
-        elif sizing_method == "fixed":
-            position_size = min(available_budget * 0.1, 1000.0)  # Fixed 10% or $1000 max
-        else:  # percentage (default)
-            position_size = self._calculate_percentage_position_size(
-                available_budget, signal_confidence
+            if not check3_passed:
+                result.can_proceed = False
+                result.failed_checks.append("symbol_concentration")
+                if result.reason is None:
+                    result.reason = check3_reason
+            result.risk_score += check3_score
+
+            # Check 4: Daily loss limit
+            check4_passed, check4_reason, check4_score = self._check_daily_loss_limit()
+            if not check4_passed:
+                result.can_proceed = False
+                result.failed_checks.append("daily_loss_limit")
+                if result.reason is None:
+                    result.reason = check4_reason
+            result.risk_score += check4_score
+
+            # Check 5: Total drawdown
+            check5_passed, check5_reason, check5_score = self._check_max_drawdown()
+            if not check5_passed:
+                result.can_proceed = False
+                result.failed_checks.append("max_drawdown")
+                if result.reason is None:
+                    result.reason = check5_reason
+            result.risk_score += check5_score
+
+            # Check 6: Margin utilization
+            check6_passed, check6_reason, check6_score = self._check_margin_utilization(
+                position_value, available_margin, current_margin_ratio
+            )
+            if not check6_passed:
+                result.can_proceed = False
+                result.failed_checks.append("margin_utilization")
+                if result.reason is None:
+                    result.reason = check6_reason
+            result.risk_score += check6_score
+
+            # Emit risk alert if rejected
+            if not result.can_proceed:
+                await self._emit_risk_alert(
+                    severity=RiskAlertSeverity.WARNING,
+                    alert_type=RiskAlertType.ORDER_REJECTED,
+                    message=f"Position opening rejected for {symbol}: {result.reason}",
+                    details={
+                        "symbol": symbol,
+                        "side": side,
+                        "quantity": float(quantity),
+                        "price": float(price),
+                        "position_value": float(position_value),
+                        "failed_checks": result.failed_checks,
+                        "risk_score": result.risk_score
+                    }
+                )
+
+            logger.info(
+                f"Risk check result: {'APPROVED' if result.can_proceed else 'REJECTED'}",
+                extra={
+                    "symbol": symbol,
+                    "position_value": float(position_value),
+                    "can_proceed": result.can_proceed,
+                    "risk_score": result.risk_score,
+                    "failed_checks": result.failed_checks,
+                    "reason": result.reason
+                }
             )
 
-        # Apply maximum position limits
-        max_position = self.total_budget * (self.max_position_size_pct / 100)
-        position_size = min(position_size, max_position, available_budget)
-
-        if position_size <= 0:
-            result["reasons"].append("Calculated position size is zero or negative")
             return result
 
-        # Calculate stop loss
-        stop_loss_price = self._calculate_stop_loss_price(current_price, position_size)
-
-        # Calculate risk amount
-        risk_amount = abs(current_price - stop_loss_price) * (position_size / current_price)
-
-        result.update({
-            "position_size_usd": position_size,
-            "position_size_pct": (position_size / self.total_budget) * 100,
-            "max_position_usd": max_position,
-            "risk_amount_usd": risk_amount,
-            "stop_loss_price": stop_loss_price,
-            "approved": True
-        })
-
-        self.logger.debug("risk_manager.position_size_calculated", {
-            "strategy": strategy_name,
-            "method": sizing_method,
-            "size_usd": position_size,
-            "confidence": signal_confidence,
-            "stop_loss": stop_loss_price
-        })
-
-        return result
-
-    def _calculate_percentage_position_size(self, available_budget: float, confidence: float) -> float:
-        """Calculate position size using percentage-based method."""
-        # Base position size as percentage of available budget
-        base_pct = self.default_position_size_pct / 100
-
-        # Adjust for confidence (0.5x to 2x multiplier)
-        confidence_multiplier = 0.5 + (confidence * 1.5)
-
-        position_pct = base_pct * confidence_multiplier
-        position_size = available_budget * position_pct
-
-        return position_size
-
-    def _calculate_kelly_position_size(self,
-                                     available_budget: float,
-                                     confidence: float,
-                                     volatility: float) -> float:
-        """Calculate position size using Kelly Criterion."""
-        # Simplified Kelly formula: f = (p - q) / b
-        # Where p = win probability, q = loss probability, b = win/loss ratio
-
-        # Estimate win probability from confidence
-        win_prob = max(0.5, min(0.8, confidence))  # Clamp between 50% and 80%
-
-        # Estimate win/loss ratio (simplified)
-        avg_win_loss_ratio = 2.0  # Assume 2:1 win/loss ratio
-
-        # Kelly fraction
-        kelly_pct = (win_prob - (1 - win_prob)) / avg_win_loss_ratio
-        kelly_pct *= self.kelly_fraction  # Use fraction of Kelly for safety
-
-        # Adjust for volatility
-        if volatility > 0.05:  # High volatility reduces position size
-            kelly_pct *= 0.5
-
-        position_size = available_budget * kelly_pct
-
-        return max(0.0, position_size)
-
-    def _calculate_stop_loss_price(self, current_price: float, position_size: float) -> float:
-        """Calculate stop loss price based on risk tolerance."""
-        # Simple percentage-based stop loss
-        stop_loss_pct = self.default_stop_loss_pct / 100
-        stop_loss_price = current_price * (1 - stop_loss_pct)
-
-        return stop_loss_price
-
-    def check_stop_loss_trigger(self,
-                              symbol: str,
-                              current_price: float,
-                              entry_price: float,
-                              position_size: float) -> Dict[str, Any]:
+    async def validate_order(self, order: Order, current_positions: List[Position]) -> RiskCheckResult:
         """
-        Check if stop loss should be triggered.
+        Validate order before submission.
+
+        This is a convenience wrapper around can_open_position().
+
+        Args:
+            order: Order object to validate
+            current_positions: List of current open positions
 
         Returns:
-            Dict with trigger decision and details
+            RiskCheckResult
         """
-        result = {
-            "trigger_stop_loss": False,
-            "stop_loss_price": 0.0,
-            "current_loss_pct": 0.0,
-            "reason": ""
-        }
+        # Use average_fill_price if available, otherwise use order price
+        price = order.average_fill_price if order.average_fill_price else order.price
+        if price is None:
+            # Market order - can't validate without price, return approved
+            logger.warning(f"Cannot validate market order without price: {order.order_id}")
+            return RiskCheckResult(can_proceed=True, risk_score=0.0)
 
-        # Calculate stop loss price
-        stop_loss_price = self._calculate_stop_loss_price(entry_price, position_size)
-        result["stop_loss_price"] = stop_loss_price
+        return await self.can_open_position(
+            symbol=order.symbol,
+            side=order.side.value,
+            quantity=order.quantity,
+            price=price,
+            current_positions=current_positions
+        )
 
-        # Check if current price has hit stop loss
-        if current_price <= stop_loss_price:
-            loss_pct = ((entry_price - current_price) / entry_price) * 100
-            result.update({
-                "trigger_stop_loss": True,
-                "current_loss_pct": loss_pct,
-                "reason": f"Price {current_price:.2f} hit stop loss at {stop_loss_price:.2f} ({loss_pct:.2f}% loss)"
-            })
-
-            self.logger.warning("risk_manager.stop_loss_triggered", {
-                "symbol": symbol,
-                "current_price": current_price,
-                "stop_loss_price": stop_loss_price,
-                "loss_pct": loss_pct
-            })
-
-        return result
-
-    def update_trailing_stop(self,
-                           symbol: str,
-                           current_price: float,
-                           highest_price: float,
-                           position_size: float) -> Dict[str, Any]:
+    async def update_capital(self, new_capital: Decimal, pnl_change: Decimal = Decimal('0')):
         """
-        Update trailing stop loss if enabled.
+        Update current capital and track equity peak.
+
+        Args:
+            new_capital: New capital value
+            pnl_change: P&L change since last update
+        """
+        async with self._lock:
+            self.current_capital = new_capital
+
+            # Update equity peak
+            if new_capital > self.equity_peak:
+                self.equity_peak = new_capital
+
+            # Update daily P&L
+            self.daily_pnl += pnl_change
+
+            # Check if drawdown alert needed
+            drawdown_pct = self._calculate_drawdown_percent()
+            if drawdown_pct >= float(self.risk_config.max_drawdown_percent) * 0.8:  # 80% of limit
+                await self._emit_risk_alert(
+                    severity=RiskAlertSeverity.WARNING,
+                    alert_type=RiskAlertType.MAX_DRAWDOWN,
+                    message=f"Drawdown at {drawdown_pct:.2f}% (limit: {self.risk_config.max_drawdown_percent}%)",
+                    details={
+                        "current_capital": float(new_capital),
+                        "equity_peak": float(self.equity_peak),
+                        "drawdown_percent": drawdown_pct
+                    }
+                )
+
+    async def check_margin_ratio(self, margin_ratio: Decimal):
+        """
+        Check margin ratio and emit alerts if too low.
+
+        Args:
+            margin_ratio: Current margin ratio (equity / maintenance_margin) as percentage
+        """
+        if margin_ratio <= self.risk_config.critical_margin_ratio_percent:
+            await self._emit_risk_alert(
+                severity=RiskAlertSeverity.CRITICAL,
+                alert_type=RiskAlertType.MARGIN_RATIO_LOW,
+                message=f"CRITICAL: Margin ratio at {margin_ratio:.2f}% - Liquidation risk!",
+                details={"margin_ratio": float(margin_ratio)}
+            )
+        elif margin_ratio <= self.risk_config.warning_margin_ratio_percent:
+            await self._emit_risk_alert(
+                severity=RiskAlertSeverity.WARNING,
+                alert_type=RiskAlertType.MARGIN_RATIO_LOW,
+                message=f"WARNING: Margin ratio at {margin_ratio:.2f}%",
+                details={"margin_ratio": float(margin_ratio)}
+            )
+
+    # === Internal Risk Checks ===
+
+    def _check_max_position_size(self, position_value: Decimal) -> tuple[bool, Optional[str], float]:
+        """
+        Check 1: Max position size (% of capital).
 
         Returns:
-            Dict with updated stop loss details
+            (passed, reason, risk_score)
         """
-        if not self.trailing_stop_enabled:
-            return {"updated": False, "reason": "Trailing stops disabled"}
+        max_value = self.current_capital * (self.risk_config.max_position_size_percent / 100)
 
-        # Calculate new stop loss based on trailing distance from highest price
-        trailing_distance_pct = self.trailing_stop_distance_pct / 100
-        new_stop_loss = highest_price * (1 - trailing_distance_pct)
+        if position_value > max_value:
+            return (
+                False,
+                f"Position size {float(position_value):.2f} USDT exceeds max {float(max_value):.2f} USDT ({self.risk_config.max_position_size_percent}% of capital)",
+                25.0  # High risk score
+            )
 
-        result = {
-            "updated": False,
-            "new_stop_loss": new_stop_loss,
-            "highest_price": highest_price,
-            "reason": ""
+        # Risk score based on utilization
+        utilization_pct = (position_value / max_value) * 100 if max_value > 0 else 0
+        risk_score = float(utilization_pct / 10)  # 0-10 range
+
+        return (True, None, risk_score)
+
+    def _check_max_positions(self, current_positions: List[Position]) -> tuple[bool, Optional[str], float]:
+        """
+        Check 2: Max number of concurrent positions.
+
+        Returns:
+            (passed, reason, risk_score)
+        """
+        open_positions = [p for p in current_positions if p.is_open]
+        num_open = len(open_positions)
+
+        if num_open >= self.risk_config.max_concurrent_positions:
+            return (
+                False,
+                f"Max positions reached: {num_open}/{self.risk_config.max_concurrent_positions}",
+                20.0
+            )
+
+        # Risk score based on position count
+        utilization_pct = (num_open / self.risk_config.max_concurrent_positions) * 100
+        risk_score = float(utilization_pct / 10)  # 0-10 range
+
+        return (True, None, risk_score)
+
+    def _check_position_concentration(
+        self,
+        symbol: str,
+        new_position_value: Decimal,
+        current_positions: List[Position]
+    ) -> tuple[bool, Optional[str], float]:
+        """
+        Check 3: Position concentration (max % in one symbol).
+
+        Returns:
+            (passed, reason, risk_score)
+        """
+        # Calculate existing exposure to symbol
+        existing_exposure = Decimal('0')
+        for pos in current_positions:
+            if pos.symbol == symbol and pos.is_open:
+                existing_exposure += pos.notional_value
+
+        total_exposure = existing_exposure + new_position_value
+        max_exposure = self.current_capital * (self.risk_config.max_symbol_concentration_percent / 100)
+
+        if total_exposure > max_exposure:
+            return (
+                False,
+                f"Symbol concentration for {symbol} would be {float(total_exposure):.2f} USDT, exceeds max {float(max_exposure):.2f} USDT ({self.risk_config.max_symbol_concentration_percent}% of capital)",
+                30.0
+            )
+
+        # Risk score based on concentration
+        concentration_pct = (total_exposure / max_exposure) * 100 if max_exposure > 0 else 0
+        risk_score = float(concentration_pct / 10)  # 0-10 range
+
+        return (True, None, risk_score)
+
+    def _check_daily_loss_limit(self) -> tuple[bool, Optional[str], float]:
+        """
+        Check 4: Daily loss limit (% of capital).
+
+        Returns:
+            (passed, reason, risk_score)
+        """
+        daily_loss_limit = self.current_capital * (self.risk_config.daily_loss_limit_percent / 100)
+
+        if self.daily_pnl < -daily_loss_limit:
+            return (
+                False,
+                f"Daily loss {float(self.daily_pnl):.2f} USDT exceeds limit {float(daily_loss_limit):.2f} USDT ({self.risk_config.daily_loss_limit_percent}% of capital)",
+                40.0  # Very high risk
+            )
+
+        # Risk score based on daily loss
+        if self.daily_pnl < 0:
+            loss_pct = (abs(self.daily_pnl) / daily_loss_limit) * 100
+            risk_score = float(loss_pct / 10)  # 0-10 range
+        else:
+            risk_score = 0.0  # Positive P&L = no risk
+
+        return (True, None, risk_score)
+
+    def _check_max_drawdown(self) -> tuple[bool, Optional[str], float]:
+        """
+        Check 5: Total drawdown from peak (% of capital).
+
+        Returns:
+            (passed, reason, risk_score)
+        """
+        drawdown_pct = self._calculate_drawdown_percent()
+        max_drawdown_pct = float(self.risk_config.max_drawdown_percent)
+
+        if drawdown_pct >= max_drawdown_pct:
+            return (
+                False,
+                f"Drawdown {drawdown_pct:.2f}% exceeds max {max_drawdown_pct}%",
+                50.0  # Critical risk
+            )
+
+        # Risk score based on drawdown
+        risk_score = float((drawdown_pct / max_drawdown_pct) * 10)  # 0-10 range
+
+        return (True, None, risk_score)
+
+    def _check_margin_utilization(
+        self,
+        new_position_value: Decimal,
+        available_margin: Optional[Decimal],
+        current_margin_ratio: Optional[Decimal]
+    ) -> tuple[bool, Optional[str], float]:
+        """
+        Check 6: Margin utilization (% of available margin).
+
+        Returns:
+            (passed, reason, risk_score)
+        """
+        # If margin data not available, skip check
+        if available_margin is None or current_margin_ratio is None:
+            return (True, None, 0.0)
+
+        # Check if margin utilization would be too high
+        max_margin_pct = float(self.risk_config.max_margin_utilization_percent)
+
+        # Current margin ratio already above limit
+        if float(current_margin_ratio) >= max_margin_pct:
+            return (
+                False,
+                f"Margin utilization {float(current_margin_ratio):.2f}% exceeds max {max_margin_pct}%",
+                35.0
+            )
+
+        # Check if new position would push margin too high (simplified estimate)
+        estimated_margin_increase = (new_position_value / self.current_capital) * 100
+        estimated_new_margin = float(current_margin_ratio) + float(estimated_margin_increase)
+
+        if estimated_new_margin >= max_margin_pct:
+            return (
+                False,
+                f"New position would push margin to ~{estimated_new_margin:.2f}%, exceeds max {max_margin_pct}%",
+                35.0
+            )
+
+        # Risk score based on margin utilization
+        risk_score = float((float(current_margin_ratio) / max_margin_pct) * 10)  # 0-10 range
+
+        return (True, None, risk_score)
+
+    # === Helper Methods ===
+
+    def _calculate_drawdown_percent(self) -> float:
+        """Calculate current drawdown from equity peak."""
+        if self.equity_peak <= 0:
+            return 0.0
+
+        drawdown = self.equity_peak - self.current_capital
+        drawdown_pct = (drawdown / self.equity_peak) * 100
+        return float(drawdown_pct)
+
+    def _check_daily_reset(self):
+        """Reset daily P&L if new day started."""
+        current_date = datetime.utcnow().date()
+        if current_date > self.daily_reset_date:
+            logger.info(f"Daily P&L reset: {self.daily_pnl:.2f} USDT")
+            self.daily_pnl = Decimal('0')
+            self.daily_reset_date = current_date
+
+    async def _emit_risk_alert(
+        self,
+        severity: RiskAlertSeverity,
+        alert_type: RiskAlertType,
+        message: str,
+        details: Dict[str, Any]
+    ):
+        """
+        Emit risk alert event to EventBus.
+
+        Args:
+            severity: Alert severity (CRITICAL, WARNING, INFO)
+            alert_type: Type of risk alert
+            message: Human-readable message
+            details: Additional alert details
+        """
+        alert_data = {
+            "type": "risk_alert",  # WebSocket message type
+            "alert_id": f"risk_{datetime.utcnow().timestamp()}",
+            "severity": severity.value,
+            "alert_type": alert_type.value,
+            "message": message,
+            "details": details,
+            "timestamp": int(datetime.utcnow().timestamp() * 1000)  # Epoch milliseconds
         }
 
-        # Only update if new stop is higher than current price (for long positions)
-        # This is a simplified implementation
-        if new_stop_loss > current_price * 0.95:  # Ensure minimum distance
-            result["updated"] = True
-            result["reason"] = f"Trailing stop updated to {new_stop_loss:.2f}"
+        await self.event_bus.publish("risk_alert", alert_data)
 
-        return result
+        # Log based on severity
+        if severity == RiskAlertSeverity.CRITICAL:
+            logger.error(f"RISK ALERT [CRITICAL]: {message}", extra=details)
+        elif severity == RiskAlertSeverity.WARNING:
+            logger.warning(f"RISK ALERT [WARNING]: {message}", extra=details)
+        else:
+            logger.info(f"RISK ALERT [INFO]: {message}", extra=details)
+
+    # === Public Getters ===
+
+    def get_risk_summary(self) -> Dict[str, Any]:
+        """
+        Get current risk status summary.
+
+        Returns:
+            Dict with all risk metrics
+        """
+        return {
+            "current_capital": float(self.current_capital),
+            "initial_capital": float(self.initial_capital),
+            "equity_peak": float(self.equity_peak),
+            "drawdown_percent": self._calculate_drawdown_percent(),
+            "daily_pnl": float(self.daily_pnl),
+            "daily_reset_date": self.daily_reset_date.isoformat(),
+            "limits": {
+                "max_position_size_percent": float(self.risk_config.max_position_size_percent),
+                "max_concurrent_positions": self.risk_config.max_concurrent_positions,
+                "max_symbol_concentration_percent": float(self.risk_config.max_symbol_concentration_percent),
+                "daily_loss_limit_percent": float(self.risk_config.daily_loss_limit_percent),
+                "max_drawdown_percent": float(self.risk_config.max_drawdown_percent),
+                "max_margin_utilization_percent": float(self.risk_config.max_margin_utilization_percent)
+            }
+        }

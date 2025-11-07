@@ -2,6 +2,13 @@
 MEXC Adapter - Real API Integration
 ===================================
 Real MEXC REST API adapter with authentication, rate limiting, and caching.
+
+Enhanced for Live Trading (Phase 1):
+- Order submission (market & limit orders)
+- Order cancellation
+- Order status tracking
+- Position fetching
+- Comprehensive error handling
 """
 
 import asyncio
@@ -12,6 +19,8 @@ import time
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 from urllib.parse import urlencode
+from dataclasses import dataclass
+from enum import Enum
 
 import aiohttp
 from aiohttp import ClientTimeout
@@ -24,6 +33,50 @@ from ...core.circuit_breaker import (
     ResilientService,
     get_or_create_service
 )
+
+
+# ===== RESPONSE DATACLASSES =====
+
+class OrderStatus(str, Enum):
+    """MEXC order status"""
+    NEW = "NEW"
+    PARTIALLY_FILLED = "PARTIALLY_FILLED"
+    FILLED = "FILLED"
+    CANCELED = "CANCELED"
+    PENDING_CANCEL = "PENDING_CANCEL"
+    REJECTED = "REJECTED"
+    EXPIRED = "EXPIRED"
+
+
+@dataclass
+class OrderStatusResponse:
+    """Order status response from MEXC"""
+    exchange_order_id: str
+    symbol: str
+    side: str  # "BUY" or "SELL"
+    order_type: str  # "MARKET" or "LIMIT"
+    quantity: float
+    price: float
+    status: OrderStatus
+    filled_quantity: float
+    average_fill_price: Optional[float]
+    created_at: int  # Unix timestamp in milliseconds
+    updated_at: int  # Unix timestamp in milliseconds
+
+
+@dataclass
+class PositionResponse:
+    """Position response from MEXC"""
+    symbol: str
+    side: str  # "LONG" or "SHORT"
+    quantity: float
+    entry_price: float
+    current_price: float
+    unrealized_pnl: float
+    margin_ratio: float  # equity / maintenance_margin (%)
+    liquidation_price: float
+    leverage: float
+    margin: float
 
 
 
@@ -45,9 +98,9 @@ class MexcRealAdapter:
         self.base_url = base_url
         self.timeout = ClientTimeout(total=timeout)
 
-        # Rate limiting: MEXC allows 20 requests per second for spot API
+        # Rate limiting: 10 requests per second (per IMPLEMENTATION_ROADMAP.md Task 1.1)
         self.rate_limiter = {
-            "requests_per_second": 20,
+            "requests_per_second": 10,
             "last_request_time": 0.0,
             "request_count": 0
         }
@@ -352,4 +405,335 @@ class MexcRealAdapter:
     def get_circuit_breaker_status(self) -> Dict[str, Any]:
         """Get circuit breaker status for monitoring"""
         return self.resilient_service.get_status()
+
+    # ===== ENHANCED METHODS FOR LIVE TRADING (Phase 1) =====
+
+    async def create_market_order(self, symbol: str, side: str, quantity: float) -> str:
+        """
+        Create market order on MEXC (Agent 3 - Task 3.1).
+
+        Args:
+            symbol: Trading symbol (e.g., "BTC_USDT")
+            side: "buy" or "sell"
+            quantity: Order quantity
+
+        Returns:
+            Exchange order ID (string)
+
+        Raises:
+            Exception: On API errors (500, 418 rate limit, network timeout, etc.)
+
+        Error Handling:
+            - HTTP 500: Server error → Retry via ResilientService
+            - HTTP 418: Rate limit → Retry via ResilientService
+            - Network timeout → Retry via ResilientService
+            - HTTP 400: Invalid parameters → Raise immediately (no retry)
+        """
+        params = {
+            "symbol": symbol.upper().replace("_", ""),  # MEXC expects "BTCUSDT" not "BTC_USDT"
+            "side": side.upper(),
+            "type": "MARKET",
+            "quantity": str(quantity)
+        }
+
+        try:
+            self.logger.info("mexc_adapter.create_market_order", {
+                "symbol": symbol,
+                "side": side,
+                "quantity": quantity
+            })
+
+            response = await self._make_request("POST", "/api/v3/order", params, signed=True)
+
+            exchange_order_id = str(response.get("orderId"))
+
+            self.logger.info("mexc_adapter.market_order_created", {
+                "symbol": symbol,
+                "exchange_order_id": exchange_order_id,
+                "status": response.get("status")
+            })
+
+            return exchange_order_id
+
+        except Exception as e:
+            self.logger.error("mexc_adapter.create_market_order_error", {
+                "symbol": symbol,
+                "side": side,
+                "quantity": quantity,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            raise
+
+    async def create_limit_order(
+        self,
+        symbol: str,
+        side: str,
+        quantity: float,
+        price: float
+    ) -> str:
+        """
+        Create limit order on MEXC (Agent 3 - Task 3.1).
+
+        Args:
+            symbol: Trading symbol (e.g., "BTC_USDT")
+            side: "buy" or "sell"
+            quantity: Order quantity
+            price: Limit price
+
+        Returns:
+            Exchange order ID (string)
+
+        Raises:
+            Exception: On API errors (500, 418 rate limit, network timeout, etc.)
+
+        Error Handling:
+            - HTTP 500: Server error → Retry via ResilientService
+            - HTTP 418: Rate limit → Retry via ResilientService
+            - Network timeout → Retry via ResilientService
+            - HTTP 400: Invalid parameters → Raise immediately (no retry)
+        """
+        params = {
+            "symbol": symbol.upper().replace("_", ""),
+            "side": side.upper(),
+            "type": "LIMIT",
+            "quantity": str(quantity),
+            "price": str(price),
+            "timeInForce": "GTC"  # Good Till Cancel
+        }
+
+        try:
+            self.logger.info("mexc_adapter.create_limit_order", {
+                "symbol": symbol,
+                "side": side,
+                "quantity": quantity,
+                "price": price
+            })
+
+            response = await self._make_request("POST", "/api/v3/order", params, signed=True)
+
+            exchange_order_id = str(response.get("orderId"))
+
+            self.logger.info("mexc_adapter.limit_order_created", {
+                "symbol": symbol,
+                "exchange_order_id": exchange_order_id,
+                "status": response.get("status")
+            })
+
+            return exchange_order_id
+
+        except Exception as e:
+            self.logger.error("mexc_adapter.create_limit_order_error", {
+                "symbol": symbol,
+                "side": side,
+                "quantity": quantity,
+                "price": price,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            raise
+
+    async def cancel_order(self, symbol: str, exchange_order_id: str) -> bool:
+        """
+        Cancel order on MEXC (Agent 3 - Task 3.1).
+
+        Args:
+            symbol: Trading symbol (e.g., "BTC_USDT")
+            exchange_order_id: Exchange order ID to cancel
+
+        Returns:
+            True if cancelled successfully, False otherwise
+
+        Raises:
+            Exception: On API errors (500, 418 rate limit, network timeout, etc.)
+
+        Error Handling:
+            - HTTP 500: Server error → Retry via ResilientService
+            - HTTP 418: Rate limit → Retry via ResilientService
+            - Network timeout → Retry via ResilientService
+            - HTTP 400: Order not found → Return False (no retry)
+        """
+        params = {
+            "symbol": symbol.upper().replace("_", ""),
+            "orderId": exchange_order_id
+        }
+
+        try:
+            self.logger.info("mexc_adapter.cancel_order", {
+                "symbol": symbol,
+                "exchange_order_id": exchange_order_id
+            })
+
+            response = await self._make_request("DELETE", "/api/v3/order", params, signed=True)
+
+            success = response.get("orderId") == exchange_order_id
+
+            self.logger.info("mexc_adapter.order_cancelled", {
+                "symbol": symbol,
+                "exchange_order_id": exchange_order_id,
+                "success": success
+            })
+
+            return success
+
+        except Exception as e:
+            # Check if order not found (HTTP 400)
+            error_msg = str(e).lower()
+            if "not found" in error_msg or "unknown order" in error_msg:
+                self.logger.warning("mexc_adapter.cancel_order_not_found", {
+                    "symbol": symbol,
+                    "exchange_order_id": exchange_order_id
+                })
+                return False
+
+            self.logger.error("mexc_adapter.cancel_order_error", {
+                "symbol": symbol,
+                "exchange_order_id": exchange_order_id,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            raise
+
+    async def get_order_status(
+        self,
+        symbol: str,
+        exchange_order_id: str
+    ) -> OrderStatusResponse:
+        """
+        Get order status from MEXC (Agent 3 - Task 3.1).
+
+        Args:
+            symbol: Trading symbol (e.g., "BTC_USDT")
+            exchange_order_id: Exchange order ID to query
+
+        Returns:
+            OrderStatusResponse with order details
+
+        Raises:
+            Exception: On API errors (500, 418 rate limit, network timeout, etc.)
+
+        Error Handling:
+            - HTTP 500: Server error → Retry via ResilientService
+            - HTTP 418: Rate limit → Retry via ResilientService
+            - Network timeout → Retry via ResilientService
+            - HTTP 400: Order not found → Raise with clear error message
+        """
+        params = {
+            "symbol": symbol.upper().replace("_", ""),
+            "orderId": exchange_order_id
+        }
+
+        try:
+            self.logger.debug("mexc_adapter.get_order_status", {
+                "symbol": symbol,
+                "exchange_order_id": exchange_order_id
+            })
+
+            response = await self._make_request("GET", "/api/v3/order", params, signed=True)
+
+            # Parse response into OrderStatusResponse
+            order_status = OrderStatusResponse(
+                exchange_order_id=str(response.get("orderId")),
+                symbol=response.get("symbol"),
+                side=response.get("side"),
+                order_type=response.get("type"),
+                quantity=float(response.get("origQty", 0)),
+                price=float(response.get("price", 0)),
+                status=OrderStatus(response.get("status")),
+                filled_quantity=float(response.get("executedQty", 0)),
+                average_fill_price=float(response.get("avgPrice")) if response.get("avgPrice") else None,
+                created_at=int(response.get("time", 0)),
+                updated_at=int(response.get("updateTime", response.get("time", 0)))
+            )
+
+            return order_status
+
+        except Exception as e:
+            self.logger.error("mexc_adapter.get_order_status_error", {
+                "symbol": symbol,
+                "exchange_order_id": exchange_order_id,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            raise
+
+    async def get_positions(self) -> List[PositionResponse]:
+        """
+        Get all open positions from MEXC Futures API (Agent 3 - Task 3.1).
+
+        Returns:
+            List of PositionResponse objects
+
+        Raises:
+            Exception: On API errors (500, 418 rate limit, network timeout, etc.)
+
+        Error Handling:
+            - HTTP 500: Server error → Retry via ResilientService
+            - HTTP 418: Rate limit → Retry via ResilientService
+            - Network timeout → Retry via ResilientService
+
+        Note:
+            This endpoint uses MEXC Futures API, not Spot API.
+            Endpoint: GET /api/v1/private/position/list
+            Documentation: https://mexcdevelop.github.io/apidocs/contract_v1_en/#get-all-position-information
+        """
+        try:
+            self.logger.debug("mexc_adapter.get_positions")
+
+            # MEXC Futures API endpoint (different from Spot API)
+            # Note: This assumes futures API, adjust base_url if needed
+            response = await self._make_request(
+                "GET",
+                "/api/v1/private/position/list",
+                params={},
+                signed=True
+            )
+
+            positions = []
+
+            # Parse response - MEXC returns positions under "data" key
+            position_data = response.get("data", []) if isinstance(response.get("data"), list) else []
+
+            for pos in position_data:
+                # Only include positions with non-zero quantity
+                quantity = float(pos.get("holdVol", 0))
+                if quantity == 0:
+                    continue
+
+                # Determine side (1 = LONG, 2 = SHORT in MEXC Futures)
+                position_type = pos.get("positionType", 1)
+                side = "LONG" if position_type == 1 else "SHORT"
+
+                # Calculate margin ratio
+                equity = float(pos.get("equity", 0))
+                maintenance_margin = float(pos.get("maintenanceMargin", 1))  # Avoid division by zero
+                margin_ratio = (equity / maintenance_margin * 100) if maintenance_margin > 0 else 0
+
+                position = PositionResponse(
+                    symbol=pos.get("symbol"),
+                    side=side,
+                    quantity=quantity,
+                    entry_price=float(pos.get("openAvgPrice", 0)),
+                    current_price=float(pos.get("fairPrice", 0)),
+                    unrealized_pnl=float(pos.get("unrealizedPnl", 0)),
+                    margin_ratio=margin_ratio,
+                    liquidation_price=float(pos.get("liquidatePrice", 0)),
+                    leverage=float(pos.get("leverage", 1)),
+                    margin=float(pos.get("holdFee", 0))
+                )
+
+                positions.append(position)
+
+            self.logger.info("mexc_adapter.positions_fetched", {
+                "count": len(positions)
+            })
+
+            return positions
+
+        except Exception as e:
+            self.logger.error("mexc_adapter.get_positions_error", {
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            raise
 
