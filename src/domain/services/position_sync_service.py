@@ -89,29 +89,39 @@ class PositionSyncService:
         # Local position tracking (CRITICAL: Not defaultdict)
         self.positions: Dict[str, LocalPosition] = {}
 
+        # Lock for thread-safe positions dict access
+        self._positions_lock = asyncio.Lock()
+
         # Background task
         self._sync_task: Optional[asyncio.Task] = None
         self._running = False
 
-        # Subscribe to order fills
-        self.event_bus.subscribe("order_filled", self._on_order_filled)
+        # Note: EventBus subscriptions moved to start() method (async required)
 
         logger.info(f"PositionSyncService initialized (max_positions: {max_positions})")
 
     async def start(self):
-        """Start position sync background task."""
+        """Start position sync background task and subscribe to events."""
         if self._running:
             logger.warning("PositionSyncService already running")
             return
 
         logger.info("Starting PositionSyncService background sync...")
         self._running = True
+
+        # Subscribe to order fills (async required)
+        await self.event_bus.subscribe("order_filled", self._on_order_filled)
+
+        # Start background sync task
         self._sync_task = asyncio.create_task(self._sync_positions())
 
     async def stop(self):
         """Stop position sync and cleanup."""
         logger.info("Stopping PositionSyncService...")
         self._running = False
+
+        # Unsubscribe from events
+        await self.event_bus.unsubscribe("order_filled", self._on_order_filled)
 
         # Cancel background task
         if self._sync_task:
@@ -122,7 +132,8 @@ class PositionSyncService:
                 pass
 
         # Explicit cleanup (memory leak prevention)
-        self.positions.clear()
+        async with self._positions_lock:
+            self.positions.clear()
 
         logger.info("PositionSyncService stopped")
 
@@ -143,82 +154,99 @@ class PositionSyncService:
         if not symbol or not side or quantity == 0:
             return
 
-        # Check if position exists
-        if symbol in self.positions:
-            # Update existing position
-            position = self.positions[symbol]
+        # Track if we need to close position (outside lock)
+        should_close = False
+        position_to_close = None
 
-            if side.lower() == "buy":
-                # Buying (adding to long or reducing short)
-                if position.side == "LONG":
-                    # Average entry price for adding to long
-                    total_cost = position.quantity * position.entry_price + quantity * price
-                    position.quantity += quantity
-                    position.entry_price = total_cost / position.quantity if position.quantity > 0 else price
-                else:  # SHORT
-                    # Reducing short position
-                    position.quantity -= quantity
-                    if position.quantity <= 0:
-                        # Position closed
-                        logger.info(f"Position closed via buy: {symbol}")
-                        await self._close_position(symbol, position)
-                        return
-            else:  # sell
-                # Selling (adding to short or reducing long)
-                if position.side == "SHORT":
-                    # Average entry price for adding to short
-                    total_cost = position.quantity * position.entry_price + quantity * price
-                    position.quantity += quantity
-                    position.entry_price = total_cost / position.quantity if position.quantity > 0 else price
-                else:  # LONG
-                    # Reducing long position
-                    position.quantity -= quantity
-                    if position.quantity <= 0:
-                        # Position closed
-                        logger.info(f"Position closed via sell: {symbol}")
-                        await self._close_position(symbol, position)
-                        return
+        # Protect positions dict access with lock
+        async with self._positions_lock:
+            # Check if position exists
+            if symbol in self.positions:
+                # Update existing position
+                position = self.positions[symbol]
 
-            position.updated_at = time.time()
+                if side.lower() == "buy":
+                    # Buying (adding to long or reducing short)
+                    if position.side == "LONG":
+                        # Average entry price for adding to long
+                        total_cost = position.quantity * position.entry_price + quantity * price
+                        position.quantity += quantity
+                        position.entry_price = total_cost / position.quantity if position.quantity > 0 else price
+                    else:  # SHORT
+                        # Reducing short position
+                        position.quantity -= quantity
+                        if position.quantity <= 0:
+                            # Position closed
+                            logger.info(f"Position closed via buy: {symbol}")
+                            should_close = True
+                            position_to_close = position
+                else:  # sell
+                    # Selling (adding to short or reducing long)
+                    if position.side == "SHORT":
+                        # Average entry price for adding to short
+                        total_cost = position.quantity * position.entry_price + quantity * price
+                        position.quantity += quantity
+                        position.entry_price = total_cost / position.quantity if position.quantity > 0 else price
+                    else:  # LONG
+                        # Reducing long position
+                        position.quantity -= quantity
+                        if position.quantity <= 0:
+                            # Position closed
+                            logger.info(f"Position closed via sell: {symbol}")
+                            should_close = True
+                            position_to_close = position
 
-        else:
-            # Create new position
-            if len(self.positions) >= self.max_positions:
-                logger.error(f"Max positions reached ({self.max_positions}), cannot track {symbol}")
-                return
+                if not should_close:
+                    position.updated_at = time.time()
 
-            position = LocalPosition(
-                symbol=symbol,
-                side="LONG" if side.lower() == "buy" else "SHORT",
-                quantity=quantity,
-                entry_price=price,
-                current_price=price,
-                liquidation_price=0.0,  # Will be updated by sync
-                unrealized_pnl=0.0,
-                margin=0.0,
-                leverage=1.0,
-                margin_ratio=100.0,
-                opened_at=time.time(),
-                updated_at=time.time()
-            )
+            else:
+                # Create new position
+                if len(self.positions) >= self.max_positions:
+                    logger.error(f"Max positions reached ({self.max_positions}), cannot track {symbol}")
+                    return
 
-            self.positions[symbol] = position
+                position = LocalPosition(
+                    symbol=symbol,
+                    side="LONG" if side.lower() == "buy" else "SHORT",
+                    quantity=quantity,
+                    entry_price=price,
+                    current_price=price,
+                    liquidation_price=0.0,  # Will be updated by sync
+                    unrealized_pnl=0.0,
+                    margin=0.0,
+                    leverage=1.0,
+                    margin_ratio=100.0,
+                    opened_at=time.time(),
+                    updated_at=time.time()
+                )
 
-            logger.info(f"New position created: {symbol} {position.side} {position.quantity}")
+                self.positions[symbol] = position
 
-            await self.event_bus.publish("position_updated", {
-                "position_id": symbol,
-                "symbol": symbol,
-                "status": "opened",
-                "side": position.side,
-                "quantity": position.quantity,
-                "entry_price": position.entry_price,
-                "current_price": position.current_price,
-                "unrealized_pnl": position.unrealized_pnl,
-                "margin_ratio": position.margin_ratio,
-                "liquidation_price": position.liquidation_price,
-                "timestamp": int(time.time() * 1000)
-            })
+                logger.info(f"New position created: {symbol} {position.side} {position.quantity}")
+
+        # Handle position close outside lock (to avoid nested lock calls)
+        if should_close and position_to_close:
+            await self._close_position(symbol, position_to_close)
+            return
+
+        # Emit position updated event for new positions (outside lock)
+        if symbol in self.positions and not should_close:
+            async with self._positions_lock:
+                if symbol in self.positions:
+                    pos = self.positions[symbol]
+                    await self.event_bus.publish("position_updated", {
+                        "position_id": symbol,
+                        "symbol": symbol,
+                        "status": "opened",
+                        "side": pos.side,
+                        "quantity": pos.quantity,
+                        "entry_price": pos.entry_price,
+                        "current_price": pos.current_price,
+                        "unrealized_pnl": pos.unrealized_pnl,
+                        "margin_ratio": pos.margin_ratio,
+                        "liquidation_price": pos.liquidation_price,
+                        "timestamp": int(time.time() * 1000)
+                    })
 
     async def _close_position(self, symbol: str, position: LocalPosition):
         """
@@ -228,8 +256,10 @@ class PositionSyncService:
             symbol: Symbol being closed
             position: Position object
         """
-        # Remove from tracking
-        del self.positions[symbol]
+        # Remove from tracking (protect with lock)
+        async with self._positions_lock:
+            if symbol in self.positions:
+                del self.positions[symbol]
 
         # Emit position closed event
         await self.event_bus.publish("position_updated", {
@@ -269,19 +299,21 @@ class PositionSyncService:
                 # Build symbol → exchange position map
                 exchange_map = {p.symbol: p for p in exchange_positions}
 
-                # Check each local position
-                for symbol in list(self.positions.keys()):
-                    local_pos = self.positions[symbol]
+                # Protect positions dict access with lock
+                async with self._positions_lock:
+                    # Check each local position
+                    for symbol in list(self.positions.keys()):
+                        local_pos = self.positions[symbol]
 
-                    if symbol not in exchange_map:
-                        # Position missing on exchange → liquidated or manually closed
-                        logger.warning(f"Position {symbol} missing on exchange (liquidation or manual close)")
+                        if symbol not in exchange_map:
+                            # Position missing on exchange → liquidated or manually closed
+                            logger.warning(f"Position {symbol} missing on exchange (liquidation or manual close)")
 
-                        # Remove from tracking
-                        del self.positions[symbol]
+                            # Remove from tracking
+                            del self.positions[symbol]
 
-                        # Emit liquidation event
-                        await self.event_bus.publish("position_updated", {
+                            # Emit liquidation event
+                            await self.event_bus.publish("position_updated", {
                             "position_id": symbol,
                             "symbol": symbol,
                             "status": "liquidated",
@@ -293,98 +325,98 @@ class PositionSyncService:
                             "margin_ratio": 0.0,
                             "liquidation_price": local_pos.liquidation_price,
                             "timestamp": int(time.time() * 1000)
-                        })
+                            })
 
-                        # Emit critical risk alert
-                        await self.event_bus.publish("risk_alert", {
-                            "type": "risk_alert",
-                            "alert_id": f"liquidation_{symbol}_{int(time.time())}",
-                            "severity": "CRITICAL",
-                            "alert_type": "LIQUIDATION_DETECTED",
-                            "message": f"🚨 LIQUIDATION DETECTED: {symbol}",
-                            "details": {
+                            # Emit critical risk alert
+                            await self.event_bus.publish("risk_alert", {
+                                "type": "risk_alert",
+                                "alert_id": f"liquidation_{symbol}_{int(time.time())}",
+                                "severity": "CRITICAL",
+                                "alert_type": "LIQUIDATION_DETECTED",
+                                "message": f"🚨 LIQUIDATION DETECTED: {symbol}",
+                                "details": {
+                                    "symbol": symbol,
+                                    "side": local_pos.side,
+                                    "entry_price": local_pos.entry_price,
+                                    "last_price": local_pos.current_price
+                                },
+                                "timestamp": int(time.time() * 1000)
+                            })
+                        else:
+                            # Position exists, update details
+                            exchange_pos = exchange_map[symbol]
+
+                            local_pos.current_price = exchange_pos.current_price
+                            local_pos.liquidation_price = exchange_pos.liquidation_price
+                            local_pos.unrealized_pnl = exchange_pos.unrealized_pnl
+                            local_pos.margin = exchange_pos.margin
+                            local_pos.leverage = exchange_pos.leverage
+                            local_pos.margin_ratio = exchange_pos.margin_ratio
+                            local_pos.updated_at = time.time()
+
+                            # Emit position updated event
+                            await self.event_bus.publish("position_updated", {
+                                "position_id": symbol,
                                 "symbol": symbol,
+                                "status": "updated",
                                 "side": local_pos.side,
+                                "quantity": local_pos.quantity,
                                 "entry_price": local_pos.entry_price,
-                                "last_price": local_pos.current_price
-                            },
-                            "timestamp": int(time.time() * 1000)
-                        })
-                    else:
-                        # Position exists, update details
-                        exchange_pos = exchange_map[symbol]
+                                "current_price": local_pos.current_price,
+                                "unrealized_pnl": local_pos.unrealized_pnl,
+                                "margin_ratio": local_pos.margin_ratio,
+                                "liquidation_price": local_pos.liquidation_price,
+                                "timestamp": int(time.time() * 1000)
+                            })
 
-                        local_pos.current_price = exchange_pos.current_price
-                        local_pos.liquidation_price = exchange_pos.liquidation_price
-                        local_pos.unrealized_pnl = exchange_pos.unrealized_pnl
-                        local_pos.margin = exchange_pos.margin
-                        local_pos.leverage = exchange_pos.leverage
-                        local_pos.margin_ratio = exchange_pos.margin_ratio
-                        local_pos.updated_at = time.time()
+                            # Check margin ratio via RiskManager
+                            if self.risk_manager:
+                                try:
+                                    from decimal import Decimal
+                                    await self.risk_manager.check_margin_ratio(Decimal(str(local_pos.margin_ratio)))
+                                except Exception as e:
+                                    logger.error(f"Risk manager check failed for {symbol}: {e}")
 
-                        # Emit position updated event
-                        await self.event_bus.publish("position_updated", {
-                            "position_id": symbol,
-                            "symbol": symbol,
-                            "status": "updated",
-                            "side": local_pos.side,
-                            "quantity": local_pos.quantity,
-                            "entry_price": local_pos.entry_price,
-                            "current_price": local_pos.current_price,
-                            "unrealized_pnl": local_pos.unrealized_pnl,
-                            "margin_ratio": local_pos.margin_ratio,
-                            "liquidation_price": local_pos.liquidation_price,
-                            "timestamp": int(time.time() * 1000)
-                        })
+                    # Check for new positions on exchange (manually opened?)
+                    for symbol, exchange_pos in exchange_map.items():
+                        if symbol not in self.positions:
+                            logger.info(f"New position detected on exchange: {symbol}")
 
-                        # Check margin ratio via RiskManager
-                        if self.risk_manager:
-                            try:
-                                from decimal import Decimal
-                                await self.risk_manager.check_margin_ratio(Decimal(str(local_pos.margin_ratio)))
-                            except Exception as e:
-                                logger.error(f"Risk manager check failed for {symbol}: {e}")
+                            if len(self.positions) >= self.max_positions:
+                                logger.error(f"Max positions reached ({self.max_positions}), cannot track {symbol}")
+                                continue
 
-                # Check for new positions on exchange (manually opened?)
-                for symbol, exchange_pos in exchange_map.items():
-                    if symbol not in self.positions:
-                        logger.info(f"New position detected on exchange: {symbol}")
+                            # Add to local tracking
+                            position = LocalPosition(
+                                symbol=symbol,
+                                side=exchange_pos.side,
+                                quantity=exchange_pos.quantity,
+                                entry_price=exchange_pos.entry_price,
+                                current_price=exchange_pos.current_price,
+                                liquidation_price=exchange_pos.liquidation_price,
+                                unrealized_pnl=exchange_pos.unrealized_pnl,
+                                margin=exchange_pos.margin,
+                                leverage=exchange_pos.leverage,
+                                margin_ratio=exchange_pos.margin_ratio,
+                                opened_at=time.time(),
+                                updated_at=time.time()
+                            )
 
-                        if len(self.positions) >= self.max_positions:
-                            logger.error(f"Max positions reached ({self.max_positions}), cannot track {symbol}")
-                            continue
+                            self.positions[symbol] = position
 
-                        # Add to local tracking
-                        position = LocalPosition(
-                            symbol=symbol,
-                            side=exchange_pos.side,
-                            quantity=exchange_pos.quantity,
-                            entry_price=exchange_pos.entry_price,
-                            current_price=exchange_pos.current_price,
-                            liquidation_price=exchange_pos.liquidation_price,
-                            unrealized_pnl=exchange_pos.unrealized_pnl,
-                            margin=exchange_pos.margin,
-                            leverage=exchange_pos.leverage,
-                            margin_ratio=exchange_pos.margin_ratio,
-                            opened_at=time.time(),
-                            updated_at=time.time()
-                        )
-
-                        self.positions[symbol] = position
-
-                        await self.event_bus.publish("position_updated", {
-                            "position_id": symbol,
-                            "symbol": symbol,
-                            "status": "opened",
-                            "side": position.side,
-                            "quantity": position.quantity,
-                            "entry_price": position.entry_price,
-                            "current_price": position.current_price,
-                            "unrealized_pnl": position.unrealized_pnl,
-                            "margin_ratio": position.margin_ratio,
-                            "liquidation_price": position.liquidation_price,
-                            "timestamp": int(time.time() * 1000)
-                        })
+                            await self.event_bus.publish("position_updated", {
+                                "position_id": symbol,
+                                "symbol": symbol,
+                                "status": "opened",
+                                "side": position.side,
+                                "quantity": position.quantity,
+                                "entry_price": position.entry_price,
+                                "current_price": position.current_price,
+                                "unrealized_pnl": position.unrealized_pnl,
+                                "margin_ratio": position.margin_ratio,
+                                "liquidation_price": position.liquidation_price,
+                                "timestamp": int(time.time() * 1000)
+                            })
 
             except asyncio.CancelledError:
                 logger.info("Position sync stopped")
@@ -394,29 +426,32 @@ class PositionSyncService:
 
     # === Public Getters ===
 
-    def get_position(self, symbol: str) -> Optional[LocalPosition]:
+    async def get_position(self, symbol: str) -> Optional[LocalPosition]:
         """Get position by symbol."""
-        return self.positions.get(symbol)
+        async with self._positions_lock:
+            return self.positions.get(symbol)
 
-    def get_all_positions(self) -> List[LocalPosition]:
+    async def get_all_positions(self) -> List[LocalPosition]:
         """Get all tracked positions."""
-        return list(self.positions.values())
+        async with self._positions_lock:
+            return list(self.positions.values())
 
-    def get_metrics(self) -> Dict[str, Any]:
+    async def get_metrics(self) -> Dict[str, Any]:
         """Get position sync metrics."""
-        total_unrealized_pnl = sum(p.unrealized_pnl for p in self.positions.values())
-        
-        return {
-            "total_positions": len(self.positions),
-            "long_positions": sum(1 for p in self.positions.values() if p.side == "LONG"),
-            "short_positions": sum(1 for p in self.positions.values() if p.side == "SHORT"),
-            "total_unrealized_pnl": total_unrealized_pnl,
-            "avg_margin_ratio": (
-                sum(p.margin_ratio for p in self.positions.values()) / len(self.positions)
-                if self.positions else 0.0
-            ),
-            "min_margin_ratio": (
-                min(p.margin_ratio for p in self.positions.values())
-                if self.positions else 0.0
-            )
-        }
+        async with self._positions_lock:
+            total_unrealized_pnl = sum(p.unrealized_pnl for p in self.positions.values())
+
+            return {
+                "total_positions": len(self.positions),
+                "long_positions": sum(1 for p in self.positions.values() if p.side == "LONG"),
+                "short_positions": sum(1 for p in self.positions.values() if p.side == "SHORT"),
+                "total_unrealized_pnl": total_unrealized_pnl,
+                "avg_margin_ratio": (
+                    sum(p.margin_ratio for p in self.positions.values()) / len(self.positions)
+                    if self.positions else 0.0
+                ),
+                "min_margin_ratio": (
+                    min(p.margin_ratio for p in self.positions.values())
+                    if self.positions else 0.0
+                )
+            }
