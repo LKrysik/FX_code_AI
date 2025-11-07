@@ -623,6 +623,26 @@ class AuthHandler:
         """Generate secure refresh token"""
         return secrets.token_urlsafe(32)
 
+    def _verify_password(self, provided_password: str, expected_password: str) -> bool:
+        """
+        Securely verify password using constant-time comparison.
+
+        NOTE: This is a simple string comparison for DEMO purposes only.
+        In PRODUCTION, use:
+        - bcrypt.checkpw() for bcrypt hashes
+        - argon2.verify() for argon2 hashes
+        - Never compare plain text passwords
+
+        Args:
+            provided_password: Password provided by user
+            expected_password: Expected password (from env or database)
+
+        Returns:
+            True if passwords match, False otherwise
+        """
+        # Use constant-time comparison to prevent timing attacks
+        return hmac.compare_digest(provided_password, expected_password)
+
     def _record_failed_attempt(self, client_ip: str):
         """Record failed authentication attempt"""
         if client_ip not in self.failed_attempts:
@@ -865,17 +885,37 @@ class AuthHandler:
         if self._password_executor is None:
             raise RuntimeError("AuthHandler has not been started, password executor is not available.")
 
-        # Simple demo authentication - in production, verify against database
-        if username == "demo" and password == "demo123":
+        # CRITICAL WARNING: This is DEMO authentication only!
+        # For PRODUCTION use:
+        # 1. Integrate with proper user database (PostgreSQL/QuestDB)
+        # 2. Store password hashes (bcrypt/argon2), NEVER plain text
+        # 3. Remove these hardcoded demo accounts
+        # 4. Set credentials via environment variables as TEMPORARY measure
+
+        # Get demo credentials from environment (fallback to insecure defaults for demo)
+        DEMO_PASSWORD = os.getenv("DEMO_PASSWORD", "CHANGE_ME_DEMO123")
+        TRADER_PASSWORD = os.getenv("TRADER_PASSWORD", "CHANGE_ME_TRADER123")
+        PREMIUM_PASSWORD = os.getenv("PREMIUM_PASSWORD", "CHANGE_ME_PREMIUM123")
+        ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "CHANGE_ME_ADMIN123")
+
+        # Log warning if using default passwords
+        if "CHANGE_ME" in ADMIN_PASSWORD:
+            self.logger.warning(
+                "🚨 SECURITY WARNING: Using default demo credentials! "
+                "Set environment variables: DEMO_PASSWORD, TRADER_PASSWORD, PREMIUM_PASSWORD, ADMIN_PASSWORD"
+            )
+
+        # Demo authentication - REPLACE with database lookup in production
+        if username == "demo" and self._verify_password(password, DEMO_PASSWORD):
             user_id = "demo_user"
             permission_level = PermissionLevel.BASIC
-        elif username == "trader" and password == "trader123":
+        elif username == "trader" and self._verify_password(password, TRADER_PASSWORD):
             user_id = "trader_user"
             permission_level = PermissionLevel.TRADER
-        elif username == "premium" and password == "premium123":
+        elif username == "premium" and self._verify_password(password, PREMIUM_PASSWORD):
             user_id = "premium_user"
             permission_level = PermissionLevel.PREMIUM
-        elif username == "admin" and password == "admin123":
+        elif username == "admin" and self._verify_password(password, ADMIN_PASSWORD):
             user_id = "admin_user"
             permission_level = PermissionLevel.ADMIN
         else:
