@@ -12,13 +12,14 @@ Endpoints:
 """
 
 from typing import Dict, Any, List, Optional
-from fastapi import APIRouter, HTTPException, Query, Path
+from fastapi import APIRouter, HTTPException, Query, Path, Depends
 from pydantic import BaseModel, Field
 from datetime import datetime
 import json
 
 from src.core.logger import get_logger
 from src.data_feed.questdb_provider import QuestDBProvider
+from src.api.auth_handler import UserSession
 
 # Create router
 router = APIRouter(prefix="/api/trading", tags=["live-trading"])
@@ -29,11 +30,13 @@ logger = get_logger(__name__)
 # Global database provider (injected during startup)
 _questdb_provider: Optional[QuestDBProvider] = None
 _live_order_manager = None  # Will be injected
+_get_current_user_dependency = None  # Will be injected from unified_server
 
 
 def initialize_trading_dependencies(
     questdb_provider: QuestDBProvider,
-    live_order_manager=None
+    live_order_manager=None,
+    get_current_user_dependency=None
 ) -> None:
     """
     Initialize trading route dependencies.
@@ -43,14 +46,17 @@ def initialize_trading_dependencies(
     Args:
         questdb_provider: QuestDB provider for database queries
         live_order_manager: LiveOrderManager service (optional, for order operations)
+        get_current_user_dependency: FastAPI dependency for authentication
     """
-    global _questdb_provider, _live_order_manager
+    global _questdb_provider, _live_order_manager, _get_current_user_dependency
     _questdb_provider = questdb_provider
     _live_order_manager = live_order_manager
+    _get_current_user_dependency = get_current_user_dependency
 
     logger.info("trading_routes.dependencies_initialized", {
         "questdb_provider_available": _questdb_provider is not None,
-        "live_order_manager_available": _live_order_manager is not None
+        "live_order_manager_available": _live_order_manager is not None,
+        "auth_dependency_available": _get_current_user_dependency is not None
     })
 
 
@@ -72,6 +78,28 @@ def get_live_order_manager():
             detail="Live order manager not initialized"
         )
     return _live_order_manager
+
+
+def get_current_user():
+    """
+    Get current user dependency (wrapper for unified_server's implementation).
+
+    This function returns the actual dependency function that should be used with Depends().
+    """
+    if _get_current_user_dependency is None:
+        # Fallback for development/testing - return a dummy dependency
+        async def no_auth_dummy() -> UserSession:
+            logger.warning("trading_routes.no_auth_configured",
+                          {"message": "Authentication not configured - using dummy session"})
+            from datetime import datetime
+            return UserSession(
+                user_id="dev_user",
+                username="developer",
+                permissions=["admin_system"],
+                last_activity=datetime.now()
+            )
+        return no_auth_dummy
+    return _get_current_user_dependency
 
 
 # ========================================
@@ -253,7 +281,8 @@ async def get_positions(
 @router.post("/positions/{position_id}/close", response_model=ClosePositionResponse)
 async def close_position(
     position_id: str = Path(..., description="Position ID to close (format: session_id:symbol)"),
-    request: ClosePositionRequest = ClosePositionRequest()
+    request: ClosePositionRequest = ClosePositionRequest(),
+    current_user: UserSession = Depends(get_current_user)
 ) -> ClosePositionResponse:
     """
     Close a live position by creating a reverse order.
@@ -444,7 +473,8 @@ async def get_orders(
 
 @router.post("/orders/{order_id}/cancel", response_model=CancelOrderResponse)
 async def cancel_order(
-    order_id: str = Path(..., description="Order ID to cancel")
+    order_id: str = Path(..., description="Order ID to cancel"),
+    current_user: UserSession = Depends(get_current_user)
 ) -> CancelOrderResponse:
     """
     Cancel a pending or partially filled order.
