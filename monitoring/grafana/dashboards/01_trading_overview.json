@@ -1,0 +1,491 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "trading-overview",
+    "title": "Live Trading Overview",
+    "tags": ["trading", "orders", "pnl"],
+    "timezone": "browser",
+    "schemaVersion": 38,
+    "version": 1,
+    "refresh": "5s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "timepicker": {
+      "refresh_intervals": ["5s", "10s", "30s", "1m", "5m", "15m"],
+      "time_options": ["15m", "1h", "6h", "24h", "7d"]
+    },
+    "templating": {
+      "list": [
+        {
+          "name": "symbol",
+          "type": "query",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "query": "label_values(orders_submitted_total, symbol)",
+          "multi": true,
+          "includeAll": true,
+          "allValue": ".*",
+          "refresh": 1,
+          "current": {
+            "selected": true,
+            "text": "All",
+            "value": "$__all"
+          }
+        }
+      ]
+    },
+    "panels": [
+      {
+        "id": 1,
+        "type": "graph",
+        "title": "Orders Per Minute",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "sum(rate(orders_submitted_total{symbol=~\"$symbol\"}[1m])) * 60",
+            "legendFormat": "Orders/min",
+            "refId": "A"
+          }
+        ],
+        "options": {},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {
+              "mode": "palette-classic"
+            }
+          }
+        },
+        "description": "Total number of orders submitted per minute across all selected symbols"
+      },
+      {
+        "id": 2,
+        "type": "stat",
+        "title": "Fill Rate",
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 12,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "(sum(rate(orders_filled_total{symbol=~\"$symbol\"}[5m])) / sum(rate(orders_submitted_total{symbol=~\"$symbol\"}[5m]))) * 100",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "background",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "decimals": 1,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "red"
+                },
+                {
+                  "value": 50,
+                  "color": "yellow"
+                },
+                {
+                  "value": 80,
+                  "color": "green"
+                }
+              ]
+            }
+          }
+        },
+        "description": "Percentage of orders successfully filled (orders_filled / orders_submitted)"
+      },
+      {
+        "id": 3,
+        "type": "stat",
+        "title": "Total Orders (24h)",
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 18,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "sum(increase(orders_submitted_total{symbol=~\"$symbol\"}[24h]))",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "none",
+          "colorMode": "value",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 0,
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "blue"
+                }
+              ]
+            }
+          }
+        },
+        "description": "Total orders submitted in the last 24 hours"
+      },
+      {
+        "id": 4,
+        "type": "stat",
+        "title": "Orders Failed (24h)",
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 18,
+          "y": 4
+        },
+        "targets": [
+          {
+            "expr": "sum(increase(orders_failed_total{symbol=~\"$symbol\"}[24h]))",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "none",
+          "colorMode": "value",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 0,
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "green"
+                },
+                {
+                  "value": 5,
+                  "color": "yellow"
+                },
+                {
+                  "value": 20,
+                  "color": "red"
+                }
+              ]
+            }
+          }
+        },
+        "description": "Total orders failed in the last 24 hours"
+      },
+      {
+        "id": 5,
+        "type": "bargauge",
+        "title": "Orders Failed by Reason",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 8
+        },
+        "targets": [
+          {
+            "expr": "sum by (reason) (increase(orders_failed_total{symbol=~\"$symbol\"}[1h]))",
+            "legendFormat": "{{reason}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "orientation": "horizontal",
+          "displayMode": "gradient",
+          "showUnfilled": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {
+              "mode": "palette-classic"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "green"
+                },
+                {
+                  "value": 3,
+                  "color": "yellow"
+                },
+                {
+                  "value": 10,
+                  "color": "red"
+                }
+              ]
+            }
+          }
+        },
+        "description": "Number of failed orders grouped by failure reason in the last hour"
+      },
+      {
+        "id": 6,
+        "type": "graph",
+        "title": "Order Submission Latency (p50, p95, p99)",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 8
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(order_submission_latency_seconds_bucket{symbol=~\"$symbol\"}[5m])) by (le))",
+            "legendFormat": "p50",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(order_submission_latency_seconds_bucket{symbol=~\"$symbol\"}[5m])) by (le))",
+            "legendFormat": "p95",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(order_submission_latency_seconds_bucket{symbol=~\"$symbol\"}[5m])) by (le))",
+            "legendFormat": "p99",
+            "refId": "C"
+          }
+        ],
+        "options": {},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "decimals": 2,
+            "color": {
+              "mode": "palette-classic"
+            }
+          }
+        },
+        "description": "Order submission latency percentiles (50th, 95th, 99th) in seconds"
+      },
+      {
+        "id": 7,
+        "type": "graph",
+        "title": "Live Unrealized P&L (USD)",
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 16
+        },
+        "targets": [
+          {
+            "expr": "sum by (symbol) (unrealized_pnl_usd{symbol=~\"$symbol\"})",
+            "legendFormat": "{{symbol}}",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(unrealized_pnl_usd{symbol=~\"$symbol\"})",
+            "legendFormat": "Total P&L",
+            "refId": "B"
+          }
+        ],
+        "options": {},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "decimals": 2,
+            "color": {
+              "mode": "palette-classic"
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Total P&L"
+              },
+              "properties": [
+                {
+                  "id": "custom.lineWidth",
+                  "value": 3
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "blue"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "description": "Real-time unrealized profit and loss in USD, showing both per-symbol and total P&L"
+      },
+      {
+        "id": 8,
+        "type": "table",
+        "title": "Orders by Symbol (Last Hour)",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 24
+        },
+        "targets": [
+          {
+            "expr": "sum by (symbol, side) (increase(orders_submitted_total{symbol=~\"$symbol\"}[1h]))",
+            "format": "table",
+            "instant": true,
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "showHeader": true,
+          "sortBy": [
+            {
+              "displayName": "Value",
+              "desc": true
+            }
+          ]
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "displayMode": "auto"
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Value"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Orders"
+                },
+                {
+                  "id": "custom.displayMode",
+                  "value": "color-background"
+                },
+                {
+                  "id": "thresholds",
+                  "value": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "value": null,
+                        "color": "green"
+                      },
+                      {
+                        "value": 10,
+                        "color": "yellow"
+                      },
+                      {
+                        "value": 50,
+                        "color": "red"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "description": "Breakdown of orders by symbol and side (BUY/SELL) in the last hour"
+      },
+      {
+        "id": 9,
+        "type": "stat",
+        "title": "Average Submission Latency",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 24
+        },
+        "targets": [
+          {
+            "expr": "sum(rate(order_submission_latency_seconds_sum{symbol=~\"$symbol\"}[5m])) / sum(rate(order_submission_latency_seconds_count{symbol=~\"$symbol\"}[5m]))",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "background",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "decimals": 3,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "green"
+                },
+                {
+                  "value": 1,
+                  "color": "yellow"
+                },
+                {
+                  "value": 3,
+                  "color": "red"
+                }
+              ]
+            }
+          }
+        },
+        "description": "Average time taken to submit orders to the exchange (lower is better)"
+      }
+    ],
+    "annotations": {
+      "list": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "enable": true,
+          "expr": "changes(circuit_breaker_state{service=~\".*\"}[1m]) > 0",
+          "iconColor": "red",
+          "name": "Circuit Breaker Events",
+          "step": "1m",
+          "tagKeys": "service",
+          "textFormat": "Circuit breaker state changed",
+          "titleFormat": "Circuit Breaker"
+        }
+      ]
+    }
+  },
+  "overwrite": true
+}

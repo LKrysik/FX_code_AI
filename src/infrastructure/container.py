@@ -453,18 +453,32 @@ class Container:
 
         return await self._get_or_create_singleton_async("order_manager", _create_async)
 
-    async def create_risk_manager(self) -> RiskManager:
+    async def create_risk_manager(self, initial_capital: float = 10000.0) -> RiskManager:
         """
         Create risk manager for budget and risk management.
         Uses singleton pattern to prevent multiple instances.
+
+        ARCHITECTURE FIX (Agent 2 Integration):
+        - Injects EventBus for risk_alert events
+        - Injects Settings for configurable risk limits
+        - NO hardcoded values (all from settings.risk_management.risk_manager)
+
+        Args:
+            initial_capital: Initial capital in USDT (default: $10,000)
 
         Returns:
             Configured risk manager
         """
         def _create():
             try:
-                # Use default budget of $10,000 for simulation
-                return RiskManager(logger=self.logger, total_budget=10000.0)
+                from decimal import Decimal
+
+                # ✅ AGENT 2 INTEGRATION: Full constructor with EventBus + Settings
+                return RiskManager(
+                    event_bus=self.event_bus,
+                    settings=self.settings,
+                    initial_capital=Decimal(str(initial_capital))
+                )
             except Exception as e:
                 self.logger.error("container.risk_manager_creation_failed", {
                     "error": str(e),
@@ -473,6 +487,157 @@ class Container:
                 raise RuntimeError(f"Failed to create risk manager: {str(e)}") from e
 
         return await self._get_or_create_singleton_async("risk_manager", _create)
+
+    async def create_live_order_manager(self) -> 'LiveOrderManager':
+        """
+        Create live order manager for live trading (Agent 3 Integration).
+
+        ARCHITECTURE FIX (Agent 3 Integration):
+        - Injects EventBus for signal_generated → order_created → order_filled flow
+        - Injects MEXC Adapter with circuit breaker
+        - Injects RiskManager for order validation
+        - Configurable max_orders from settings
+
+        Dependencies:
+        - EventBus (singleton, already created)
+        - MEXC Futures Adapter (with circuit breaker)
+        - RiskManager (for validation)
+
+        Returns:
+            Configured LiveOrderManager singleton
+
+        Raises:
+            RuntimeError: If creation fails
+        """
+        async def _create_async():
+            try:
+                # Create dependencies
+                mexc_adapter = await self.create_mexc_futures_adapter()
+                risk_manager = await self.create_risk_manager()
+
+                # Get max_orders from settings if available
+                max_orders = getattr(
+                    getattr(self.settings, 'live_trading', None),
+                    'max_orders',
+                    1000
+                )
+
+                # ✅ AGENT 3 INTEGRATION: LiveOrderManager with full dependencies
+                return LiveOrderManager(
+                    event_bus=self.event_bus,
+                    mexc_adapter=mexc_adapter,
+                    risk_manager=risk_manager,
+                    max_orders=max_orders
+                )
+            except Exception as e:
+                self.logger.error("container.live_order_manager_creation_failed", {
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                })
+                raise RuntimeError(f"Failed to create live order manager: {str(e)}") from e
+
+        return await self._get_or_create_singleton_async("live_order_manager", _create_async)
+
+    async def create_position_sync_service(self) -> 'PositionSyncService':
+        """
+        Create position sync service for live trading (Agent 3 Integration).
+
+        ARCHITECTURE FIX (Agent 3 Integration):
+        - Injects EventBus for position_updated and risk_alert events
+        - Injects MEXC Adapter with circuit breaker for get_positions()
+        - Injects RiskManager for margin ratio checking
+        - Configurable max_positions from settings
+
+        Dependencies:
+        - EventBus (singleton, already created)
+        - MEXC Futures Adapter (with circuit breaker)
+        - RiskManager (for margin alerts)
+
+        Returns:
+            Configured PositionSyncService singleton
+
+        Raises:
+            RuntimeError: If creation fails
+        """
+        async def _create_async():
+            try:
+                # Create dependencies
+                mexc_adapter = await self.create_mexc_futures_adapter()
+                risk_manager = await self.create_risk_manager()
+
+                # Get max_positions from settings if available
+                max_positions = getattr(
+                    getattr(self.settings, 'live_trading', None),
+                    'max_positions',
+                    100
+                )
+
+                # ✅ AGENT 3 INTEGRATION: PositionSyncService with full dependencies
+                from ..domain.services.position_sync_service import PositionSyncService
+
+                return PositionSyncService(
+                    event_bus=self.event_bus,
+                    mexc_adapter=mexc_adapter,
+                    risk_manager=risk_manager,
+                    max_positions=max_positions
+                )
+            except Exception as e:
+                self.logger.error("container.position_sync_service_creation_failed", {
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                })
+                raise RuntimeError(f"Failed to create position sync service: {str(e)}") from e
+
+        return await self._get_or_create_singleton_async("position_sync_service", _create_async)
+
+    async def create_prometheus_metrics(self) -> 'PrometheusMetrics':
+        """
+        Create Prometheus metrics collector for live trading (Agent 5 Integration).
+
+        ARCHITECTURE FIX (Agent 5 Integration):
+        - Injects EventBus for automatic metric collection
+        - Subscribes to: order_created, order_filled, position_updated, risk_alert
+        - Module-level metrics (singleton pattern) to avoid duplicate registration
+
+        Dependencies:
+        - EventBus (singleton, already created)
+
+        Returns:
+            Configured PrometheusMetrics singleton
+
+        Raises:
+            RuntimeError: If creation fails
+        """
+        def _create():
+            try:
+                from ..infrastructure.monitoring.prometheus_metrics import (
+                    PrometheusMetrics,
+                    set_metrics_instance
+                )
+
+                # ✅ AGENT 5 INTEGRATION: PrometheusMetrics with EventBus
+                metrics = PrometheusMetrics(event_bus=self.event_bus)
+
+                # Subscribe to EventBus topics for automatic metric collection
+                metrics.subscribe_to_events()
+
+                # Set global singleton instance (for /metrics endpoint)
+                set_metrics_instance(metrics)
+
+                self.logger.info("container.prometheus_metrics_created", {
+                    "subscribed_to_eventbus": True,
+                    "metrics_endpoint": "/metrics"
+                })
+
+                return metrics
+            except Exception as e:
+                self.logger.error("container.prometheus_metrics_creation_failed", {
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                })
+                raise RuntimeError(f"Failed to create Prometheus metrics: {str(e)}") from e
+
+        return await self._get_or_create_singleton_async("prometheus_metrics", _create)
 
     async def create_strategy_manager(self) -> StrategyManager:
         """
