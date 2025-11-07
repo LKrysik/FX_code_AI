@@ -104,24 +104,31 @@ class LiveOrderManager:
         # Order tracking (CRITICAL: Not defaultdict to prevent memory leak)
         self.orders: Dict[str, Order] = {}
 
+        # Lock for thread-safe order dict access
+        self._order_lock = asyncio.Lock()
+
         # Background tasks
         self._status_poll_task: Optional[asyncio.Task] = None
         self._cleanup_task: Optional[asyncio.Task] = None
         self._running = False
 
-        # Subscribe to signal events
-        self.event_bus.subscribe("signal_generated", self._on_signal_generated)
+        # Note: EventBus subscriptions moved to start() method (async required)
 
         logger.info(f"LiveOrderManager initialized (max_orders: {max_orders})")
 
     async def start(self):
-        """Start background tasks."""
+        """Start background tasks and subscribe to events."""
         if self._running:
             logger.warning("LiveOrderManager already running")
             return
 
         logger.info("Starting LiveOrderManager background tasks...")
         self._running = True
+
+        # Subscribe to signal events (async required)
+        await self.event_bus.subscribe("signal_generated", self._on_signal_generated)
+
+        # Start background tasks
         self._status_poll_task = asyncio.create_task(self._poll_order_status())
         self._cleanup_task = asyncio.create_task(self._cleanup_old_orders())
 
@@ -129,6 +136,9 @@ class LiveOrderManager:
         """Stop background tasks and cleanup."""
         logger.info("Stopping LiveOrderManager...")
         self._running = False
+
+        # Unsubscribe from events
+        await self.event_bus.unsubscribe("signal_generated", self._on_signal_generated)
 
         # Cancel background tasks
         if self._status_poll_task:
@@ -146,7 +156,8 @@ class LiveOrderManager:
                 pass
 
         # Explicit cleanup (memory leak prevention)
-        self.orders.clear()
+        async with self._order_lock:
+            self.orders.clear()
 
         logger.info("LiveOrderManager stopped")
 
@@ -202,13 +213,14 @@ class LiveOrderManager:
         Returns:
             True if submitted successfully, False otherwise
         """
-        # Check queue size
-        if len(self.orders) >= self.max_orders:
-            logger.error(f"Order queue full ({self.max_orders}), rejecting order {order.order_id}")
-            order.status = OrderStatus.FAILED
-            order.error_message = "Order queue full"
-            await self._emit_order_event("order_created", order, status="failed")
-            return False
+        # Check queue size (protect with lock)
+        async with self._order_lock:
+            if len(self.orders) >= self.max_orders:
+                logger.error(f"Order queue full ({self.max_orders}), rejecting order {order.order_id}")
+                order.status = OrderStatus.FAILED
+                order.error_message = "Order queue full"
+                await self._emit_order_event("order_created", order, status="failed")
+                return False
 
         # Risk validation (if current_positions provided)
         if current_positions is not None and self.risk_manager:
@@ -236,8 +248,9 @@ class LiveOrderManager:
                 await self._emit_order_event("order_created", order, status="failed")
                 return False
 
-        # Add to tracking
-        self.orders[order.order_id] = order
+        # Add to tracking (protect with lock)
+        async with self._order_lock:
+            self.orders[order.order_id] = order
 
         # Retry logic: 3 attempts with exponential backoff (1s, 2s, 4s)
         max_retries = 3
@@ -323,11 +336,13 @@ class LiveOrderManager:
         Returns:
             True if cancelled successfully, False otherwise
         """
-        if order_id not in self.orders:
-            logger.warning(f"Cannot cancel unknown order: {order_id}")
-            return False
+        # Get order (protect with lock)
+        async with self._order_lock:
+            if order_id not in self.orders:
+                logger.warning(f"Cannot cancel unknown order: {order_id}")
+                return False
 
-        order = self.orders[order_id]
+            order = self.orders[order_id]
 
         if order.status not in [OrderStatus.PENDING, OrderStatus.SUBMITTED]:
             logger.warning(f"Cannot cancel order in status {order.status}: {order_id}")
@@ -371,11 +386,12 @@ class LiveOrderManager:
             try:
                 await asyncio.sleep(2)
 
-                # Get all submitted/partially filled orders
-                active_orders = [
-                    order for order in self.orders.values()
-                    if order.status in [OrderStatus.SUBMITTED, OrderStatus.PARTIALLY_FILLED]
-                ]
+                # Get all submitted/partially filled orders (protect with lock)
+                async with self._order_lock:
+                    active_orders = [
+                        order for order in self.orders.values()
+                        if order.status in [OrderStatus.SUBMITTED, OrderStatus.PARTIALLY_FILLED]
+                    ]
 
                 if not active_orders:
                     continue
@@ -464,21 +480,23 @@ class LiveOrderManager:
                 now = time.time()
                 to_remove = []
 
-                for order_id, order in self.orders.items():
-                    age = now - order.created_at
+                # Protect iteration and deletion with lock
+                async with self._order_lock:
+                    for order_id, order in self.orders.items():
+                        age = now - order.created_at
 
-                    # Remove if > 1 hour old and in terminal state
-                    if age > 3600 and order.status in [
-                        OrderStatus.FILLED,
-                        OrderStatus.CANCELLED,
-                        OrderStatus.FAILED
-                    ]:
-                        to_remove.append(order_id)
+                        # Remove if > 1 hour old and in terminal state
+                        if age > 3600 and order.status in [
+                            OrderStatus.FILLED,
+                            OrderStatus.CANCELLED,
+                            OrderStatus.FAILED
+                        ]:
+                            to_remove.append(order_id)
 
-                if to_remove:
-                    for order_id in to_remove:
-                        del self.orders[order_id]
-                    logger.info(f"Cleaned up {len(to_remove)} old orders")
+                    if to_remove:
+                        for order_id in to_remove:
+                            del self.orders[order_id]
+                        logger.info(f"Cleaned up {len(to_remove)} old orders")
 
             except asyncio.CancelledError:
                 logger.info("Order cleanup stopped")
@@ -509,23 +527,69 @@ class LiveOrderManager:
 
     # === Public Getters ===
 
-    def get_order(self, order_id: str) -> Optional[Order]:
+    async def get_order(self, order_id: str) -> Optional[Order]:
         """Get order by ID."""
-        return self.orders.get(order_id)
+        async with self._order_lock:
+            return self.orders.get(order_id)
 
-    def get_all_orders(self, symbol: Optional[str] = None) -> List[Order]:
+    async def get_all_orders(self, symbol: Optional[str] = None) -> List[Order]:
         """Get all orders, optionally filtered by symbol."""
-        if symbol:
-            return [o for o in self.orders.values() if o.symbol == symbol]
-        return list(self.orders.values())
+        async with self._order_lock:
+            if symbol:
+                return [o for o in self.orders.values() if o.symbol == symbol]
+            return list(self.orders.values())
 
-    def get_metrics(self) -> Dict[str, int]:
+    async def get_metrics(self) -> Dict[str, int]:
         """Get order manager metrics."""
-        return {
-            "total_orders": len(self.orders),
-            "pending": sum(1 for o in self.orders.values() if o.status == OrderStatus.PENDING),
-            "submitted": sum(1 for o in self.orders.values() if o.status == OrderStatus.SUBMITTED),
-            "filled": sum(1 for o in self.orders.values() if o.status == OrderStatus.FILLED),
-            "cancelled": sum(1 for o in self.orders.values() if o.status == OrderStatus.CANCELLED),
-            "failed": sum(1 for o in self.orders.values() if o.status == OrderStatus.FAILED),
-        }
+        async with self._order_lock:
+            return {
+                "total_orders": len(self.orders),
+                "pending": sum(1 for o in self.orders.values() if o.status == OrderStatus.PENDING),
+                "submitted": sum(1 for o in self.orders.values() if o.status == OrderStatus.SUBMITTED),
+                "filled": sum(1 for o in self.orders.values() if o.status == OrderStatus.FILLED),
+                "cancelled": sum(1 for o in self.orders.values() if o.status == OrderStatus.CANCELLED),
+                "failed": sum(1 for o in self.orders.values() if o.status == OrderStatus.FAILED),
+            }
+
+    async def close_position(self, position_id: str, symbol: str, quantity: float, current_price: float) -> bool:
+        """
+        Close an existing position by creating a market exit order.
+
+        Args:
+            position_id: Position identifier
+            symbol: Trading symbol (e.g., "BTC_USDT")
+            quantity: Position size to close
+            current_price: Current market price (for logging)
+
+        Returns:
+            True if close order submitted successfully, False otherwise
+        """
+        logger.info(f"Closing position {position_id}: {symbol} qty={quantity} @ {current_price}")
+
+        # Determine exit side (opposite of position side)
+        # If we have a long position, we need to sell; if short, we need to buy
+        # For now, assume long positions (need Position object to determine actual side)
+        exit_side = "sell"  # TODO: Get actual position side from Position object
+
+        # Create market exit order
+        order = Order(
+            order_id=f"close_{position_id}_{int(time.time() * 1000)}",
+            symbol=symbol,
+            side=exit_side,
+            quantity=quantity,
+            price=None,  # Market order
+            order_type="market",
+            status=OrderStatus.PENDING,
+            created_at=time.time(),
+            updated_at=time.time()
+        )
+
+        # Submit order (will handle retries and events)
+        success = await self.submit_order(order, current_positions=None)
+
+        if success:
+            logger.info(f"Position close order submitted: {position_id} → {order.order_id}")
+        else:
+            logger.error(f"Failed to submit position close order: {position_id}")
+
+        return success

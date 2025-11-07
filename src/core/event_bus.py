@@ -125,10 +125,12 @@ class EventBus:
         # CRITICAL: Use explicit Dict, NOT defaultdict (memory leak prevention)
         self._subscribers: Dict[str, List[Callable]] = {}
         self._shutdown_requested = False
+        # Lock to protect concurrent access to _subscribers dict
+        self._lock = asyncio.Lock()
 
         logger.info("EventBus initialized (simplified, AT_LEAST_ONCE delivery)")
 
-    def subscribe(self, topic: str, handler: Callable[[Any], None]) -> None:
+    async def subscribe(self, topic: str, handler: Callable[[Any], None]) -> None:
         """
         Subscribe to topic with async handler.
 
@@ -144,12 +146,14 @@ class EventBus:
         if not callable(handler):
             raise ValueError("Handler must be callable")
 
-        # Explicit dict creation (NO defaultdict)
-        if topic not in self._subscribers:
-            self._subscribers[topic] = []
+        # Protect concurrent access to _subscribers dict
+        async with self._lock:
+            # Explicit dict creation (NO defaultdict)
+            if topic not in self._subscribers:
+                self._subscribers[topic] = []
 
-        self._subscribers[topic].append(handler)
-        subscriber_count = len(self._subscribers[topic])
+            self._subscribers[topic].append(handler)
+            subscriber_count = len(self._subscribers[topic])
 
         logger.info(f"Subscribed to '{topic}' (total subscribers: {subscriber_count})")
 
@@ -176,11 +180,16 @@ class EventBus:
             logger.warning(f"Publish blocked - EventBus shutting down (topic: {topic})")
             return
 
-        if topic not in self._subscribers:
-            logger.debug(f"No subscribers for topic '{topic}'")
-            return
+        # Protect concurrent access to _subscribers dict
+        # Make a copy of subscribers while holding lock, then release before delivery
+        async with self._lock:
+            if topic not in self._subscribers:
+                logger.debug(f"No subscribers for topic '{topic}'")
+                return
 
-        subscribers = self._subscribers[topic]
+            # Create snapshot of subscribers to avoid holding lock during delivery
+            subscribers = list(self._subscribers[topic])
+
         logger.debug(f"Publishing to '{topic}' ({len(subscribers)} subscribers)")
 
         # Deliver to each subscriber with retry and error isolation
@@ -242,7 +251,7 @@ class EventBus:
                     )
                     await asyncio.sleep(backoff)
 
-    def unsubscribe(self, topic: str, handler: Callable) -> None:
+    async def unsubscribe(self, topic: str, handler: Callable) -> None:
         """
         Unsubscribe handler from topic with cleanup.
 
@@ -250,28 +259,32 @@ class EventBus:
             topic: Event topic
             handler: Handler to remove
         """
-        if topic in self._subscribers and handler in self._subscribers[topic]:
-            self._subscribers[topic].remove(handler)
-            remaining = len(self._subscribers[topic])
+        # Protect concurrent access to _subscribers dict
+        async with self._lock:
+            if topic in self._subscribers and handler in self._subscribers[topic]:
+                self._subscribers[topic].remove(handler)
+                remaining = len(self._subscribers[topic])
 
-            logger.info(f"Unsubscribed from '{topic}' (remaining: {remaining})")
+                logger.info(f"Unsubscribed from '{topic}' (remaining: {remaining})")
 
-            # Cleanup empty topics (memory leak prevention)
-            if remaining == 0:
-                del self._subscribers[topic]
-                logger.debug(f"Topic '{topic}' removed (no subscribers)")
+                # Cleanup empty topics (memory leak prevention)
+                if remaining == 0:
+                    del self._subscribers[topic]
+                    logger.debug(f"Topic '{topic}' removed (no subscribers)")
 
-    def list_topics(self) -> List[str]:
+    async def list_topics(self) -> List[str]:
         """
         List all active topics with subscriber counts.
 
         Returns:
             List of strings like "topic_name (N subscribers)"
         """
-        return [
-            f"{topic} ({len(subscribers)} subscribers)"
-            for topic, subscribers in self._subscribers.items()
-        ]
+        # Protect concurrent access to _subscribers dict
+        async with self._lock:
+            return [
+                f"{topic} ({len(subscribers)} subscribers)"
+                for topic, subscribers in self._subscribers.items()
+            ]
 
     async def shutdown(self) -> None:
         """
@@ -282,11 +295,13 @@ class EventBus:
         logger.info("EventBus shutdown initiated")
         self._shutdown_requested = True
 
-        # Clear all subscribers (explicit cleanup)
-        topic_count = len(self._subscribers)
-        subscriber_count = sum(len(subs) for subs in self._subscribers.values())
+        # Protect concurrent access to _subscribers dict during shutdown
+        async with self._lock:
+            # Clear all subscribers (explicit cleanup)
+            topic_count = len(self._subscribers)
+            subscriber_count = sum(len(subs) for subs in self._subscribers.values())
 
-        self._subscribers.clear()
+            self._subscribers.clear()
 
         logger.info(
             f"EventBus shutdown completed: "
