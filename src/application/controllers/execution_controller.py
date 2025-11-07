@@ -66,50 +66,60 @@ class ExecutionSession:
 
 
 class IExecutionDataSource:
-    """Interface for execution data sources"""
-    
-    async def start_stream(self) -> None:
-        """Start data stream"""
-        raise NotImplementedError
-    
-    async def _enqueue_event(self, payload: Dict[str, Any]) -> None:
-        if not self._running:
-            return
-        try:
-            if self.logger:
-                self.logger.debug("market_data_adapter.enqueue_event", {"event_type": payload.get("event_type"),
-                                                                        "symbol": payload.get("symbol"),
-                                                                        "queue_size": self._data_queue.qsize(),
-                                                                        "price": payload.get("price"),
-                                                                        "volume": payload.get("volume")})
-            self._data_queue.put_nowait(payload)
-        except asyncio.QueueFull:
-            try:
-                _ = self._data_queue.get_nowait()
-            except asyncio.QueueEmpty:
-                pass
-            else:
-                self._dropped_events += 1
-            self._data_queue.put_nowait(payload)
-            current_time = time.time()
-            if current_time - self._last_drop_warning > 5.0:
-                message = f"MarketDataProviderAdapter queue full; dropped events={self._dropped_events}"
-                if self.logger:
-                    self.logger.warning("market_data_adapter.queue_saturated", {"dropped_events": self._dropped_events})
-                else:
-                    print(message)
-                self._last_drop_warning = current_time
+    """
+    Interface for execution data sources (Live, Paper, Backtest).
 
-    async def get_next_batch(self) -> Optional[List[Dict[str, Any]]]:
-        """Get next batch of data"""
+    Architecture Pattern: EventBus Push Model
+    ==========================================
+    Data sources publish market data events to EventBus, rather than using
+    a pull-based batch retrieval model. This eliminates latency and memory overhead.
+
+    Implementation Requirements:
+    - Subscribe to or generate market data events
+    - Publish to EventBus: "market.price_update", "market.orderbook_update"
+    - Write data to ExecutionController._data_buffers (via _save_data_to_files)
+    - Do NOT use internal queues or batching
+
+    Lifecycle:
+    1. start_stream() - Initialize data flow (connect to exchange or load historical data)
+    2. Data flows via EventBus events (push model, not pull)
+    3. stop_stream() - Clean up resources
+    4. get_progress() - Optional progress tracking for finite data sources (backtests)
+
+    Implementations:
+    - MarketDataProviderAdapter: Live/Paper trading (real-time data via EventBus)
+    - BacktestDataSource: Historical data replay (queries QuestDB, publishes to EventBus)
+    """
+
+    async def start_stream(self) -> None:
+        """
+        Start data stream.
+
+        For live/paper: Subscribe to EventBus market data events
+        For backtest: Start historical data replay task
+
+        Raises:
+            RuntimeError: If connection/initialization fails
+        """
         raise NotImplementedError
-    
+
     async def stop_stream(self) -> None:
-        """Stop data stream"""
+        """
+        Stop data stream and clean up resources.
+
+        For live/paper: Unsubscribe from EventBus, disconnect from exchange
+        For backtest: Cancel replay task, clean up buffers
+        """
         raise NotImplementedError
-    
+
     def get_progress(self) -> Optional[float]:
-        """Get progress (0-100) for backtests, None for live"""
+        """
+        Get execution progress (0-100%).
+
+        Returns:
+            float: Progress percentage (0.0-100.0) for finite data sources (backtests)
+            None: For infinite data sources (live/paper trading)
+        """
         raise NotImplementedError
 
 
@@ -236,19 +246,6 @@ class MarketDataProviderAdapter(IExecutionDataSource):
 
         await self._maybe_await(self.event_bus.subscribe("market.orderbook_update", orderbook_update_handler))
         self._subscriptions.append(("market.orderbook_update", orderbook_update_handler))
-
-    async def get_next_batch(self) -> Optional[List[Dict[str, Any]]]:
-        """
-        ✅ PERFORMANCE FIX #8A: Batch retrieval removed (single-level buffering)
-        Data now goes directly to execution_controller._data_buffers via event handlers.
-        This method is kept for interface compatibility but returns None (no batching).
-        """
-        if not self._started:
-            return None
-
-        # Sleep briefly to keep event loop responsive
-        await asyncio.sleep(0.1)
-        return None  # No batching - data flows directly to buffers
 
     async def stop_stream(self) -> None:
         self._running = False
@@ -911,16 +908,7 @@ class ExecutionController:
             await self._handle_execution_error(e)
         finally:
             await self._cleanup_execution()
-    
-    async def _process_batch(self, batch: List[Dict[str, Any]]) -> None:
-        """
-        ✅ PERFORMANCE FIX #8A: Batch processing removed (single-level buffering)
-        Data now flows directly from EventBus handlers to _save_data_to_files().
-        This method is kept for backwards compatibility but does nothing.
-        """
-        # NO-OP: Data is already being processed by event handlers
-        pass
-    
+
     async def _update_progress(self) -> None:
         """
         Update execution progress

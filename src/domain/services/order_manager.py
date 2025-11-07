@@ -124,14 +124,146 @@ class PositionRecord:
 
 
 class OrderManager:
-    """Simple in-memory order manager for paper mode."""
+    """
+    In-memory order manager for paper trading with EventBus integration.
 
-    def __init__(self, logger: StructuredLogger):
+    Architecture:
+    - Subscribes to EventBus "signal_generated" events (like LiveOrderManager)
+    - Simulates order execution with slippage
+    - Tracks positions in-memory
+    - Compatible with unified live/paper/backtest architecture
+
+    Lifecycle:
+    1. Create instance via Container
+    2. Call start() to subscribe to EventBus
+    3. Process signals automatically
+    4. Call stop() to cleanup
+    """
+
+    def __init__(self, logger: StructuredLogger, event_bus=None):
+        """
+        Initialize paper trading order manager.
+
+        Args:
+            logger: Structured logger instance
+            event_bus: Optional EventBus for signal subscription (None for tests)
+        """
         self.logger = logger
+        self.event_bus = event_bus
         self._orders: Dict[str, OrderRecord] = {}
         self._positions: Dict[str, PositionRecord] = {}
         self._order_sequence = 0
-        self.logger.info("order_manager.paper_mode_initialized")
+        self._started = False
+        self.logger.info("order_manager.paper_mode_initialized", {
+            "eventbus_enabled": event_bus is not None
+        })
+
+    async def start(self) -> None:
+        """
+        Start order manager and subscribe to signal events.
+        Required for integration with ExecutionController.
+        """
+        if self._started:
+            return
+
+        if self.event_bus:
+            await self.event_bus.subscribe("signal_generated", self._on_signal_generated)
+            self.logger.info("order_manager.subscribed_to_signals")
+
+        self._started = True
+
+    async def stop(self) -> None:
+        """
+        Stop order manager and unsubscribe from events.
+        Clean up resources.
+        """
+        if not self._started:
+            return
+
+        if self.event_bus:
+            await self.event_bus.unsubscribe("signal_generated", self._on_signal_generated)
+            self.logger.info("order_manager.unsubscribed_from_signals")
+
+        self._started = False
+
+    async def _on_signal_generated(self, data: Dict) -> None:
+        """
+        Handle signal from StrategyManager via EventBus.
+
+        Signal Types (5-state model):
+        - S1: Entry signal → Create order
+        - Z1: Position opened → Monitor (no order)
+        - ZE1: Partial exit → Create exit order
+        - E1: Full exit → Create exit order
+
+        Args:
+            data: Signal data with keys: signal_type, symbol, side, quantity, price, order_type
+        """
+        signal_type = data.get("signal_type")
+
+        # Only create orders for S1, ZE1, E1 signals (5-state model)
+        if signal_type not in ["S1", "ZE1", "E1"]:
+            self.logger.debug("order_manager.signal_ignored", {
+                "signal_type": signal_type,
+                "reason": "not_actionable"
+            })
+            return
+
+        # Extract signal data
+        symbol = data.get("symbol")
+        side = data.get("side", "").lower()
+        quantity = data.get("quantity", 0.0)
+        price = data.get("price", 0.0)
+        strategy_name = data.get("strategy_name", "unknown")
+
+        # Validate required fields
+        if not symbol or not side or quantity <= 0 or price <= 0:
+            self.logger.error("order_manager.invalid_signal", {
+                "signal": data,
+                "reason": "missing_required_fields"
+            })
+            return
+
+        # Convert side to OrderType
+        if side == "buy":
+            order_type = OrderType.BUY
+        elif side == "sell":
+            order_type = OrderType.SELL
+        elif side == "short":
+            order_type = OrderType.SHORT
+        elif side == "cover":
+            order_type = OrderType.COVER
+        else:
+            self.logger.error("order_manager.invalid_signal_side", {
+                "side": side,
+                "symbol": symbol
+            })
+            return
+
+        # Submit order
+        try:
+            order_id = await self.submit_order(
+                symbol=symbol,
+                order_type=order_type,
+                quantity=quantity,
+                price=price,
+                strategy_name=strategy_name
+            )
+
+            self.logger.info("order_manager.signal_processed", {
+                "signal_type": signal_type,
+                "order_id": order_id,
+                "symbol": symbol,
+                "side": side,
+                "quantity": quantity
+            })
+
+        except Exception as e:
+            self.logger.error("order_manager.signal_processing_failed", {
+                "signal": data,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
 
     def _generate_order_id(self) -> str:
         self._order_sequence += 1

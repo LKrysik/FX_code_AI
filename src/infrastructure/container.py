@@ -439,9 +439,9 @@ class Container:
                         exchange_adapter=futures_adapter
                     )
                 else:
-                    # Paper mode: create basic OrderManager (in-memory simulation)
+                    # Paper mode: create OrderManager with EventBus integration
                     self.logger.info("container.creating_paper_order_manager")
-                    return OrderManager(logger=self.logger)
+                    return OrderManager(logger=self.logger, event_bus=self.event_bus)
 
             except Exception as e:
                 self.logger.error("container.order_manager_creation_failed", {

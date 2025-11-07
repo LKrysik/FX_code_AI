@@ -167,6 +167,11 @@ class UnifiedTradingController:
 
         self._is_started = True
 
+        # Start order manager (subscribes to EventBus signals)
+        if self.order_manager and hasattr(self.order_manager, 'start'):
+            await self.order_manager.start()
+            self.logger.info("unified_trading_controller.order_manager_started")
+
         # Start monitoring with reduced frequency to prevent CPU overload
         await self.execution_monitor.start_monitoring()
 
@@ -187,6 +192,11 @@ class UnifiedTradingController:
         current_session = self.execution_controller.get_current_session()
         if current_session and current_session.status.value in ["running", "starting"]:
             await self.execution_controller.stop_execution()
+
+        # Stop order manager (unsubscribe from EventBus)
+        if self.order_manager and hasattr(self.order_manager, 'stop'):
+            await self.order_manager.stop()
+            self.logger.info("unified_trading_controller.order_manager_stopped")
 
         # Stop monitoring
         await self.execution_monitor.stop_monitoring()
@@ -255,59 +265,70 @@ class UnifiedTradingController:
                                 symbols: List[str],
                                 mode: str = "paper",
                                 **kwargs) -> str:
-        """Start live trading execution"""
+        """
+        Start live or paper trading execution.
 
-        parameters = {
-            "symbols": symbols,
+        Architecture:
+        - mode="live": Uses LiveOrderManager (real MEXC exchange)
+        - mode="paper": Uses OrderManager (simulated execution with slippage)
+        - Both modes use MarketDataProviderAdapter (live market data via EventBus)
+        - Order manager is configured once at Container startup via live_trading_enabled setting
+
+        Args:
+            symbols: List of trading symbols
+            mode: "live" or "paper" (must match Container configuration)
+            **kwargs: Additional parameters
+
+        Returns:
+            Session ID for tracking
+
+        Raises:
+            ValueError: If mode doesn't match Container configuration
+        """
+        # Validate mode matches Container configuration
+        # Container creates either LiveOrderManager (live) or OrderManager (paper)
+        from ...domain.services.order_manager_live import LiveOrderManager
+        from ...domain.services.order_manager import OrderManager
+
+        is_live_manager = isinstance(self.order_manager, LiveOrderManager)
+        is_paper_manager = isinstance(self.order_manager, OrderManager) and not isinstance(self.order_manager, LiveOrderManager)
+
+        if mode == "live" and not is_live_manager:
+            raise ValueError(
+                "Cannot start live trading: Container is configured with paper OrderManager. "
+                "Set trading.live_trading_enabled=true in configuration to enable live trading."
+            )
+        elif mode == "paper" and not is_paper_manager:
+            raise ValueError(
+                "Cannot start paper trading: Container is configured with live OrderManager. "
+                "Set trading.live_trading_enabled=false in configuration to enable paper trading."
+            )
+
+        # Map mode to ExecutionMode
+        from .execution_controller import ExecutionMode
+        execution_mode = ExecutionMode.LIVE if mode == "live" else ExecutionMode.PAPER
+
+        # Create session via ExecutionController (uses MarketDataProviderAdapter)
+        session_id = await self.execution_controller.create_session(
+            mode=execution_mode,
+            symbols=symbols,
+            config={
+                "mode": mode,
+                **kwargs
+            }
+        )
+
+        # Start session (connects to exchange, subscribes to EventBus)
+        await self.execution_controller.start_session(session_id)
+
+        self.logger.info("unified_trading_controller.trading_started", {
+            "session_id": session_id,
             "mode": mode,
-            **kwargs
-        }
+            "symbols": symbols,
+            "live_trading": mode == "live"
+        })
 
-        # ✅ FIX: Use execute_command_with_result to get session_id immediately
-        try:
-            result = await self.command_processor.execute_command_with_result(
-                CommandType.START_TRADING,
-                parameters,
-                timeout=5.0
-            )
-
-            session_id = result.get("session_id")
-
-            if not session_id:
-                # Fallback to old behavior
-                command_id = await self.command_processor.execute_command(
-                    CommandType.START_TRADING,
-                    parameters
-                )
-                return command_id
-
-            self.logger.info("unified_trading_controller.live_trading_started", {
-                "session_id": session_id,
-                "symbols": symbols,
-                "mode": mode
-            })
-
-            return session_id
-
-        except (TimeoutError, ValueError) as e:
-            # Fallback to async command execution
-            self.logger.error("unified_trading_controller.live_trading_execute_with_result_failed", {
-                "error": str(e),
-                "fallback": "using execute_command"
-            })
-
-            command_id = await self.command_processor.execute_command(
-                CommandType.START_TRADING,
-                parameters
-            )
-
-            self.logger.info("unified_trading_controller.live_trading_started_fallback", {
-                "command_id": command_id,
-                "symbols": symbols,
-                "mode": mode
-            })
-
-            return command_id
+        return session_id
 
     async def start_data_collection(self,
                                      symbols: List[str],
