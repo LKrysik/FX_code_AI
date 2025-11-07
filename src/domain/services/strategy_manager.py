@@ -20,7 +20,7 @@ from uuid import uuid4
 from ...core.event_bus import EventBus
 from ...core.logger import StructuredLogger
 from .order_manager import OrderManager, OrderType
-from .risk_manager import RiskManager, RiskMetrics
+from .risk_manager import RiskManager
 
 try:
     import asyncpg
