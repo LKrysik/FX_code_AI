@@ -1,0 +1,596 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "risk-monitoring",
+    "title": "Risk Monitoring Dashboard",
+    "tags": ["risk", "margin", "alerts"],
+    "timezone": "browser",
+    "schemaVersion": 38,
+    "version": 1,
+    "refresh": "5s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "timepicker": {
+      "refresh_intervals": ["5s", "10s", "30s", "1m", "5m", "15m"],
+      "time_options": ["15m", "1h", "6h", "24h", "7d"]
+    },
+    "templating": {
+      "list": [
+        {
+          "name": "symbol",
+          "type": "query",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "query": "label_values(margin_ratio_percent, symbol)",
+          "multi": true,
+          "includeAll": true,
+          "allValue": ".*",
+          "refresh": 1,
+          "current": {
+            "selected": true,
+            "text": "All",
+            "value": "$__all"
+          }
+        }
+      ]
+    },
+    "panels": [
+      {
+        "id": 1,
+        "type": "gauge",
+        "title": "Margin Ratio (Critical Alert < 15%)",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 0,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "min(margin_ratio_percent{symbol=~\"$symbol\"})",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "showThresholdLabels": true,
+          "showThresholdMarkers": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "decimals": 1,
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "red"
+                },
+                {
+                  "value": 15,
+                  "color": "yellow"
+                },
+                {
+                  "value": 30,
+                  "color": "green"
+                }
+              ]
+            }
+          }
+        },
+        "description": "Minimum margin ratio across all positions. RED ALERT if < 15% (liquidation risk). Formula: (equity / maintenance_margin) * 100"
+      },
+      {
+        "id": 2,
+        "type": "gauge",
+        "title": "Daily Loss Percentage (Alert > 5%)",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 8,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "daily_loss_percent",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "showThresholdLabels": true,
+          "showThresholdMarkers": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "decimals": 2,
+            "min": 0,
+            "max": 10,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "green"
+                },
+                {
+                  "value": 3,
+                  "color": "yellow"
+                },
+                {
+                  "value": 5,
+                  "color": "red"
+                }
+              ]
+            }
+          }
+        },
+        "description": "Daily loss as percentage of capital. RED ALERT if > 5% (daily loss limit exceeded)"
+      },
+      {
+        "id": 3,
+        "type": "stat",
+        "title": "Total Open Positions",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 16,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "sum(positions_open_total{symbol=~\"$symbol\"})",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "background",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 0,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "green"
+                },
+                {
+                  "value": 2,
+                  "color": "yellow"
+                },
+                {
+                  "value": 3,
+                  "color": "red"
+                }
+              ]
+            }
+          }
+        },
+        "description": "Total number of open positions. Warning if >= 2, Alert if >= 3 (max position limit)"
+      },
+      {
+        "id": 4,
+        "type": "piechart",
+        "title": "Position Concentration by Symbol",
+        "gridPos": {
+          "h": 10,
+          "w": 12,
+          "x": 0,
+          "y": 8
+        },
+        "targets": [
+          {
+            "expr": "sum by (symbol) (positions_open_total{symbol=~\"$symbol\"})",
+            "legendFormat": "{{symbol}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "pieType": "pie",
+          "displayLabels": ["name", "percent"],
+          "legend": {
+            "displayMode": "table",
+            "placement": "right",
+            "values": ["value", "percent"]
+          }
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {
+              "mode": "palette-classic"
+            }
+          }
+        },
+        "description": "Distribution of open positions across symbols. Alert if any symbol > 30% concentration"
+      },
+      {
+        "id": 5,
+        "type": "timeseries",
+        "title": "Risk Alerts Timeline (by Severity)",
+        "gridPos": {
+          "h": 10,
+          "w": 12,
+          "x": 12,
+          "y": 8
+        },
+        "targets": [
+          {
+            "expr": "sum by (severity) (rate(risk_alerts_total[1m])) * 60",
+            "legendFormat": "{{severity}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "right",
+            "calcs": ["last", "sum"]
+          }
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 1,
+            "custom": {
+              "drawStyle": "bars",
+              "lineWidth": 1,
+              "fillOpacity": 80
+            },
+            "color": {
+              "mode": "palette-classic"
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "CRITICAL"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "red"
+                  }
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "WARNING"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "yellow"
+                  }
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "INFO"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "blue"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "description": "Risk alerts per minute grouped by severity (CRITICAL, WARNING, INFO)"
+      },
+      {
+        "id": 6,
+        "type": "graph",
+        "title": "Margin Ratio Trend (All Positions)",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 18
+        },
+        "targets": [
+          {
+            "expr": "margin_ratio_percent{symbol=~\"$symbol\"}",
+            "legendFormat": "{{symbol}}",
+            "refId": "A"
+          }
+        ],
+        "options": {},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "decimals": 1,
+            "color": {
+              "mode": "palette-classic"
+            }
+          }
+        },
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": {
+                "params": [15],
+                "type": "lt"
+              },
+              "operator": {
+                "type": "and"
+              },
+              "query": {
+                "params": ["A", "5m", "now"]
+              },
+              "reducer": {
+                "params": [],
+                "type": "min"
+              },
+              "type": "query"
+            }
+          ],
+          "executionErrorState": "alerting",
+          "for": "30s",
+          "frequency": "10s",
+          "handler": 1,
+          "name": "Margin Ratio Critical",
+          "noDataState": "no_data",
+          "notifications": []
+        },
+        "description": "Margin ratio over time per position. Shows trend towards liquidation risk. ALERT LINE at 15%"
+      },
+      {
+        "id": 7,
+        "type": "table",
+        "title": "Risk Alerts by Type (Last Hour)",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 18
+        },
+        "targets": [
+          {
+            "expr": "sum by (alert_type, severity) (increase(risk_alerts_total[1h]))",
+            "format": "table",
+            "instant": true,
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "showHeader": true,
+          "sortBy": [
+            {
+              "displayName": "Value",
+              "desc": true
+            }
+          ]
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "displayMode": "auto"
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Value"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Count"
+                },
+                {
+                  "id": "custom.displayMode",
+                  "value": "color-background"
+                },
+                {
+                  "id": "thresholds",
+                  "value": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "value": null,
+                        "color": "green"
+                      },
+                      {
+                        "value": 5,
+                        "color": "yellow"
+                      },
+                      {
+                        "value": 20,
+                        "color": "red"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "description": "Breakdown of risk alerts by type and severity in the last hour"
+      },
+      {
+        "id": 8,
+        "type": "stat",
+        "title": "Total Exposure (Unrealized P&L)",
+        "gridPos": {
+          "h": 6,
+          "w": 8,
+          "x": 0,
+          "y": 26
+        },
+        "targets": [
+          {
+            "expr": "sum(abs(unrealized_pnl_usd{symbol=~\"$symbol\"}))",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "background",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "decimals": 2,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "green"
+                },
+                {
+                  "value": 500,
+                  "color": "yellow"
+                },
+                {
+                  "value": 1000,
+                  "color": "red"
+                }
+              ]
+            }
+          }
+        },
+        "description": "Total absolute exposure across all positions (sum of |unrealized_pnl|)"
+      },
+      {
+        "id": 9,
+        "type": "stat",
+        "title": "Critical Alerts (Last 24h)",
+        "gridPos": {
+          "h": 6,
+          "w": 8,
+          "x": 8,
+          "y": 26
+        },
+        "targets": [
+          {
+            "expr": "sum(increase(risk_alerts_total{severity=\"CRITICAL\"}[24h]))",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "background",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 0,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "green"
+                },
+                {
+                  "value": 1,
+                  "color": "yellow"
+                },
+                {
+                  "value": 5,
+                  "color": "red"
+                }
+              ]
+            }
+          }
+        },
+        "description": "Total CRITICAL risk alerts in the last 24 hours. Should be zero in healthy operation"
+      },
+      {
+        "id": 10,
+        "type": "stat",
+        "title": "Warning Alerts (Last 24h)",
+        "gridPos": {
+          "h": 6,
+          "w": 8,
+          "x": 16,
+          "y": 26
+        },
+        "targets": [
+          {
+            "expr": "sum(increase(risk_alerts_total{severity=\"WARNING\"}[24h]))",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "background",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 0,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "green"
+                },
+                {
+                  "value": 5,
+                  "color": "yellow"
+                },
+                {
+                  "value": 20,
+                  "color": "red"
+                }
+              ]
+            }
+          }
+        },
+        "description": "Total WARNING risk alerts in the last 24 hours. Investigate if > 20"
+      }
+    ],
+    "annotations": {
+      "list": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "enable": true,
+          "expr": "changes(risk_alerts_total{severity=\"CRITICAL\"}[1m]) > 0",
+          "iconColor": "red",
+          "name": "Critical Risk Alerts",
+          "step": "1m",
+          "tagKeys": "alert_type",
+          "textFormat": "Critical: {{alert_type}}",
+          "titleFormat": "CRITICAL ALERT"
+        }
+      ]
+    }
+  },
+  "overwrite": true
+}

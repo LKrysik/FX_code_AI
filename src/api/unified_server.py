@@ -64,6 +64,10 @@ from src.api.paper_trading_routes import router as paper_trading_router
 import src.api.paper_trading_routes as paper_trading_routes_module
 from src.domain.services.paper_trading_persistence import PaperTradingPersistenceService
 
+# Import live trading API (Agent 6)
+from src.api.trading_routes import router as trading_router
+import src.api.trading_routes as trading_routes_module
+
 
 class LoginRequest(BaseModel):
     username: str
@@ -256,11 +260,73 @@ def create_unified_app():
             "questdb_provider_id": id(questdb_provider)
         })
 
+        # ========================================
+        # ✅ AGENT 0 - COORDINATOR: Multi-Agent Integration
+        # Initialize services from Agents 1-6
+        # ========================================
+
+        # Agent 5: Create PrometheusMetrics (already subscribed to EventBus in factory)
+        prometheus_metrics = await container.create_prometheus_metrics()
+        app.state.prometheus_metrics = prometheus_metrics
+        logger.info("prometheus_metrics.initialized", {
+            "subscribed_to_eventbus": True,
+            "subscriber_count": len(event_bus._subscribers)
+        })
+
+        # Agent 3: Create LiveOrderManager (for order execution)
+        live_order_manager = await container.create_live_order_manager()
+        app.state.live_order_manager = live_order_manager
+        logger.info("live_order_manager.initialized")
+
+        # Agent 3: Create PositionSyncService (for position reconciliation)
+        position_sync_service = await container.create_position_sync_service()
+        app.state.position_sync_service = position_sync_service
+        logger.info("position_sync_service.initialized")
+
+        # Start background services for live trading
+        try:
+            # Start LiveOrderManager background tasks (order polling, cleanup)
+            if hasattr(live_order_manager, 'start'):
+                await live_order_manager.start()
+                logger.info("live_order_manager.started", {
+                    "status": "background_tasks_running"
+                })
+
+            # Start PositionSyncService background task (sync every 10s)
+            if hasattr(position_sync_service, 'start'):
+                await position_sync_service.start()
+                logger.info("position_sync_service.started", {
+                    "status": "background_task_running",
+                    "sync_interval": "10s"
+                })
+        except Exception as e:
+            logger.error("background_services.startup_failed", {
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            # Don't fail startup - services can be started later
+            pass
+
+        # ========================================
+        # End of Multi-Agent Integration
+        # ========================================
+
         # Initialize paper trading routes (TIER 1.2)
         paper_trading_routes_module.initialize_paper_trading_dependencies(
             persistence_service=paper_trading_persistence
         )
         logger.info("paper_trading_routes initialized with QuestDB persistence")
+
+        # Agent 6: Initialize live trading routes with dependencies
+        # ✅ AGENT 0 INTEGRATION: Wire LiveOrderManager to trading_routes
+        trading_routes_module.initialize_trading_dependencies(
+            questdb_provider=questdb_provider,
+            live_order_manager=live_order_manager  # ✅ Inject LiveOrderManager from Agent 3
+        )
+        logger.info("trading_routes initialized with full dependencies", {
+            "questdb_provider": questdb_provider is not None,
+            "live_order_manager": live_order_manager is not None
+        })
 
         # Initialize health monitoring
         global health_monitor
@@ -555,6 +621,9 @@ def create_unified_app():
 
     # Include paper trading API router (TIER 1.2)
     app.include_router(paper_trading_router)
+
+    # Include live trading API router (Agent 6)
+    app.include_router(trading_router)
 
     # JWT Authentication dependency
     async def get_current_user(request: Request) -> UserSession:
@@ -1364,9 +1433,35 @@ def create_unified_app():
     # Metrics and monitoring endpoints
     @app.get("/metrics")
     async def get_metrics():
-        """Get comprehensive system metrics"""
+        """Get comprehensive system metrics (JSON format)"""
         metrics = telemetry.get_metrics()
         return _json_ok({"status": "metrics", "data": metrics})
+
+    @app.get("/metrics/prometheus")
+    async def get_prometheus_metrics():
+        """
+        Get Prometheus metrics in exposition format (Agent 5 Integration).
+
+        Returns metrics in Prometheus text format for scraping.
+        """
+        try:
+            from fastapi.responses import Response
+            prometheus_metrics = app.state.prometheus_metrics
+
+            metrics_data = prometheus_metrics.get_metrics()
+            content_type = prometheus_metrics.get_metrics_content_type()
+
+            return Response(content=metrics_data, media_type=content_type)
+        except Exception as e:
+            logger.error("prometheus_metrics.get_failed", {
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            return Response(
+                content=f"# Error fetching metrics: {str(e)}\n",
+                media_type="text/plain",
+                status_code=500
+            )
 
     @app.get("/metrics/health")
     async def get_health_metrics():

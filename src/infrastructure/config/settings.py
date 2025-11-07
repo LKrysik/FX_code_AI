@@ -188,6 +188,58 @@ class EntryConditionsSettings(BaseSettings):
 
 # === RISK MANAGEMENT CONFIGURATION ===
 
+class RiskManagerSettings(BaseSettings):
+    """Live trading risk manager configuration (6 risk checks)"""
+    # Check 1: Max position size (% of capital)
+    max_position_size_percent: Decimal = Field(
+        default=Decimal('10.0'),
+        description="Maximum position size as % of total capital"
+    )
+
+    # Check 2: Max number of concurrent positions
+    max_concurrent_positions: int = Field(
+        default=3,
+        description="Maximum number of open positions at once"
+    )
+
+    # Check 3: Position concentration (max % in one symbol)
+    max_symbol_concentration_percent: Decimal = Field(
+        default=Decimal('30.0'),
+        description="Maximum capital allocation to single symbol"
+    )
+
+    # Check 4: Daily loss limit (% of capital)
+    daily_loss_limit_percent: Decimal = Field(
+        default=Decimal('5.0'),
+        description="Maximum daily loss as % of capital"
+    )
+
+    # Check 5: Total drawdown from peak (% of capital)
+    max_drawdown_percent: Decimal = Field(
+        default=Decimal('15.0'),
+        description="Maximum drawdown from equity peak"
+    )
+
+    # Check 6: Margin utilization (% of available margin)
+    max_margin_utilization_percent: Decimal = Field(
+        default=Decimal('80.0'),
+        description="Maximum margin usage as % of available"
+    )
+
+    # Risk alert severity thresholds
+    critical_margin_ratio_percent: Decimal = Field(
+        default=Decimal('15.0'),
+        description="Margin ratio below this triggers CRITICAL alert"
+    )
+    warning_margin_ratio_percent: Decimal = Field(
+        default=Decimal('25.0'),
+        description="Margin ratio below this triggers WARNING alert"
+    )
+
+    class Config:
+        env_prefix = "RISK_MANAGER_"
+
+
 class StopLossSettings(BaseSettings):
     """Stop loss configuration"""
     peak_buffer_pct: Decimal = Field(default=Decimal('8.0'))
@@ -195,7 +247,7 @@ class StopLossSettings(BaseSettings):
     trailing_distance_pct: Decimal = Field(default=Decimal('3.0'))
     trailing_threshold_pct: Decimal = Field(default=Decimal('5.0'), description="Threshold to start trailing")
     trailing_adjustment_pct: Decimal = Field(default=Decimal('2.0'), description="Adjustment percentage for trailing stop")
-    
+
     class Config:
         env_prefix = "STOP_"
 
@@ -219,19 +271,22 @@ class TakeProfitSettings(BaseSettings):
 
 class RiskManagementSettings(BaseSettings):
     """Risk management configuration"""
+    # Live trading risk manager (NEW - for Agent 2)
+    risk_manager: RiskManagerSettings = Field(default_factory=RiskManagerSettings)
+
     stop_loss: StopLossSettings = Field(default_factory=StopLossSettings)
     take_profit: TakeProfitSettings = Field(default_factory=TakeProfitSettings)
-    
+
     # Time limits
     time_limit_minutes: int = Field(default=15)
     force_close_minutes: int = Field(default=30)
-    
+
     # Emergency conditions
     max_drawdown_pct: Decimal = Field(default=Decimal('6.0'))
     spread_blowout_pct: Decimal = Field(default=Decimal('5.0'))
     volume_death_threshold_pct: Decimal = Field(default=Decimal('80'))
     emergency_min_liquidity: Decimal = Field(default=Decimal('100'))
-    
+
     class Config:
         env_prefix = "RISK_"
 
