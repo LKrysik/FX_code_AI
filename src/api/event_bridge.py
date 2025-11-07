@@ -454,6 +454,27 @@ class EventBridge(IEventBridge):
         )
         self.stream_processors["paper_trading"] = paper_trading_processor
 
+        # Live trading processor (Agent 6) - Real-time updates for live trading sessions
+        live_trading_processor = StreamProcessor(
+            stream_type="live_trading",
+            event_patterns=[
+                "live_trading.order_created",
+                "live_trading.order_updated",
+                "live_trading.order_filled",
+                "live_trading.order_cancelled",
+                "live_trading.order_failed",
+                "live_trading.position_opened",
+                "live_trading.position_updated",
+                "live_trading.position_closed",
+                "live_trading.position_liquidated",
+                "live_trading.risk_alert",
+                "live_trading.session_started",
+                "live_trading.session_stopped"
+            ],
+            batch_aggregator=None  # No batching for critical real-time updates
+        )
+        self.stream_processors["live_trading"] = live_trading_processor
+
     async def start(self):
         """Start the EventBridge and setup event subscriptions"""
         if self.is_running:

@@ -64,6 +64,10 @@ from src.api.paper_trading_routes import router as paper_trading_router
 import src.api.paper_trading_routes as paper_trading_routes_module
 from src.domain.services.paper_trading_persistence import PaperTradingPersistenceService
 
+# Import live trading API (Agent 6)
+from src.api.trading_routes import router as trading_router
+import src.api.trading_routes as trading_routes_module
+
 
 class LoginRequest(BaseModel):
     username: str
@@ -261,6 +265,14 @@ def create_unified_app():
             persistence_service=paper_trading_persistence
         )
         logger.info("paper_trading_routes initialized with QuestDB persistence")
+
+        # Initialize live trading routes (Agent 6)
+        # Note: LiveOrderManager not yet implemented, will be added by Agent 3
+        trading_routes_module.initialize_trading_dependencies(
+            questdb_provider=questdb_provider,
+            live_order_manager=None  # TODO: Inject when LiveOrderManager is ready
+        )
+        logger.info("trading_routes initialized with QuestDB provider")
 
         # Initialize health monitoring
         global health_monitor
@@ -555,6 +567,9 @@ def create_unified_app():
 
     # Include paper trading API router (TIER 1.2)
     app.include_router(paper_trading_router)
+
+    # Include live trading API router (Agent 6)
+    app.include_router(trading_router)
 
     # JWT Authentication dependency
     async def get_current_user(request: Request) -> UserSession:
