@@ -16,7 +16,7 @@ import weakref
 from weakref import WeakSet, WeakKeyDictionary
 import aiofiles
 
-from ..core.event_bus import EventBus, EventPriority
+from ..core.event_bus import EventBus
 from ..core.logger import StructuredLogger
 from .subscription_manager import SubscriptionManager, SubscriptionType
 from .signal_processor import SignalProcessor
@@ -619,20 +619,20 @@ class EventBridge(IEventBridge):
 
 
 
-        # Subscribe to events with appropriate priorities
-        await self.event_bus.subscribe("market.price_update", handle_market_event, EventPriority.HIGH)
+        # Subscribe to events
+        await self.event_bus.subscribe("market.price_update", handle_market_event)
         self._subscribed_handlers.append(("market.price_update", handle_market_event))
-        await self.event_bus.subscribe("market.orderbook_update", handle_orderbook_event, EventPriority.HIGH)
+        await self.event_bus.subscribe("market.orderbook_update", handle_orderbook_event)
         self._subscribed_handlers.append(("market.orderbook_update", handle_orderbook_event))
-        await self.event_bus.subscribe("indicator.updated", handle_indicator_event, EventPriority.NORMAL)
+        await self.event_bus.subscribe("indicator.updated", handle_indicator_event)
         self._subscribed_handlers.append(("indicator.updated", handle_indicator_event))
-        await self.event_bus.subscribe("streaming_indicator.updated", handle_indicator_event, EventPriority.NORMAL)
+        await self.event_bus.subscribe("streaming_indicator.updated", handle_indicator_event)
         self._subscribed_handlers.append(("streaming_indicator.updated", handle_indicator_event))
-        await self.event_bus.subscribe("signal.flash_pump_detected", handle_flash_pump_signal, EventPriority.CRITICAL)
+        await self.event_bus.subscribe("signal.flash_pump_detected", handle_flash_pump_signal)
         self._subscribed_handlers.append(("signal.flash_pump_detected", handle_flash_pump_signal))
-        await self.event_bus.subscribe("signal.reversal_detected", handle_reversal_signal, EventPriority.HIGH)
+        await self.event_bus.subscribe("signal.reversal_detected", handle_reversal_signal)
         self._subscribed_handlers.append(("signal.reversal_detected", handle_reversal_signal))
-        await self.event_bus.subscribe("signal.confluence_detected", handle_confluence_signal, EventPriority.HIGH)
+        await self.event_bus.subscribe("signal.confluence_detected", handle_confluence_signal)
         self._subscribed_handlers.append(("signal.confluence_detected", handle_confluence_signal))
 
         # Execution events - only subscribe if execution processor is available
@@ -668,13 +668,13 @@ class EventBridge(IEventBridge):
             self._handler_refs.append(handle_execution_completed)
             self._handler_refs.append(handle_execution_failed)
 
-            await self.event_bus.subscribe("execution.session_started", handle_execution_started, EventPriority.HIGH)
+            await self.event_bus.subscribe("execution.session_started", handle_execution_started)
             self._subscribed_handlers.append(("execution.session_started", handle_execution_started))
-            await self.event_bus.subscribe("execution.progress_update", handle_execution_progress, EventPriority.NORMAL)
+            await self.event_bus.subscribe("execution.progress_update", handle_execution_progress)
             self._subscribed_handlers.append(("execution.progress_update", handle_execution_progress))
-            await self.event_bus.subscribe("execution.session_completed", handle_execution_completed, EventPriority.HIGH)
+            await self.event_bus.subscribe("execution.session_completed", handle_execution_completed)
             self._subscribed_handlers.append(("execution.session_completed", handle_execution_completed))
-            await self.event_bus.subscribe("execution.session_failed", handle_execution_failed, EventPriority.HIGH)
+            await self.event_bus.subscribe("execution.session_failed", handle_execution_failed)
             self._subscribed_handlers.append(("execution.session_failed", handle_execution_failed))
 
         # Subscribe to execution updates published back by ExecutionProcessor
@@ -682,9 +682,9 @@ class EventBridge(IEventBridge):
         result_handler = lambda event_data: self._handle_execution_result_websocket_update(event_data)
         self._handler_refs.append(progress_handler)
         self._handler_refs.append(result_handler)
-        await self.event_bus.subscribe("execution.progress_websocket_update", progress_handler, EventPriority.HIGH)
+        await self.event_bus.subscribe("execution.progress_websocket_update", progress_handler)
         self._subscribed_handlers.append(("execution.progress_websocket_update", progress_handler))
-        await self.event_bus.subscribe("execution.result_websocket_update", result_handler, EventPriority.HIGH)
+        await self.event_bus.subscribe("execution.result_websocket_update", result_handler)
         self._subscribed_handlers.append(("execution.result_websocket_update", result_handler))
 
         # Health alert handler
@@ -695,7 +695,7 @@ class EventBridge(IEventBridge):
             await self._process_event("health.alert", event_data)
 
         # Subscribe to health alerts
-        await self.event_bus.subscribe("health.alert", handle_health_alert, EventPriority.NORMAL)
+        await self.event_bus.subscribe("health.alert", handle_health_alert)
         self._subscribed_handlers.append(("health.alert", handle_health_alert))
 
     async def _start_batch_processing(self):
