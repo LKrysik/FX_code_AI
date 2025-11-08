@@ -56,7 +56,7 @@ class ConsoleDashboard:
 
         # Subscribe to events
         await self.event_bus.subscribe("indicator.updated", self._handle_indicator_update)
-        await self.event_bus.subscribe("strategy.signal", self._handle_strategy_signal)
+        await self.event_bus.subscribe("signal_generated", self._handle_strategy_signal)
 
         # Start display loop
         display_task = asyncio.create_task(self._display_loop())
@@ -238,7 +238,9 @@ class ConsoleDashboard:
         print(f"Total Indicators: {sum(strategy_status.get('indicator_counts', {}).values())}")
 
         # System health (simplified)
-        print("EventBus: Active"        print("Indicator Engine: Active"        print("Strategy Evaluator: Active"
+        print("EventBus: Active")
+        print("Indicator Engine: Active")
+        print("Strategy Evaluator: Active")
         print("-" * 80)
         print("Press Ctrl+C to exit")
 

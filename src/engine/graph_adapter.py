@@ -750,7 +750,7 @@ class LiveGraphExecutor:
 
             # Publish signals via event bus
             for signal in signals:
-                await self.event_bus.publish("strategy.signal", {
+                await self.event_bus.publish("signal_generated", {
                     "session_id": session.session_id,
                     "strategy_name": session.strategy_name,
                     "symbol": signal.symbol,
@@ -760,7 +760,19 @@ class LiveGraphExecutor:
                     "risk_level": signal.risk_level.value,
                     "indicators": signal.indicators,
                     "timestamp": signal.timestamp,
-                    "reason": signal.reason
+                    "reason": signal.reason,
+                    # OrderManager required fields
+                    "side": "buy" if signal.signal_type.value == "BUY" else "sell",
+                    "quantity": signal.position_size,
+                    "price": signal.indicators.get("price", 0.0),
+                    # TradingPersistenceService fields
+                    "signal_id": f"signal_{session.strategy_name}_{signal.symbol}_{int(signal.timestamp * 1000)}",
+                    "strategy_id": session.strategy_name,
+                    "action": signal.signal_type.value,
+                    "triggered": True,
+                    "conditions_met": {"confidence": signal.confidence, "risk_level": signal.risk_level.value},
+                    "indicator_values": signal.indicators,
+                    "metadata": {"reason": signal.reason, "session_id": session.session_id}
                 })
 
     def get_session_status(self, session_id: str) -> Optional[Dict[str, Any]]:

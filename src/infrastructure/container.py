@@ -453,6 +453,46 @@ class Container:
 
         return await self._get_or_create_singleton_async("order_manager", _create_async)
 
+    async def create_trading_persistence_service(self) -> 'TradingPersistenceService':
+        """
+        Create trading persistence service for signals/orders/positions.
+
+        ARCHITECTURE: Singleton service that subscribes to EventBus events
+        and persists trading data to QuestDB for ALL modes (live/paper/backtest).
+
+        Events subscribed:
+        - signal_generated → INSERT INTO strategy_signals
+        - order_created → INSERT INTO orders
+        - order_filled → UPDATE orders
+        - order_cancelled → UPDATE orders
+        - position_opened → INSERT INTO positions
+        - position_updated → UPDATE positions
+        - position_closed → UPDATE positions
+
+        Returns:
+            Configured TradingPersistenceService singleton
+        """
+        async def _create():
+            from ..domain.services.trading_persistence import TradingPersistenceService
+
+            # IMPORTANT: Use increased pool sizes for high-frequency trading
+            # Default was too small (min=2, max=10)
+            service = TradingPersistenceService(
+                host='127.0.0.1',
+                port=8812,
+                user='admin',
+                password='quest',
+                database='qdb',
+                event_bus=self.event_bus,
+                logger=self.logger,
+                min_pool_size=10,  # Increased from 2 (Agent 5 recommendation)
+                max_pool_size=50   # Increased from 10 (Agent 5 recommendation)
+            )
+
+            return service
+
+        return await self._get_or_create_singleton_async("trading_persistence_service", _create)
+
     async def create_risk_manager(self, initial_capital: float = 10000.0) -> RiskManager:
         """
         Create risk manager for budget and risk management.
@@ -1038,11 +1078,15 @@ class Container:
                 # Now uses Container for proper DI with variant_repository
                 indicator_engine = await self.create_streaming_indicator_engine()
 
+                # ✅ AGENT 4: Create trading persistence service for signals/orders/positions
+                trading_persistence_service = await self.create_trading_persistence_service()
+
                 # Set dependencies on controller
                 controller.wallet_service = wallet_service
                 controller.order_manager = order_manager
                 controller.market_data_provider = market_data_provider
                 controller.indicator_engine = indicator_engine  # ✅ NEW: Inject complete engine
+                controller.trading_persistence_service = trading_persistence_service  # ✅ AGENT 4: Inject persistence
 
                 # Initialize the controller asynchronously
                 await controller.initialize()

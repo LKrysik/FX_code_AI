@@ -81,7 +81,7 @@ class SignalAdapter:
 
     async def start(self) -> None:
         """Start the signal adapter and subscribe to strategy signals."""
-        await self.event_bus.subscribe("strategy.signal", self._handle_strategy_signal)
+        await self.event_bus.subscribe("signal_generated", self._handle_strategy_signal)
 
         self.logger.info("signal_adapter.started")
 
