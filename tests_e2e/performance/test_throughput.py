@@ -137,7 +137,7 @@ class TestEventBusThroughput:
                 messages_received.append(data)
 
         # Subscribe
-        event_bus.subscribe("performance_test", message_handler)
+        await event_bus.subscribe("performance_test", message_handler)
 
         # Publish 5000 messages over 5 seconds (1000/sec)
         total_messages = 5000
@@ -207,7 +207,7 @@ class TestEventBusThroughput:
             messages_received.append(data)
 
         # Subscribe
-        event_bus.subscribe("burst_test", message_handler)
+        await event_bus.subscribe("burst_test", message_handler)
 
         # Publish 5000 messages as fast as possible
         total_messages = 5000
