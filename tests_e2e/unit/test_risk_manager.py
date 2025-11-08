@@ -405,7 +405,7 @@ async def test_risk_alert_emitted_on_rejection(event_bus, settings):
     async def capture_event(data: Dict[str, Any]):
         events_received.append(data)
 
-    event_bus.subscribe("risk_alert", capture_event)
+    await event_bus.subscribe("risk_alert", capture_event)
 
     risk_manager = RiskManager(event_bus, settings, Decimal('10000'))
 
@@ -508,7 +508,7 @@ async def test_margin_ratio_critical_alert(event_bus, settings):
     async def capture_event(data: Dict[str, Any]):
         events_received.append(data)
 
-    event_bus.subscribe("risk_alert", capture_event)
+    await event_bus.subscribe("risk_alert", capture_event)
 
     risk_manager = RiskManager(event_bus, settings, Decimal('10000'))
 
@@ -531,7 +531,7 @@ async def test_margin_ratio_warning_alert(event_bus, settings):
     async def capture_event(data: Dict[str, Any]):
         events_received.append(data)
 
-    event_bus.subscribe("risk_alert", capture_event)
+    await event_bus.subscribe("risk_alert", capture_event)
 
     risk_manager = RiskManager(event_bus, settings, Decimal('10000'))
 

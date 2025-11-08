@@ -54,16 +54,16 @@ class TestPrometheusMetrics:
         assert metrics.event_bus_messages_total is not None
         assert metrics.circuit_breaker_state is not None
 
-    def test_subscribe_to_events(self, metrics, event_bus):
+    async def test_subscribe_to_events(self, metrics, event_bus):
         """Test EventBus subscription"""
         # Subscribe to events
-        metrics.subscribe_to_events()
+        await metrics.subscribe_to_events()
 
         # Verify subscribed
         assert metrics._subscribed is True
 
         # Verify topics have subscribers
-        topics = event_bus.list_topics()
+        topics = await event_bus.list_topics()
         assert len(topics) > 0
 
         # Check specific topics
@@ -73,29 +73,29 @@ class TestPrometheusMetrics:
         assert "position_updated" in topic_names
         assert "risk_alert" in topic_names
 
-    def test_subscribe_idempotent(self, metrics):
+    async def test_subscribe_idempotent(self, metrics):
         """Test that subscribe_to_events is idempotent"""
         # Subscribe twice
-        metrics.subscribe_to_events()
-        metrics.subscribe_to_events()
+        await metrics.subscribe_to_events()
+        await metrics.subscribe_to_events()
 
         # Should still be subscribed (no error)
         assert metrics._subscribed is True
 
-    def test_unsubscribe_from_events(self, metrics, event_bus):
+    async def test_unsubscribe_from_events(self, metrics, event_bus):
         """Test EventBus unsubscription"""
         # Subscribe first
-        metrics.subscribe_to_events()
+        await metrics.subscribe_to_events()
         assert metrics._subscribed is True
 
         # Unsubscribe
-        metrics.unsubscribe_from_events()
+        await metrics.unsubscribe_from_events()
 
         # Verify unsubscribed
         assert metrics._subscribed is False
 
         # Verify no topics remain (or reduced count)
-        topics = event_bus.list_topics()
+        topics = await event_bus.list_topics()
         # Should be empty or have only non-metrics topics
         assert len(topics) == 0 or all("subscribers" not in t or "(0 subscribers)" in t for t in topics)
 
@@ -103,7 +103,7 @@ class TestPrometheusMetrics:
     async def test_handle_order_created(self, metrics, event_bus):
         """Test order_created event handling"""
         # Subscribe to events
-        metrics.subscribe_to_events()
+        await metrics.subscribe_to_events()
 
         # Create order_created event
         order_data = {
@@ -132,7 +132,7 @@ class TestPrometheusMetrics:
     @pytest.mark.asyncio
     async def test_handle_order_filled(self, metrics, event_bus):
         """Test order_filled event handling"""
-        metrics.subscribe_to_events()
+        await metrics.subscribe_to_events()
 
         order_data = {
             "order_id": "order_123",
@@ -153,7 +153,7 @@ class TestPrometheusMetrics:
     @pytest.mark.asyncio
     async def test_handle_order_failed(self, metrics, event_bus):
         """Test order_failed event handling"""
-        metrics.subscribe_to_events()
+        await metrics.subscribe_to_events()
 
         order_data = {
             "order_id": "order_123",
@@ -174,7 +174,7 @@ class TestPrometheusMetrics:
     @pytest.mark.asyncio
     async def test_handle_position_updated(self, metrics, event_bus):
         """Test position_updated event handling"""
-        metrics.subscribe_to_events()
+        await metrics.subscribe_to_events()
 
         position_data = {
             "position_id": "pos_123",
@@ -196,7 +196,7 @@ class TestPrometheusMetrics:
     @pytest.mark.asyncio
     async def test_handle_risk_alert(self, metrics, event_bus):
         """Test risk_alert event handling"""
-        metrics.subscribe_to_events()
+        await metrics.subscribe_to_events()
 
         risk_data = {
             "severity": "CRITICAL",
@@ -279,9 +279,9 @@ class TestPrometheusMetrics:
         assert health["status"] == "not_subscribed"
         assert health["subscribed_to_eventbus"] is False
 
-    def test_get_health_after_subscribe(self, metrics):
+    async def test_get_health_after_subscribe(self, metrics):
         """Test health check after subscribing"""
-        metrics.subscribe_to_events()
+        await metrics.subscribe_to_events()
         health = metrics.get_health()
 
         assert health["status"] == "healthy"
@@ -349,7 +349,7 @@ class TestMonitoringRoutes:
         # Create instance
         event_bus = EventBus()
         metrics = PrometheusMetrics(event_bus)
-        metrics.subscribe_to_events()
+        await metrics.subscribe_to_events()
         set_metrics_instance(metrics)
 
         # Call endpoint
@@ -369,7 +369,7 @@ class TestMonitoringRoutes:
         # Create instance
         event_bus = EventBus()
         metrics = PrometheusMetrics(event_bus)
-        metrics.subscribe_to_events()
+        await metrics.subscribe_to_events()
         set_metrics_instance(metrics)
 
         # Call endpoint
@@ -389,7 +389,7 @@ class TestMetricsIntegration:
         # Create EventBus and metrics
         event_bus = EventBus()
         metrics = PrometheusMetrics(event_bus)
-        metrics.subscribe_to_events()
+        await metrics.subscribe_to_events()
 
         # Simulate order flow
         # 1. Order created
@@ -430,14 +430,14 @@ class TestMetricsIntegration:
         assert len(metrics_text) > 0
 
         # Cleanup
-        metrics.unsubscribe_from_events()
+        await metrics.unsubscribe_from_events()
 
     @pytest.mark.asyncio
     async def test_risk_alert_flow_metrics(self):
         """Test metrics collection for risk alerts"""
         event_bus = EventBus()
         metrics = PrometheusMetrics(event_bus)
-        metrics.subscribe_to_events()
+        await metrics.subscribe_to_events()
 
         # Simulate risk alerts
         await event_bus.publish("risk_alert", {
@@ -459,7 +459,7 @@ class TestMetricsIntegration:
         assert len(metrics_bytes) > 0
 
         # Cleanup
-        metrics.unsubscribe_from_events()
+        await metrics.unsubscribe_from_events()
 
 
 # Run tests if executed directly
