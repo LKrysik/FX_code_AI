@@ -13,6 +13,10 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import os
 
+from src.core.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 def _load_json_file(path: Path) -> Optional[Any]:
     try:
@@ -21,7 +25,11 @@ def _load_json_file(path: Path) -> Optional[Any]:
                 return json.load(f)
     except Exception as e:
         # Do not silently swallow errors; log a warning for diagnostics
-        print(f"WARNING: Failed to load JSON file {path}: {e}")
+        logger.warning("failed_load_json_file", {
+            "path": str(path),
+            "error": str(e),
+            "error_type": type(e).__name__
+        })
         return None
     return None
 
@@ -125,15 +133,25 @@ def _load_json_file_safe(path: Path, max_size_mb: float = 10.0) -> Optional[Any]
             return json.load(f)
     except json.JSONDecodeError as e:
         # ✅ ERROR HANDLING: Specific error for JSON corruption
-        print(f"WARNING: Corrupted JSON file {path}: {e}")
+        logger.warning("corrupted_json_file", {
+            "path": str(path),
+            "error": str(e)
+        })
         return None
     except PermissionError as e:
         # ✅ ERROR HANDLING: Specific error for permission issues
-        print(f"WARNING: Permission denied reading {path}: {e}")
+        logger.warning("permission_denied_reading_file", {
+            "path": str(path),
+            "error": str(e)
+        })
         return None
     except Exception as e:
         # ✅ ERROR HANDLING: Log other errors but don't crash
-        print(f"WARNING: Error reading {path}: {e}")
+        logger.warning("error_reading_file", {
+            "path": str(path),
+            "error": str(e),
+            "error_type": type(e).__name__
+        })
         return None
 
 
@@ -190,7 +208,10 @@ async def merge_sessions_async(base_dir: str | Path, session_ids: Optional[List[
                 session_winning = int(summary.get("winning_trades", 0))
                 session_losing = int(summary.get("losing_trades", 0))
             except (ValueError, TypeError) as e:
-                print(f"WARNING: Invalid data types in session {sid}: {e}")
+                logger.warning("invalid_session_data_types", {
+                    "session_id": sid,
+                    "error": str(e)
+                })
                 continue
 
             # ✅ MEMORY MANAGEMENT: Bounded symbol collection
@@ -266,7 +287,11 @@ async def _load_session_batch_async(base: Path, session_ids: List[str], max_file
 
             for file_path in files_to_check:
                 if file_path.exists() and file_path.stat().st_size > max_file_size_mb * 1024 * 1024:
-                    print(f"WARNING: Skipping session {sid} - file too large: {file_path}")
+                    logger.warning("skipping_session_file_too_large", {
+                        "session_id": sid,
+                        "file_path": str(file_path),
+                        "max_size_mb": max_file_size_mb
+                    })
                     return sid, None
 
             # Load files concurrently using ThreadPoolExecutor
@@ -288,7 +313,11 @@ async def _load_session_batch_async(base: Path, session_ids: List[str], max_file
                 return sid, (summary, trades, signals)
 
         except Exception as e:
-            print(f"WARNING: Error loading session {sid}: {e}")
+            logger.warning("error_loading_session", {
+                "session_id": sid,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
             return sid, None
 
     # Load all sessions in the batch concurrently
