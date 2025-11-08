@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional, Callable, List
 from dataclasses import dataclass, asdict
 from collections import deque
 
-from ...core.event_bus import EventBus, EventPriority
+from ...core.event_bus import EventBus
 from ...core.logger import StructuredLogger
 from ..controllers.execution_controller import ExecutionController, ExecutionMode
 from ..controllers.data_sources import LiveDataSource, QuestDBHistoricalDataSource
@@ -290,7 +290,6 @@ class AsyncCommandProcessor:
         await self.event_bus.publish(
             "command.cancelled",
             {"command_id": command_id},
-            priority=EventPriority.HIGH
         )
 
         return True
@@ -487,7 +486,6 @@ class AsyncCommandProcessor:
                 "command_id": command_id,
                 "progress": progress
             },
-            priority=EventPriority.NORMAL
         )
     
     # Command validators

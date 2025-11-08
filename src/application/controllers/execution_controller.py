@@ -19,11 +19,11 @@ from typing import Optional, Dict, Any, List, Callable, Tuple
 from dataclasses import dataclass, asdict
 
 try:
-    from ...core.event_bus import EventBus, EventPriority
+    from ...core.event_bus import EventBus
     from ...core.logger import StructuredLogger
 except Exception:
     # Compatibility for tests importing as top-level 'application.controllers.*'
-    from src.core.event_bus import EventBus, EventPriority
+    from src.core.event_bus import EventBus
     from src.core.logger import StructuredLogger
 
 
@@ -366,10 +366,10 @@ class ExecutionController:
                 self._symbol_flush_locks[symbol] = asyncio.Lock()
             return self._symbol_flush_locks[symbol]
 
-    async def _publish_event(self, event_name: str, payload: Dict[str, Any], *, priority: EventPriority = EventPriority.NORMAL) -> None:
+    async def _publish_event(self, event_name: str, payload: Dict[str, Any]) -> None:
         if not self.event_bus:
             return
-        result = self.event_bus.publish(event_name, payload, priority=priority)
+        result = self.event_bus.publish(event_name, payload)
         if inspect.isawaitable(result):
             await result
 
@@ -785,8 +785,7 @@ class ExecutionController:
             {
                 "session": asdict(self._current_session),
                 "timestamp": datetime.now().isoformat()
-            },
-            priority=EventPriority.HIGH
+            }
         )
 
         # Start execution task
@@ -855,8 +854,7 @@ class ExecutionController:
         
         await self._publish_event(
             "execution.session_paused",
-            {"session": asdict(self._current_session)},
-            priority=EventPriority.HIGH
+            {"session": asdict(self._current_session)}
         )
     
     async def resume_execution(self) -> None:
@@ -872,8 +870,7 @@ class ExecutionController:
         
         await self._publish_event(
             "execution.session_resumed",
-            {"session": asdict(self._current_session)},
-            priority=EventPriority.HIGH
+            {"session": asdict(self._current_session)}
         )
     
     def _can_transition_to(self, new_state: ExecutionState) -> bool:
@@ -918,8 +915,7 @@ class ExecutionController:
             
             await self._publish_event(
                 "execution.session_running",
-                {"session": asdict(self._current_session)},
-                priority=EventPriority.HIGH
+                {"session": asdict(self._current_session)}
             )
             
             # ✅ PERFORMANCE FIX #8A: Removed batch processing loop
@@ -1056,8 +1052,7 @@ class ExecutionController:
                         "records_collected": records_collected,
                         "status": self._current_session.status.value,
                         "timestamp": datetime.now().isoformat()
-                    },
-                    priority=EventPriority.NORMAL
+                    }
                 )
                 self._last_progress_publish = current_time
                 self.logger.debug("execution.progress_published", {
@@ -1135,8 +1130,7 @@ class ExecutionController:
                     "session_id": self._current_session.session_id,
                     "progress": progress,
                     "timestamp": datetime.now().isoformat()
-                },
-                priority=EventPriority.NORMAL
+                }
             )
             self._last_progress_publish = current_time
             self.logger.debug("execution.progress_published", {
@@ -1167,8 +1161,7 @@ class ExecutionController:
         
         await self._publish_event(
             "execution.session_completed",
-            {"session": asdict(self._current_session)},
-            priority=EventPriority.HIGH
+            {"session": asdict(self._current_session)}
         )
     
     async def _handle_execution_error(self, error: Exception) -> None:
@@ -1188,8 +1181,7 @@ class ExecutionController:
             {
                 "session": asdict(self._current_session),
                 "error": str(error)
-            },
-            priority=EventPriority.CRITICAL
+            }
         )
     
     async def _cleanup_execution(self) -> None:
