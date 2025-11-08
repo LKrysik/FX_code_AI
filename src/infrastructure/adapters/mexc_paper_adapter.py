@@ -30,7 +30,7 @@ from __future__ import annotations
 import random
 import uuid
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, Literal
+from typing import Dict, Any, Optional, Literal, List
 from ...core.logger import StructuredLogger
 
 
@@ -392,6 +392,70 @@ class MexcPaperAdapter:
                 return position
 
         return None  # No active position
+
+    async def get_positions(self) -> List['PositionResponse']:
+        """
+        Get all open positions (paper trading simulation).
+
+        Returns:
+            List of PositionResponse objects for positions with non-zero quantity
+
+        Note:
+            This method transforms internal position tracking dict into
+            PositionResponse list for compatibility with PositionSyncService.
+            Paper trading doesn't have network errors, so no exceptions are raised.
+        """
+        # Import here to avoid circular dependency
+        from .mexc_adapter import PositionResponse
+
+        positions = []
+
+        for position_key, position in self._positions.items():
+            # Only include positions with non-zero quantity
+            if position["position_amount"] <= 0:
+                continue
+
+            symbol = position["symbol"]
+            current_price = self._simulate_market_price(symbol)
+            entry_price = position["entry_price"]
+            amount = position["position_amount"]
+            position_side = position["position_side"]
+
+            # Calculate unrealized P&L
+            if position_side == "LONG":
+                unrealized_pnl = amount * (current_price - entry_price)
+            else:  # SHORT
+                unrealized_pnl = amount * (entry_price - current_price)
+
+            # Calculate margin (for isolated margin: notional / leverage)
+            leverage = position.get("leverage", 1)
+            margin = (amount * current_price) / leverage if leverage > 0 else 0
+
+            # Calculate margin ratio (simulated as 100% + (pnl / margin) * 100)
+            # In paper trading, we assume healthy margin ratios
+            margin_ratio = 100.0 + (unrealized_pnl / margin * 100) if margin > 0 else 100.0
+
+            position_response = PositionResponse(
+                symbol=symbol,
+                side=position_side,
+                quantity=amount,
+                entry_price=entry_price,
+                current_price=current_price,
+                unrealized_pnl=unrealized_pnl,
+                margin_ratio=margin_ratio,
+                liquidation_price=position.get("liquidation_price", 0.0),
+                leverage=leverage,
+                margin=margin
+            )
+
+            positions.append(position_response)
+
+        self._logger.debug("mexc_paper_adapter.get_positions", {
+            "count": len(positions),
+            "source": "paper_trading"
+        })
+
+        return positions
 
     async def get_funding_rate(self, symbol: str) -> Dict[str, Any]:
         """
