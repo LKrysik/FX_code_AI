@@ -138,7 +138,7 @@ class PrometheusMetrics:
 
         logger.info("PrometheusMetrics initialized (EventBus integration ready)")
 
-    def subscribe_to_events(self) -> None:
+    async def subscribe_to_events(self) -> None:
         """
         Subscribe to EventBus topics for metric collection.
 
@@ -149,26 +149,26 @@ class PrometheusMetrics:
             return
 
         # Subscribe to all relevant EventBus topics
-        self.event_bus.subscribe("order_created", self._handle_order_created)
-        self.event_bus.subscribe("order_filled", self._handle_order_filled)
-        self.event_bus.subscribe("order_failed", self._handle_order_failed)
-        self.event_bus.subscribe("position_updated", self._handle_position_updated)
-        self.event_bus.subscribe("risk_alert", self._handle_risk_alert)
+        await self.event_bus.subscribe("order_created", self._handle_order_created)
+        await self.event_bus.subscribe("order_filled", self._handle_order_filled)
+        await self.event_bus.subscribe("order_failed", self._handle_order_failed)
+        await self.event_bus.subscribe("position_updated", self._handle_position_updated)
+        await self.event_bus.subscribe("risk_alert", self._handle_risk_alert)
 
         # Subscribe to ALL EventBus topics for message counting
         # Note: This is a wildcard subscription for system metrics
-        self.event_bus.subscribe("market_data", self._handle_eventbus_message)
-        self.event_bus.subscribe("indicator_updated", self._handle_eventbus_message)
-        self.event_bus.subscribe("signal_generated", self._handle_eventbus_message)
-        self.event_bus.subscribe("order_created", self._handle_eventbus_message)
-        self.event_bus.subscribe("order_filled", self._handle_eventbus_message)
-        self.event_bus.subscribe("position_updated", self._handle_eventbus_message)
-        self.event_bus.subscribe("risk_alert", self._handle_eventbus_message)
+        await self.event_bus.subscribe("market_data", self._handle_eventbus_message)
+        await self.event_bus.subscribe("indicator_updated", self._handle_eventbus_message)
+        await self.event_bus.subscribe("signal_generated", self._handle_eventbus_message)
+        await self.event_bus.subscribe("order_created", self._handle_eventbus_message)
+        await self.event_bus.subscribe("order_filled", self._handle_eventbus_message)
+        await self.event_bus.subscribe("position_updated", self._handle_eventbus_message)
+        await self.event_bus.subscribe("risk_alert", self._handle_eventbus_message)
 
         self._subscribed = True
         logger.info("PrometheusMetrics subscribed to EventBus topics")
 
-    def unsubscribe_from_events(self) -> None:
+    async def unsubscribe_from_events(self) -> None:
         """
         Unsubscribe from EventBus topics.
 
@@ -178,19 +178,19 @@ class PrometheusMetrics:
             return
 
         # Unsubscribe from all topics
-        self.event_bus.unsubscribe("order_created", self._handle_order_created)
-        self.event_bus.unsubscribe("order_filled", self._handle_order_filled)
-        self.event_bus.unsubscribe("order_failed", self._handle_order_failed)
-        self.event_bus.unsubscribe("position_updated", self._handle_position_updated)
-        self.event_bus.unsubscribe("risk_alert", self._handle_risk_alert)
+        await self.event_bus.unsubscribe("order_created", self._handle_order_created)
+        await self.event_bus.unsubscribe("order_filled", self._handle_order_filled)
+        await self.event_bus.unsubscribe("order_failed", self._handle_order_failed)
+        await self.event_bus.unsubscribe("position_updated", self._handle_position_updated)
+        await self.event_bus.unsubscribe("risk_alert", self._handle_risk_alert)
 
-        self.event_bus.unsubscribe("market_data", self._handle_eventbus_message)
-        self.event_bus.unsubscribe("indicator_updated", self._handle_eventbus_message)
-        self.event_bus.unsubscribe("signal_generated", self._handle_eventbus_message)
-        self.event_bus.unsubscribe("order_created", self._handle_eventbus_message)
-        self.event_bus.unsubscribe("order_filled", self._handle_eventbus_message)
-        self.event_bus.unsubscribe("position_updated", self._handle_eventbus_message)
-        self.event_bus.unsubscribe("risk_alert", self._handle_eventbus_message)
+        await self.event_bus.unsubscribe("market_data", self._handle_eventbus_message)
+        await self.event_bus.unsubscribe("indicator_updated", self._handle_eventbus_message)
+        await self.event_bus.unsubscribe("signal_generated", self._handle_eventbus_message)
+        await self.event_bus.unsubscribe("order_created", self._handle_eventbus_message)
+        await self.event_bus.unsubscribe("order_filled", self._handle_eventbus_message)
+        await self.event_bus.unsubscribe("position_updated", self._handle_eventbus_message)
+        await self.event_bus.unsubscribe("risk_alert", self._handle_eventbus_message)
 
         self._subscribed = False
         logger.info("PrometheusMetrics unsubscribed from EventBus topics")

@@ -13,7 +13,6 @@ from datetime import datetime
 from collections import deque
 
 from ..core.logger import StructuredLogger
-from ..core.event_bus import EventPriority
 from ..infrastructure.exchanges.rate_limiter import TokenBucketRateLimiter
 
 
@@ -297,7 +296,6 @@ class BroadcastProvider:
                 await self.event_bus.publish(
                     "execution.progress_websocket_update",
                     websocket_message,
-                    priority=EventPriority.LOW,
                     publisher_id=f"broadcast:{session_id}"
                 )
             else:
