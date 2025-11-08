@@ -1212,20 +1212,23 @@ def create_unified_app():
             username = body.get("username")
             password = body.get("password")
 
-            # Get client IP - for now, use localhost since we don't have request context
-            client_ip = "127.0.0.1"
+            # Get client IP
             client_ip = request.client.host if request.client else "127.0.0.1"
 
             # Get auth handler from WebSocket server
             auth_handler = app.state.websocket_api_server.auth_handler
 
-            # Authenticate credentials
-            admin_username = os.getenv("ADMIN_USERNAME", "admin")
-            admin_password = os.getenv("ADMIN_PASSWORD", "supersecret")
-            if username == admin_username and password == admin_password:
-                  auth_result = await auth_handler.authenticate_credentials("admin", "admin123", client_ip)
-            else:
-                auth_result = await auth_handler.authenticate_credentials(username, password, client_ip)
+            # 🐛 FIX: Removed duplicate authentication logic
+            # Previously, this endpoint checked admin credentials twice:
+            # 1. Once here in the endpoint (with HARDCODED "admin123" password)
+            # 2. Once in auth_handler.authenticate_credentials
+            # This caused authentication to ALWAYS FAIL because wrong password was passed
+            #
+            # ROOT CAUSE: Line 1226 had: authenticate_credentials("admin", "admin123", ...)
+            # But it should pass the ACTUAL password from the request, not hardcoded "admin123"
+            #
+            # FIX: Remove duplicate logic - just pass credentials to auth_handler
+            auth_result = await auth_handler.authenticate_credentials(username, password, client_ip)
 
             if not auth_result.success or not auth_result.user_session:
                 return _json_error("authentication_failed", auth_result.error_message or "Invalid credentials", status=401)
