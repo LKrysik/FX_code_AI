@@ -160,8 +160,6 @@ class MarketDataProviderAdapter(IExecutionDataSource):
                 details = {"error": str(e),"error_type": type(e).__name__,"provider_type": type(self.market_data_provider).__name__}
                 if self.logger:
                     self.logger.error("market_data_adapter.connection_failed", details)
-                else:
-                    print(f"market_data_adapter.connection_failed: {details}")
                 self._started = False
                 self._running = False
                 raise RuntimeError(f"Failed to connect to market data provider: {str(e)}") from e
@@ -171,7 +169,11 @@ class MarketDataProviderAdapter(IExecutionDataSource):
             try:
                 await self.market_data_provider.subscribe_to_symbol(symbol)
             except Exception as e:
-                print(f"Failed to subscribe to {symbol}: {e}")
+                if self.logger:
+                    self.logger.warning("market_data_adapter.subscribe_failed", {
+                        "symbol": symbol,
+                        "error": str(e)
+                    })
 
         # Set up event handlers for real-time data
         await self._setup_event_handlers()
@@ -217,7 +219,11 @@ class MarketDataProviderAdapter(IExecutionDataSource):
                     if self.execution_controller:
                         await self.execution_controller._save_data_to_files(payload)
             except Exception as e:
-                print(f"Error in price update handler: {e}")
+                if self.execution_controller and self.execution_controller.logger:
+                    self.execution_controller.logger.error("market_data_adapter.price_handler_error", {
+                        "error": str(e),
+                        "error_type": type(e).__name__
+                    })
 
         # Handler for orderbook updates
         async def orderbook_update_handler(data: dict):
@@ -238,7 +244,11 @@ class MarketDataProviderAdapter(IExecutionDataSource):
                     if self.execution_controller:
                         await self.execution_controller._save_data_to_files(payload)
             except Exception as e:
-                print(f"Error in orderbook update handler: {e}")
+                if self.execution_controller and self.execution_controller.logger:
+                    self.execution_controller.logger.error("market_data_adapter.orderbook_handler_error", {
+                        "error": str(e),
+                        "error_type": type(e).__name__
+                    })
 
         # Subscribe to events and track subscriptions
         await self._maybe_await(self.event_bus.subscribe("market.price_update", price_update_handler))
@@ -257,7 +267,11 @@ class MarketDataProviderAdapter(IExecutionDataSource):
                 try:
                     await self._maybe_await(self.event_bus.unsubscribe(event_name, handler))
                 except Exception as e:
-                    print(f"Error unsubscribing handler for {event_name}: {e}")
+                    if self.logger:
+                        self.logger.warning("market_data_adapter.unsubscribe_failed", {
+                            "event_name": event_name,
+                            "error": str(e)
+                        })
             self._subscriptions.clear()
 
         # Disconnect from market data provider if it has a disconnect method
@@ -265,7 +279,10 @@ class MarketDataProviderAdapter(IExecutionDataSource):
             try:
                 await self.market_data_provider.disconnect()
             except Exception as e:
-                print(f"Error disconnecting market data provider: {e}")
+                if self.logger:
+                    self.logger.warning("market_data_adapter.disconnect_failed", {
+                        "error": str(e)
+                    })
 
     def get_progress(self) -> Optional[float]:
         # For live data collection, progress is None (continuous)
@@ -451,7 +468,10 @@ class ExecutionController:
             raise ValueError(f"Session {session_id} not found")
 
         # Debug logging
-        print(f"[DEBUG] start_session: factory={self.market_data_provider_factory is not None}, mode={self._current_session.mode}")
+        self.logger.debug("start_session_initiated", {
+            "has_factory": self.market_data_provider_factory is not None,
+            "mode": self._current_session.mode.value
+        })
 
         # ✅ NEW: Backtest mode - use QuestDBHistoricalDataSource
         if self._current_session.mode == ExecutionMode.BACKTEST:
@@ -502,7 +522,10 @@ class ExecutionController:
         if not self.market_data_provider_factory:
             raise RuntimeError("Market data provider factory is required for data collection")
 
-        print(f"[DEBUG] Using market data provider factory")
+        self.logger.debug("market_data_provider_factory_check", {
+            "has_factory": True
+        })
+
         # Map ExecutionMode to TradingMode for market data factory
         from ...infrastructure.config.settings import TradingMode
 
@@ -515,15 +538,22 @@ class ExecutionController:
         }
 
         trading_mode = mode_mapping.get(self._current_session.mode, TradingMode.BACKTEST)
-        print(f"[DEBUG] Mapped {self._current_session.mode} to trading mode {trading_mode}")
+        self.logger.debug("execution_mode_mapped", {
+            "execution_mode": self._current_session.mode.value,
+            "trading_mode": trading_mode.value
+        })
 
         # ✅ FIX: Get data_types from session parameters
         data_types = self._current_session.parameters.get("data_types", ['prices', 'orderbook'])
-        print(f"[DEBUG] Data types from session: {data_types}")
+        self.logger.debug("data_types_configured", {
+            "data_types": data_types
+        })
 
         # Create real market data provider with correct mode and data_types
         data_source = self.market_data_provider_factory.create(override_mode=trading_mode, data_types=data_types)
-        print(f"[DEBUG] Created provider: {type(data_source)}")
+        self.logger.debug("market_data_provider_created", {
+            "provider_type": type(data_source).__name__
+        })
 
         # ✅ PERFORMANCE FIX #8A: Pass ExecutionController reference for single-level buffering
         # Adapter will write directly to self._data_buffers instead of using intermediate queue
@@ -533,9 +563,13 @@ class ExecutionController:
             self._event_bus,
             execution_controller=self  # Direct reference for single-level buffering
         )
-        print(f"[DEBUG] Wrapped in adapter: {type(data_source)}")
+        self.logger.debug("market_data_adapter_created", {
+            "adapter_type": type(data_source).__name__
+        })
 
-        print(f"[DEBUG] Final data source: {type(data_source)}")
+        self.logger.debug("data_source_finalized", {
+            "data_source_type": type(data_source).__name__
+        })
 
         await self.start_execution(
             mode=self._current_session.mode,
