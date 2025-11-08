@@ -57,6 +57,7 @@ class Order:
     status: OrderStatus
     created_at: float  # Unix timestamp
     updated_at: float  # Unix timestamp
+    strategy_id: str = "unknown"  # Strategy that generated this order
     exchange_order_id: Optional[str] = None
     filled_quantity: float = 0.0
     average_fill_price: Optional[float] = None
@@ -190,7 +191,8 @@ class LiveOrderManager:
             order_type=data.get("order_type", "market"),
             status=OrderStatus.PENDING,
             created_at=time.time(),
-            updated_at=time.time()
+            updated_at=time.time(),
+            strategy_id=data.get("strategy_id", "unknown")
         )
 
         await self.submit_order(order)
@@ -451,19 +453,15 @@ class LiveOrderManager:
             )
 
             if order.status == OrderStatus.FILLED:
-                # Calculate slippage
-                slippage = 0.0
-                if order.price and order.average_fill_price:
-                    slippage = abs(order.average_fill_price - order.price)
+                # Calculate commission (0.1% of filled value)
+                commission = order.filled_quantity * order.average_fill_price * 0.001
 
                 await self.event_bus.publish("order_filled", {
                     "order_id": order.order_id,
-                    "exchange_order_id": order.exchange_order_id,
-                    "symbol": order.symbol,
-                    "side": order.side,
-                    "quantity": order.filled_quantity,
-                    "price": order.average_fill_price,
-                    "slippage": slippage,
+                    "filled_quantity": order.filled_quantity,
+                    "filled_price": order.average_fill_price,
+                    "commission": commission,
+                    "status": "FILLED",
                     "timestamp": int(time.time() * 1000)
                 })
 
@@ -506,24 +504,32 @@ class LiveOrderManager:
 
     async def _emit_order_event(self, event_type: str, order: Order, status: str):
         """
-        Emit order event to EventBus.
+        Emit order event to EventBus with TradingPersistenceService-compatible schema.
 
         Args:
             event_type: Event type (order_created, order_filled, etc.)
             order: Order object
             status: Order status string
         """
-        await self.event_bus.publish(event_type, {
+        event_data = {
             "order_id": order.order_id,
             "exchange_order_id": order.exchange_order_id,
             "symbol": order.symbol,
             "side": order.side,
             "quantity": order.quantity,
             "price": order.price,
-            "status": status,
+            "status": status if status != "submitted" else "NEW",  # Map to TPS schema
             "error": order.error_message,
             "timestamp": int(time.time() * 1000)
-        })
+        }
+
+        # Add extra fields for order_created events
+        if event_type == "order_created":
+            event_data["strategy_id"] = order.strategy_id
+            event_data["order_type"] = order.order_type.upper()
+            event_data["metadata"] = {}
+
+        await self.event_bus.publish(event_type, event_data)
 
     # === Public Getters ===
 

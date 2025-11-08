@@ -345,6 +345,9 @@ class ExecutionController:
         # ✅ PERF FIX: Global lock for data buffers to prevent race conditions
         self._data_buffers_lock = asyncio.Lock()
 
+        # ✅ THREAD SAFETY FIX: Lock for atomic state transitions
+        self._state_lock = asyncio.Lock()
+
         # State transitions
         self._valid_transitions = {
             ExecutionState.IDLE: [ExecutionState.STARTING],
@@ -450,7 +453,52 @@ class ExecutionController:
         # Debug logging
         print(f"[DEBUG] start_session: factory={self.market_data_provider_factory is not None}, mode={self._current_session.mode}")
 
-        # Use market data provider factory - required for all modes
+        # ✅ NEW: Backtest mode - use QuestDBHistoricalDataSource
+        if self._current_session.mode == ExecutionMode.BACKTEST:
+            session_id_param = self._current_session.parameters.get("session_id")
+            if not session_id_param:
+                raise ValueError("Backtest mode requires 'session_id' parameter")
+
+            acceleration_factor = self._current_session.parameters.get("acceleration_factor", 1.0)
+
+            # Create QuestDB data provider
+            from ...data.questdb_data_provider import QuestDBDataProvider
+            db_provider = QuestDBDataProvider(
+                host='127.0.0.1',
+                port=8812,
+                user='admin',
+                password='quest',
+                database='qdb',
+                logger=self.logger
+            )
+
+            # Create historical data source
+            from .data_sources import QuestDBHistoricalDataSource
+            data_source = QuestDBHistoricalDataSource(
+                session_id=session_id_param,
+                symbols=self._current_session.symbols,
+                db_provider=db_provider,
+                event_bus=self._event_bus,  # ✅ PASS EventBus
+                execution_controller=self,  # ✅ PASS self reference
+                acceleration_factor=acceleration_factor,
+                logger=self.logger
+            )
+
+            self.logger.info("execution_controller.backtest_source_created", {
+                "session_id": session_id_param,
+                "symbols": self._current_session.symbols,
+                "acceleration_factor": acceleration_factor
+            })
+
+            await self.start_execution(
+                mode=self._current_session.mode,
+                symbols=self._current_session.symbols,
+                data_source=data_source,
+                parameters=self._current_session.parameters
+            )
+            return
+
+        # Live/Paper/Collect modes require factory
         if not self.market_data_provider_factory:
             raise RuntimeError("Market data provider factory is required for data collection")
 
@@ -776,7 +824,7 @@ class ExecutionController:
             else:
                 raise RuntimeError(f"Cannot stop execution from state {self._current_session.status}")
         else:
-            self._transition_to(ExecutionState.STOPPING)
+            await self._transition_to(ExecutionState.STOPPING)
 
         self.logger.info("execution.stop_requested", {
             "session_id": self._current_session.session_id,
@@ -798,8 +846,8 @@ class ExecutionController:
         """Pause current execution"""
         if not self._current_session or not self._can_transition_to(ExecutionState.PAUSED):
             raise RuntimeError(f"Cannot pause execution from state {self._current_session.status if self._current_session else 'None'}")
-        
-        self._transition_to(ExecutionState.PAUSED)
+
+        await self._transition_to(ExecutionState.PAUSED)
         
         self.logger.info("execution.paused", {
             "session_id": self._current_session.session_id
@@ -815,8 +863,8 @@ class ExecutionController:
         """Resume paused execution"""
         if not self._current_session or not self._can_transition_to(ExecutionState.RUNNING):
             raise RuntimeError(f"Cannot resume execution from state {self._current_session.status if self._current_session else 'None'}")
-        
-        self._transition_to(ExecutionState.RUNNING)
+
+        await self._transition_to(ExecutionState.RUNNING)
         
         self.logger.info("execution.resumed", {
             "session_id": self._current_session.session_id
@@ -836,25 +884,26 @@ class ExecutionController:
         current_state = self._current_session.status
         return new_state in self._valid_transitions.get(current_state, [])
     
-    def _transition_to(self, new_state: ExecutionState) -> None:
-        """Transition to new state with validation"""
-        if not self._can_transition_to(new_state):
-            raise RuntimeError(f"Invalid state transition from {self._current_session.status} to {new_state}")
-        
-        old_state = self._current_session.status
-        self._current_session.status = new_state
-        
-        self.logger.debug("execution.state_transition", {
-            "session_id": self._current_session.session_id,
-            "from_state": old_state.value,
-            "to_state": new_state.value
-        })
+    async def _transition_to(self, new_state: ExecutionState) -> None:
+        """Transition to new state with validation (atomic)"""
+        async with self._state_lock:
+            if not self._can_transition_to(new_state):
+                raise RuntimeError(f"Invalid state transition from {self._current_session.status} to {new_state}")
+
+            old_state = self._current_session.status
+            self._current_session.status = new_state
+
+            self.logger.debug("execution.state_transition", {
+                "session_id": self._current_session.session_id,
+                "from_state": old_state.value,
+                "to_state": new_state.value
+            })
     
     async def _run_execution(self) -> None:
         """Main execution loop"""
         try:
             # Transition to running
-            self._transition_to(ExecutionState.RUNNING)
+            await self._transition_to(ExecutionState.RUNNING)
 
             # Send immediate progress update for real-time UI feedback
             await self._update_progress()
@@ -896,7 +945,7 @@ class ExecutionController:
 
             # Natural completion - only transition if still RUNNING
             if self._current_session.status == ExecutionState.RUNNING:
-                self._transition_to(ExecutionState.STOPPING)
+                await self._transition_to(ExecutionState.STOPPING)
                 await self._complete_execution()
             
         except asyncio.CancelledError:
@@ -1107,7 +1156,7 @@ class ExecutionController:
     
     async def _complete_execution(self) -> None:
         """Handle natural execution completion"""
-        self._transition_to(ExecutionState.STOPPED)
+        await self._transition_to(ExecutionState.STOPPED)
         self._current_session.end_time = datetime.now()
         self._current_session.progress = 100.0
         
@@ -1124,7 +1173,7 @@ class ExecutionController:
     
     async def _handle_execution_error(self, error: Exception) -> None:
         """Handle execution error"""
-        self._transition_to(ExecutionState.ERROR)
+        await self._transition_to(ExecutionState.ERROR)
         self._current_session.error_message = str(error)
         self._current_session.end_time = datetime.now()
         
@@ -1421,7 +1470,7 @@ class ExecutionController:
                 if self._current_session.status == ExecutionState.IDLE:
                     self._current_session.status = ExecutionState.STOPPED
                 else:
-                    self._transition_to(ExecutionState.STOPPED)
+                    await self._transition_to(ExecutionState.STOPPED)
                 self._current_session.end_time = datetime.now()
 
             # ✅ STEP 0.1: Update session status in QuestDB (required)
