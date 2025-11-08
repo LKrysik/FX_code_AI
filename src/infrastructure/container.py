@@ -528,6 +528,27 @@ class Container:
 
         return await self._get_or_create_singleton_async("risk_manager", _create)
 
+    async def create_backtest_order_manager(
+        self,
+        slippage_pct: float = 0.0
+    ) -> 'BacktestOrderManager':
+        """
+        Create backtest order manager with instant fills.
+
+        Args:
+            slippage_pct: Optional slippage percentage (default 0%)
+
+        Returns:
+            Configured BacktestOrderManager
+        """
+        from ..domain.services.backtest_order_manager import BacktestOrderManager
+
+        return BacktestOrderManager(
+            logger=self.logger,
+            event_bus=self.event_bus,
+            slippage_pct=slippage_pct
+        )
+
     async def create_live_order_manager(self) -> 'LiveOrderManager':
         """
         Create live order manager for live trading (Agent 3 Integration).

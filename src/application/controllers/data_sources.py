@@ -202,17 +202,21 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
         session_id: str,
         symbols: List[str],
         db_provider: QuestDBDataProvider,
+        event_bus,
+        execution_controller,
         acceleration_factor: float = 1.0,
         batch_size: int = 100,
         logger: Optional[StructuredLogger] = None
     ):
         """
         Initialize QuestDB historical data source.
-        
+
         Args:
             session_id: Data collection session ID to replay
             symbols: List of trading symbols to backtest
             db_provider: QuestDB data provider for queries
+            event_bus: EventBus for publishing market data events
+            execution_controller: ExecutionController for direct buffer writes
             acceleration_factor: Time acceleration (1.0 = realtime, 10.0 = 10x speed)
             batch_size: Number of records to fetch per batch
             logger: Optional structured logger
@@ -220,23 +224,26 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
         self.session_id = session_id
         self.symbols = list(symbols)  # Make a copy
         self.db_provider = db_provider
+        self.event_bus = event_bus
+        self.execution_controller = execution_controller
         self.acceleration_factor = acceleration_factor
         self.batch_size = batch_size
         self.logger = logger
-        
+
         # State tracking
         self._cursors: Dict[str, int] = {}  # symbol -> current offset
         self._total_rows: Dict[str, int] = {}  # symbol -> total row count
         self._is_streaming = False
         self._exhausted_symbols: set = set()
+        self._replay_task: Optional[asyncio.Task] = None
         
     async def start_stream(self) -> None:
-        """Initialize streaming from QuestDB"""
+        """Initialize streaming from QuestDB and start replay task"""
         if self._is_streaming:
             return
-        
+
         self._is_streaming = True
-        
+
         # Count total rows for each symbol (for progress tracking)
         for symbol in self.symbols:
             try:
@@ -245,17 +252,17 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
                     symbol=symbol,
                     data_type='prices'
                 )
-                
+
                 self._total_rows[symbol] = count
                 self._cursors[symbol] = 0
-                
+
                 if self.logger:
                     self.logger.info("questdb_historical.stream_started", {
                         "session_id": self.session_id,
                         "symbol": symbol,
                         "total_rows": count
                     })
-                    
+
             except Exception as e:
                 if self.logger:
                     self.logger.error("questdb_historical.count_failed", {
@@ -266,10 +273,83 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
                     })
                 # Mark as exhausted if count fails
                 self._exhausted_symbols.add(symbol)
-    
-    async def get_next_batch(self) -> Optional[List[Dict[str, Any]]]:
+
+        # ✅ NEW: Start background replay task
+        self._replay_task = asyncio.create_task(self._replay_historical_data())
+
+    async def _replay_historical_data(self):
         """
-        Get next batch of market data from QuestDB.
+        Replay historical data as EventBus events.
+
+        Reads batches from QuestDB and publishes to EventBus,
+        simulating live market data for backtesting.
+        """
+        try:
+            while self._is_streaming:
+                # Fetch next batch using existing logic
+                batch = await self._fetch_next_batch()
+
+                if not batch:
+                    # End of historical data
+                    if self.logger:
+                        self.logger.info("questdb_historical.replay_complete", {
+                            "session_id": self.session_id,
+                            "total_processed": sum(self._cursors.values())
+                        })
+                    break
+
+                # Publish each tick to EventBus (same as live data)
+                for tick in batch:
+                    if not self._is_streaming:
+                        break
+
+                    # Publish to EventBus for indicators/strategies
+                    if self.event_bus:
+                        await self.event_bus.publish("market.price_update", {
+                            "symbol": tick["symbol"],
+                            "price": tick["price"],
+                            "volume": tick["volume"],
+                            "quote_volume": tick.get("quote_volume", 0.0),
+                            "timestamp": tick["timestamp"],
+                            "exchange": "questdb_backtest",
+                            "source": "backtest",
+                            "metadata": tick.get("metadata", {})
+                        })
+
+                    # Write to execution_controller buffer (for CSV/persistence)
+                    if self.execution_controller:
+                        await self.execution_controller._save_data_to_files({
+                            "event_type": "price",
+                            "symbol": tick["symbol"],
+                            "price": tick["price"],
+                            "volume": tick["volume"],
+                            "quote_volume": tick.get("quote_volume", 0.0),
+                            "timestamp": tick["timestamp"],
+                            "source": "backtest"
+                        })
+
+                    # Apply acceleration delay
+                    if self.acceleration_factor > 0:
+                        delay = (10.0 / max(1.0, self.acceleration_factor)) / 1000.0
+                        await asyncio.sleep(delay)
+
+        except asyncio.CancelledError:
+            if self.logger:
+                self.logger.info("questdb_historical.replay_cancelled", {
+                    "session_id": self.session_id
+                })
+            raise
+        except Exception as e:
+            if self.logger:
+                self.logger.error("questdb_historical.replay_failed", {
+                    "session_id": self.session_id,
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                })
+
+    async def _fetch_next_batch(self) -> Optional[List[Dict[str, Any]]]:
+        """
+        Fetch next batch of data from QuestDB.
         
         Returns:
             List of market data dictionaries or None if stream ended
@@ -350,24 +430,25 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
         # No data available
         if not batch:
             return None
-        
-        # Apply time acceleration delay
-        if self.acceleration_factor > 0:
-            # Calculate delay based on acceleration factor
-            # Base delay of 10ms, scaled by acceleration
-            delay = (10.0 / max(1.0, self.acceleration_factor)) / 1000.0
-            await asyncio.sleep(delay)
-        
+
         return batch
     
     async def stop_stream(self) -> None:
-        """Stop streaming"""
+        """Stop streaming and cancel replay task"""
         self._is_streaming = False
-        
+
+        # ✅ NEW: Cancel replay task
+        if self._replay_task:
+            self._replay_task.cancel()
+            try:
+                await self._replay_task
+            except asyncio.CancelledError:
+                pass
+
         if self.logger:
             total_processed = sum(self._cursors.values())
             total_available = sum(self._total_rows.values())
-            
+
             self.logger.info("questdb_historical.stream_stopped", {
                 "session_id": self.session_id,
                 "total_processed": total_processed,

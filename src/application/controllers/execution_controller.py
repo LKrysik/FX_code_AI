@@ -453,7 +453,52 @@ class ExecutionController:
         # Debug logging
         print(f"[DEBUG] start_session: factory={self.market_data_provider_factory is not None}, mode={self._current_session.mode}")
 
-        # Use market data provider factory - required for all modes
+        # ✅ NEW: Backtest mode - use QuestDBHistoricalDataSource
+        if self._current_session.mode == ExecutionMode.BACKTEST:
+            session_id_param = self._current_session.parameters.get("session_id")
+            if not session_id_param:
+                raise ValueError("Backtest mode requires 'session_id' parameter")
+
+            acceleration_factor = self._current_session.parameters.get("acceleration_factor", 1.0)
+
+            # Create QuestDB data provider
+            from ...data.questdb_data_provider import QuestDBDataProvider
+            db_provider = QuestDBDataProvider(
+                host='127.0.0.1',
+                port=8812,
+                user='admin',
+                password='quest',
+                database='qdb',
+                logger=self.logger
+            )
+
+            # Create historical data source
+            from .data_sources import QuestDBHistoricalDataSource
+            data_source = QuestDBHistoricalDataSource(
+                session_id=session_id_param,
+                symbols=self._current_session.symbols,
+                db_provider=db_provider,
+                event_bus=self._event_bus,  # ✅ PASS EventBus
+                execution_controller=self,  # ✅ PASS self reference
+                acceleration_factor=acceleration_factor,
+                logger=self.logger
+            )
+
+            self.logger.info("execution_controller.backtest_source_created", {
+                "session_id": session_id_param,
+                "symbols": self._current_session.symbols,
+                "acceleration_factor": acceleration_factor
+            })
+
+            await self.start_execution(
+                mode=self._current_session.mode,
+                symbols=self._current_session.symbols,
+                data_source=data_source,
+                parameters=self._current_session.parameters
+            )
+            return
+
+        # Live/Paper/Collect modes require factory
         if not self.market_data_provider_factory:
             raise RuntimeError("Market data provider factory is required for data collection")
 
