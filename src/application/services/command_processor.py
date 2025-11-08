@@ -350,8 +350,7 @@ class AsyncCommandProcessor:
                 {
                     "command_id": command_id,
                     "result": result
-                },
-                priority=EventPriority.HIGH
+                }
             )
             
         except asyncio.CancelledError:
@@ -377,8 +376,7 @@ class AsyncCommandProcessor:
                 {
                     "command_id": command_id,
                     "error": str(e)
-                },
-                priority=EventPriority.HIGH
+                }
             )
             
         finally:

@@ -22,7 +22,7 @@ from fastapi.responses import JSONResponse
 
 from src.core.logger import get_logger
 
-from src.core.event_bus import EventPriority, EventBus
+from src.core.event_bus import EventBus
 from src.domain.services.streaming_indicator_engine import StreamingIndicatorEngine
 from src.api.response_envelope import ensure_envelope
 from src.domain.services.indicator_persistence_service import IndicatorPersistenceService

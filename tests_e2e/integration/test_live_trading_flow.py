@@ -176,10 +176,10 @@ class TestFullSignalToOrderFlow:
             return wrapper
 
         # Subscribe to events
-        event_bus.subscribe("signal_generated", await track_event("signal_generated", None))
-        event_bus.subscribe("order_created", await track_event("order_created", None))
-        event_bus.subscribe("order_filled", await track_event("order_filled", None))
-        event_bus.subscribe("position_updated", await track_event("position_updated", None))
+        await event_bus.subscribe("signal_generated", await track_event("signal_generated", None))
+        await event_bus.subscribe("order_created", await track_event("order_created", None))
+        await event_bus.subscribe("order_filled", await track_event("order_filled", None))
+        await event_bus.subscribe("position_updated", await track_event("position_updated", None))
 
         # Start services
         await live_order_manager.start()
@@ -289,7 +289,7 @@ class TestFullSignalToOrderFlow:
         async def track_risk_alert(data):
             risk_alerts.append(data)
 
-        event_bus.subscribe("risk_alert", track_risk_alert)
+        await event_bus.subscribe("risk_alert", track_risk_alert)
 
         # Set low capital
         await risk_manager.update_capital(Decimal('100'), Decimal('0'))
@@ -470,7 +470,7 @@ class TestPositionLiquidationDetection:
         async def track_risk_alert(data):
             risk_alerts.append(data)
 
-        event_bus.subscribe("risk_alert", track_risk_alert)
+        await event_bus.subscribe("risk_alert", track_risk_alert)
 
         # Step 1: Create local position
         position_sync_service.positions["BTC_USDT"] = LocalPosition(
@@ -547,7 +547,7 @@ class TestPositionLiquidationDetection:
         async def track_position(data):
             position_events.append(data)
 
-        event_bus.subscribe("position_updated", track_position)
+        await event_bus.subscribe("position_updated", track_position)
 
         # Step 1: Start with empty positions
         assert len(position_sync_service.positions) == 0
@@ -632,8 +632,8 @@ class TestEventBusIntegration:
             subscriber2_messages.append(data)
 
         # Subscribe
-        event_bus.subscribe("test_topic", subscriber1)
-        event_bus.subscribe("test_topic", subscriber2)
+        await event_bus.subscribe("test_topic", subscriber1)
+        await event_bus.subscribe("test_topic", subscriber2)
 
         # Publish 10 messages
         for i in range(10):
@@ -675,8 +675,8 @@ class TestEventBusIntegration:
             good_subscriber_messages.append(data)
 
         # Subscribe
-        event_bus.subscribe("test_topic", failing_subscriber)
-        event_bus.subscribe("test_topic", good_subscriber)
+        await event_bus.subscribe("test_topic", failing_subscriber)
+        await event_bus.subscribe("test_topic", good_subscriber)
 
         # Publish message
         await event_bus.publish("test_topic", {"test": "data"})
