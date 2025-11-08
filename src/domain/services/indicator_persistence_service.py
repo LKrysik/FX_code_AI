@@ -27,11 +27,11 @@ import asyncio
 from ..types.indicator_types import IndicatorValue
 
 try:
-    from ...core.event_bus import EventBus, EventPriority
+    from ...core.event_bus import EventBus
     from ...core.logger import StructuredLogger
     from ...data_feed.questdb_provider import QuestDBProvider
 except Exception:
-    from src.core.event_bus import EventBus, EventPriority
+    from src.core.event_bus import EventBus
     from src.core.logger import StructuredLogger
     from src.data_feed.questdb_provider import QuestDBProvider
 
@@ -111,14 +111,12 @@ class IndicatorPersistenceService:
         self.event_bus.subscribe(
             "indicator_value_calculated",
             self._handle_single_value_event,
-            priority=EventPriority.NORMAL
         )
         
         # Listen for simulation completion events  
         self.event_bus.subscribe(
             "indicator_simulation_completed",
             self._handle_simulation_completed_event,
-            priority=EventPriority.NORMAL
         )
         
         self.logger.debug("indicator_persistence_service.event_listeners_setup")

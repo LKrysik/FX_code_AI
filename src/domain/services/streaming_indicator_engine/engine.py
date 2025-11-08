@@ -18,11 +18,11 @@ from enum import Enum
 # Removed legacy TimeWeightedPriceAverage import - using algorithm registry only
 
 try:
-    from ...core.event_bus import EventBus, EventPriority
+    from ...core.event_bus import EventBus
     from ...core.logger import StructuredLogger
     from ..types.indicator_types import IndicatorConfig, VariantParameter
 except Exception:
-    from src.core.event_bus import EventBus, EventPriority
+    from src.core.event_bus import EventBus
     from src.core.logger import StructuredLogger
     from src.domain.types.indicator_types import IndicatorConfig, VariantParameter
 
@@ -425,7 +425,6 @@ class StreamingIndicatorEngine:
                     "value": value,
                     "timestamp": now,
                 },
-                priority=EventPriority.NORMAL,
             )
         except Exception as exc:
             self.logger.error("streaming_indicator_engine.time_schedule_publish_error", {
@@ -1243,7 +1242,6 @@ class StreamingIndicatorEngine:
                 await self.event_bus.publish(
                     "indicator.updated",
                     update,
-                    priority=EventPriority.NORMAL
                 )
             except Exception as e:
                 self.logger.error("streaming_indicator.publish_error", {
@@ -3435,7 +3433,7 @@ class StreamingIndicatorEngine:
                     "value": value,
                     "timestamp": timestamp,
                     "metadata": metadata or {}
-                }, priority=EventPriority.NORMAL)
+                })
 
                 self.logger.debug("streaming_indicator_engine.value_stored", {
                     "indicator_key": indicator_key,
@@ -3703,7 +3701,7 @@ class StreamingIndicatorEngine:
                     "indicator_id": indicator_id,
                     "variant_id": variant_id,
                     "parameters": parameters or {}
-                }, priority=EventPriority.NORMAL)
+                })
 
                 self.logger.info("streaming_indicator_engine.indicator_added_to_session", {
                     "session_id": session_id,
@@ -3811,7 +3809,7 @@ class StreamingIndicatorEngine:
                     "session_id": session_id,
                     "symbol": symbol,
                     "indicator_id": indicator_id
-                }, priority=EventPriority.NORMAL)
+                })
                 
                 self.logger.info("streaming_indicator_engine.indicator_removed_from_session", {
                     "session_id": session_id,
@@ -4147,7 +4145,6 @@ class StreamingIndicatorEngine:
                             "t2": t2
                         }
                     },
-                    priority=EventPriority.NORMAL
                 )
             
             self.logger.info("streaming_indicator_engine.twpa_simulation_completed", {
@@ -4252,7 +4249,6 @@ class StreamingIndicatorEngine:
                             "refresh_interval": refresh_interval
                         }
                     },
-                    priority=EventPriority.NORMAL
                 )
             
             self.logger.info("streaming_indicator_engine.generic_simulation_completed", {

@@ -14,7 +14,7 @@ from collections import deque
 from numbers import Number
 from concurrent.futures import ThreadPoolExecutor
 
-from ...core.event_bus import EventBus, EventPriority
+from ...core.event_bus import EventBus
 from ...core.logger import StructuredLogger
 
 
@@ -315,7 +315,6 @@ class ExecutionMonitor:
                     "session_id": session_id,
                     "metrics": asdict(metrics)
                 },
-                priority=EventPriority.NORMAL
             )
 
         except Exception as e:
@@ -524,7 +523,6 @@ class ExecutionMonitor:
         await self.event_bus.publish(
             "execution.alert",
             alert_data,
-            priority=EventPriority.HIGH
         )
 
     async def _cleanup_stale_metrics(self) -> None:
