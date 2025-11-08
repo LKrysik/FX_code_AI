@@ -11,8 +11,8 @@ import threading
 import time
 import os
 import re
-from pathlib import Path
 import inspect
+from pathlib import Path
 from datetime import datetime
 from enum import Enum
 from typing import Optional, Dict, Any, List, Callable, Tuple
@@ -386,9 +386,7 @@ class ExecutionController:
     async def _publish_event(self, event_name: str, payload: Dict[str, Any]) -> None:
         if not self.event_bus:
             return
-        result = self.event_bus.publish(event_name, payload)
-        if inspect.isawaitable(result):
-            await result
+        await self.event_bus.publish(event_name, payload)
 
     
     def get_current_session(self) -> Optional[ExecutionSession]:

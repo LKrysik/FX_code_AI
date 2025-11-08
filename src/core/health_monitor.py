@@ -258,10 +258,18 @@ class HealthMonitor:
         """Main monitoring loop - runs in separate thread"""
         logger.info("Health monitoring loop started")
 
+        # Get or create event loop for this thread
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
         while not self._stop_event.is_set():
             try:
                 self._run_health_checks()
-                self._evaluate_alerts()
+                # Run async alert evaluation in the event loop
+                loop.run_until_complete(self._evaluate_alerts())
                 self._cleanup_resolved_alerts()
             except Exception as e:
                 logger.error(f"Health monitoring loop error: {e}")
@@ -382,7 +390,7 @@ class HealthMonitor:
         except Exception as e:
             logger.error(f"Failed to record telemetry for health check '{name}': {e}")
 
-    def _evaluate_alerts(self):
+    async def _evaluate_alerts(self):
         """Evaluate all alert conditions"""
         with self._lock:
             current_time = time.time()
@@ -400,13 +408,13 @@ class HealthMonitor:
                 for check_name, result in self.results.items():
                     try:
                         if alert_config.condition(result):
-                            self._trigger_alert(alert_name, alert_config, result)
+                            await self._trigger_alert(alert_name, alert_config, result)
                             self._alert_cooldowns[alert_name] = current_time
                             break  # Only trigger once per alert config per cycle
                     except Exception as e:
                         logger.error(f"Alert evaluation error for '{alert_name}': {e}")
 
-    def _trigger_alert(self, alert_name: str, config: AlertConfig, result: HealthCheckResult):
+    async def _trigger_alert(self, alert_name: str, config: AlertConfig, result: HealthCheckResult):
         """Trigger an alert"""
         alert_id = f"{alert_name}_{result.name}_{int(time.time())}"
 
@@ -459,7 +467,7 @@ class HealthMonitor:
                     "details": alert.details
                 }
                 # Publish to EventBus for WebSocket broadcasting
-                self.event_bus.publish("health.alert", health_notification)
+                await self.event_bus.publish("health.alert", health_notification)
                 logger.debug(f"Published health alert to EventBus: {alert_id}")
             except Exception as e:
                 logger.error(f"Failed to publish health alert to EventBus: {e}")

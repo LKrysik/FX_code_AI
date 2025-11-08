@@ -368,10 +368,6 @@ class StrategyManager:
         # Telemetry: last events and active symbols per strategy
         self._strategy_telemetry: Dict[str, Dict[str, Any]] = {}
 
-        # Subscribe to indicator updates with timeout protection
-        import asyncio
-        asyncio.create_task(self.event_bus.subscribe("indicator.updated", self._on_indicator_update))
-
         # Enhanced circuit breaker for event loops
         self._evaluation_in_progress = set()  # Track symbols being evaluated
         self._max_evaluations_per_second = 50  # Reduced rate limit
@@ -387,10 +383,17 @@ class StrategyManager:
         # Strategy loading will be done asynchronously after initialization
         # See: initialize_strategies() method
 
+        # Event listener subscription will be done in start() method
+        # This allows async initialization
+
         self.logger.info("strategy_manager.initialized", {
             "order_manager_enabled": order_manager is not None,
             "db_pool_enabled": db_pool is not None
         })
+
+    async def start(self) -> None:
+        """Start the strategy manager by subscribing to indicator events."""
+        await self.event_bus.subscribe("indicator.updated", self._on_indicator_update)
 
     def validate_dependencies(self) -> None:
         """Validate that all required dependencies are properly set"""
