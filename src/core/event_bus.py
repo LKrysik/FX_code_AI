@@ -10,18 +10,9 @@ Error Isolation: Subscriber crashes don't affect others
 
 import asyncio
 import logging
-from enum import Enum
 from typing import Callable, Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
-
-
-class EventPriority(Enum):
-    """Event priority levels (for compatibility with existing code)."""
-    CRITICAL = 1
-    HIGH = 2
-    NORMAL = 3
-    LOW = 4
 
 
 # Event Topics - DO NOT CHANGE without coordination

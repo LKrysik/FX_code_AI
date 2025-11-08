@@ -27,7 +27,7 @@ async def test_basic_functionality():
 
     print("✓ PrometheusMetrics created")
 
-    pm.subscribe_to_events()
+    await pm.subscribe_to_events()
     print("✓ Subscribed to EventBus")
 
     health = pm.get_health()
@@ -47,7 +47,7 @@ async def test_order_metrics():
 
     eb = EventBus()
     pm = PrometheusMetrics(eb)
-    pm.subscribe_to_events()
+    await pm.subscribe_to_events()
 
     # Simulate order created
     await eb.publish('order_created', {
@@ -87,7 +87,7 @@ async def test_position_metrics():
 
     eb = EventBus()
     pm = PrometheusMetrics(eb)
-    pm.subscribe_to_events()
+    await pm.subscribe_to_events()
 
     # Simulate position update
     await eb.publish('position_updated', {
@@ -115,7 +115,7 @@ async def test_risk_metrics():
 
     eb = EventBus()
     pm = PrometheusMetrics(eb)
-    pm.subscribe_to_events()
+    await pm.subscribe_to_events()
 
     # Simulate risk alert
     await eb.publish('risk_alert', {
@@ -160,7 +160,7 @@ async def test_api_endpoints():
 
     eb = EventBus()
     pm = PrometheusMetrics(eb)
-    pm.subscribe_to_events()
+    await pm.subscribe_to_events()
     set_metrics_instance(pm)
 
     # Test /metrics endpoint
@@ -185,7 +185,7 @@ async def test_full_trading_flow():
 
     eb = EventBus()
     pm = PrometheusMetrics(eb)
-    pm.subscribe_to_events()
+    await pm.subscribe_to_events()
 
     # 1. Order created
     await eb.publish('order_created', {
@@ -235,7 +235,7 @@ async def generate_example_output():
 
     eb = EventBus()
     pm = PrometheusMetrics(eb)
-    pm.subscribe_to_events()
+    await pm.subscribe_to_events()
 
     # Simulate various events
     await eb.publish('order_created', {
