@@ -14,7 +14,6 @@ from collections import deque
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass
 from enum import Enum
-from threading import RLock
 
 # Removed legacy TimeWeightedPriceAverage import - using algorithm registry only
 
@@ -83,8 +82,8 @@ class StreamingIndicatorEngine:
         self.logger = logger
         self._variant_repository = variant_repository
 
-        # ✅ CRITICAL FIX: Thread-safe synchronization
-        self._data_lock = RLock()  # Reentrant lock for nested operations
+        # ✅ CRITICAL FIX: Async-safe synchronization
+        self._data_lock = asyncio.Lock()  # Async lock for event loop safety
 
         # ✅ REFACTORING: Initialize extracted components
         from .caching.cache_manager import CacheManager
@@ -987,7 +986,7 @@ class StreamingIndicatorEngine:
         checkpoint = self._create_data_checkpoint(symbol)
 
         try:
-            with self._data_lock:
+            async with self._data_lock:
                 # ✅ CRITICAL FIX: Update price data with access time tracking
                 if price is not None:
                     for timeframe in self._supported_timeframes:
@@ -1045,7 +1044,7 @@ class StreamingIndicatorEngine:
 
             # ✅ CRITICAL FIX: Periodic cleanup to prevent memory leaks
             if self._should_cleanup_data():
-                with self._data_lock:
+                async with self._data_lock:
                     self._cleanup_expired_data()
                     self._last_cleanup_time = time.time()
 

@@ -29,7 +29,8 @@ class UnifiedTradingController:
                  data_path: str = "data",
                  wallet_service = None,
                  order_manager = None,
-                 indicator_engine = None):  # ✅ NEW: DI parameter for indicator engine
+                 indicator_engine = None,
+                 trading_persistence_service = None):  # ✅ NEW: DI parameter for trading persistence
 
         self.market_data_provider = market_data_provider
         self.event_bus = event_bus
@@ -47,6 +48,7 @@ class UnifiedTradingController:
         # Trading components (optional for backtesting)
         self.wallet_service = wallet_service
         self.order_manager = order_manager
+        self.trading_persistence_service = trading_persistence_service
 
         # Execution mode
         self.execution_mode = "live"  # "live", "paper", "backtest"
@@ -172,6 +174,11 @@ class UnifiedTradingController:
             await self.order_manager.start()
             self.logger.info("unified_trading_controller.order_manager_started")
 
+        # Start trading persistence (subscribes to EventBus signals/orders/positions)
+        if self.trading_persistence_service:
+            await self.trading_persistence_service.start()
+            self.logger.info("unified_trading_controller.trading_persistence_started")
+
         # Start monitoring with reduced frequency to prevent CPU overload
         await self.execution_monitor.start_monitoring()
 
@@ -197,6 +204,11 @@ class UnifiedTradingController:
         if self.order_manager and hasattr(self.order_manager, 'stop'):
             await self.order_manager.stop()
             self.logger.info("unified_trading_controller.order_manager_stopped")
+
+        # Stop trading persistence (unsubscribe from EventBus)
+        if self.trading_persistence_service:
+            await self.trading_persistence_service.stop()
+            self.logger.info("unified_trading_controller.trading_persistence_stopped")
 
         # Stop monitoring
         await self.execution_monitor.stop_monitoring()

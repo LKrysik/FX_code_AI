@@ -8,6 +8,8 @@ operational in development environments.
 
 from __future__ import annotations
 
+import asyncio
+import time
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional
 from enum import Enum
@@ -150,6 +152,8 @@ class OrderManager:
         """
         self.logger = logger
         self.event_bus = event_bus
+        self._lock = asyncio.Lock()  # Main lock for orders/positions
+        self._order_sequence_lock = asyncio.Lock()  # Atomic ID generation
         self._orders: Dict[str, OrderRecord] = {}
         self._positions: Dict[str, PositionRecord] = {}
         self._order_sequence = 0
@@ -183,6 +187,11 @@ class OrderManager:
         if self.event_bus:
             await self.event_bus.unsubscribe("signal_generated", self._on_signal_generated)
             self.logger.info("order_manager.unsubscribed_from_signals")
+
+        # Clear memory to prevent leaks
+        async with self._lock:
+            self._orders.clear()
+            self._positions.clear()
 
         self._started = False
 
@@ -346,62 +355,98 @@ class OrderManager:
         Raises:
             ValueError: If leverage is invalid (must be 1-10)
         """
-        # TIER 3.1: Validate leverage before order submission
-        if leverage < 1.0 or leverage > 10.0:
-            error_msg = f"Leverage must be between 1.0 and 10.0, got {leverage}"
-            self.logger.error("order_manager.invalid_leverage", {
-                "leverage": leverage,
-                "symbol": symbol,
-                "order_type": order_type.name,
-                "strategy_name": strategy_name
+        async with self._lock:  # Protect entire order submission
+            # TIER 3.1: Validate leverage before order submission
+            if leverage < 1.0 or leverage > 10.0:
+                error_msg = f"Leverage must be between 1.0 and 10.0, got {leverage}"
+                self.logger.error("order_manager.invalid_leverage", {
+                    "leverage": leverage,
+                    "symbol": symbol,
+                    "order_type": order_type.name,
+                    "strategy_name": strategy_name
+                })
+                raise ValueError(error_msg)
+
+            # Log warning for high leverage (>5x)
+            if leverage > 5.0:
+                self.logger.warning("order_manager.high_leverage_warning", {
+                    "leverage": leverage,
+                    "symbol": symbol,
+                    "order_type": order_type.name,
+                    "liquidation_distance_pct": round(100 / leverage, 1),
+                    "warning": f"HIGH RISK: {leverage}x leverage. Liquidation at {(100/leverage):.1f}% price movement"
+                })
+
+            # Generate ID atomically
+            async with self._order_sequence_lock:
+                order_id = self._generate_order_id()
+
+            # Simulate slippage for MARKET orders
+            actual_price = price
+            actual_slippage_pct = 0.0
+            if order_kind == "MARKET":
+                actual_price, actual_slippage_pct = self._simulate_slippage(price, order_type, max_slippage_pct)
+
+            status = OrderStatus.FILLED  # Paper mode fills immediately
+            record = OrderRecord(
+                order_id=order_id,
+                symbol=symbol.upper(),
+                side=order_type,
+                quantity=float(quantity),
+                price=float(actual_price),
+                status=status,
+                strategy_name=strategy_name,
+                pump_signal_strength=float(pump_signal_strength),
+                leverage=float(leverage),
+                order_kind=order_kind,
+                max_slippage_pct=float(max_slippage_pct),
+                actual_slippage_pct=float(actual_slippage_pct),
+            )
+            self._orders[order_id] = record
+
+            # Publish order_created event
+            if self.event_bus:
+                await self.event_bus.publish("order_created", {
+                    "order_id": order_id,
+                    "strategy_id": strategy_name,
+                    "symbol": symbol.upper(),
+                    "side": order_type.name,  # BUY, SELL, SHORT, COVER
+                    "order_type": order_kind,  # MARKET or LIMIT
+                    "quantity": quantity,
+                    "price": actual_price,
+                    "status": "NEW",
+                    "metadata": {
+                        "leverage": leverage,
+                        "max_slippage_pct": max_slippage_pct,
+                        "actual_slippage_pct": actual_slippage_pct,
+                        "pump_signal_strength": pump_signal_strength
+                    },
+                    "timestamp": time.time()
+                })
+
+            await self._update_position(record)
+
+            # Publish order_filled event (paper trades fill immediately)
+            if self.event_bus:
+                await self.event_bus.publish("order_filled", {
+                    "order_id": order_id,
+                    "filled_quantity": quantity,
+                    "filled_price": actual_price,
+                    "commission": 0.0,  # Paper trading - no commission
+                    "status": "FILLED",
+                    "timestamp": time.time()
+                })
+
+            self.logger.info("order_manager.paper_order_filled", {
+                "order_id": order_id,
+                "symbol": record.symbol,
+                "side": record.side.value,
+                "quantity": record.quantity,
+                "price": record.price,
+                "leverage": record.leverage,
+                "slippage_pct": record.actual_slippage_pct
             })
-            raise ValueError(error_msg)
-
-        # Log warning for high leverage (>5x)
-        if leverage > 5.0:
-            self.logger.warning("order_manager.high_leverage_warning", {
-                "leverage": leverage,
-                "symbol": symbol,
-                "order_type": order_type.name,
-                "liquidation_distance_pct": round(100 / leverage, 1),
-                "warning": f"HIGH RISK: {leverage}x leverage. Liquidation at {(100/leverage):.1f}% price movement"
-            })
-
-        order_id = self._generate_order_id()
-
-        # Simulate slippage for MARKET orders
-        actual_price = price
-        actual_slippage_pct = 0.0
-        if order_kind == "MARKET":
-            actual_price, actual_slippage_pct = self._simulate_slippage(price, order_type, max_slippage_pct)
-
-        status = OrderStatus.FILLED  # Paper mode fills immediately
-        record = OrderRecord(
-            order_id=order_id,
-            symbol=symbol.upper(),
-            side=order_type,
-            quantity=float(quantity),
-            price=float(actual_price),
-            status=status,
-            strategy_name=strategy_name,
-            pump_signal_strength=float(pump_signal_strength),
-            leverage=float(leverage),
-            order_kind=order_kind,
-            max_slippage_pct=float(max_slippage_pct),
-            actual_slippage_pct=float(actual_slippage_pct),
-        )
-        self._orders[order_id] = record
-        self._update_position(record)
-        self.logger.info("order_manager.paper_order_filled", {
-            "order_id": order_id,
-            "symbol": record.symbol,
-            "side": record.side.value,
-            "quantity": record.quantity,
-            "price": record.price,
-            "leverage": record.leverage,
-            "slippage_pct": record.actual_slippage_pct
-        })
-        return order_id
+            return order_id
 
     async def close_position(self,
                             symbol: str,
@@ -496,35 +541,46 @@ class OrderManager:
             "timestamp": datetime.utcnow().isoformat()
         }
 
-    def get_all_orders(self) -> List[Dict[str, Any]]:
-        return [self._serialize_order(o) for o in self._orders.values()]
+    async def get_all_orders(self) -> List[Dict[str, Any]]:
+        async with self._lock:
+            return [self._serialize_order(o) for o in self._orders.values()]
 
-    def get_all_positions(self) -> List[Dict[str, Any]]:
+    async def get_all_positions(self) -> List[Dict[str, Any]]:
         """Get all open positions with SHORT support and extended fields"""
-        return [
-            {
-                "symbol": pos.symbol,
-                "quantity": pos.quantity,
-                "average_price": pos.average_price,
-                "position_type": pos.position_type,
-                "position_size": pos.position_size,
-                "leverage": pos.leverage,
-                "liquidation_price": pos.liquidation_price,
-                "unrealized_pnl": pos.unrealized_pnl,
-                "unrealized_pnl_pct": pos.unrealized_pnl_pct
-            }
-            for pos in self._positions.values()
-            if pos.quantity != 0
-        ]
+        async with self._lock:
+            return [
+                {
+                    "symbol": pos.symbol,
+                    "quantity": pos.quantity,
+                    "average_price": pos.average_price,
+                    "position_type": pos.position_type,
+                    "position_size": pos.position_size,
+                    "leverage": pos.leverage,
+                    "liquidation_price": pos.liquidation_price,
+                    "unrealized_pnl": pos.unrealized_pnl,
+                    "unrealized_pnl_pct": pos.unrealized_pnl_pct
+                }
+                for pos in self._positions.values()
+                if pos.quantity != 0
+            ]
 
     async def cancel_order(self, order_id: str) -> bool:
-        record = self._orders.get(order_id)
-        if not record:
-            return False
-        record.status = OrderStatus.CANCELLED
-        record.updated_at = datetime.utcnow()
-        self.logger.info("order_manager.paper_order_cancelled", {"order_id": order_id})
-        return True
+        async with self._lock:
+            record = self._orders.get(order_id)
+            if not record:
+                return False
+            record.status = OrderStatus.CANCELLED
+            record.updated_at = datetime.utcnow()
+
+            # Publish order_cancelled event
+            if self.event_bus:
+                await self.event_bus.publish("order_cancelled", {
+                    "order_id": order_id,
+                    "timestamp": time.time()
+                })
+
+            self.logger.info("order_manager.paper_order_cancelled", {"order_id": order_id})
+            return True
 
     def _serialize_order(self, record: OrderRecord) -> Dict[str, Any]:
         return {
@@ -544,7 +600,7 @@ class OrderManager:
             "actual_slippage_pct": record.actual_slippage_pct
         }
 
-    def _update_position(self, order: OrderRecord) -> None:
+    async def _update_position(self, order: OrderRecord) -> None:
         """Update position with SHORT support using quantity sign convention
 
         Convention:
@@ -559,6 +615,9 @@ class OrderManager:
         - COVER: Closes/decreases SHORT (reduces negative quantity)
         """
         position = self._positions.setdefault(order.symbol, PositionRecord(symbol=order.symbol))
+
+        # Track old quantity for position event detection
+        old_quantity = position.quantity
 
         if order.side == OrderType.BUY:
             # BUY: Open/increase LONG position
@@ -662,3 +721,40 @@ class OrderManager:
             "leverage": position.leverage,
             "liquidation_price": position.liquidation_price
         })
+
+        # Publish position events based on quantity changes
+        if self.event_bus:
+            if old_quantity == 0 and position.quantity != 0:
+                # Position opened
+                await self.event_bus.publish("position_opened", {
+                    "position_id": f"{order.symbol}_{order.order_id}",
+                    "strategy_id": order.strategy_name,
+                    "symbol": order.symbol,
+                    "side": position.position_type,  # LONG or SHORT
+                    "quantity": position.position_size,
+                    "entry_price": position.average_price,
+                    "current_price": position.average_price,
+                    "stop_loss": None,  # Not tracked in OrderManager
+                    "take_profit": None,  # Not tracked in OrderManager
+                    "metadata": {
+                        "leverage": position.leverage,
+                        "liquidation_price": position.liquidation_price
+                    },
+                    "timestamp": time.time()
+                })
+            elif old_quantity != 0 and position.quantity == 0:
+                # Position closed
+                await self.event_bus.publish("position_closed", {
+                    "position_id": f"{order.symbol}_{order.order_id}",
+                    "current_price": order.price,
+                    "realized_pnl": 0.0,  # TODO: Calculate from entry/exit prices
+                    "timestamp": time.time()
+                })
+            elif old_quantity != 0 and position.quantity != 0:
+                # Position updated (size changed)
+                await self.event_bus.publish("position_updated", {
+                    "position_id": f"{order.symbol}_{order.order_id}",
+                    "current_price": order.price,
+                    "unrealized_pnl": position.unrealized_pnl,
+                    "timestamp": time.time()
+                })

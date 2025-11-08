@@ -1367,6 +1367,16 @@ class StrategyManager:
                     # Record indicator values at signal detection
                     signal_indicators = strategy._record_decision_indicators(indicator_values, "S1_signal_detection")
                     strategy.current_state = StrategyState.SIGNAL_DETECTED
+
+                    # Publish signal_generated event for OrderManager
+                    await self._publish_signal_generated(
+                        strategy=strategy,
+                        signal_type="S1",
+                        action="BUY" if strategy.direction == "LONG" else "SHORT",
+                        indicator_values=indicator_values,
+                        metadata={"recorded_indicators": signal_indicators, "slot_acquired": True, "symbol_locked": True}
+                    )
+
                     await self._publish_strategy_event(strategy, "signal_detected", {
                         **indicator_values,
                         "recorded_indicators": signal_indicators,
@@ -1543,6 +1553,16 @@ class StrategyManager:
                     # Record indicator values at close decision
                     close_indicators = strategy._record_decision_indicators(indicator_values, "ZE1_close_order_detection")
                     strategy.current_state = StrategyState.CLOSE_ORDER_EVALUATION
+
+                    # Publish signal_generated event for OrderManager
+                    await self._publish_signal_generated(
+                        strategy=strategy,
+                        signal_type="ZE1",
+                        action="SELL" if strategy.direction == "LONG" else "COVER",
+                        indicator_values=indicator_values,
+                        metadata={"recorded_indicators": close_indicators}
+                    )
+
                     await self._publish_strategy_event(strategy, "close_order_detected", {
                         **indicator_values,
                         "recorded_indicators": close_indicators
@@ -1559,6 +1579,20 @@ class StrategyManager:
                     # Start cooldown if configured
                     cooldown_minutes = strategy.global_limits.get("emergency_exit_cooldown_minutes", 30)
                     strategy.start_cooldown(cooldown_minutes, "emergency_exit")
+
+                    # Publish signal_generated event for OrderManager
+                    await self._publish_signal_generated(
+                        strategy=strategy,
+                        signal_type="E1",
+                        action="SELL" if strategy.direction == "LONG" else "COVER",
+                        indicator_values=indicator_values,
+                        metadata={
+                            "recorded_indicators": emergency_indicators,
+                            "cooldown_started": True,
+                            "cooldown_minutes": cooldown_minutes,
+                            "emergency": True
+                        }
+                    )
 
                     await self._publish_strategy_event(strategy, "emergency_exit_triggered", {
                         **indicator_values,
@@ -1684,6 +1718,93 @@ class StrategyManager:
                 "strategy_name": strategy.strategy_name,
                 "event_type": event_type,
                 "error": str(e)
+            })
+
+    async def _publish_signal_generated(
+        self,
+        strategy: Strategy,
+        signal_type: str,
+        action: str,
+        indicator_values: Dict[str, Any],
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """
+        Publish signal_generated event for OrderManager and TradingPersistenceService.
+
+        This event triggers order creation in OrderManager.
+
+        Args:
+            strategy: Strategy instance generating the signal
+            signal_type: Signal type (S1, ZE1, E1)
+            action: Trading action (BUY, SELL, SHORT, COVER)
+            indicator_values: Current indicator values
+            metadata: Additional metadata for the signal
+        """
+        try:
+            # Calculate position parameters
+            current_price = indicator_values.get("price", indicator_values.get("last_price", 100.0))
+
+            # For entry signals (S1), calculate quantity from position sizing
+            if signal_type == "S1":
+                position_params = strategy.calculate_position_size(indicator_values)
+                position_size_pct = position_params.get("position_size_pct", 0.01)
+                base_capital = 1000.0  # TODO: Get from wallet/risk manager
+                order_value = base_capital * position_size_pct
+                quantity = order_value / current_price
+            else:
+                # For exit signals (ZE1, E1), use full position size
+                # TODO: Get actual position size from position manager
+                quantity = 0.001  # Placeholder
+
+            # Generate unique signal ID
+            signal_id = f"signal_{strategy.strategy_name}_{strategy.symbol}_{int(datetime.now().timestamp() * 1000)}"
+
+            # Build signal_generated event with schema expected by OrderManager and TradingPersistenceService
+            signal_event = {
+                # OrderManager fields
+                "signal_type": signal_type,
+                "symbol": strategy.symbol,
+                "side": action.lower(),  # buy, sell, short, cover
+                "quantity": quantity,
+                "price": current_price,
+                "strategy_name": strategy.strategy_name,
+
+                # TradingPersistenceService fields
+                "signal_id": signal_id,
+                "strategy_id": strategy.strategy_name,  # Using strategy_name as ID for now
+                "action": action,  # BUY, SELL, SHORT, COVER
+                "triggered": True,
+                "conditions_met": metadata or {},
+                "indicator_values": indicator_values,
+                "metadata": {
+                    "state": strategy.current_state.value,
+                    "direction": strategy.direction,
+                    "timestamp": datetime.now().isoformat(),
+                    **(metadata or {})
+                },
+
+                # Common fields
+                "timestamp": datetime.now().timestamp()
+            }
+
+            # Publish to EventBus
+            await self.event_bus.publish("signal_generated", signal_event)
+
+            self.logger.info("strategy_manager.signal_generated", {
+                "strategy_name": strategy.strategy_name,
+                "symbol": strategy.symbol,
+                "signal_type": signal_type,
+                "action": action,
+                "signal_id": signal_id
+            })
+
+        except Exception as e:
+            self.logger.error("strategy_manager.signal_generation_failed", {
+                "strategy_name": strategy.strategy_name,
+                "symbol": strategy.symbol,
+                "signal_type": signal_type,
+                "error": str(e),
+                "error_type": type(e).__name__
             })
 
     def get_strategy_status(self, strategy_name: str) -> Optional[Dict[str, Any]]:
