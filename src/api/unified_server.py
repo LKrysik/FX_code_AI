@@ -1150,18 +1150,25 @@ def create_unified_app():
         """Test endpoint to check if POST requests work"""
         try:
             raw_body = await request.body()
-            print(f"DEBUG: raw_body bytes: {raw_body}")
-            print(f"DEBUG: raw_body repr: {repr(raw_body)}")
+            logger.debug("test_endpoint_raw_body", {
+                "raw_body_size": len(raw_body),
+                "raw_body_repr": repr(raw_body)
+            })
             body_str = raw_body.decode('utf-8')
-            print(f"DEBUG: body_str: {body_str}")
+            logger.debug("test_endpoint_decoded_body", {
+                "body_str": body_str
+            })
             body = await request.json()
             return {"message": "POST request received", "method": "POST", "raw_body": body_str, "body": body}
         except Exception as e:
             raw_body = await request.body()
-            print(f"DEBUG ERROR: raw_body bytes: {raw_body}")
-            print(f"DEBUG ERROR: raw_body repr: {repr(raw_body)}")
+            logger.error("test_endpoint_error", {
+                "error": str(e),
+                "raw_body_size": len(raw_body),
+                "raw_body_repr": repr(raw_body),
+                "error_type": type(e).__name__
+            })
             body_str = raw_body.decode('utf-8')
-            print(f"DEBUG ERROR: body_str: {body_str}")
             return {"error": str(e), "method": "POST", "raw_body": body_str}
 
     @app.post("/auth/login-test")
