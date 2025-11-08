@@ -15,6 +15,7 @@ uvicorn
 PyYAML
 PyJWT
 redis
+prometheus-client>=0.19.0,<1.0.0
 
 # QuestDB dependencies
 asyncpg
