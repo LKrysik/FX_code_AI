@@ -7,7 +7,27 @@ from dotenv import load_dotenv
 from pathlib import Path
 import copy
 
-load_dotenv()
+# 🐛 FIX: Ensure .env is loaded from project root, not current working directory
+# Previously: load_dotenv() searched for .env in current working directory
+# This failed when server was started from a different directory
+# FIX: Explicitly specify .env path relative to this file's location
+_current_file = Path(__file__).resolve()
+_project_root = _current_file.parent.parent.parent  # src/core/config.py -> src -> project_root
+_env_path = _project_root / ".env"
+
+# Load .env file from project root
+load_dotenv(dotenv_path=_env_path, override=False)
+
+# Log .env loading for debugging (only if file exists)
+if _env_path.exists():
+    # Note: We can't use StructuredLogger here because it would create circular import
+    # So we use print for initial debugging - this will only show during startup
+    import sys
+    print(f"✅ Loaded .env from: {_env_path}", file=sys.stderr)
+else:
+    import sys
+    print(f"⚠️  WARNING: .env file not found at {_env_path}", file=sys.stderr)
+    print(f"   Using default/environment variables only", file=sys.stderr)
 
 # ✅ ENHANCED: Regex patterns for comprehensive environment variable parsing
 ENV_VAR_PATTERN = re.compile(r"\$\{(\w+)\}")
