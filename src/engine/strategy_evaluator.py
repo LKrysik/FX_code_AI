@@ -297,10 +297,22 @@ class StrategyEvaluator:
             "risk_level": signal.risk_level.value,
             "indicators": signal.indicators,
             "timestamp": signal.timestamp,
-            "reason": signal.reason
+            "reason": signal.reason,
+            # OrderManager required fields
+            "side": "buy" if signal.signal_type.value == "BUY" else "sell",
+            "quantity": signal.position_size,
+            "price": signal.indicators.get("price", 0.0),
+            # TradingPersistenceService fields
+            "signal_id": f"signal_{self.config.name}_{signal.symbol}_{int(signal.timestamp * 1000)}",
+            "strategy_id": self.config.name,
+            "action": signal.signal_type.value,
+            "triggered": True,
+            "conditions_met": {"confidence": signal.confidence, "risk_level": signal.risk_level.value},
+            "indicator_values": signal.indicators,
+            "metadata": {"reason": signal.reason}
         }
 
-        await self.event_bus.publish("strategy.signal", signal_data)
+        await self.event_bus.publish("signal_generated", signal_data)
 
     def get_strategy_status(self) -> Dict[str, Any]:
         """Get current strategy evaluation status."""

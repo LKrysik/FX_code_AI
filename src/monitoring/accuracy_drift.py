@@ -117,7 +117,7 @@ class AccuracyDriftWatchdog:
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
 
         # Subscribe to strategy events
-        await self.event_bus.subscribe("strategy.signal", self._handle_strategy_signal)
+        await self.event_bus.subscribe("signal_generated", self._handle_strategy_signal)
         await self.event_bus.subscribe("strategy.result", self._handle_strategy_result)
 
         self.logger.info("accuracy_drift_watchdog.started")
