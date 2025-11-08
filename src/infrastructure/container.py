@@ -669,7 +669,7 @@ class Container:
         Raises:
             RuntimeError: If creation fails
         """
-        def _create():
+        async def _create():
             try:
                 from ..infrastructure.monitoring.prometheus_metrics import (
                     PrometheusMetrics,
@@ -680,7 +680,7 @@ class Container:
                 metrics = PrometheusMetrics(event_bus=self.event_bus)
 
                 # Subscribe to EventBus topics for automatic metric collection
-                metrics.subscribe_to_events()
+                await metrics.subscribe_to_events()
 
                 # Set global singleton instance (for /metrics endpoint)
                 set_metrics_instance(metrics)
