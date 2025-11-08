@@ -898,6 +898,16 @@ class AuthHandler:
         PREMIUM_PASSWORD = os.getenv("PREMIUM_PASSWORD", "CHANGE_ME_PREMIUM123")
         ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "CHANGE_ME_ADMIN123")
 
+        # 🐛 DEBUG: Log environment variable loading for authentication debugging
+        if self.logger:
+            self.logger.info("auth_handler.environment_variables_loaded", {
+                "DEMO_PASSWORD_set": DEMO_PASSWORD != "CHANGE_ME_DEMO123",
+                "TRADER_PASSWORD_set": TRADER_PASSWORD != "CHANGE_ME_TRADER123",
+                "PREMIUM_PASSWORD_set": PREMIUM_PASSWORD != "CHANGE_ME_PREMIUM123",
+                "ADMIN_PASSWORD_set": ADMIN_PASSWORD != "CHANGE_ME_ADMIN123",
+                "username_attempting": username
+            })
+
         # Log warning if using default passwords
         if "CHANGE_ME" in ADMIN_PASSWORD:
             self.logger.warning(
