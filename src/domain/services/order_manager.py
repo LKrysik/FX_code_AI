@@ -744,10 +744,13 @@ class OrderManager:
                 })
             elif old_quantity != 0 and position.quantity == 0:
                 # Position closed
+                # TODO: Implement realized PnL calculation from entry/exit prices (see GitHub issue)
+                # Requires: Position object to track entry price, entry quantity, and exit price
+                # Current implementation: placeholder 0.0 - update when position tracking is complete
                 await self.event_bus.publish("position_closed", {
                     "position_id": f"{order.symbol}_{order.order_id}",
                     "current_price": order.price,
-                    "realized_pnl": 0.0,  # TODO: Calculate from entry/exit prices
+                    "realized_pnl": 0.0,
                     "timestamp": time.time()
                 })
             elif old_quantity != 0 and position.quantity != 0:

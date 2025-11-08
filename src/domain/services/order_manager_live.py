@@ -574,8 +574,11 @@ class LiveOrderManager:
 
         # Determine exit side (opposite of position side)
         # If we have a long position, we need to sell; if short, we need to buy
-        # For now, assume long positions (need Position object to determine actual side)
-        exit_side = "sell"  # TODO: Get actual position side from Position object
+        # TODO: Implement position side detection from Position object (see GitHub issue)
+        # Requires: Position tracking system to determine if position is LONG or SHORT
+        # Current implementation: assumes LONG positions (exit_side="sell")
+        # Update when position management is fully implemented
+        exit_side = "sell"
 
         # Create market exit order
         order = Order(
