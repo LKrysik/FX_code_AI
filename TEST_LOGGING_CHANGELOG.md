@@ -229,10 +229,17 @@ Interaktywny HTML z:
 
 **2025-01-09**
 
+## 🐛 Bugfixes
+
+### v1.0.1 (2025-01-09)
+- **Fix**: Zmieniono `--log-cli=true` na `--log-cli` (boolean flag bez wartości)
+- **Reason**: Pytest nie akceptuje `--log-cli=true`, tylko `--log-cli` jako boolean flag
+- **Impact**: Detailed mode teraz działa poprawnie z pytest 8.4.1+
+
 ## 👤 Autor
 
 Claude Code AI (via user request)
 
 ---
 
-**Status**: ✅ **COMPLETE** - Gotowe do użycia
+**Status**: ✅ **COMPLETE** - Gotowe do użycia (v1.0.1)
