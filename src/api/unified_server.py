@@ -1950,25 +1950,20 @@ def create_unified_app():
             return _json_error("invalid_request", "session_id is required", status=400)
 
         try:
-            # Step 1: Check if session exists in QuestDB
-            questdb_provider = app.state.questdb_provider
-            check_query = """
-            SELECT session_id, status, start_time, end_time
-            FROM data_collection_sessions
-            WHERE session_id = $1 AND is_deleted = false
-            """
+            # ✅ SESSION-003 FIX: Use SessionService for validation
+            session_service = await app.state.rest_service.container.create_session_service()
 
-            session_rows = await questdb_provider.execute_query(check_query, [_session_id])
+            # Step 1: Validate session exists and is not already stopped
+            session = await session_service.get_session(_session_id, include_controller_status=False)
 
-            if not session_rows or len(session_rows) == 0:
+            if not session:
                 return _json_error(
                     "session_not_found",
                     f"Session {_session_id} not found",
                     status=404
                 )
 
-            session_row = session_rows[0]
-            current_status = session_row['status']
+            current_status = session.get('status')
 
             # Step 2: Check if session is already stopped/completed/failed
             if current_status in ('stopped', 'completed', 'failed'):
@@ -1977,6 +1972,9 @@ def create_unified_app():
                     f"Session {_session_id} is already {current_status}",
                     status=409  # Conflict
                 )
+
+            # Keep questdb_provider reference for direct DB updates (orphaned sessions)
+            questdb_provider = app.state.questdb_provider
 
             # Step 3: Try to stop via controller (if session is in memory)
             controller = await app.state.rest_service.get_controller()
@@ -2043,11 +2041,32 @@ def create_unified_app():
 
     @app.get("/sessions/{id}")
     async def get_session(id: str):
-        controller = await app.state.rest_service.get_controller()
-        status = controller.get_execution_status()
-        if not status or status.get("session_id") != id:
-            return _json_ok({"status": "no_active_session"})
-        return _json_ok({"status": "session_status", "data": status})
+        """
+        Get session by ID using unified session lookup.
+
+        ✅ SESSION-003 FIX: Now uses SessionService for consistent lookups
+        - Before: Only checked ExecutionController (missed completed sessions in DB)
+        - After: Checks controller first, then QuestDB (unified strategy)
+        """
+        try:
+            # Get session service from container
+            session_service = await app.state.rest_service.container.create_session_service()
+
+            # Unified session lookup (controller → QuestDB → None)
+            session = await session_service.get_session(id, include_controller_status=True)
+
+            if not session:
+                return _json_error("session_not_found", f"Session {id} not found", status=404)
+
+            return _json_ok({"status": "session_found", "data": session})
+
+        except Exception as e:
+            app.state.rest_service.container.logger.error("get_session_failed", {
+                "session_id": id,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            return _json_error("session_lookup_failed", f"Failed to get session: {str(e)}", status=500)
 
     # Market data endpoint
     @app.get("/market-data")
