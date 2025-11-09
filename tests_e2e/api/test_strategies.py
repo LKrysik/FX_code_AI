@@ -53,13 +53,13 @@ class TestStrategyCreate:
         assert "error_code" in data
         assert "error_message" in data
 
-    def test_create_strategy_validates_4_sections(self, authenticated_client):
-        """Test that all 4 sections are required"""
+    def test_create_strategy_validates_5_sections(self, authenticated_client):
+        """Test that all 5 sections are required"""
         incomplete_strategy = {
             "strategy_name": "Incomplete Strategy",
             "s1_signal": {},
             "z1_entry": {},
-            # Missing o1_cancel and emergency_exit
+            # Missing ze1_close, o1_cancel and emergency_exit
         }
 
         response = authenticated_client.post("/api/strategies", json=incomplete_strategy)
@@ -67,7 +67,7 @@ class TestStrategyCreate:
         assert response.status_code == 400
 
         data = response.json()
-        assert "All 4 sections" in data["error_message"]
+        assert "All 5 sections" in data["error_message"]
 
     def test_create_strategy_validates_section_structure(self, authenticated_client):
         """Test that section structure is validated"""
@@ -167,9 +167,10 @@ class TestStrategyRead:
         strategy = data["data"]["strategy"]
         assert strategy["strategy_name"] == valid_strategy_config["strategy_name"]
 
-        # Verify all 4 sections are present
+        # Verify all 5 sections are present
         assert "s1_signal" in strategy
         assert "z1_entry" in strategy
+        assert "ze1_close" in strategy
         assert "o1_cancel" in strategy
         assert "emergency_exit" in strategy
 
