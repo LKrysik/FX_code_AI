@@ -105,11 +105,11 @@ class TestEventBusBasics:
         async def handler2(data):
             pass
 
-        bus.subscribe("topic1", handler1)
-        bus.subscribe("topic2", handler1)
-        bus.subscribe("topic2", handler2)
+        await bus.subscribe("topic1", handler1)
+        await bus.subscribe("topic2", handler1)
+        await bus.subscribe("topic2", handler2)
 
-        topics = bus.list_topics()
+        topics = await bus.list_topics()
 
         assert len(topics) == 2
         assert "topic1 (1 subscribers)" in topics
@@ -443,9 +443,70 @@ class TestSyncHandlers:
             """Synchronous handler."""
             received.append(data)
 
-        bus.subscribe("test", sync_handler)
+        await bus.subscribe("test", sync_handler)
         await bus.publish("test", {"value": 42})
         await asyncio.sleep(0.2)
 
         assert len(received) == 1
         assert received[0]["value"] == 42
+
+
+class TestEventBusHealthCheck:
+    """Test health_check method."""
+
+    @pytest.mark.asyncio
+    async def test_health_check_basic(self):
+        """Test basic health check returns correct structure."""
+        bus = EventBus()
+
+        async def handler(data):
+            pass
+
+        # Subscribe to some topics
+        await bus.subscribe("topic1", handler)
+        await bus.subscribe("topic2", handler)
+        await bus.subscribe("topic2", handler)  # Second subscriber
+
+        health = await bus.health_check()
+
+        # Check structure
+        assert "healthy" in health
+        assert "active_subscribers" in health
+        assert "total_topics" in health
+        assert "total_queue_size" in health
+        assert "shutdown_requested" in health
+        assert "metrics" in health
+
+        # Check values
+        assert health["healthy"] is True
+        assert health["active_subscribers"] == 3  # 1 + 2
+        assert health["total_topics"] == 2
+        assert health["shutdown_requested"] is False
+
+    @pytest.mark.asyncio
+    async def test_health_check_after_shutdown(self):
+        """Test health check after shutdown."""
+        bus = EventBus()
+
+        async def handler(data):
+            pass
+
+        await bus.subscribe("test", handler)
+        await bus.shutdown()
+
+        health = await bus.health_check()
+
+        assert health["healthy"] is False
+        assert health["shutdown_requested"] is True
+        assert health["active_subscribers"] == 0  # Cleared on shutdown
+
+    @pytest.mark.asyncio
+    async def test_health_check_no_subscribers(self):
+        """Test health check with no subscribers."""
+        bus = EventBus()
+
+        health = await bus.health_check()
+
+        assert health["healthy"] is True
+        assert health["active_subscribers"] == 0
+        assert health["total_topics"] == 0
