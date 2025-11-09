@@ -44,6 +44,18 @@ python run_tests.py --frontend
 python run_tests.py --coverage
 ```
 
+### **🔥 Z pełnymi logami (DETAILED MODE):** 🆕
+```bash
+python run_tests.py --detailed
+```
+
+**Generuje:**
+- `test_log_TIMESTAMP.txt` - Pełne logi DEBUG
+- `test_results_TIMESTAMP.xml` - JUnit XML
+- Pełne tracebacki z wartościami zmiennych lokalnych
+
+**Idealny do debugowania failing testów!**
+
 ## 4️⃣ **Sprawdzenie Wyników**
 
 ✅ **Success:**
@@ -68,6 +80,7 @@ Run with --verbose for more details
 | Frontend nie działa | `curl http://localhost:3000` → Sprawdź czy odpowiada |
 | QuestDB nie działa | `python database/questdb/install_questdb.py` |
 | Testy za wolne | `python run_tests.py --fast` |
+| Test failuje - potrzebuję szczegółów | `python run_tests.py --detailed` → Zobacz `test_log_*.txt` 🆕 |
 
 ## 📚 **Pełna Dokumentacja**
 
