@@ -1,21 +1,48 @@
 # E2E Test Requirements
+# =====================
 # Install with: pip install -r test_requirements.txt
+#
+# REQUIRED vs OPTIONAL:
+# - REQUIRED plugins are needed for run_tests.py to work
+# - OPTIONAL plugins enable specific features (parallel, coverage, etc.)
+# - All plugins are recommended for full test suite functionality
 
-# Core testing framework
-pytest>=7.4.0
-pytest-asyncio>=0.21.0
-pytest-xdist>=3.3.0         # Parallel execution
-pytest-timeout>=2.1.0       # Timeout support
-pytest-cov>=4.1.0           # Coverage reporting
-pytest-html>=3.2.0          # HTML reports
+# ========================================
+# REQUIRED - Core Testing Framework
+# ========================================
+pytest>=7.4.0               # Core test framework (REQUIRED)
+pytest-asyncio>=0.21.0      # Async test support (REQUIRED for API tests)
 
-# HTTP clients
-httpx>=0.24.0               # Async HTTP client
-requests>=2.31.0            # Sync HTTP client (fallback)
+# ========================================
+# RECOMMENDED - Performance & Reporting
+# ========================================
+pytest-xdist>=3.3.0         # Parallel execution (3-5x faster, auto-enabled if installed)
+                            # NOTE: Incompatible with --log-cli (see run_tests.py)
+pytest-timeout>=2.1.0       # Test timeout support (prevents hanging tests)
+pytest-cov>=4.1.0           # Coverage reporting (--coverage flag)
+pytest-html>=3.2.0          # HTML test reports (--html-report flag)
 
-# Frontend testing
-playwright>=1.40.0          # Browser automation
+# ========================================
+# REQUIRED - HTTP Clients
+# ========================================
+httpx>=0.24.0               # Async HTTP client (REQUIRED for API tests)
+requests>=2.31.0            # Sync HTTP client (fallback/legacy support)
 
-# Utilities
-python-dotenv>=1.0.0        # Environment variables
-pydantic>=2.0.0             # Data validation
+# ========================================
+# OPTIONAL - Frontend Testing
+# ========================================
+playwright>=1.40.0          # Browser automation (REQUIRED only for --frontend tests)
+                            # Install browsers: playwright install chromium
+
+# ========================================
+# REQUIRED - Utilities
+# ========================================
+python-dotenv>=1.0.0        # Environment variables (.env support)
+pydantic>=2.0.0             # Data validation (matches production dependencies)
+
+# ========================================
+# Compatibility Notes:
+# ========================================
+# - pytest 8.4.1+ tested and verified
+# - pytest-xdist: Disables --log-cli (file logging still works)
+# - Python 3.10+ recommended (3.11+ for best performance)

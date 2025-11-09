@@ -112,7 +112,7 @@ def live_api_client(test_config) -> Generator[httpx.Client, None, None]:
 
 @pytest.fixture
 def valid_strategy_config() -> Dict[str, Any]:
-    """Valid 4-section strategy configuration for testing"""
+    """Valid 5-section strategy configuration for testing"""
     return {
         "strategy_name": "Test Momentum Strategy",
         "description": "Test strategy for E2E testing",
@@ -140,6 +140,16 @@ def valid_strategy_config() -> Dict[str, Any]:
                 "type": "percentage",
                 "value": 10
             }
+        },
+        "ze1_close": {
+            "conditions": [
+                {
+                    "id": "momentum_close",
+                    "indicatorId": "momentum_reversal",
+                    "operator": ">",
+                    "value": 50.0
+                }
+            ]
         },
         "o1_cancel": {
             "timeoutSeconds": 300,
@@ -202,6 +212,16 @@ def valid_short_strategy_config() -> Dict[str, Any]:
                 "value": 2.0  # Conservative sizing for SHORT
             },
             "timeoutSeconds": 60
+        },
+        "ze1_close": {
+            "conditions": [
+                {
+                    "id": "momentum_close",
+                    "indicatorId": "momentum_reversal",
+                    "operator": "<",
+                    "value": -50.0
+                }
+            ]
         },
         "o1_cancel": {
             "timeoutSeconds": 300,

@@ -834,7 +834,7 @@ async def add_indicator_for_session(
             raise HTTPException(status_code=400, detail="variant_id is required")
 
         # Get variant details
-        variant = engine.get_variant(variant_id)
+        variant = await engine.get_variant(variant_id)
         if not variant:
             raise HTTPException(status_code=404, detail=f"Variant '{variant_id}' not found")
 
@@ -1083,7 +1083,7 @@ async def get_session_indicator_values(
     """
     try:
         # Get session indicators using StreamingIndicatorEngine
-        indicator_list = engine.get_session_indicators(session_id, symbol)
+        indicator_list = await engine.get_session_indicators(session_id, symbol)
         indicator_map = {
             item["indicator_id"]: item
             for item in indicator_list
@@ -1586,7 +1586,7 @@ async def update_variant(
         if not isinstance(parameters, dict):
             raise HTTPException(status_code=400, detail="parameters must be an object")
 
-        variant = engine.get_variant(variant_id)
+        variant = await engine.get_variant(variant_id)
         if not variant:
             logger.warning("indicators_routes.update_variant.not_found", {
                 "variant_id": variant_id
@@ -1704,7 +1704,7 @@ async def get_variant_details(
             "variant_id": variant_id
         })
         
-        variant = engine.get_variant(variant_id)
+        variant = await engine.get_variant(variant_id)
         
         if not variant:
             logger.warning("indicators_routes.get_variant_details.not_found", {

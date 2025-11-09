@@ -110,13 +110,16 @@ class OpsAPI:
                 "Generate a secure secret using: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
             )
 
-        # SECURITY: Reject default/weak secrets
-        weak_secrets = ["sprint4-ops-secret", "dev_jwt_secret_key", "secret", "jwt_secret", "change_me", "default"]
-        if jwt_secret_value.lower() in weak_secrets:
-            raise RuntimeError(
-                f"JWT_SECRET cannot be a common/weak value. "
-                f"Generate a secure secret using: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
-            )
+        # SECURITY: Reject default/weak secrets (skip check for auto-generated secrets >= 40 chars)
+        # Auto-generated secrets from secrets.token_urlsafe(32) are ~43 characters
+        # Only check weak_secrets for manually configured shorter secrets
+        if len(jwt_secret_value) < 40:
+            weak_secrets = ["sprint4-ops-secret", "dev_jwt_secret_key", "secret", "jwt_secret", "change_me", "default"]
+            if jwt_secret_value.lower() in weak_secrets:
+                raise RuntimeError(
+                    f"JWT_SECRET cannot be a common/weak value. "
+                    f"Generate a secure secret using: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
+                )
 
         self.jwt_secret = jwt_secret_value
 

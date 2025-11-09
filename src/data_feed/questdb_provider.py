@@ -164,11 +164,16 @@ class QuestDBProvider:
         # PostgreSQL connection pool (initialized in async context)
         self.pg_pool: Optional[asyncpg.Pool] = None
 
+        # ✅ RACE CONDITION FIX: Initialization lock to prevent concurrent pool creation
+        self._init_lock = asyncio.Lock()
+        self._initialized = False
+
         # ✅ PERFORMANCE FIX: ILP Sender connection pool
         # Reuses TCP connections to prevent port exhaustion and reduce overhead
         self._sender_pool: List[Sender] = []
         self._sender_pool_lock = asyncio.Lock()
         self._sender_available = asyncio.Condition(self._sender_pool_lock)
+        self._ilp_available = True  # ✅ GRACEFUL DEGRADATION: Track ILP availability
 
         logger.info(
             f"QuestDBProvider initialized (ILP: {ilp_host}:{ilp_port}, PG: {pg_host}:{pg_port}, "
@@ -181,66 +186,109 @@ class QuestDBProvider:
 
         ✅ PERFORMANCE FIX: Creates persistent ILP Sender connections to prevent
         port exhaustion and reduce TCP handshake overhead.
+
+        ✅ RACE CONDITION FIX: Protected by initialization lock to prevent concurrent
+        pool creation from multiple callers. Idempotent - safe to call multiple times.
         """
-        # Initialize PostgreSQL pool
-        if self.pg_pool is None:
-            self.pg_pool = await asyncpg.create_pool(
-                host=self.pg_host,
-                port=self.pg_port,
-                user=self.pg_user,
-                password=self.pg_password,
-                database=self.pg_database,
-                min_size=2,
-                max_size=self.pg_pool_size,
-            )
-            logger.info(f"PostgreSQL pool created ({self.pg_pool_size} connections)")
+        async with self._init_lock:
+            # ✅ IDEMPOTENT: Return immediately if already initialized
+            if self._initialized:
+                return
 
-        # ✅ PERFORMANCE FIX: Initialize ILP Sender pool
-        async with self._sender_pool_lock:
-            if not self._sender_pool:
-                for i in range(self.ilp_sender_pool_size):
-                    try:
-                        sender = Sender(Protocol.Tcp, self.ilp_host, self.ilp_port)
-                        sender.__enter__()  # ✅ CRITICAL FIX: Open sender context (required by QuestDB client)
-                        self._sender_pool.append(sender)
-                        logger.debug(f"ILP Sender #{i+1} created")
-                    except IngressError as e:
-                        logger.error(f"Failed to create ILP Sender #{i+1}: {e}")
-                        # Close any senders that were created
-                        for s in self._sender_pool:
-                            try:
-                                s.__exit__(None, None, None)  # ✅ CRITICAL FIX: Properly close sender context
-                            except:
-                                pass
-                        self._sender_pool.clear()
-                        raise RuntimeError(f"Failed to initialize ILP Sender pool: {e}") from e
+            # Initialize PostgreSQL pool
+            if self.pg_pool is None:
+                self.pg_pool = await asyncpg.create_pool(
+                    host=self.pg_host,
+                    port=self.pg_port,
+                    user=self.pg_user,
+                    password=self.pg_password,
+                    database=self.pg_database,
+                    min_size=2,
+                    max_size=self.pg_pool_size,
+                    timeout=10.0,  # ✅ CONNECTION TIMEOUT: Prevent infinite hangs
+                    command_timeout=30.0,  # ✅ QUERY TIMEOUT: Prevent stuck queries
+                )
+                logger.info(f"PostgreSQL pool created ({self.pg_pool_size} connections)")
 
-                logger.info(f"ILP Sender pool created ({len(self._sender_pool)} connections)")
+            # ✅ PERFORMANCE FIX: Initialize ILP Sender pool (OPTIONAL - graceful degradation)
+            async with self._sender_pool_lock:
+                if not self._sender_pool:
+                    ilp_initialization_failed = False
+                    for i in range(self.ilp_sender_pool_size):
+                        try:
+                            sender = Sender(Protocol.Tcp, self.ilp_host, self.ilp_port)
+                            sender.__enter__()  # ✅ CRITICAL FIX: Open sender context (required by QuestDB client)
+                            self._sender_pool.append(sender)
+                            logger.debug(f"ILP Sender #{i+1} created")
+                        except IngressError as e:
+                            logger.error(f"Failed to create ILP Sender #{i+1}: {e}")
+                            # Close any senders that were created
+                            for s in self._sender_pool:
+                                try:
+                                    s.__exit__(None, None, None)  # ✅ CRITICAL FIX: Properly close sender context
+                                except:
+                                    pass
+                            self._sender_pool.clear()
+                            ilp_initialization_failed = True
+                            self._ilp_available = False  # ✅ GRACEFUL DEGRADATION: Mark ILP as unavailable
+
+                            # ✅ GRACEFUL DEGRADATION: Log warning but continue with PostgreSQL-only mode
+                            logger.warning(
+                                "questdb_provider.ilp_initialization_failed",
+                                {
+                                    "error": str(e),
+                                    "ilp_host": self.ilp_host,
+                                    "ilp_port": self.ilp_port,
+                                    "fallback": "PostgreSQL protocol only",
+                                    "impact": "Writes will be slower (PostgreSQL instead of ILP)",
+                                    "solution": "Verify QuestDB ILP endpoint is enabled: check conf/server.conf -> line.tcp.enabled=true"
+                                }
+                            )
+                            break  # Stop trying to create more senders
+
+                    if self._sender_pool:
+                        logger.info(f"ILP Sender pool created ({len(self._sender_pool)} connections)")
+                    elif ilp_initialization_failed:
+                        logger.warning(f"QuestDB running in DEGRADED MODE: PostgreSQL protocol only (ILP unavailable)")
+
+            # ✅ MARK AS INITIALIZED: Prevents re-initialization
+            self._initialized = True
 
     async def close(self):
         """
         Close both PostgreSQL connection pool and ILP Sender pool.
 
         ✅ PERFORMANCE FIX: Properly closes all pooled connections.
+        ✅ RACE CONDITION FIX: Protected by initialization lock to prevent concurrent cleanup.
+        Idempotent - safe to call multiple times.
         """
-        # Close PostgreSQL pool
-        if self.pg_pool:
-            await self.pg_pool.close()
-            self.pg_pool = None
-            logger.info("PostgreSQL pool closed")
+        async with self._init_lock:
+            # ✅ IDEMPOTENT: Return immediately if already closed
+            if not self._initialized:
+                return
 
-        # ✅ PERFORMANCE FIX: Close ILP Sender pool
-        async with self._sender_pool_lock:
-            for i, sender in enumerate(self._sender_pool):
-                try:
-                    sender.__exit__(None, None, None)  # ✅ CRITICAL FIX: Properly close sender context
-                    logger.debug(f"ILP Sender #{i+1} closed")
-                except Exception as e:
-                    logger.warning(f"Error closing ILP Sender #{i+1}: {e}")
-            self._sender_pool.clear()
-            if self._sender_pool:
-                logger.info(f"ILP Sender pool closed ({len(self._sender_pool)} connections)")
-            # Note: using if check because pool might be empty if initialize() was never called
+            # Close PostgreSQL pool
+            if self.pg_pool:
+                await self.pg_pool.close()
+                self.pg_pool = None
+                logger.info("PostgreSQL pool closed")
+
+            # ✅ PERFORMANCE FIX: Close ILP Sender pool
+            async with self._sender_pool_lock:
+                for i, sender in enumerate(self._sender_pool):
+                    try:
+                        sender.__exit__(None, None, None)  # ✅ CRITICAL FIX: Properly close sender context
+                        logger.debug(f"ILP Sender #{i+1} closed")
+                    except Exception as e:
+                        logger.warning(f"Error closing ILP Sender #{i+1}: {e}")
+                sender_count = len(self._sender_pool)
+                self._sender_pool.clear()
+                if sender_count > 0:
+                    logger.info(f"ILP Sender pool closed ({sender_count} connections)")
+                # Note: using if check because pool might be empty if initialize() was never called
+
+            # ✅ MARK AS CLOSED: Prevents re-cleanup
+            self._initialized = False
 
     async def is_healthy(self) -> bool:
         """
@@ -293,6 +341,7 @@ class QuestDBProvider:
 
         ✅ PERFORMANCE FIX: Reuses pooled connections instead of creating new ones.
         ✅ CRITICAL FIX: On-demand sender creation when pool is exhausted.
+        ✅ GRACEFUL DEGRADATION: Raises RuntimeError if ILP is unavailable.
 
         This prevents deadlock when all senders fail and replacement attempts fail.
         Instead of waiting forever, we attempt to create a new sender on-demand.
@@ -301,8 +350,16 @@ class QuestDBProvider:
             Sender instance from the pool or newly created
 
         Raises:
-            RuntimeError: If unable to create sender after max retries
+            RuntimeError: If ILP is unavailable or unable to create sender after max retries
         """
+        # ✅ GRACEFUL DEGRADATION: Check if ILP is available before attempting
+        if not self._ilp_available:
+            raise RuntimeError(
+                "ILP (InfluxDB Line Protocol) is not available. "
+                "QuestDB is running in PostgreSQL-only mode. "
+                "To enable ILP, verify QuestDB configuration: conf/server.conf -> line.tcp.enabled=true"
+            )
+
         async with self._sender_available:
             max_create_attempts = 3
             create_retry_delay = 1.0
@@ -456,6 +513,24 @@ class QuestDBProvider:
                 await self._release_sender(sender, is_broken=False)
                 sender_acquired = False
                 sender = None  # ✅ CRITICAL: Reset sender reference to prevent use-after-free
+
+    @staticmethod
+    def _convert_datetime_to_timestamp(row_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Convert datetime objects to Unix timestamps in a dictionary.
+
+        ✅ CRITICAL FIX: Ensures consistent timestamp format across all query methods.
+
+        Args:
+            row_dict: Dictionary potentially containing datetime values
+
+        Returns:
+            Dictionary with datetime values converted to Unix timestamps (float)
+        """
+        for key, value in row_dict.items():
+            if isinstance(value, datetime):
+                row_dict[key] = value.timestamp()
+        return row_dict
 
     @staticmethod
     def _is_permanent_failure(error: IngressError) -> bool:
@@ -880,6 +955,8 @@ class QuestDBProvider:
         """
         Query price data.
 
+        ✅ CRITICAL FIX: Converts datetime objects to Unix timestamps.
+
         Args:
             symbol: Trading pair
             start_time: Start timestamp (optional)
@@ -887,7 +964,7 @@ class QuestDBProvider:
             limit: Maximum rows to return
 
         Returns:
-            DataFrame with price data
+            DataFrame with price data (timestamps as Unix floats)
         """
         await self.initialize()
 
@@ -912,18 +989,21 @@ class QuestDBProvider:
         if not rows:
             return pd.DataFrame()
 
-        df = pd.DataFrame([dict(row) for row in rows])
+        # Convert datetime objects to Unix timestamps
+        df = pd.DataFrame([self._convert_datetime_to_timestamp(dict(row)) for row in rows])
         return df
 
     async def get_latest_price(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
         Get latest price for symbol.
 
+        ✅ CRITICAL FIX: Converts datetime objects to Unix timestamps.
+
         Args:
             symbol: Trading pair
 
         Returns:
-            Price dictionary or None
+            Price dictionary with timestamps as Unix floats, or None
         """
         await self.initialize()
 
@@ -937,7 +1017,7 @@ class QuestDBProvider:
             row = await conn.fetchrow(query, symbol)
 
         if row:
-            return dict(row)
+            return self._convert_datetime_to_timestamp(dict(row))
         return None
 
     async def get_indicators(
@@ -951,6 +1031,8 @@ class QuestDBProvider:
         """
         Query indicator data.
 
+        ✅ CRITICAL FIX: Converts datetime objects to Unix timestamps.
+
         Args:
             symbol: Trading pair
             indicator_ids: List of indicator IDs to filter (optional)
@@ -959,7 +1041,7 @@ class QuestDBProvider:
             limit: Maximum rows per indicator
 
         Returns:
-            DataFrame with indicator data
+            DataFrame with indicator data (timestamps as Unix floats)
         """
         await self.initialize()
 
@@ -990,7 +1072,8 @@ class QuestDBProvider:
         if not rows:
             return pd.DataFrame()
 
-        df = pd.DataFrame([dict(row) for row in rows])
+        # Convert datetime objects to Unix timestamps
+        df = pd.DataFrame([self._convert_datetime_to_timestamp(dict(row)) for row in rows])
         return df
 
     async def get_latest_indicators(
@@ -1044,6 +1127,8 @@ class QuestDBProvider:
         """
         Get resampled OHLCV data.
 
+        ✅ CRITICAL FIX: Converts datetime objects to Unix timestamps.
+
         Args:
             symbol: Trading pair
             interval: Resample interval ('1s', '1m', '5m', '1h', '1d')
@@ -1051,7 +1136,7 @@ class QuestDBProvider:
             end_time: End timestamp (optional)
 
         Returns:
-            DataFrame with resampled OHLCV
+            DataFrame with resampled OHLCV (timestamps as Unix floats)
         """
         await self.initialize()
 
@@ -1085,7 +1170,8 @@ class QuestDBProvider:
         if not rows:
             return pd.DataFrame()
 
-        df = pd.DataFrame([dict(row) for row in rows])
+        # Convert datetime objects to Unix timestamps
+        df = pd.DataFrame([self._convert_datetime_to_timestamp(dict(row)) for row in rows])
         return df
 
     # ========================================================================
@@ -1217,12 +1303,19 @@ class QuestDBProvider:
         """
         Execute arbitrary SQL query via PostgreSQL wire protocol.
 
+        ✅ CRITICAL FIX: Converts datetime objects to Unix timestamps (float).
+
+        QuestDB returns TIMESTAMP columns as Python datetime objects via asyncpg,
+        but the application expects Unix timestamp floats throughout. This conversion
+        prevents timedelta arithmetic errors (datetime - datetime produces timedelta,
+        which cannot be divided by int or passed to round()).
+
         Args:
             query: SQL query string
             params: Query parameters (optional)
 
         Returns:
-            List of result dictionaries
+            List of result dictionaries with datetime values converted to Unix timestamps
         """
         await self.initialize()
 
@@ -1233,7 +1326,13 @@ class QuestDBProvider:
                 else:
                     rows = await conn.fetch(query)
 
-            return [dict(row) for row in rows]
+            # Convert datetime objects to Unix timestamps (float)
+            results = []
+            for row in rows:
+                row_dict = self._convert_datetime_to_timestamp(dict(row))
+                results.append(row_dict)
+
+            return results
 
         except Exception as e:
             logger.error(f"Query execution failed: {e}\nQuery: {query}")
