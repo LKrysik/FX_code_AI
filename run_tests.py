@@ -25,7 +25,8 @@ Output Files:
 Detailed Mode (--detailed):
     - Full tracebacks with local variables (--tb=long --showlocals)
     - DEBUG-level logging to file (--log-file)
-    - Console logging enabled (--log-cli)
+    - Very verbose console output (-vv)
+    - Parallel execution for speed (pytest-xdist)
     - Timestamped output files
     - Perfect for debugging failing tests
 
@@ -220,8 +221,8 @@ def build_pytest_command(args, timestamp: str = None) -> tuple[List[str], dict]:
         cmd.extend([
             f'--log-file={log_file}',
             '--log-file-level=DEBUG',
-            '--log-cli',  # Enable console logging (boolean flag)
-            '--log-cli-level=INFO',
+            # NOTE: --log-cli is INCOMPATIBLE with pytest-xdist parallel execution (-n auto)
+            # Console output is already verbose with -vv, file logging captures everything
             '--tb=long',  # Full traceback
             '--showlocals',  # Show local variables in traceback
             '-vv',  # Very verbose
