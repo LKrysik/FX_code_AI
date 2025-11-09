@@ -738,18 +738,11 @@ class Container:
                 order_manager = await self.create_order_manager()
                 risk_manager = await self.create_risk_manager()
 
-                # ⚠️ CRITICAL: Create QuestDB connection pool for strategy persistence
+                # ✅ SINGLETON FIX: Use Container singleton instead of creating new instance
                 db_pool = None
                 try:
-                    from ..data_feed.questdb_provider import QuestDBProvider
-
-                    questdb_provider = QuestDBProvider(
-                        ilp_host='127.0.0.1',
-                        ilp_port=9009,
-                        pg_host='127.0.0.1',
-                        pg_port=8812
-                    )
-                    await questdb_provider.initialize()
+                    # ✅ USE SINGLETON: Reuses existing QuestDB connection pool
+                    questdb_provider = await self.create_questdb_provider()
 
                     # Get PostgreSQL connection pool for strategy persistence
                     db_pool = questdb_provider.pg_pool
@@ -757,7 +750,8 @@ class Container:
                     self.logger.info("container.strategy_manager_db_pool_created", {
                         "pg_host": "127.0.0.1",
                         "pg_port": 8812,
-                        "status": "connected"
+                        "status": "connected",
+                        "source": "singleton"
                     })
                 except Exception as e:
                     self.logger.warning("container.strategy_manager_db_pool_failed", {
@@ -955,18 +949,10 @@ class Container:
                 # ✅ STEP 0.1: QuestDB is REQUIRED (fail-fast) - not optional
                 try:
                     from ..data.data_collection_persistence_service import DataCollectionPersistenceService
-                    from ..data_feed.questdb_provider import QuestDBProvider
 
-                    # Create QuestDB provider
-                    questdb_provider = QuestDBProvider(
-                        ilp_host='127.0.0.1',
-                        ilp_port=9009,
-                        pg_host='127.0.0.1',
-                        pg_port=8812
-                    )
-
-                    # ✅ CRITICAL FIX: Initialize PostgreSQL connection pool
-                    await questdb_provider.initialize()
+                    # ✅ SINGLETON FIX: Use Container singleton instead of creating new instance
+                    # This reuses the existing QuestDB connection pool
+                    questdb_provider = await self.create_questdb_provider()
 
                     # ✅ CRITICAL FIX: Health check (fail-fast validation)
                     is_healthy = await questdb_provider.is_healthy()
@@ -1794,8 +1780,10 @@ class Container:
         ✅ ARCHITECTURE FIX: Single source of truth for QuestDB connections.
         Prevents duplicate connections from indicators_routes.py lazy init.
 
+        ✅ INITIALIZATION: Calls initialize() to create connection pools (idempotent).
+
         Returns:
-            Configured QuestDBProvider singleton
+            Configured and initialized QuestDBProvider singleton
         """
         async def _create():
             try:
@@ -1809,9 +1797,14 @@ class Container:
                     pg_port=8812
                 )
 
+                # ✅ CRITICAL: Initialize connection pools (PostgreSQL + ILP Sender)
+                # This is idempotent - safe to call multiple times
+                await provider.initialize()
+
                 self.logger.info("container.questdb_provider_created", {
                     "ilp_port": 9009,
-                    "pg_port": 8812
+                    "pg_port": 8812,
+                    "status": "initialized"
                 })
 
                 return provider
