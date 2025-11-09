@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from src.core.event_bus import EventBus
-from src.core.logger import StructuredLogger
+from src.core.logger import StructuredLogger, configure_module_logger
 from src.infrastructure.config.config_loader import get_settings_from_working_directory
 from src.infrastructure.container import Container
 from src.api.websocket_server import WebSocketAPIServer
@@ -130,6 +130,20 @@ def create_unified_app():
     settings = get_settings_from_working_directory()
     logger = StructuredLogger("UnifiedServer", settings.logging)
     event_bus = EventBus()
+
+    # Configure dedicated EventBus logger (logs to logs/event_bus.jsonl)
+    # ARCHITECTURE: EventBus is a critical component - separate logging for debugging
+    # This restores the dedicated event_bus.jsonl file that was removed in commit a4a6682
+    # when EventBus was simplified from 1169 to 294 lines
+    configure_module_logger(
+        module_name="src.core.event_bus",
+        log_file="logs/event_bus.jsonl",
+        level="DEBUG",
+        console_enabled=False,
+        max_file_size_mb=100,
+        backup_count=5
+    )
+
     container = Container(settings, event_bus, logger)
 
     @asynccontextmanager
