@@ -1135,17 +1135,42 @@ class Container:
         Create WebSocket server for real-time communication.
         Uses singleton pattern to prevent multiple instances.
 
+        JWT_SECRET Strategy:
+        1. Priority 1: settings.jwt_secret (from .env or config.json)
+        2. Priority 2: os.getenv("JWT_SECRET")
+        3. Priority 3: Auto-generate (development mode, non-persistent)
+
         Returns:
             Configured WebSocket server
         """
         def _create():
             try:
+                import secrets
+                import os
                 from ..api.websocket_server import WebSocketAPIServer
+
+                # ✅ JWT_SECRET Resolution Strategy
+                jwt_secret = getattr(self.settings, 'jwt_secret', None)
+
+                if not jwt_secret:
+                    jwt_secret = os.getenv("JWT_SECRET")
+
+                if not jwt_secret:
+                    # Auto-generate for development mode
+                    jwt_secret = secrets.token_urlsafe(32)
+                    self.logger.warning("container.jwt_secret_auto_generated", {
+                        "component": "WebSocketAPIServer",
+                        "message": "JWT_SECRET not found in settings or environment. Auto-generated for this session.",
+                        "persistence": "NON-PERSISTENT (will change on restart)",
+                        "security": "Development mode only - NOT recommended for production",
+                        "recommendation": "Set JWT_SECRET in .env file for production: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
+                    })
 
                 server = WebSocketAPIServer(
                     event_bus=self.event_bus,
                     logger=self.logger,
-                    settings=self.settings
+                    settings=self.settings,
+                    jwt_secret=jwt_secret  # ✅ FIX: Explicit jwt_secret parameter
                 )
                 return server
             except Exception as e:
@@ -1352,24 +1377,41 @@ class Container:
         Create operations API for dashboard and risk controls.
         Uses singleton pattern to prevent multiple instances.
 
+        JWT_SECRET Strategy (same as WebSocketAPIServer):
+        1. Priority 1: settings.jwt_secret (from .env or config.json)
+        2. Priority 2: os.getenv("JWT_SECRET")
+        3. Priority 3: Auto-generate (development mode, non-persistent)
+
         Returns:
             Configured operations API
         """
         async def _create():
             try:
+                import secrets
+                import os
                 from ..api.ops.ops_routes import OpsAPI
 
                 market_adapter = await self.create_live_market_adapter() # SessionManager is created by this
                 session_manager = market_adapter.session_manager
                 metrics_exporter = await self.create_metrics_exporter()
 
-                # Get JWT secret from settings or websocket server
-                websocket_server = await self.create_websocket_server()
-                jwt_secret = getattr(self.settings, 'jwt_secret', None) or getattr(
-                    websocket_server,
-                    'jwt_secret',
-                    'dev_jwt_secret_key'
-                )
+                # ✅ FIX: Remove circular dependency on websocket_server
+                # Use same JWT_SECRET resolution strategy as create_websocket_server()
+                jwt_secret = getattr(self.settings, 'jwt_secret', None)
+
+                if not jwt_secret:
+                    jwt_secret = os.getenv("JWT_SECRET")
+
+                if not jwt_secret:
+                    # Auto-generate for development mode
+                    jwt_secret = secrets.token_urlsafe(32)
+                    self.logger.warning("container.jwt_secret_auto_generated", {
+                        "component": "OpsAPI",
+                        "message": "JWT_SECRET not found in settings or environment. Auto-generated for this session.",
+                        "persistence": "NON-PERSISTENT (will change on restart)",
+                        "security": "Development mode only - NOT recommended for production",
+                        "recommendation": "Set JWT_SECRET in .env file for production: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
+                    })
 
                 api = OpsAPI(
                     market_adapter=market_adapter,
