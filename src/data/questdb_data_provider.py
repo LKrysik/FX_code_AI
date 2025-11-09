@@ -51,6 +51,8 @@ class QuestDBDataProvider:
         """
         List data collection sessions from database.
 
+        ✅ FIXED: Uses parameterized queries (SQL-safe)
+
         Args:
             limit: Maximum number of sessions to return
             status_filter: Filter by status ('active', 'completed', 'failed', 'stopped')
@@ -60,19 +62,24 @@ class QuestDBDataProvider:
             List of session dictionaries with metadata
         """
         try:
-            # Build query with filters
-            where_clauses = ["is_deleted = false"]  # Always filter soft-deleted sessions
+            where_clauses = ["is_deleted = false"]
+            params = []
+            param_idx = 1
 
+            # ✅ FIX: Use $N placeholders for all user inputs
             if status_filter:
-                where_clauses.append(f"status = '{status_filter}'")
+                where_clauses.append(f"status = ${param_idx}")
+                params.append(status_filter)
+                param_idx += 1
 
             if symbol_filter:
-                # QuestDB: Check if symbol exists in JSON array
-                # Note: Simplified search, may need improvement for exact match
-                where_clauses.append(f"symbols LIKE '%{symbol_filter}%'")
+                where_clauses.append(f"symbols LIKE ${param_idx}")
+                params.append(f"%{symbol_filter}%")  # ✅ Wildcard in param, not query
+                param_idx += 1
 
             where_clause = f"WHERE {' AND '.join(where_clauses)}"
 
+            # ✅ FIX: Parameterize LIMIT as well
             query = f"""
             SELECT session_id, status, symbols, data_types,
                    start_time, end_time, duration_seconds,
@@ -81,17 +88,19 @@ class QuestDBDataProvider:
             FROM data_collection_sessions
             {where_clause}
             ORDER BY created_at DESC
-            LIMIT {limit}
+            LIMIT ${param_idx}
             """
+            params.append(limit)
 
             self.logger.debug("questdb_data_provider.get_sessions_list", {
                 "query": query,
+                "param_count": len(params),
                 "limit": limit,
                 "status_filter": status_filter,
                 "symbol_filter": symbol_filter
             })
 
-            results = await self.db.execute_query(query)
+            results = await self.db.execute_query(query, params)
 
             # DEBUG: Log results to track deleted sessions issue
             self.logger.info("questdb_data_provider.get_sessions_list_results", {

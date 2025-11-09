@@ -325,7 +325,11 @@ class DataCollectionPersistenceService:
 
     async def get_session_metadata(self, session_id: str) -> Optional[Dict[str, Any]]:
         """
-        Get session metadata.
+        Get session metadata from database.
+
+        ✅ FIXED: Uses parameterized query (SQL-safe)
+        ✅ FIXED: Filters soft-deleted sessions (is_deleted = false)
+        ✅ FIXED: Propagates errors instead of swallowing
 
         Args:
             session_id: Session identifier
@@ -337,15 +341,18 @@ class DataCollectionPersistenceService:
         if session_id in self._active_sessions:
             return self._active_sessions[session_id].copy()
 
-        # Query database
+        # Query database with parameterized query
         try:
-            query = f"""
+            # ✅ FIX: Use $1 placeholder instead of string interpolation
+            # ✅ FIX: Add is_deleted = false filter
+            query = """
             SELECT * FROM data_collection_sessions
-            WHERE session_id = '{session_id}'
+            WHERE session_id = $1 AND is_deleted = false
             LIMIT 1
             """
+            params = [session_id]
 
-            results = await self.db_provider.execute_query(query)
+            results = await self.db_provider.execute_query(query, params)
             if results:
                 return results[0]
 
@@ -354,9 +361,10 @@ class DataCollectionPersistenceService:
         except Exception as e:
             self.logger.error("data_collection.get_session_failed", {
                 'session_id': session_id,
-                'error': str(e)
+                'error': str(e),
+                'error_type': type(e).__name__
             })
-            return None
+            raise  # ✅ FIX: Propagate error instead of swallowing
 
     def _start_cleanup_task(self):
         """

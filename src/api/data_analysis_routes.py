@@ -162,7 +162,7 @@ async def export_session_data(
     """
     try:
         # Validate export request
-        if not export_service.validate_export_request(session_id, format, symbol):
+        if not await export_service.validate_export_request(session_id, format, symbol):
             raise HTTPException(status_code=400, detail="Invalid export request parameters")
 
         # Get export estimate first
