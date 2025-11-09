@@ -51,6 +51,8 @@ class QuestDBDataProvider:
         """
         List data collection sessions from database.
 
+        ✅ FIXED: Uses parameterized queries (SQL-safe)
+
         Args:
             limit: Maximum number of sessions to return
             status_filter: Filter by status ('active', 'completed', 'failed', 'stopped')
@@ -60,19 +62,24 @@ class QuestDBDataProvider:
             List of session dictionaries with metadata
         """
         try:
-            # Build query with filters
-            where_clauses = ["is_deleted = false"]  # Always filter soft-deleted sessions
+            where_clauses = ["is_deleted = false"]
+            params = []
+            param_idx = 1
 
+            # ✅ FIX: Use $N placeholders for all user inputs
             if status_filter:
-                where_clauses.append(f"status = '{status_filter}'")
+                where_clauses.append(f"status = ${param_idx}")
+                params.append(status_filter)
+                param_idx += 1
 
             if symbol_filter:
-                # QuestDB: Check if symbol exists in JSON array
-                # Note: Simplified search, may need improvement for exact match
-                where_clauses.append(f"symbols LIKE '%{symbol_filter}%'")
+                where_clauses.append(f"symbols LIKE ${param_idx}")
+                params.append(f"%{symbol_filter}%")  # ✅ Wildcard in param, not query
+                param_idx += 1
 
             where_clause = f"WHERE {' AND '.join(where_clauses)}"
 
+            # ✅ FIX: Parameterize LIMIT as well
             query = f"""
             SELECT session_id, status, symbols, data_types,
                    start_time, end_time, duration_seconds,
@@ -81,17 +88,19 @@ class QuestDBDataProvider:
             FROM data_collection_sessions
             {where_clause}
             ORDER BY created_at DESC
-            LIMIT {limit}
+            LIMIT ${param_idx}
             """
+            params.append(limit)
 
             self.logger.debug("questdb_data_provider.get_sessions_list", {
                 "query": query,
+                "param_count": len(params),
                 "limit": limit,
                 "status_filter": status_filter,
                 "symbol_filter": symbol_filter
             })
 
-            results = await self.db.execute_query(query)
+            results = await self.db.execute_query(query, params)
 
             # DEBUG: Log results to track deleted sessions issue
             self.logger.info("questdb_data_provider.get_sessions_list_results", {
@@ -135,8 +144,9 @@ class QuestDBDataProvider:
             Dictionary includes 'is_deleted' field for explicit deletion check.
         """
         try:
+            # ✅ SQL INJECTION FIX: Use parameterized query with $1 placeholder
             # Build WHERE clause based on include_deleted parameter
-            where_clause = f"session_id = '{session_id}'"
+            where_clause = "session_id = $1"
             if not include_deleted:
                 where_clause += " AND is_deleted = false"
 
@@ -150,13 +160,16 @@ class QuestDBDataProvider:
             LIMIT 1
             """
 
+            # ✅ SQL INJECTION FIX: Pass session_id as parameter
+            params = [session_id]
+
             self.logger.debug("questdb_data_provider.get_session_metadata", {
                 "session_id": session_id,
                 "include_deleted": include_deleted,
                 "query": query
             })
 
-            results = await self.db.execute_query(query)
+            results = await self.db.execute_query(query, params)
 
             if not results:
                 self.logger.warning("questdb_data_provider.session_not_found", {
@@ -206,25 +219,45 @@ class QuestDBDataProvider:
             List of price tick dictionaries
         """
         try:
-            # Build time filter
+            # ✅ SQL INJECTION FIX: Use parameterized query
+            params = [session_id, symbol]
+            param_idx = 3  # Start at 3 since $1=session_id, $2=symbol
+
+            # Build time filter with parameterized placeholders
             time_filters = []
             if start_time:
                 # Convert to epoch microseconds (QuestDB timestamp format)
                 start_us = int(start_time.timestamp() * 1_000_000)
-                time_filters.append(f"timestamp >= {start_us}")
+                time_filters.append(f"timestamp >= ${param_idx}")
+                params.append(start_us)
+                param_idx += 1
 
             if end_time:
                 end_us = int(end_time.timestamp() * 1_000_000)
-                time_filters.append(f"timestamp <= {end_us}")
+                time_filters.append(f"timestamp <= ${param_idx}")
+                params.append(end_us)
+                param_idx += 1
 
             time_clause = f"AND {' AND '.join(time_filters)}" if time_filters else ""
-            limit_clause = f"LIMIT {limit}" if limit else ""
-            offset_clause = f"OFFSET {offset}" if offset > 0 else ""
+
+            # Build limit/offset clauses with parameterized placeholders
+            if limit:
+                limit_clause = f"LIMIT ${param_idx}"
+                params.append(limit)
+                param_idx += 1
+            else:
+                limit_clause = ""
+
+            if offset > 0:
+                offset_clause = f"OFFSET ${param_idx}"
+                params.append(offset)
+            else:
+                offset_clause = ""
 
             query = f"""
             SELECT timestamp, price, volume, quote_volume
             FROM tick_prices
-            WHERE session_id = '{session_id}' AND symbol = '{symbol}'
+            WHERE session_id = $1 AND symbol = $2
             {time_clause}
             ORDER BY timestamp ASC
             {limit_clause}
@@ -238,7 +271,7 @@ class QuestDBDataProvider:
                 "offset": offset
             })
 
-            results = await self.db.execute_query(query)
+            results = await self.db.execute_query(query, params)
             return results
 
         except Exception as e:
@@ -274,26 +307,46 @@ class QuestDBDataProvider:
             List of orderbook snapshot dictionaries
         """
         try:
-            # Build time filter
+            # ✅ SQL INJECTION FIX: Use parameterized query
+            params = [session_id, symbol]
+            param_idx = 3  # Start at 3 since $1=session_id, $2=symbol
+
+            # Build time filter with parameterized placeholders
             time_filters = []
             if start_time:
                 start_us = int(start_time.timestamp() * 1_000_000)
-                time_filters.append(f"timestamp >= {start_us}")
+                time_filters.append(f"timestamp >= ${param_idx}")
+                params.append(start_us)
+                param_idx += 1
 
             if end_time:
                 end_us = int(end_time.timestamp() * 1_000_000)
-                time_filters.append(f"timestamp <= {end_us}")
+                time_filters.append(f"timestamp <= ${param_idx}")
+                params.append(end_us)
+                param_idx += 1
 
             time_clause = f"AND {' AND '.join(time_filters)}" if time_filters else ""
-            limit_clause = f"LIMIT {limit}" if limit else ""
-            offset_clause = f"OFFSET {offset}" if offset > 0 else ""
+
+            # Build limit/offset clauses with parameterized placeholders
+            if limit:
+                limit_clause = f"LIMIT ${param_idx}"
+                params.append(limit)
+                param_idx += 1
+            else:
+                limit_clause = ""
+
+            if offset > 0:
+                offset_clause = f"OFFSET ${param_idx}"
+                params.append(offset)
+            else:
+                offset_clause = ""
 
             query = f"""
             SELECT timestamp,
                    bid_price_1, bid_qty_1, bid_price_2, bid_qty_2, bid_price_3, bid_qty_3,
                    ask_price_1, ask_qty_1, ask_price_2, ask_qty_2, ask_price_3, ask_qty_3
             FROM tick_orderbook
-            WHERE session_id = '{session_id}' AND symbol = '{symbol}'
+            WHERE session_id = $1 AND symbol = $2
             {time_clause}
             ORDER BY timestamp ASC
             {limit_clause}
@@ -307,7 +360,7 @@ class QuestDBDataProvider:
                 "offset": offset
             })
 
-            results = await self.db.execute_query(query)
+            results = await self.db.execute_query(query, params)
 
             # Convert flat structure to bids/asks arrays
             for row in results:
@@ -367,22 +420,23 @@ class QuestDBDataProvider:
             # Get per-symbol counts
             symbol_stats = []
             for symbol in session.get('symbols', []):
+                # ✅ SQL INJECTION FIX: Use parameterized queries
                 # Count prices
-                price_query = f"""
+                price_query = """
                 SELECT COUNT(*) as cnt
                 FROM tick_prices
-                WHERE session_id = '{session_id}' AND symbol = '{symbol}'
+                WHERE session_id = $1 AND symbol = $2
                 """
-                price_result = await self.db.execute_query(price_query)
+                price_result = await self.db.execute_query(price_query, [session_id, symbol])
                 price_count = price_result[0]['cnt'] if price_result else 0
 
                 # Count orderbooks
-                orderbook_query = f"""
+                orderbook_query = """
                 SELECT COUNT(*) as cnt
                 FROM tick_orderbook
-                WHERE session_id = '{session_id}' AND symbol = '{symbol}'
+                WHERE session_id = $1 AND symbol = $2
                 """
-                orderbook_result = await self.db.execute_query(orderbook_query)
+                orderbook_result = await self.db.execute_query(orderbook_query, [session_id, symbol])
                 orderbook_count = orderbook_result[0]['cnt'] if orderbook_result else 0
 
                 symbol_stats.append({
@@ -428,15 +482,17 @@ class QuestDBDataProvider:
             Number of records
         """
         try:
+            # ✅ SQL INJECTION FIX: Use parameterized query
+            # Table name is validated (not from user input), safe to use in f-string
             table = 'tick_prices' if data_type == 'prices' else 'tick_orderbook'
 
             query = f"""
             SELECT COUNT(*) as cnt
             FROM {table}
-            WHERE session_id = '{session_id}' AND symbol = '{symbol}'
+            WHERE session_id = $1 AND symbol = $2
             """
 
-            results = await self.db.execute_query(query)
+            results = await self.db.execute_query(query, [session_id, symbol])
             return results[0]['cnt'] if results else 0
 
         except Exception as e:
