@@ -173,6 +173,7 @@ class QuestDBProvider:
         self._sender_pool: List[Sender] = []
         self._sender_pool_lock = asyncio.Lock()
         self._sender_available = asyncio.Condition(self._sender_pool_lock)
+        self._ilp_available = True  # ✅ GRACEFUL DEGRADATION: Track ILP availability
 
         logger.info(
             f"QuestDBProvider initialized (ILP: {ilp_host}:{ilp_port}, PG: {pg_host}:{pg_port}, "
@@ -209,9 +210,10 @@ class QuestDBProvider:
                 )
                 logger.info(f"PostgreSQL pool created ({self.pg_pool_size} connections)")
 
-            # ✅ PERFORMANCE FIX: Initialize ILP Sender pool
+            # ✅ PERFORMANCE FIX: Initialize ILP Sender pool (OPTIONAL - graceful degradation)
             async with self._sender_pool_lock:
                 if not self._sender_pool:
+                    ilp_initialization_failed = False
                     for i in range(self.ilp_sender_pool_size):
                         try:
                             sender = Sender(Protocol.Tcp, self.ilp_host, self.ilp_port)
@@ -227,9 +229,27 @@ class QuestDBProvider:
                                 except:
                                     pass
                             self._sender_pool.clear()
-                            raise RuntimeError(f"Failed to initialize ILP Sender pool: {e}") from e
+                            ilp_initialization_failed = True
+                            self._ilp_available = False  # ✅ GRACEFUL DEGRADATION: Mark ILP as unavailable
 
-                    logger.info(f"ILP Sender pool created ({len(self._sender_pool)} connections)")
+                            # ✅ GRACEFUL DEGRADATION: Log warning but continue with PostgreSQL-only mode
+                            logger.warning(
+                                "questdb_provider.ilp_initialization_failed",
+                                {
+                                    "error": str(e),
+                                    "ilp_host": self.ilp_host,
+                                    "ilp_port": self.ilp_port,
+                                    "fallback": "PostgreSQL protocol only",
+                                    "impact": "Writes will be slower (PostgreSQL instead of ILP)",
+                                    "solution": "Verify QuestDB ILP endpoint is enabled: check conf/server.conf -> line.tcp.enabled=true"
+                                }
+                            )
+                            break  # Stop trying to create more senders
+
+                    if self._sender_pool:
+                        logger.info(f"ILP Sender pool created ({len(self._sender_pool)} connections)")
+                    elif ilp_initialization_failed:
+                        logger.warning(f"QuestDB running in DEGRADED MODE: PostgreSQL protocol only (ILP unavailable)")
 
             # ✅ MARK AS INITIALIZED: Prevents re-initialization
             self._initialized = True
@@ -321,6 +341,7 @@ class QuestDBProvider:
 
         ✅ PERFORMANCE FIX: Reuses pooled connections instead of creating new ones.
         ✅ CRITICAL FIX: On-demand sender creation when pool is exhausted.
+        ✅ GRACEFUL DEGRADATION: Raises RuntimeError if ILP is unavailable.
 
         This prevents deadlock when all senders fail and replacement attempts fail.
         Instead of waiting forever, we attempt to create a new sender on-demand.
@@ -329,8 +350,16 @@ class QuestDBProvider:
             Sender instance from the pool or newly created
 
         Raises:
-            RuntimeError: If unable to create sender after max retries
+            RuntimeError: If ILP is unavailable or unable to create sender after max retries
         """
+        # ✅ GRACEFUL DEGRADATION: Check if ILP is available before attempting
+        if not self._ilp_available:
+            raise RuntimeError(
+                "ILP (InfluxDB Line Protocol) is not available. "
+                "QuestDB is running in PostgreSQL-only mode. "
+                "To enable ILP, verify QuestDB configuration: conf/server.conf -> line.tcp.enabled=true"
+            )
+
         async with self._sender_available:
             max_create_attempts = 3
             create_retry_delay = 1.0
