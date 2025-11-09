@@ -526,19 +526,23 @@ class HealthMonitor:
         with self._lock:
             return self._service_status_cache.get(service_name)
 
-    def enable_service(self, service_name: str):
-        """Enable a registered service"""
+    def enable_service(self, service_name: str) -> bool:
+        """Enable a registered service. Returns True if successful, False if service not found."""
         with self._lock:
             if service_name in self.registered_services:
                 self.registered_services[service_name]['enabled'] = True
                 logger.info(f"Enabled service: {service_name}")
+                return True
+            return False
 
-    def disable_service(self, service_name: str):
-        """Disable a registered service"""
+    def disable_service(self, service_name: str) -> bool:
+        """Disable a registered service. Returns True if successful, False if service not found."""
         with self._lock:
             if service_name in self.registered_services:
                 self.registered_services[service_name]['enabled'] = False
                 logger.info(f"Disabled service: {service_name}")
+                return True
+            return False
 
     def get_health_status(self) -> Dict[str, Any]:
         """Get comprehensive health status"""

@@ -26,6 +26,16 @@
         "value": 10
       }
     },
+    "ze1_close": {
+      "conditions": [
+        {
+          "id": "momentum_close",
+          "indicatorId": "momentum_reversal",
+          "operator": ">",
+          "value": 50.0
+        }
+      ]
+    },
     "o1_cancel": {
       "timeoutSeconds": 300,
       "conditions": [
@@ -73,6 +83,9 @@
         "type": "fixed",
         "value": 100
       }
+    },
+    "ze1_close": {
+      "conditions": []
     },
     "o1_cancel": {
       "timeoutSeconds": 60,

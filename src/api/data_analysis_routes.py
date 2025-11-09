@@ -74,19 +74,10 @@ async def get_session_analysis(
             symbols = session_info.get('symbols', [])
 
             if symbols:
-                chart_data = await analysis_service.get_session_chart_data(session_id, symbols[0], max_points=1000)
-                if chart_data:
-                    # Convert chart data back to raw format for quality assessment
-                    raw_data = [
-                        {
-                            'timestamp': point['timestamp'],
-                            'price': point['price'],
-                            'volume': point['volume']
-                        } for point in chart_data
-                    ]
-
-                    quality_report = await quality_service.get_quality_report(session_id, raw_data)
-                    analysis['quality'] = quality_report
+                # ✅ BUG-005 FIX: get_quality_report now takes symbol (string) instead of raw_data (list)
+                # It loads data from QuestDB internally
+                quality_report = await quality_service.get_quality_report(session_id, symbols[0])
+                analysis['quality'] = quality_report
 
         logger.info("session_analysis_requested", {
             "session_id": session_id,
@@ -162,7 +153,7 @@ async def export_session_data(
     """
     try:
         # Validate export request
-        if not export_service.validate_export_request(session_id, format, symbol):
+        if not await export_service.validate_export_request(session_id, format, symbol):
             raise HTTPException(status_code=400, detail="Invalid export request parameters")
 
         # Get export estimate first
