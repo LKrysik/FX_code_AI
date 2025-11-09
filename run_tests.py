@@ -23,8 +23,9 @@ Output Files:
     test_log_TIMESTAMP.txt               # Detailed log file (if --detailed)
 
 Detailed Mode (--detailed):
-    - Full tracebacks with local variables
-    - DEBUG-level logging to file
+    - Full tracebacks with local variables (--tb=long --showlocals)
+    - DEBUG-level logging to file (--log-file)
+    - Console logging enabled (--log-cli)
     - Timestamped output files
     - Perfect for debugging failing tests
 
@@ -219,7 +220,7 @@ def build_pytest_command(args, timestamp: str = None) -> tuple[List[str], dict]:
         cmd.extend([
             f'--log-file={log_file}',
             '--log-file-level=DEBUG',
-            '--log-cli=true',
+            '--log-cli',  # Enable console logging (boolean flag)
             '--log-cli-level=INFO',
             '--tb=long',  # Full traceback
             '--showlocals',  # Show local variables in traceback
