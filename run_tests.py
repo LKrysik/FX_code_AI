@@ -14,6 +14,21 @@ Usage:
     python run_tests.py --verbose        # Verbose output
     python run_tests.py --coverage       # With coverage report
     python run_tests.py --html-report    # Generate HTML report
+    python run_tests.py --detailed       # MAXIMUM detail: full logs, tracebacks, local vars
+
+Output Files:
+    test_results.xml                     # JUnit XML (ALWAYS generated, for CI/CD)
+    test_report.html                     # HTML report (if --html-report)
+    htmlcov/index.html                   # Coverage report (if --coverage)
+    test_log_TIMESTAMP.txt               # Detailed log file (if --detailed)
+
+Detailed Mode (--detailed):
+    - Full tracebacks with local variables (--tb=long --showlocals)
+    - DEBUG-level logging to file (--log-file)
+    - Very verbose console output (-vv)
+    - Parallel execution for speed (pytest-xdist)
+    - Timestamped output files
+    - Perfect for debugging failing tests
 
 Frontend Unit Tests (Jest):
     cd frontend && npm test              # Run Jest unit tests
@@ -24,11 +39,14 @@ Examples:
     python run_tests.py --api --verbose
     python run_tests.py --frontend --coverage
     python run_tests.py --all --html-report
+    python run_tests.py --api --detailed              # Maximum debug info
+    python run_tests.py --detailed --html-report      # All reports + detailed logs
 
 Notes:
     - This runner executes backend E2E tests (pytest) in tests_e2e/
     - Frontend unit tests (Jest) are in frontend/src/__tests__/
     - Run frontend tests separately: cd frontend && npm test
+    - JUnit XML is ALWAYS generated for CI/CD compatibility
 """
 
 import sys
@@ -38,6 +56,7 @@ import os
 from pathlib import Path
 import time
 from typing import List
+from datetime import datetime
 
 # ANSI color codes for output
 class Colors:
@@ -136,9 +155,35 @@ def check_prerequisites() -> bool:
     return all_ok
 
 
-def build_pytest_command(args) -> List[str]:
-    """Build pytest command based on arguments"""
+def validate_command_compatibility(cmd: List[str]) -> tuple[bool, str]:
+    """Validate pytest command for known incompatibilities
+
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    # Check for known incompatible flag combinations
+    has_parallel = '-n' in cmd or any('--numprocesses' in arg for arg in cmd)
+    has_log_cli = '--log-cli' in cmd or any('--log-cli=' in arg for arg in cmd)
+
+    if has_parallel and has_log_cli:
+        return False, (
+            "ERROR: --log-cli is incompatible with pytest-xdist parallel execution (-n).\n"
+            "Parallel execution spawns worker processes with separate stdout/stderr.\n"
+            "Solution: Use --log-file for file-based logging (works with parallel execution)."
+        )
+
+    # All checks passed
+    return True, ""
+
+
+def build_pytest_command(args, timestamp: str = None) -> tuple[List[str], dict]:
+    """Build pytest command based on arguments
+
+    Returns:
+        tuple: (command list, dict of generated file paths)
+    """
     cmd = [sys.executable, '-m', 'pytest']
+    generated_files = {}
 
     # Determine test path
     if args.api:
@@ -155,7 +200,7 @@ def build_pytest_command(args) -> List[str]:
         cmd.extend(['-m', 'not slow'])
 
     # Verbosity
-    if args.verbose:
+    if args.verbose or args.detailed:
         cmd.append('-vv')
     else:
         cmd.append('-v')
@@ -166,20 +211,52 @@ def build_pytest_command(args) -> List[str]:
             '--cov=src',
             '--cov-report=term-missing',
             '--cov-report=html:htmlcov',
+            '--cov-report=xml:coverage.xml',  # For CI/CD
         ])
+        generated_files['coverage_html'] = 'htmlcov/index.html'
+        generated_files['coverage_xml'] = 'coverage.xml'
+
+    # Use provided timestamp or generate new one
+    if timestamp is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     # HTML report
     if args.html_report:
+        html_file = f'test_report_{timestamp}.html' if args.detailed else 'test_report.html'
         cmd.extend([
-            '--html=test_report.html',
+            f'--html={html_file}',
             '--self-contained-html'
         ])
+        generated_files['html_report'] = html_file
 
-    # Output formatting
+    # JUnit XML report (always generate for CI/CD compatibility)
+    junit_file = f'test_results_{timestamp}.xml' if args.detailed else 'test_results.xml'
     cmd.extend([
-        '--tb=short',  # Shorter traceback
-        '--color=yes',  # Colored output
+        f'--junitxml={junit_file}',
     ])
+    generated_files['junit_xml'] = junit_file
+
+    # Detailed logging
+    if args.detailed:
+        log_file = f'test_log_{timestamp}.txt'
+        cmd.extend([
+            f'--log-file={log_file}',
+            '--log-file-level=DEBUG',
+            # NOTE: --log-cli is INCOMPATIBLE with pytest-xdist parallel execution (-n auto)
+            # Console output is already verbose with -vv, file logging captures everything
+            '--tb=long',  # Full traceback
+            '--showlocals',  # Show local variables in traceback
+            '-vv',  # Very verbose
+        ])
+        generated_files['detailed_log'] = log_file
+    else:
+        # Output formatting
+        cmd.extend([
+            '--tb=short',  # Shorter traceback
+        ])
+
+    # Always colored output
+    cmd.append('--color=yes')
 
     # Timeout (10 minutes max)
     cmd.extend(['--timeout=600'])
@@ -196,7 +273,7 @@ def build_pytest_command(args) -> List[str]:
     except Exception:
         pass
 
-    return cmd
+    return cmd, generated_files
 
 
 def run_tests(cmd: List[str]) -> int:
@@ -206,6 +283,15 @@ def run_tests(cmd: List[str]) -> int:
     # Debug: Show Python executable
     print_info(f"Python: {sys.executable}")
     print_info(f"Command: {' '.join(cmd)}\n")
+
+    # Pre-flight validation
+    is_valid, error_msg = validate_command_compatibility(cmd)
+    if not is_valid:
+        print_error("Command Validation Failed:")
+        print(error_msg)
+        print_warning("\nThis is a protection against known incompatibilities.")
+        print_info("If you believe this is incorrect, please report as a bug.")
+        return 1
 
     start_time = time.time()
 
@@ -263,6 +349,7 @@ Frontend Unit Tests (Jest):
     parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
     parser.add_argument('--coverage', action='store_true', help='Generate coverage report')
     parser.add_argument('--html-report', action='store_true', help='Generate HTML test report')
+    parser.add_argument('--detailed', action='store_true', help='Maximum detail: full logs, tracebacks, local vars (generates timestamped files)')
     parser.add_argument('--skip-prereq', action='store_true', help='Skip prerequisite checks')
 
     args = parser.parse_args()
@@ -277,24 +364,40 @@ Frontend Unit Tests (Jest):
             print_error("Prerequisites not met. Install required packages or use --skip-prereq")
             return 1
 
+    # Generate timestamp once for consistency
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
     # Build and run pytest command
-    cmd = build_pytest_command(args)
+    cmd, generated_files = build_pytest_command(args, timestamp)
     exit_code = run_tests(cmd)
 
     # Print summary
+    print_header("Test Run Summary")
+
     if exit_code == 0:
-        print_header("Test Run Summary")
         print_success("All tests passed! ✓")
-
-        if args.coverage:
-            print_info("Coverage report: htmlcov/index.html")
-
-        if args.html_report:
-            print_info("Test report: test_report.html")
     else:
-        print_header("Test Run Summary")
         print_error(f"Tests failed with exit code {exit_code}")
-        print_info("Run with --verbose for more details")
+        if not args.verbose and not args.detailed:
+            print_info("Run with --verbose or --detailed for more information")
+
+    # Show generated reports
+    print("\n" + Colors.BOLD + "Generated Reports:" + Colors.ENDC)
+
+    # Display all generated files
+    for file_type, file_path in generated_files.items():
+        if os.path.exists(file_path):
+            if file_type == 'detailed_log':
+                print_success(f"Detailed Log: {file_path}")
+                print_info("  → Full tracebacks, local variables, DEBUG logs")
+            elif file_type == 'junit_xml':
+                print_info(f"JUnit XML: {file_path}")
+            elif file_type == 'html_report':
+                print_info(f"HTML Report: {file_path}")
+            elif file_type == 'coverage_html':
+                print_info(f"Coverage HTML: {file_path}")
+            elif file_type == 'coverage_xml':
+                print_info(f"Coverage XML: {file_path}")
 
     return exit_code
 

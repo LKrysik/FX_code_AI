@@ -156,6 +156,8 @@ class DataExportService:
         ✅ BUG-003 FIX: Changed from filesystem to QuestDB validation
         ✅ BUG-003 FIX: Made async (required for DB queries)
 
+        ✅ BUG-004 FIX: Converted to async and uses QuestDB instead of filesystem
+
         Args:
             session_id: Session identifier
             format: Export format
@@ -164,37 +166,29 @@ class DataExportService:
         Returns:
             True if request is valid
         """
-        # Validate format
-        if format not in ["csv", "json", "zip"]:
-            logger.debug(f"Invalid export format: {format}")
-            return False
-
-        # ✅ FIX: Query QuestDB to check if session exists
         try:
-            metadata = await self.db_provider.get_session_metadata(session_id)
-            if not metadata:
-                logger.debug(f"Session not found: {session_id}")
+            # Validate format
+            if format not in ["csv", "json", "zip"]:
+                logger.warning(f"Invalid export format: {format}")
                 return False
 
-            # ✅ FIX: Validate symbol if specified
-            if symbol:
-                symbols = metadata.get('symbols', [])
-                # Handle case where symbols might be stored as JSON string
-                if isinstance(symbols, str):
-                    try:
-                        symbols = json.loads(symbols)
-                    except json.JSONDecodeError:
-                        logger.warning(f"Failed to parse symbols JSON for session {session_id}")
-                        symbols = []
+            # Validate session exists in QuestDB
+            session_meta = await self._load_session_metadata(session_id)
+            if not session_meta:
+                logger.warning(f"Session not found: {session_id}")
+                return False
 
+            # Validate symbol if specified
+            if symbol:
+                symbols = session_meta.get('symbols', [])
                 if symbol not in symbols:
-                    logger.debug(f"Symbol {symbol} not in session {session_id}")
+                    logger.warning(f"Symbol {symbol} not in session {session_id} symbols: {symbols}")
                     return False
 
             return True
 
         except Exception as e:
-            logger.error(f"Failed to validate export request for session {session_id}: {e}")
+            logger.error(f"Error validating export request for session {session_id}: {e}")
             return False
 
     async def get_export_estimate(self, session_id: str, symbol: str = None) -> Dict[str, Any]:

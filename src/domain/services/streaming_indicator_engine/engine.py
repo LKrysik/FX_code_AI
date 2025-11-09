@@ -484,14 +484,14 @@ class StreamingIndicatorEngine:
         """
         return self._algorithm_registry
 
-    def add_indicator(self,
+    async def add_indicator(self,
                       symbol: str,
                       indicator_type: IndicatorType,
                       timeframe: str = "1m",
                       period: int = 20,
                       **kwargs) -> str:
         """Add a streaming indicator with memory and concurrency safety"""
-        with self._data_lock:
+        async with self._data_lock:
             # ✅ REFACTORING: Delegate memory check to MemoryMonitor
             if not self._memory_monitor.check_limits():
                 raise MemoryError(f"Memory limit exceeded ({self.MAX_MEMORY_MB}MB). Cannot add indicator.")
@@ -762,7 +762,7 @@ class StreamingIndicatorEngine:
                 "cache_size_after_cleanup": len(self._cache_manager._cache)
             })
 
-    def _check_memory_limits(self) -> bool:
+    async def _check_memory_limits(self) -> bool:
         """
         ✅ REFACTORING: Check memory limits and trigger appropriate cleanup.
 
@@ -781,17 +781,17 @@ class StreamingIndicatorEngine:
 
         # Execute appropriate cleanup based on severity
         if memory_pct >= 95:  # Emergency threshold
-            self._emergency_cleanup()
+            await self._emergency_cleanup()
         elif memory_pct >= 85:  # Force cleanup threshold
-            self._force_cleanup()
+            await self._force_cleanup()
         else:  # Standard cleanup threshold (70%)
             self._cleanup_expired_data()
 
         return False  # Indicate cleanup was triggered
 
-    def _force_cleanup(self) -> None:
+    async def _force_cleanup(self) -> None:
         """✅ CRITICAL FIX: Force cleanup when memory limits exceeded"""
-        with self._data_lock:
+        async with self._data_lock:
             # Remove oldest indicators first
             indicators_to_remove = []
             current_time = time.time()
@@ -829,9 +829,9 @@ class StreamingIndicatorEngine:
                 "remaining_indicators": len(self._indicators)
             })
 
-    def _emergency_cleanup(self) -> None:
+    async def _emergency_cleanup(self) -> None:
         """✅ PHASE 2 FIX: Emergency cleanup for critical memory situations (24/7 stability)"""
-        with self._data_lock:
+        async with self._data_lock:
             current_time = time.time()
             cleanup_stats = {
                 "indicators_removed": 0,
@@ -1054,7 +1054,7 @@ class StreamingIndicatorEngine:
 
         except Exception as e:
             # ✅ CRITICAL FIX: Rollback on error
-            self._rollback_to_checkpoint(checkpoint)
+            await self._rollback_to_checkpoint(checkpoint)
             self.logger.error("streaming_indicator_engine.market_data_error", {
                 "symbol": symbol,
                 "error": str(e),
@@ -1158,14 +1158,14 @@ class StreamingIndicatorEngine:
 
         return checkpoint
 
-    def _rollback_to_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+    async def _rollback_to_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
         """✅ CRITICAL FIX: Rollback data to checkpoint state"""
         if not checkpoint:
             return
 
         symbol = checkpoint["symbol"]
 
-        with self._data_lock:
+        async with self._data_lock:
             # Rollback price data
             for price_key, original_length in checkpoint["price_data_lengths"].items():
                 if price_key in self._price_data:
@@ -2547,9 +2547,9 @@ class StreamingIndicatorEngine:
             if key.startswith(symbol)
         ]
     
-    def remove_indicator(self, indicator_key: str) -> bool:
+    async def remove_indicator(self, indicator_key: str) -> bool:
         """Remove an indicator with proper cleanup"""
-        with self._data_lock:
+        async with self._data_lock:
             if indicator_key in self._indicators:
                 indicator = self._indicators[indicator_key]
                 symbol = indicator.symbol
@@ -2661,7 +2661,7 @@ class StreamingIndicatorEngine:
             ValueError: If validation fails
             RuntimeError: If repository is not configured
         """
-        with self._data_lock:
+        async with self._data_lock:
             # Check repository configuration
             # variant_repository is always present (validated in __init__)
 
@@ -2718,9 +2718,10 @@ class StreamingIndicatorEngine:
 
             return variant_id
 
-    def get_variant(self, variant_id: str) -> Optional[IndicatorVariant]:
+    async def get_variant(self, variant_id: str) -> Optional[IndicatorVariant]:
         """Get variant by ID"""
-        return self._variants.get(variant_id)
+        async with self._data_lock:
+            return self._variants.get(variant_id)
 
     def list_variants(self, variant_type: str = None) -> List[IndicatorVariant]:
         """List variants, optionally filtered by type"""
@@ -2751,7 +2752,7 @@ class StreamingIndicatorEngine:
             RuntimeError: If repository is not configured
             ValueError: If parameter validation fails
         """
-        with self._data_lock:
+        async with self._data_lock:
             # variant_repository is always present (validated in __init__)
 
             if variant_id not in self._variants:
@@ -2793,7 +2794,7 @@ class StreamingIndicatorEngine:
         Raises:
             RuntimeError: If repository is not configured
         """
-        with self._data_lock:
+        async with self._data_lock:
             # variant_repository is always present (validated in __init__)
 
             if variant_id not in self._variants:
@@ -2829,20 +2830,20 @@ class StreamingIndicatorEngine:
 
             return True
 
-    def create_indicator_from_variant(self,
+    async def create_indicator_from_variant(self,
                                     symbol: str,
                                     variant_id: str,
                                     timeframe: str = "1m",
                                     scope: str = None) -> Optional[str]:
         """Create an indicator instance from a variant"""
-        with self._data_lock:
+        async with self._data_lock:
             variant = self._variants.get(variant_id)
             if not variant:
                 self.logger.warning("indicator_variant.not_found", {"variant_id": variant_id})
                 return None
 
             # Create indicator using variant parameters
-            return self.add_indicator(
+            return await self.add_indicator(
                 symbol=symbol,
                 indicator_type=IndicatorType(variant.base_indicator_type),
                 timeframe=timeframe,
@@ -2899,9 +2900,9 @@ class StreamingIndicatorEngine:
         else:
             return False
 
-    def get_performance_metrics(self) -> Dict[str, Any]:
+    async def get_performance_metrics(self) -> Dict[str, Any]:
         """✅ CRITICAL FIX: Get comprehensive performance metrics"""
-        with self._data_lock:
+        async with self._data_lock:
             # Update data structure sizes
             self._performance_metrics["data_structures_size"] = {
                 "price_data": len(self._price_data),
@@ -3382,17 +3383,17 @@ class StreamingIndicatorEngine:
 
     # ===================== PUBLIC API METHODS FOR EXTERNAL ACCESS (TASK 2) =====================
     
-    def get_indicator_config(self, indicator_key: str) -> Optional[Dict[str, Any]]:
+    async def get_indicator_config(self, indicator_key: str) -> Optional[Dict[str, Any]]:
         """
         Public API method to access indicator configuration without exposing private fields.
-        
+
         Args:
             indicator_key: Unique identifier for the indicator
-            
+
         Returns:
             Dictionary containing indicator configuration or None if not found
         """
-        with self._data_lock:
+        async with self._data_lock:
             indicator = self._indicators.get(indicator_key)
             if not indicator:
                 return None
@@ -3425,7 +3426,7 @@ class StreamingIndicatorEngine:
             True if stored successfully, False otherwise
         """
         try:
-            with self._data_lock:
+            async with self._data_lock:
                 # Store the value (this could trigger events for persistence)
                 # Publish event for persistence layer to pick up
                 await self.event_bus.publish("indicator_value_calculated", {
@@ -3450,18 +3451,18 @@ class StreamingIndicatorEngine:
             })
             return False
     
-    def get_data_buffer_for_symbol(self, symbol: str, data_type: str = "price") -> Optional[List[Dict[str, Any]]]:
+    async def get_data_buffer_for_symbol(self, symbol: str, data_type: str = "price") -> Optional[List[Dict[str, Any]]]:
         """
         Public API method to access data buffers for a symbol.
-        
+
         Args:
             symbol: The symbol to get data for
             data_type: Type of data ("price", "orderbook", "deal")
-            
+
         Returns:
             List of data entries or None if no data available
         """
-        with self._data_lock:
+        async with self._data_lock:
             if data_type == "price":
                 buffer = self._price_data.get(symbol)
             elif data_type == "orderbook":
@@ -3477,18 +3478,18 @@ class StreamingIndicatorEngine:
             # Convert deque to list of dictionaries for safe external access
             return [item for item in buffer]
     
-    def has_buffered_data(self, symbol: str, data_type: str = "price") -> bool:
+    async def has_buffered_data(self, symbol: str, data_type: str = "price") -> bool:
         """
         Public API method to check if symbol has buffered data.
-        
+
         Args:
             symbol: The symbol to check
             data_type: Type of data ("price", "orderbook", "deal")
-            
+
         Returns:
             True if symbol has buffered data, False otherwise
         """
-        with self._data_lock:
+        async with self._data_lock:
             if data_type == "price":
                 buffer = self._price_data.get(symbol)
             elif data_type == "orderbook":
@@ -3503,16 +3504,16 @@ class StreamingIndicatorEngine:
     async def calculate_indicator_at_timestamp(self, indicator_key: str, target_timestamp: float) -> Optional[float]:
         """
         Public API method to calculate indicator value at a specific timestamp.
-        
+
         Args:
             indicator_key: Unique identifier for the indicator
             target_timestamp: Unix timestamp to calculate value for
-            
+
         Returns:
             Calculated indicator value or None if calculation failed
         """
         try:
-            with self._data_lock:
+            async with self._data_lock:
                 indicator = self._indicators.get(indicator_key)
                 if not indicator:
                     self.logger.warning("streaming_indicator_engine.indicator_not_found", {
@@ -3547,22 +3548,22 @@ class StreamingIndicatorEngine:
 
     # ===================== SESSION MANAGEMENT METHODS (TASK 3) =====================
     
-    def _find_existing_indicator(self, session_id: str, symbol: str, variant_id: str, 
+    async def _find_existing_indicator(self, session_id: str, symbol: str, variant_id: str,
                                 parameters: Optional[Dict[str, Any]] = None) -> Optional[str]:
         """
         Find existing indicator with same variant_id and parameters in session.
-        
+
         Args:
             session_id: Session identifier
             symbol: Trading symbol
-            variant_id: Indicator variant identifier  
+            variant_id: Indicator variant identifier
             parameters: Parameters to match
-            
+
         Returns:
             indicator_id if found, None otherwise
         """
         try:
-            with self._data_lock:
+            async with self._data_lock:
                 if (session_id not in self._session_indicators or 
                     symbol not in self._session_indicators[session_id]):
                     return None
@@ -3607,20 +3608,20 @@ class StreamingIndicatorEngine:
                                parameters: Optional[Dict[str, Any]] = None) -> Optional[str]:
         """
         Add an indicator to a specific session and symbol.
-        
+
         Args:
             session_id: Unique session identifier
             symbol: Trading symbol (e.g., "BTCUSDT")
             variant_id: Indicator variant identifier
             parameters: Optional parameters to override defaults
-            
+
         Returns:
             Unique indicator_id if successful, None if failed
         """
         try:
-            with self._data_lock:
+            async with self._data_lock:
                 # DEDUPLIKACJA: Sprawdź czy już istnieje wskaźnik o tych parametrach
-                existing_indicator_id = self._find_existing_indicator(
+                existing_indicator_id = await self._find_existing_indicator(
                     session_id, symbol, variant_id, parameters
                 )
                 if existing_indicator_id:
@@ -3722,19 +3723,19 @@ class StreamingIndicatorEngine:
             })
             return None
     
-    def get_session_indicators(self, session_id: str, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def get_session_indicators(self, session_id: str, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Get all indicators for a session, optionally filtered by symbol.
-        
+
         Args:
             session_id: Session identifier
             symbol: Optional symbol filter
-            
+
         Returns:
             List of indicator information dictionaries
         """
         try:
-            with self._data_lock:
+            async with self._data_lock:
                 result = []
                 
                 if session_id not in self._session_indicators:
@@ -3774,17 +3775,17 @@ class StreamingIndicatorEngine:
     async def remove_indicator_from_session(self, session_id: str, symbol: str, indicator_id: str) -> bool:
         """
         Remove an indicator from a session.
-        
+
         Args:
             session_id: Session identifier
             symbol: Trading symbol
             indicator_id: Indicator identifier to remove
-            
+
         Returns:
             True if successful, False otherwise
         """
         try:
-            with self._data_lock:
+            async with self._data_lock:
                 # Check if indicator exists and belongs to session
                 if (session_id not in self._session_indicators or
                     symbol not in self._session_indicators[session_id] or
@@ -3828,20 +3829,20 @@ class StreamingIndicatorEngine:
             })
             return False
     
-    def cleanup_duplicate_indicators(self, session_id: str, symbol: Optional[str] = None) -> Dict[str, Any]:
+    async def cleanup_duplicate_indicators(self, session_id: str, symbol: Optional[str] = None) -> Dict[str, Any]:
         """
         Clean up duplicate indicators in session(s).
         Keeps the most recent indicator for each unique variant_id + parameters combination.
-        
+
         Args:
             session_id: Session identifier
             symbol: Optional symbol filter, if None cleans all symbols in session
-            
+
         Returns:
             Dictionary with cleanup statistics
         """
         try:
-            with self._data_lock:
+            async with self._data_lock:
                 if session_id not in self._session_indicators:
                     return {"removed_count": 0, "kept_count": 0, "error": "Session not found"}
                 
@@ -3938,15 +3939,15 @@ class StreamingIndicatorEngine:
             self.logger.error("streaming_indicator_engine.cleanup_duplicate_indicators_failed", error_result)
             return error_result
 
-    def get_session_preferences(self, session_id: str, symbol: str) -> Dict[str, Any]:
+    async def get_session_preferences(self, session_id: str, symbol: str) -> Dict[str, Any]:
         """Get user preferences for a session and symbol"""
-        with self._data_lock:
+        async with self._data_lock:
             return self._session_preferences.get(session_id, {}).get(symbol, {})
     
-    def set_session_preferences(self, session_id: str, symbol: str, preferences: Dict[str, Any]) -> bool:
+    async def set_session_preferences(self, session_id: str, symbol: str, preferences: Dict[str, Any]) -> bool:
         """Set user preferences for a session and symbol"""
         try:
-            self.save_session_preferences(session_id, symbol, preferences)
+            await self.save_session_preferences(session_id, symbol, preferences)
             return True
         except Exception as e:
             self.logger.error("streaming_indicator_engine.set_session_preferences_failed", {
@@ -3956,10 +3957,10 @@ class StreamingIndicatorEngine:
             })
             return False
     
-    def save_session_preferences(self, session_id: str, symbol: str, preferences: Dict[str, Any]) -> None:
+    async def save_session_preferences(self, session_id: str, symbol: str, preferences: Dict[str, Any]) -> None:
         """Save user preferences for a session and symbol"""
         try:
-            with self._data_lock:
+            async with self._data_lock:
                 if session_id not in self._session_preferences:
                     self._session_preferences[session_id] = {}
                 

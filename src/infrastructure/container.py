@@ -738,18 +738,11 @@ class Container:
                 order_manager = await self.create_order_manager()
                 risk_manager = await self.create_risk_manager()
 
-                # ⚠️ CRITICAL: Create QuestDB connection pool for strategy persistence
+                # ✅ SINGLETON FIX: Use Container singleton instead of creating new instance
                 db_pool = None
                 try:
-                    from ..data_feed.questdb_provider import QuestDBProvider
-
-                    questdb_provider = QuestDBProvider(
-                        ilp_host='127.0.0.1',
-                        ilp_port=9009,
-                        pg_host='127.0.0.1',
-                        pg_port=8812
-                    )
-                    await questdb_provider.initialize()
+                    # ✅ USE SINGLETON: Reuses existing QuestDB connection pool
+                    questdb_provider = await self.create_questdb_provider()
 
                     # Get PostgreSQL connection pool for strategy persistence
                     db_pool = questdb_provider.pg_pool
@@ -757,7 +750,8 @@ class Container:
                     self.logger.info("container.strategy_manager_db_pool_created", {
                         "pg_host": "127.0.0.1",
                         "pg_port": 8812,
-                        "status": "connected"
+                        "status": "connected",
+                        "source": "singleton"
                     })
                 except Exception as e:
                     self.logger.warning("container.strategy_manager_db_pool_failed", {
@@ -963,18 +957,10 @@ class Container:
                 # ✅ STEP 0.1: QuestDB is REQUIRED (fail-fast) - not optional
                 try:
                     from ..data.data_collection_persistence_service import DataCollectionPersistenceService
-                    from ..data_feed.questdb_provider import QuestDBProvider
 
-                    # Create QuestDB provider
-                    questdb_provider = QuestDBProvider(
-                        ilp_host='127.0.0.1',
-                        ilp_port=9009,
-                        pg_host='127.0.0.1',
-                        pg_port=8812
-                    )
-
-                    # ✅ CRITICAL FIX: Initialize PostgreSQL connection pool
-                    await questdb_provider.initialize()
+                    # ✅ SINGLETON FIX: Use Container singleton instead of creating new instance
+                    # This reuses the existing QuestDB connection pool
+                    questdb_provider = await self.create_questdb_provider()
 
                     # ✅ CRITICAL FIX: Health check (fail-fast validation)
                     is_healthy = await questdb_provider.is_healthy()
@@ -1143,17 +1129,42 @@ class Container:
         Create WebSocket server for real-time communication.
         Uses singleton pattern to prevent multiple instances.
 
+        JWT_SECRET Strategy:
+        1. Priority 1: settings.jwt_secret (from .env or config.json)
+        2. Priority 2: os.getenv("JWT_SECRET")
+        3. Priority 3: Auto-generate (development mode, non-persistent)
+
         Returns:
             Configured WebSocket server
         """
         def _create():
             try:
+                import secrets
+                import os
                 from ..api.websocket_server import WebSocketAPIServer
+
+                # ✅ JWT_SECRET Resolution Strategy
+                jwt_secret = getattr(self.settings, 'jwt_secret', None)
+
+                if not jwt_secret:
+                    jwt_secret = os.getenv("JWT_SECRET")
+
+                if not jwt_secret:
+                    # Auto-generate for development mode
+                    jwt_secret = secrets.token_urlsafe(32)
+                    self.logger.warning("container.jwt_secret_auto_generated", {
+                        "component": "WebSocketAPIServer",
+                        "message": "JWT_SECRET not found in settings or environment. Auto-generated for this session.",
+                        "persistence": "NON-PERSISTENT (will change on restart)",
+                        "security": "Development mode only - NOT recommended for production",
+                        "recommendation": "Set JWT_SECRET in .env file for production: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
+                    })
 
                 server = WebSocketAPIServer(
                     event_bus=self.event_bus,
                     logger=self.logger,
-                    settings=self.settings
+                    settings=self.settings,
+                    jwt_secret=jwt_secret  # ✅ FIX: Explicit jwt_secret parameter
                 )
                 return server
             except Exception as e:
@@ -1411,24 +1422,41 @@ class Container:
         Create operations API for dashboard and risk controls.
         Uses singleton pattern to prevent multiple instances.
 
+        JWT_SECRET Strategy (same as WebSocketAPIServer):
+        1. Priority 1: settings.jwt_secret (from .env or config.json)
+        2. Priority 2: os.getenv("JWT_SECRET")
+        3. Priority 3: Auto-generate (development mode, non-persistent)
+
         Returns:
             Configured operations API
         """
         async def _create():
             try:
+                import secrets
+                import os
                 from ..api.ops.ops_routes import OpsAPI
 
                 market_adapter = await self.create_live_market_adapter() # SessionManager is created by this
                 session_manager = market_adapter.session_manager
                 metrics_exporter = await self.create_metrics_exporter()
 
-                # Get JWT secret from settings or websocket server
-                websocket_server = await self.create_websocket_server()
-                jwt_secret = getattr(self.settings, 'jwt_secret', None) or getattr(
-                    websocket_server,
-                    'jwt_secret',
-                    'dev_jwt_secret_key'
-                )
+                # ✅ FIX: Remove circular dependency on websocket_server
+                # Use same JWT_SECRET resolution strategy as create_websocket_server()
+                jwt_secret = getattr(self.settings, 'jwt_secret', None)
+
+                if not jwt_secret:
+                    jwt_secret = os.getenv("JWT_SECRET")
+
+                if not jwt_secret:
+                    # Auto-generate for development mode
+                    jwt_secret = secrets.token_urlsafe(32)
+                    self.logger.warning("container.jwt_secret_auto_generated", {
+                        "component": "OpsAPI",
+                        "message": "JWT_SECRET not found in settings or environment. Auto-generated for this session.",
+                        "persistence": "NON-PERSISTENT (will change on restart)",
+                        "security": "Development mode only - NOT recommended for production",
+                        "recommendation": "Set JWT_SECRET in .env file for production: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
+                    })
 
                 api = OpsAPI(
                     market_adapter=market_adapter,
@@ -1811,8 +1839,10 @@ class Container:
         ✅ ARCHITECTURE FIX: Single source of truth for QuestDB connections.
         Prevents duplicate connections from indicators_routes.py lazy init.
 
+        ✅ INITIALIZATION: Calls initialize() to create connection pools (idempotent).
+
         Returns:
-            Configured QuestDBProvider singleton
+            Configured and initialized QuestDBProvider singleton
         """
         async def _create():
             try:
@@ -1826,9 +1856,14 @@ class Container:
                     pg_port=8812
                 )
 
+                # ✅ CRITICAL: Initialize connection pools (PostgreSQL + ILP Sender)
+                # This is idempotent - safe to call multiple times
+                await provider.initialize()
+
                 self.logger.info("container.questdb_provider_created", {
                     "ilp_port": 9009,
-                    "pg_port": 8812
+                    "pg_port": 8812,
+                    "status": "initialized"
                 })
 
                 return provider

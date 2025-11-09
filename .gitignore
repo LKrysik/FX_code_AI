@@ -50,6 +50,11 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+test_results.xml
+test_results_*.xml
+test_report.html
+test_report_*.html
+test_log_*.txt
 
 # Translations
 *.mo
@@ -159,3 +164,13 @@ test_results_*.json
 .next/
 out/
 tsconfig.tsbuildinfo
+
+# Temporary analysis and investigation files
+*_ANALYSIS.md
+*_SUMMARY.txt
+*_FIXES.md
+*_DETAILED.md
+*_AUDIT.md
+verify_*.py
+*_report.md
+ANALYSIS_INDEX.md
