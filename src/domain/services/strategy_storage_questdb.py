@@ -424,12 +424,13 @@ class QuestDBStrategyStorage:
         try:
             conn = await self._get_connection()
 
-            # Use literal TIMESTAMP value for QuestDB compatibility
+            # Use parameterized query to prevent SQL injection
             now = datetime.utcnow()
             now_str = now.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
 
-            query = f"UPDATE strategies SET last_activated_at = '{now_str}' WHERE id = $1 AND is_deleted = false"
-            result = await conn.execute(query, strategy_id)
+            # SECURITY FIX: Use parameterized query instead of f-string interpolation
+            query = "UPDATE strategies SET last_activated_at = $1 WHERE id = $2 AND is_deleted = false"
+            result = await conn.execute(query, now_str, strategy_id)
 
             if result == "UPDATE 0":
                 raise StrategyNotFoundError(f"Strategy {strategy_id} not found or already deleted")
