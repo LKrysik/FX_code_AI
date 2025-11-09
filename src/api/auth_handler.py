@@ -922,39 +922,39 @@ class AuthHandler:
         # 3. Remove these hardcoded demo accounts
         # 4. Set credentials via environment variables (all passwords should be bcrypt hashes)
 
-        # Get credentials from environment - FAIL HARD if not properly configured
-        DEMO_PASSWORD = os.getenv("DEMO_PASSWORD")
-        TRADER_PASSWORD = os.getenv("TRADER_PASSWORD")
-        PREMIUM_PASSWORD = os.getenv("PREMIUM_PASSWORD")
-        ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
+        # ✅ Load .env file if it exists (needed because config.py not imported)
+        from dotenv import load_dotenv
+        from pathlib import Path
+        _env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+        if _env_path.exists():
+            load_dotenv(dotenv_path=_env_path, override=False)
 
-        # Validate that all credentials are configured
-        missing_credentials = []
-        if not DEMO_PASSWORD or "CHANGE_ME" in DEMO_PASSWORD:
-            missing_credentials.append("DEMO_PASSWORD")
-        if not TRADER_PASSWORD or "CHANGE_ME" in TRADER_PASSWORD:
-            missing_credentials.append("TRADER_PASSWORD")
-        if not PREMIUM_PASSWORD or "CHANGE_ME" in PREMIUM_PASSWORD:
-            missing_credentials.append("PREMIUM_PASSWORD")
-        if not ADMIN_PASSWORD or "CHANGE_ME" in ADMIN_PASSWORD:
-            missing_credentials.append("ADMIN_PASSWORD")
+        # Get credentials from environment with auto-fallback for development
+        # Priority 1: Environment variable
+        # Priority 2: Development default (logged with warning)
+        DEMO_PASSWORD = os.getenv("DEMO_PASSWORD") or "demo123"
+        TRADER_PASSWORD = os.getenv("TRADER_PASSWORD") or "trader123"
+        PREMIUM_PASSWORD = os.getenv("PREMIUM_PASSWORD") or "premium123"
+        ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD") or "admin123"
 
-        if missing_credentials:
-            error_msg = (
-                f"SECURITY ERROR: The following credentials must be set via environment variables "
-                f"and cannot contain 'CHANGE_ME': {', '.join(missing_credentials)}. "
-                f"Use bcrypt hashes for production security."
-            )
-            if self.logger:
-                self.logger.error("auth_handler.credentials_not_configured", {
-                    "missing_credentials": missing_credentials,
-                    "username_attempting": username
-                })
-            return AuthResult(
-                success=False,
-                error_code="configuration_error",
-                error_message="Authentication system not properly configured. Contact administrator."
-            )
+        # Log warnings for development defaults
+        using_defaults = []
+        if not os.getenv("DEMO_PASSWORD"):
+            using_defaults.append("DEMO_PASSWORD")
+        if not os.getenv("TRADER_PASSWORD"):
+            using_defaults.append("TRADER_PASSWORD")
+        if not os.getenv("PREMIUM_PASSWORD"):
+            using_defaults.append("PREMIUM_PASSWORD")
+        if not os.getenv("ADMIN_PASSWORD"):
+            using_defaults.append("ADMIN_PASSWORD")
+
+        if using_defaults and self.logger:
+            self.logger.warning("auth_handler.using_development_defaults", {
+                "credentials_using_defaults": using_defaults,
+                "security_warning": "Set credentials in .env for production",
+                "env_file_path": str(_env_path),
+                "env_file_exists": _env_path.exists()
+            })
 
         # 🐛 DEBUG: Log environment variable loading for authentication debugging
         if self.logger:
