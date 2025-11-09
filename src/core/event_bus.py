@@ -277,6 +277,34 @@ class EventBus:
                 for topic, subscribers in self._subscribers.items()
             ]
 
+    async def health_check(self) -> Dict[str, Any]:
+        """
+        Minimal health check for monitoring.
+
+        Returns basic EventBus state without complex metrics.
+        Simplified version - does not track queues or processing rates.
+
+        Returns:
+            Dict with health status and subscriber count
+        """
+        async with self._lock:
+            active_subscribers = sum(
+                len(subscribers) for subscribers in self._subscribers.values()
+            )
+            total_topics = len(self._subscribers)
+
+        return {
+            "healthy": not self._shutdown_requested,
+            "active_subscribers": active_subscribers,
+            "total_topics": total_topics,
+            "total_queue_size": 0,  # Simplified EventBus has no queues
+            "shutdown_requested": self._shutdown_requested,
+            # Legacy fields for backward compatibility (execution_monitor expects these)
+            "metrics": {
+                "total_processed": 0  # Not tracked in simplified version
+            }
+        }
+
     async def shutdown(self) -> None:
         """
         Cleanup all subscriptions and shutdown EventBus.
