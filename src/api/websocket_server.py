@@ -273,8 +273,25 @@ class WebSocketAPIServer:
         self.port = port
         self.heartbeat_interval = heartbeat_interval
 
-        # JWT secret from environment or parameter
-        self.jwt_secret = jwt_secret or os.getenv("JWT_SECRET", "dev_jwt_secret_key")
+        # JWT secret from environment or parameter - MUST be strong for production
+        jwt_secret_value = jwt_secret or os.getenv("JWT_SECRET")
+
+        # SECURITY: Require strong JWT secret (minimum 32 characters)
+        if not jwt_secret_value or len(jwt_secret_value) < 32:
+            raise RuntimeError(
+                "JWT_SECRET must be set to a strong secret (minimum 32 characters). "
+                "Generate a secure secret using: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
+            )
+
+        # SECURITY: Reject default/weak secrets
+        weak_secrets = ["dev_jwt_secret_key", "secret", "jwt_secret", "change_me", "default"]
+        if jwt_secret_value.lower() in weak_secrets:
+            raise RuntimeError(
+                f"JWT_SECRET cannot be a common/weak value. "
+                f"Generate a secure secret using: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
+            )
+
+        self.jwt_secret = jwt_secret_value
 
         # Initialize core services
         self.connection_manager = ConnectionManager(

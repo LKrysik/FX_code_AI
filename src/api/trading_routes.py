@@ -87,18 +87,15 @@ def get_current_user():
     This function returns the actual dependency function that should be used with Depends().
     """
     if _get_current_user_dependency is None:
-        # Fallback for development/testing - return a dummy dependency
-        async def no_auth_dummy() -> UserSession:
-            logger.warning("trading_routes.no_auth_configured",
-                          {"message": "Authentication not configured - using dummy session"})
-            from datetime import datetime
-            return UserSession(
-                user_id="dev_user",
-                username="developer",
-                permissions=["admin_system"],
-                last_activity=datetime.now()
+        # SECURITY: Fail hard if authentication not configured
+        async def auth_not_configured() -> UserSession:
+            logger.error("trading_routes.auth_not_configured",
+                        {"message": "Authentication system not configured - trading endpoints unavailable"})
+            raise HTTPException(
+                status_code=503,
+                detail="Authentication not configured - system unavailable. Contact administrator."
             )
-        return no_auth_dummy
+        return auth_not_configured
     return _get_current_user_dependency
 
 

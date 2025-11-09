@@ -90,8 +90,8 @@ class IndicatorPersistenceService:
                 "pg_port": 8812
             })
 
-        # Setup event listeners
-        self._setup_event_listeners()
+        # Event listeners will be set up in start() method
+        # This allows async initialization
 
         self.logger.info("indicator_persistence_service.initialized", {
             "storage_backend": "QuestDB",
@@ -105,21 +105,25 @@ class IndicatorPersistenceService:
             "migration_date": "2025-10-28"
         })
 
-    def _setup_event_listeners(self):
+    async def _setup_event_listeners(self):
         """Setup event listeners for indicator events."""
         # Listen for real-time indicator value calculations
-        self.event_bus.subscribe(
+        await self.event_bus.subscribe(
             "indicator_value_calculated",
             self._handle_single_value_event,
         )
-        
-        # Listen for simulation completion events  
-        self.event_bus.subscribe(
+
+        # Listen for simulation completion events
+        await self.event_bus.subscribe(
             "indicator_simulation_completed",
             self._handle_simulation_completed_event,
         )
-        
+
         self.logger.debug("indicator_persistence_service.event_listeners_setup")
+
+    async def start(self):
+        """Start the indicator persistence service by setting up event listeners."""
+        await self._setup_event_listeners()
 
     async def save_single_value(
         self,
