@@ -204,7 +204,7 @@ class TestSessionDetails:
         time.sleep(1)
 
         # Get session details
-        details_response = api_client.get(f"/sessions/{session_id}")
+        details_response = authenticated_client.get(f"/sessions/{session_id}")
 
         assert details_response.status_code == 200
 
@@ -235,7 +235,7 @@ class TestSessionIntegration:
         """Test complete session lifecycle: start → monitor → stop"""
 
         # Step 1: Verify idle state
-        status1 = api_client.get("/sessions/execution-status")
+        status1 = authenticated_client.get("/sessions/execution-status")
         assert status1.status_code == 200
 
         # Step 2: Start session
@@ -258,7 +258,7 @@ class TestSessionIntegration:
         time.sleep(2)
 
         # Step 4: Monitor execution status
-        status2 = api_client.get("/sessions/execution-status")
+        status2 = authenticated_client.get("/sessions/execution-status")
         assert status2.status_code == 200
 
         running_status = status2.json()["data"]
@@ -273,7 +273,7 @@ class TestSessionIntegration:
         time.sleep(1)
 
         # Step 7: Verify stopped state
-        status3 = api_client.get("/sessions/execution-status")
+        status3 = authenticated_client.get("/sessions/execution-status")
         assert status3.status_code == 200
 
         final_status = status3.json()["data"]

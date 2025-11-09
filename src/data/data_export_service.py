@@ -149,9 +149,11 @@ class DataExportService:
             logger.error(f"Failed to create ZIP export for session {session_id}: {e}")
             raise
 
-    def validate_export_request(self, session_id: str, format: str, symbol: str = None) -> bool:
+    async def validate_export_request(self, session_id: str, format: str, symbol: str = None) -> bool:
         """
         Validate export request parameters
+
+        ✅ BUG-004 FIX: Converted to async and uses QuestDB instead of filesystem
 
         Args:
             session_id: Session identifier
@@ -161,22 +163,30 @@ class DataExportService:
         Returns:
             True if request is valid
         """
-        # Validate format
-        if format not in ["csv", "json", "zip"]:
-            return False
-
-        # Validate session exists
-        session_path = self.data_directory / session_id
-        if not session_path.exists():
-            return False
-
-        # Validate symbol if specified
-        if symbol:
-            session_meta = self._load_session_metadata_sync(session_id)
-            if not session_meta or symbol not in session_meta.get('symbols', []):
+        try:
+            # Validate format
+            if format not in ["csv", "json", "zip"]:
+                logger.warning(f"Invalid export format: {format}")
                 return False
 
-        return True
+            # Validate session exists in QuestDB
+            session_meta = await self._load_session_metadata(session_id)
+            if not session_meta:
+                logger.warning(f"Session not found: {session_id}")
+                return False
+
+            # Validate symbol if specified
+            if symbol:
+                symbols = session_meta.get('symbols', [])
+                if symbol not in symbols:
+                    logger.warning(f"Symbol {symbol} not in session {session_id} symbols: {symbols}")
+                    return False
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error validating export request for session {session_id}: {e}")
+            return False
 
     async def get_export_estimate(self, session_id: str, symbol: str = None) -> Dict[str, Any]:
         """
