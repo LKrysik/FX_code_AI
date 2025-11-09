@@ -25,6 +25,7 @@ Critical Analysis Points:
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 import json
+import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -54,13 +55,31 @@ class OpsAPI:
         session_manager: SessionManager,
         metrics_exporter: MetricsExporter,
         logger: StructuredLogger,
-        jwt_secret: str = "sprint4-ops-secret"  # Should come from config
+        jwt_secret: Optional[str] = None
     ):
         self.market_adapter = market_adapter
         self.session_manager = session_manager
         self.metrics_exporter = metrics_exporter
         self.logger = logger
-        self.jwt_secret = jwt_secret
+
+        # SECURITY: Require strong JWT secret from environment
+        jwt_secret_value = jwt_secret or os.getenv("JWT_SECRET")
+
+        if not jwt_secret_value or len(jwt_secret_value) < 32:
+            raise RuntimeError(
+                "JWT_SECRET must be set to a strong secret (minimum 32 characters). "
+                "Generate a secure secret using: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
+            )
+
+        # SECURITY: Reject default/weak secrets
+        weak_secrets = ["sprint4-ops-secret", "dev_jwt_secret_key", "secret", "jwt_secret", "change_me", "default"]
+        if jwt_secret_value.lower() in weak_secrets:
+            raise RuntimeError(
+                f"JWT_SECRET cannot be a common/weak value. "
+                f"Generate a secure secret using: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
+            )
+
+        self.jwt_secret = jwt_secret_value
 
         # RBAC configuration (should come from config file)
         self.roles = {
