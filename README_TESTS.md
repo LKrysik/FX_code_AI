@@ -182,11 +182,14 @@ python run_tests.py --detailed
 **Zawiera**:
 - ✅ Pełne tracebacki (nie skrócone)
 - ✅ Wartości zmiennych lokalnych przy błędach
-- ✅ DEBUG-level logi z całego systemu
+- ✅ DEBUG-level logi z całego systemu w pliku
 - ✅ Szczegółowy output każdego testu
+- ✅ Parallel execution (szybkie wykonanie)
 - ✅ Timestampy dla wszystkich plików (nie nadpisuje poprzednich)
 
 **Idealny do debugowania** failing testów!
+
+**Uwaga**: Console logging (`--log-cli`) jest wyłączony w detailed mode ze względu na konflikt z parallel execution (`pytest-xdist -n auto`). Wszystkie logi są zapisywane do pliku `test_log_*.txt`.
 
 ### **Kombinacje**
 
@@ -448,7 +451,7 @@ python run_tests.py --fast
 ### **Problem: Timeout errors**
 
 ```bash
-# Zwiększ timeout w pytest.ini:
+# Zwiększ timeout w tests_e2e/pytest.ini:
 timeout = 600  # 10 minutes
 
 # Lub dla konkretnego testu:

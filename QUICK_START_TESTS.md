@@ -50,9 +50,10 @@ python run_tests.py --detailed
 ```
 
 **Generuje:**
-- `test_log_TIMESTAMP.txt` - Pełne logi DEBUG
+- `test_log_TIMESTAMP.txt` - Pełne logi DEBUG (wszystkie szczegóły)
 - `test_results_TIMESTAMP.xml` - JUnit XML
 - Pełne tracebacki z wartościami zmiennych lokalnych
+- Szybkie wykonanie (parallel execution z pytest-xdist)
 
 **Idealny do debugowania failing testów!**
 
