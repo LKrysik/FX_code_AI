@@ -458,6 +458,10 @@ class LiveOrderManager:
 
                 await self.event_bus.publish("order_filled", {
                     "order_id": order.order_id,
+                    "symbol": order.symbol,  # FIX: Add symbol for position tracking
+                    "side": order.side,      # FIX: Add side for position tracking
+                    "quantity": order.filled_quantity,  # FIX: Use filled_quantity for position calc
+                    "price": order.average_fill_price,  # FIX: Use average_fill_price for position calc
                     "filled_quantity": order.filled_quantity,
                     "filled_price": order.average_fill_price,
                     "commission": commission,
