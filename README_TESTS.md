@@ -118,6 +118,8 @@ tests_e2e/
 python run_tests.py
 ```
 
+**Zawsze generuje**: `test_results.xml` (JUnit XML dla CI/CD)
+
 ### **Tylko API**
 
 ```bash
@@ -148,7 +150,9 @@ python run_tests.py --fast
 python run_tests.py --coverage
 ```
 
-Raport coverage: `htmlcov/index.html`
+**Generuje**:
+- `htmlcov/index.html` - Interaktywny raport HTML
+- `coverage.xml` - XML dla CI/CD
 
 ### **Z Raportem HTML**
 
@@ -156,13 +160,33 @@ Raport coverage: `htmlcov/index.html`
 python run_tests.py --html-report
 ```
 
-Raport: `test_report.html`
+**Generuje**: `test_report.html`
 
 ### **Verbose Mode (Debug)**
 
 ```bash
 python run_tests.py --verbose
 ```
+
+### **🔍 Detailed Mode - Maksymalna szczegółowość** 🆕
+
+```bash
+python run_tests.py --detailed
+```
+
+**Generuje** (z timestampem):
+- `test_log_YYYYMMDD_HHMMSS.txt` - Pełne logi DEBUG
+- `test_results_YYYYMMDD_HHMMSS.xml` - JUnit XML
+- `test_report_YYYYMMDD_HHMMSS.html` - HTML report (jeśli `--html-report`)
+
+**Zawiera**:
+- ✅ Pełne tracebacki (nie skrócone)
+- ✅ Wartości zmiennych lokalnych przy błędach
+- ✅ DEBUG-level logi z całego systemu
+- ✅ Szczegółowy output każdego testu
+- ✅ Timestampy dla wszystkich plików (nie nadpisuje poprzednich)
+
+**Idealny do debugowania** failing testów!
 
 ### **Kombinacje**
 
@@ -175,6 +199,15 @@ python run_tests.py --fast --html-report
 
 # All tests with all options
 python run_tests.py --all --coverage --html-report --verbose
+
+# 🆕 Detailed mode - maximum debugging
+python run_tests.py --detailed
+
+# 🆕 Detailed mode with all reports
+python run_tests.py --detailed --html-report --coverage
+
+# 🆕 Debug failing API test
+python run_tests.py --api --detailed
 ```
 
 ---
