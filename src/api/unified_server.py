@@ -58,6 +58,7 @@ from src.api.data_analysis_routes import router as data_analysis_router
 
 # Import ops API
 from src.api.ops.ops_routes import router as ops_router
+import src.api.ops.ops_routes as ops_routes_module
 
 # Import indicators API
 from src.api.indicators_routes import router as indicators_router
@@ -215,11 +216,14 @@ def create_unified_app():
         app.state.liquidation_monitor = liquidation_monitor
         logger.info("Liquidation monitor started - tracking leveraged positions")
 
-        # Initialize ops API with proper dependencies
+        # ✅ ARCHITECTURE FIX: Initialize ops API with proper DI pattern
+        # Uses initialize_ops_dependencies() matching indicators_routes, paper_trading_routes, trading_routes
         ops_api = await container.create_ops_api()
-        # Replace the global instance with properly injected one
-        import src.api.ops.ops_routes as ops_module
-        ops_module.ops_api = ops_api
+        ops_routes_module.initialize_ops_dependencies(ops_api)
+        logger.info("ops_routes initialized with proper dependency injection", {
+            "ops_api_type": type(ops_api).__name__,
+            "jwt_secret_configured": ops_api.jwt_secret is not None
+        })
 
         # Initialize live graph executor
         try:
