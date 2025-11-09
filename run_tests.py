@@ -155,6 +155,27 @@ def check_prerequisites() -> bool:
     return all_ok
 
 
+def validate_command_compatibility(cmd: List[str]) -> tuple[bool, str]:
+    """Validate pytest command for known incompatibilities
+
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    # Check for known incompatible flag combinations
+    has_parallel = '-n' in cmd or any('--numprocesses' in arg for arg in cmd)
+    has_log_cli = '--log-cli' in cmd or any('--log-cli=' in arg for arg in cmd)
+
+    if has_parallel and has_log_cli:
+        return False, (
+            "ERROR: --log-cli is incompatible with pytest-xdist parallel execution (-n).\n"
+            "Parallel execution spawns worker processes with separate stdout/stderr.\n"
+            "Solution: Use --log-file for file-based logging (works with parallel execution)."
+        )
+
+    # All checks passed
+    return True, ""
+
+
 def build_pytest_command(args, timestamp: str = None) -> tuple[List[str], dict]:
     """Build pytest command based on arguments
 
@@ -262,6 +283,15 @@ def run_tests(cmd: List[str]) -> int:
     # Debug: Show Python executable
     print_info(f"Python: {sys.executable}")
     print_info(f"Command: {' '.join(cmd)}\n")
+
+    # Pre-flight validation
+    is_valid, error_msg = validate_command_compatibility(cmd)
+    if not is_valid:
+        print_error("Command Validation Failed:")
+        print(error_msg)
+        print_warning("\nThis is a protection against known incompatibilities.")
+        print_info("If you believe this is incorrect, please report as a bug.")
+        return 1
 
     start_time = time.time()
 
