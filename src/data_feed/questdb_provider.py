@@ -197,18 +197,116 @@ class QuestDBProvider:
 
             # Initialize PostgreSQL pool
             if self.pg_pool is None:
-                self.pg_pool = await asyncpg.create_pool(
-                    host=self.pg_host,
-                    port=self.pg_port,
-                    user=self.pg_user,
-                    password=self.pg_password,
-                    database=self.pg_database,
-                    min_size=2,
-                    max_size=self.pg_pool_size,
-                    timeout=10.0,  # ✅ CONNECTION TIMEOUT: Prevent infinite hangs
-                    command_timeout=30.0,  # ✅ QUERY TIMEOUT: Prevent stuck queries
-                )
-                logger.info(f"PostgreSQL pool created ({self.pg_pool_size} connections)")
+                try:
+                    self.pg_pool = await asyncpg.create_pool(
+                        host=self.pg_host,
+                        port=self.pg_port,
+                        user=self.pg_user,
+                        password=self.pg_password,
+                        database=self.pg_database,
+                        min_size=2,
+                        max_size=self.pg_pool_size,
+                        timeout=10.0,  # ✅ CONNECTION TIMEOUT: Prevent infinite hangs
+                        command_timeout=30.0,  # ✅ QUERY TIMEOUT: Prevent stuck queries
+                    )
+                    logger.info(f"PostgreSQL pool created ({self.pg_pool_size} connections)")
+                except (ConnectionRefusedError, OSError) as e:
+                    # ✅ CRITICAL ERROR: PostgreSQL wire protocol connection failed
+                    # This is REQUIRED (not optional like ILP)
+                    error_msg = (
+                        f"CRITICAL: Cannot connect to QuestDB PostgreSQL protocol\n"
+                        f"Error: {e}\n"
+                        f"Error Type: {type(e).__name__}\n"
+                        f"\n"
+                        f"Connection Details:\n"
+                        f"  Host: {self.pg_host}:{self.pg_port}\n"
+                        f"  User: {self.pg_user}\n"
+                        f"  Database: {self.pg_database}\n"
+                        f"\n"
+                        f"DIAGNOSIS:\n"
+                        f"  Port {self.pg_port} may be listening, but connections are being refused.\n"
+                        f"  This can happen if:\n"
+                        f"    1. QuestDB is starting up (ports open but server not ready)\n"
+                        f"    2. Windows Firewall is blocking loopback connections\n"
+                        f"    3. QuestDB PostgreSQL wire protocol is disabled\n"
+                        f"    4. Wrong credentials or database name\n"
+                        f"\n"
+                        f"SOLUTION:\n"
+                        f"  1. Verify QuestDB is FULLY started:\n"
+                        f"     - Open http://127.0.0.1:9000 in browser\n"
+                        f"     - Run query: SELECT 1\n"
+                        f"     - Check logs for \"server is ready\" message\n"
+                        f"\n"
+                        f"  2. Verify PostgreSQL protocol is enabled:\n"
+                        f"     - Edit: <questdb_root>/conf/server.conf\n"
+                        f"     - Add/verify lines:\n"
+                        f"         pg.enabled=true\n"
+                        f"         pg.net.bind.to=0.0.0.0:8812\n"
+                        f"     - Restart QuestDB after config changes\n"
+                        f"\n"
+                        f"  3. Check Windows Firewall:\n"
+                        f"     - Allow QuestDB.exe through firewall\n"
+                        f"     - Allow port 8812 (PostgreSQL)\n"
+                        f"     - Allow port 9009 (ILP)\n"
+                        f"\n"
+                        f"  4. Test connection manually:\n"
+                        f"     - Windows: Test-NetConnection -ComputerName 127.0.0.1 -Port 8812\n"
+                        f"     - Use PostgreSQL client: psql -h 127.0.0.1 -p 8812 -U admin -d qdb\n"
+                        f"\n"
+                        f"  5. Wait 30 seconds if QuestDB just started, then retry\n"
+                    )
+                    logger.error("questdb_provider.postgresql_connection_failed", {
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "pg_host": self.pg_host,
+                        "pg_port": self.pg_port,
+                        "pg_user": self.pg_user,
+                        "pg_database": self.pg_database,
+                        "solution": "See error message for detailed diagnostics"
+                    })
+                    raise RuntimeError(error_msg) from e
+                except Exception as e:
+                    # ✅ CATCH-ALL: Unexpected PostgreSQL errors (auth, invalid database, etc.)
+                    import asyncpg.exceptions
+                    error_msg = (
+                        f"CRITICAL: QuestDB PostgreSQL connection failed\n"
+                        f"Error: {e}\n"
+                        f"Error Type: {type(e).__name__}\n"
+                        f"\n"
+                        f"Connection Details:\n"
+                        f"  Host: {self.pg_host}:{self.pg_port}\n"
+                        f"  User: {self.pg_user}\n"
+                        f"  Database: {self.pg_database}\n"
+                        f"\n"
+                    )
+
+                    # Add specific guidance based on error type
+                    if isinstance(e, asyncpg.exceptions.InvalidPasswordError):
+                        error_msg += (
+                            f"DIAGNOSIS: Invalid password for user '{self.pg_user}'\n"
+                            f"SOLUTION: Check QuestDB default credentials (admin/quest)\n"
+                        )
+                    elif isinstance(e, asyncpg.exceptions.InvalidCatalogNameError):
+                        error_msg += (
+                            f"DIAGNOSIS: Database '{self.pg_database}' does not exist\n"
+                            f"SOLUTION: QuestDB default database is 'qdb' - verify in server.conf\n"
+                        )
+                    else:
+                        error_msg += (
+                            f"DIAGNOSIS: Unexpected error during connection\n"
+                            f"SOLUTION:\n"
+                            f"  1. Check QuestDB logs for errors\n"
+                            f"  2. Verify PostgreSQL protocol is enabled in server.conf\n"
+                            f"  3. Restart QuestDB\n"
+                        )
+
+                    logger.error("questdb_provider.postgresql_unexpected_error", {
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "pg_host": self.pg_host,
+                        "pg_port": self.pg_port
+                    })
+                    raise RuntimeError(error_msg) from e
 
             # ✅ PERFORMANCE FIX: Initialize ILP Sender pool (OPTIONAL - graceful degradation)
             async with self._sender_pool_lock:
