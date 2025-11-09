@@ -14,6 +14,7 @@ from enum import Enum
 import hashlib
 import hmac
 import os
+import bcrypt
 
 # Try to import JWT, fallback to basic auth if not available
 try:
@@ -623,25 +624,54 @@ class AuthHandler:
         """Generate secure refresh token"""
         return secrets.token_urlsafe(32)
 
-    def _verify_password(self, provided_password: str, expected_password: str) -> bool:
+    def hash_password(self, password: str) -> str:
         """
-        Securely verify password using constant-time comparison.
+        Hash password using bcrypt with 12 rounds.
 
-        NOTE: This is a simple string comparison for DEMO purposes only.
-        In PRODUCTION, use:
-        - bcrypt.checkpw() for bcrypt hashes
-        - argon2.verify() for argon2 hashes
-        - Never compare plain text passwords
+        Args:
+            password: Plain text password to hash
+
+        Returns:
+            Bcrypt hash string
+        """
+        salt = bcrypt.gensalt(rounds=12)
+        hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+        return hashed.decode('utf-8')
+
+    def _verify_password(self, provided_password: str, stored_hash: str) -> bool:
+        """
+        Securely verify password against bcrypt hash.
+
+        This method supports both:
+        1. Bcrypt hashes (production): Secure password verification
+        2. Plain text (backward compatibility): For migration period only
 
         Args:
             provided_password: Password provided by user
-            expected_password: Expected password (from env or database)
+            stored_hash: Bcrypt hash or plain text password from env/database
 
         Returns:
             True if passwords match, False otherwise
         """
-        # Use constant-time comparison to prevent timing attacks
-        return hmac.compare_digest(provided_password, expected_password)
+        # Check if stored_hash is a bcrypt hash (starts with $2a$, $2b$, or $2y$)
+        if stored_hash.startswith('$2'):
+            try:
+                return bcrypt.checkpw(provided_password.encode('utf-8'), stored_hash.encode('utf-8'))
+            except Exception as e:
+                if self.logger:
+                    self.logger.error("auth_handler.password_verification_error", {
+                        "error": str(e),
+                        "error_type": type(e).__name__
+                    })
+                return False
+        else:
+            # BACKWARD COMPATIBILITY WARNING: Plain text comparison
+            # This is ONLY for migration period. Remove after all passwords are hashed.
+            if self.logger:
+                self.logger.warning("auth_handler.plaintext_password_detected", {
+                    "message": "Plain text password detected. Please migrate to bcrypt hashes."
+                })
+            return hmac.compare_digest(provided_password, stored_hash)
 
     def _record_failed_attempt(self, client_ip: str):
         """Record failed authentication attempt"""
@@ -885,35 +915,53 @@ class AuthHandler:
         if self._password_executor is None:
             raise RuntimeError("AuthHandler has not been started, password executor is not available.")
 
-        # CRITICAL WARNING: This is DEMO authentication only!
+        # CRITICAL: Credentials must be set via environment variables
         # For PRODUCTION use:
         # 1. Integrate with proper user database (PostgreSQL/QuestDB)
-        # 2. Store password hashes (bcrypt/argon2), NEVER plain text
+        # 2. Store password hashes (bcrypt), NEVER plain text
         # 3. Remove these hardcoded demo accounts
-        # 4. Set credentials via environment variables as TEMPORARY measure
+        # 4. Set credentials via environment variables (all passwords should be bcrypt hashes)
 
-        # Get demo credentials from environment (fallback to insecure defaults for demo)
-        DEMO_PASSWORD = os.getenv("DEMO_PASSWORD", "CHANGE_ME_DEMO123")
-        TRADER_PASSWORD = os.getenv("TRADER_PASSWORD", "CHANGE_ME_TRADER123")
-        PREMIUM_PASSWORD = os.getenv("PREMIUM_PASSWORD", "CHANGE_ME_PREMIUM123")
-        ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "CHANGE_ME_ADMIN123")
+        # Get credentials from environment - FAIL HARD if not properly configured
+        DEMO_PASSWORD = os.getenv("DEMO_PASSWORD")
+        TRADER_PASSWORD = os.getenv("TRADER_PASSWORD")
+        PREMIUM_PASSWORD = os.getenv("PREMIUM_PASSWORD")
+        ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
+
+        # Validate that all credentials are configured
+        missing_credentials = []
+        if not DEMO_PASSWORD or "CHANGE_ME" in DEMO_PASSWORD:
+            missing_credentials.append("DEMO_PASSWORD")
+        if not TRADER_PASSWORD or "CHANGE_ME" in TRADER_PASSWORD:
+            missing_credentials.append("TRADER_PASSWORD")
+        if not PREMIUM_PASSWORD or "CHANGE_ME" in PREMIUM_PASSWORD:
+            missing_credentials.append("PREMIUM_PASSWORD")
+        if not ADMIN_PASSWORD or "CHANGE_ME" in ADMIN_PASSWORD:
+            missing_credentials.append("ADMIN_PASSWORD")
+
+        if missing_credentials:
+            error_msg = (
+                f"SECURITY ERROR: The following credentials must be set via environment variables "
+                f"and cannot contain 'CHANGE_ME': {', '.join(missing_credentials)}. "
+                f"Use bcrypt hashes for production security."
+            )
+            if self.logger:
+                self.logger.error("auth_handler.credentials_not_configured", {
+                    "missing_credentials": missing_credentials,
+                    "username_attempting": username
+                })
+            return AuthResult(
+                success=False,
+                error_code="configuration_error",
+                error_message="Authentication system not properly configured. Contact administrator."
+            )
 
         # 🐛 DEBUG: Log environment variable loading for authentication debugging
         if self.logger:
-            self.logger.info("auth_handler.environment_variables_loaded", {
-                "DEMO_PASSWORD_set": DEMO_PASSWORD != "CHANGE_ME_DEMO123",
-                "TRADER_PASSWORD_set": TRADER_PASSWORD != "CHANGE_ME_TRADER123",
-                "PREMIUM_PASSWORD_set": PREMIUM_PASSWORD != "CHANGE_ME_PREMIUM123",
-                "ADMIN_PASSWORD_set": ADMIN_PASSWORD != "CHANGE_ME_ADMIN123",
+            self.logger.info("auth_handler.credentials_verified", {
+                "all_credentials_configured": True,
                 "username_attempting": username
             })
-
-        # Log warning if using default passwords
-        if "CHANGE_ME" in ADMIN_PASSWORD:
-            self.logger.warning(
-                "🚨 SECURITY WARNING: Using default demo credentials! "
-                "Set environment variables: DEMO_PASSWORD, TRADER_PASSWORD, PREMIUM_PASSWORD, ADMIN_PASSWORD"
-            )
 
         # Demo authentication - REPLACE with database lookup in production
         if username == "demo" and self._verify_password(password, DEMO_PASSWORD):

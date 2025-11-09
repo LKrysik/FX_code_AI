@@ -25,6 +25,9 @@ from dataclasses import dataclass
 import pandas as pd
 
 from ..data_feed.questdb_provider import QuestDBProvider
+from src.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -187,7 +190,13 @@ class BacktestMarketDataProvider:
 
         except Exception as e:
             # Log error but don't crash
-            print(f"Error querying market data: {e}")
+            logger.error("error_querying_market_data", {
+                "symbol": symbol,
+                "timestamp": timestamp.isoformat() if timestamp else None,
+                "timeframe": timeframe,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
             return None
 
     async def get_price_range(
@@ -228,7 +237,14 @@ class BacktestMarketDataProvider:
             ]
 
         except Exception as e:
-            print(f"Error querying price range: {e}")
+            logger.error("error_querying_price_range", {
+                "symbol": symbol,
+                "start_time": start_time.isoformat() if start_time else None,
+                "end_time": end_time.isoformat() if end_time else None,
+                "timeframe": timeframe,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
             return []
 
     async def get_indicators_at_time(
@@ -280,7 +296,13 @@ class BacktestMarketDataProvider:
             return None
 
         except Exception as e:
-            print(f"Error querying indicators: {e}")
+            logger.error("error_querying_indicators", {
+                "symbol": symbol,
+                "timestamp": timestamp.isoformat() if timestamp else None,
+                "indicator_ids": indicator_ids,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
             return None
 
     async def get_indicator_range(
@@ -313,7 +335,14 @@ class BacktestMarketDataProvider:
             return [(row['timestamp'], float(row['value'])) for _, row in indicator_df.iterrows()]
 
         except Exception as e:
-            print(f"Error querying indicator range: {e}")
+            logger.error("error_querying_indicator_range", {
+                "symbol": symbol,
+                "indicator_id": indicator_id,
+                "start_time": start_time.isoformat() if start_time else None,
+                "end_time": end_time.isoformat() if end_time else None,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
             return []
 
     async def get_backtest_data_bulk(
@@ -362,7 +391,15 @@ class BacktestMarketDataProvider:
             return prices_df, indicators_dict
 
         except Exception as e:
-            print(f"Error querying bulk backtest data: {e}")
+            logger.error("error_querying_bulk_backtest_data", {
+                "symbol": symbol,
+                "start_time": start_time.isoformat() if start_time else None,
+                "end_time": end_time.isoformat() if end_time else None,
+                "indicator_ids": indicator_ids,
+                "timeframe": timeframe,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
             return pd.DataFrame(), {}
 
     def _trim_cache(self):

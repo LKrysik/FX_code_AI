@@ -368,10 +368,6 @@ class StrategyManager:
         # Telemetry: last events and active symbols per strategy
         self._strategy_telemetry: Dict[str, Dict[str, Any]] = {}
 
-        # Subscribe to indicator updates with timeout protection
-        import asyncio
-        asyncio.create_task(self.event_bus.subscribe("indicator.updated", self._on_indicator_update))
-
         # Enhanced circuit breaker for event loops
         self._evaluation_in_progress = set()  # Track symbols being evaluated
         self._max_evaluations_per_second = 50  # Reduced rate limit
@@ -387,10 +383,17 @@ class StrategyManager:
         # Strategy loading will be done asynchronously after initialization
         # See: initialize_strategies() method
 
+        # Event listener subscription will be done in start() method
+        # This allows async initialization
+
         self.logger.info("strategy_manager.initialized", {
             "order_manager_enabled": order_manager is not None,
             "db_pool_enabled": db_pool is not None
         })
+
+    async def start(self) -> None:
+        """Start the strategy manager by subscribing to indicator events."""
+        await self.event_bus.subscribe("indicator.updated", self._on_indicator_update)
 
     def validate_dependencies(self) -> None:
         """Validate that all required dependencies are properly set"""
@@ -1748,13 +1751,18 @@ class StrategyManager:
             if signal_type == "S1":
                 position_params = strategy.calculate_position_size(indicator_values)
                 position_size_pct = position_params.get("position_size_pct", 0.01)
-                base_capital = 1000.0  # TODO: Get from wallet/risk manager
+                # TODO: Get base capital from wallet/risk manager (see GitHub issue)
+                # Requires: WalletService or RiskManager integration to get available capital
+                # Current implementation: placeholder 1000.0 - update when wallet service is available
+                base_capital = 1000.0
                 order_value = base_capital * position_size_pct
                 quantity = order_value / current_price
             else:
                 # For exit signals (ZE1, E1), use full position size
-                # TODO: Get actual position size from position manager
-                quantity = 0.001  # Placeholder
+                # TODO: Get actual position size from position manager (see GitHub issue)
+                # Requires: Position tracking system to retrieve current open position size
+                # Current implementation: placeholder 0.001 - update when position manager available
+                quantity = 0.001
 
             # Generate unique signal ID
             signal_id = f"signal_{strategy.strategy_name}_{strategy.symbol}_{int(datetime.now().timestamp() * 1000)}"
