@@ -256,7 +256,7 @@ class LoadTestFramework:
 
         if indicator_key:
             # Clean up temporary variant
-            self.engine.delete_variant(variant_id)
+            await self.engine.delete_variant(variant_id)
 
     async def _update_variant_operation(self, user_id: int):
         """Simulate updating a variant"""
@@ -274,7 +274,7 @@ class LoadTestFramework:
             if "period" in updated_params:
                 updated_params["period"] = max(2, updated_params["period"] + random.randint(-2, 2))
 
-            self.engine.update_variant_parameters(variant.id, updated_params)
+            await self.engine.update_variant_parameters(variant.id, updated_params)
 
     async def _calculate_indicator_operation(self, user_id: int):
         """Simulate calculating an indicator (cache hit scenario)"""
@@ -327,7 +327,7 @@ class LoadTestFramework:
             # Generate appropriate parameters based on indicator type
             parameters = self._generate_test_parameters(indicator_type)
 
-            variant_id = self.engine.create_variant(
+            variant_id = await self.engine.create_variant(
                 name=variant_name,
                 base_indicator_type=indicator_type.value,
                 variant_type="general",
