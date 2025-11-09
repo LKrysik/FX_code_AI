@@ -544,28 +544,137 @@ class TradingPersistenceService:
                 })
 
     async def _on_position_updated(self, data: Dict[str, Any]) -> None:
-        """Handle position_updated event and update positions table (price/PnL changes)."""
+        """
+        Handle position_updated event and persist to positions table.
+
+        FIX (Agent 4): Support both INSERT (status="opened") and UPDATE (status="updated").
+        PositionSyncService emits position_updated with status="opened" for new positions,
+        so we need to INSERT first, then UPDATE on subsequent updates.
+        """
         try:
             position_id = data.get("position_id", "unknown")
+            symbol = data.get("symbol", "").upper()
+            status_value = data.get("status", "updated").lower()  # "opened", "updated", "liquidated", "closed"
+            side = data.get("side", "LONG").upper()
+            quantity = float(data.get("quantity", 0))
+            entry_price = float(data.get("entry_price", 0))
             current_price = float(data.get("current_price", 0))
             unrealized_pnl = float(data.get("unrealized_pnl", 0))
+            margin_ratio = float(data.get("margin_ratio", 0))
+            liquidation_price = float(data.get("liquidation_price", 0))
+            timestamp = data.get("timestamp", time.time())
 
-            query = """
-                UPDATE positions
-                SET current_price = $2,
-                    unrealized_pnl = $3
-                WHERE position_id = $1
-            """
+            # Convert timestamp to datetime
+            if isinstance(timestamp, (int, float)):
+                # Handle milliseconds
+                if timestamp > 1e12:  # Milliseconds
+                    timestamp = timestamp / 1000.0
+                timestamp_dt = datetime.fromtimestamp(timestamp)
+            else:
+                timestamp_dt = timestamp
 
             async with self._pool.acquire() as conn:
-                await conn.execute(query, position_id, current_price, unrealized_pnl)
+                if status_value == "opened":
+                    # INSERT new position (first time we see it)
+                    query = """
+                        INSERT INTO positions (
+                            position_id,
+                            strategy_id,
+                            symbol,
+                            timestamp,
+                            side,
+                            quantity,
+                            entry_price,
+                            current_price,
+                            unrealized_pnl,
+                            realized_pnl,
+                            stop_loss,
+                            take_profit,
+                            status,
+                            metadata
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                    """
+                    await conn.execute(
+                        query,
+                        position_id,
+                        "live_trading",  # Default strategy_id
+                        symbol,
+                        timestamp_dt,
+                        side,
+                        quantity,
+                        entry_price,
+                        current_price,
+                        unrealized_pnl,
+                        0.0,  # realized_pnl (0 until closed)
+                        None,  # stop_loss (not tracked by PositionSyncService)
+                        None,  # take_profit (not tracked by PositionSyncService)
+                        "OPEN",  # status
+                        None  # metadata
+                    )
 
-            if self.logger:
-                self.logger.debug("trading_persistence.position_updated", {
-                    "position_id": position_id,
-                    "current_price": current_price,
-                    "unrealized_pnl": unrealized_pnl
-                })
+                    if self.logger:
+                        self.logger.debug("trading_persistence.position_inserted", {
+                            "position_id": position_id,
+                            "symbol": symbol,
+                            "side": side,
+                            "quantity": quantity
+                        })
+
+                elif status_value == "liquidated":
+                    # UPDATE to liquidated status
+                    query = """
+                        UPDATE positions
+                        SET current_price = $2,
+                            unrealized_pnl = 0.0,
+                            status = 'LIQUIDATED',
+                            quantity = 0.0
+                        WHERE position_id = $1
+                    """
+                    await conn.execute(query, position_id, current_price)
+
+                    if self.logger:
+                        self.logger.warning("trading_persistence.position_liquidated", {
+                            "position_id": position_id,
+                            "liquidation_price": current_price
+                        })
+
+                elif status_value == "closed":
+                    # UPDATE to closed status (handled by _on_position_closed, but support here too)
+                    realized_pnl = float(data.get("realized_pnl", unrealized_pnl))
+                    query = """
+                        UPDATE positions
+                        SET current_price = $2,
+                            unrealized_pnl = 0.0,
+                            realized_pnl = $3,
+                            status = 'CLOSED',
+                            quantity = 0.0
+                        WHERE position_id = $1
+                    """
+                    await conn.execute(query, position_id, current_price, realized_pnl)
+
+                    if self.logger:
+                        self.logger.debug("trading_persistence.position_closed_via_updated", {
+                            "position_id": position_id,
+                            "realized_pnl": realized_pnl
+                        })
+                else:
+                    # UPDATE existing position (price/PnL/quantity changes)
+                    query = """
+                        UPDATE positions
+                        SET current_price = $2,
+                            unrealized_pnl = $3,
+                            quantity = $4
+                        WHERE position_id = $1
+                    """
+                    await conn.execute(query, position_id, current_price, unrealized_pnl, quantity)
+
+                    if self.logger:
+                        self.logger.debug("trading_persistence.position_updated", {
+                            "position_id": position_id,
+                            "current_price": current_price,
+                            "unrealized_pnl": unrealized_pnl,
+                            "quantity": quantity
+                        })
 
         except Exception as e:
             if self.logger:
