@@ -151,7 +151,10 @@ class DataExportService:
 
     async def validate_export_request(self, session_id: str, format: str, symbol: str = None) -> bool:
         """
-        Validate export request parameters
+        Validate export request parameters.
+
+        ✅ BUG-003 FIX: Changed from filesystem to QuestDB validation
+        ✅ BUG-003 FIX: Made async (required for DB queries)
 
         ✅ BUG-004 FIX: Converted to async and uses QuestDB instead of filesystem
 

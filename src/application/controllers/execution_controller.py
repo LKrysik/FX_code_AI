@@ -444,6 +444,39 @@ class ExecutionController:
             for symbol in symbols:
                 self._active_symbols[symbol] = session_id
 
+        # ✅ SESSION-002 FIX: For DATA_COLLECTION mode, persist to QuestDB BEFORE creating in-memory session
+        # This prevents race condition where session exists in memory but not in DB
+        if mode == ExecutionMode.DATA_COLLECTION and self.db_persistence_service:
+            try:
+                data_types = (config or {}).get("data_types", ['prices', 'orderbook'])
+                await self.db_persistence_service.create_session(
+                    session_id=session_id,
+                    symbols=symbols,
+                    data_types=data_types,
+                    exchange='mexc',
+                    notes=f"Data collection session created via API"
+                )
+                self.logger.info("execution.db_session_created_early", {
+                    "session_id": session_id,
+                    "timing": "before_in_memory_session"
+                })
+            except Exception as db_error:
+                # Rollback symbol acquisition on DB failure
+                async with self._symbol_lock:
+                    for symbol in symbols:
+                        if self._active_symbols.get(symbol) == session_id:
+                            del self._active_symbols[symbol]
+
+                self.logger.error("execution.db_session_creation_failed_early", {
+                    "session_id": session_id,
+                    "error": str(db_error),
+                    "error_type": type(db_error).__name__
+                })
+                raise RuntimeError(
+                    f"Failed to create session in QuestDB (required): {str(db_error)}\n"
+                    f"Session creation aborted. Please ensure QuestDB is running and healthy."
+                ) from db_error
+
         # ✅ CRITICAL FIX: Use session_id from atomic symbol acquisition
         self._current_session = ExecutionSession(
             session_id=session_id,
@@ -687,29 +720,8 @@ class ExecutionController:
                             "symbol": symbol
                         })
 
-            # ✅ STEP 0.1: QuestDB is REQUIRED - Create session in database
-            try:
-                await self.db_persistence_service.create_session(
-                    session_id=session_id,
-                    symbols=symbols,
-                    data_types=data_types,  # ✅ FIX: Use actual data_types from config
-                    exchange='mexc',
-                    notes=f"Data collection session created via API"
-                )
-                self.logger.info("data_collection.db_session_created", {
-                    "session_id": session_id
-                })
-            except Exception as db_error:
-                # ✅ STEP 0.1: QuestDB is required - fail the entire session creation
-                self.logger.error("data_collection.db_session_creation_failed", {
-                    "session_id": session_id,
-                    "error": str(db_error),
-                    "error_type": type(db_error).__name__
-                })
-                raise RuntimeError(
-                    f"Failed to create session in QuestDB (required): {str(db_error)}\n"
-                    f"Session creation aborted. Please ensure QuestDB is running and healthy."
-                ) from db_error
+            # ✅ SESSION-002 FIX: DB persistence now handled in create_session() BEFORE in-memory session
+            # This eliminates the race condition where session exists in memory but not in DB
 
         except Exception as exc:
             self.logger.error("data_collection.session_dir_initialization_failed", {
@@ -1498,23 +1510,24 @@ class ExecutionController:
             await self._cleanup_session_impl()
 
     async def _cleanup_session_impl(self) -> None:
-        """Internal implementation of cleanup (called under cleanup lock)"""
+        """
+        Internal implementation of cleanup (called under cleanup lock)
+
+        ✅ SESSION-004 FIX: Atomic cleanup with rollback on DB failure
+        - DB update happens FIRST
+        - Memory cleanup happens AFTER
+        - Rollback on DB failure to maintain consistency
+        """
         if self._current_session:
-            # Clean up active symbols
-            await self._release_symbols(self._current_session.symbols)
+            # ✅ SESSION-004: Backup current session state for rollback
+            session_backup = self._current_session
+            symbols_backup = list(self._current_session.symbols)
 
-            if self._current_session.status != ExecutionState.STOPPED:
-                if self._current_session.status == ExecutionState.IDLE:
-                    self._current_session.status = ExecutionState.STOPPED
-                else:
-                    await self._transition_to(ExecutionState.STOPPED)
-                self._current_session.end_time = datetime.now()
-
-            # ✅ STEP 0.1: Update session status in QuestDB (required)
-            if self._current_session.mode == ExecutionMode.DATA_COLLECTION:
-                try:
+            try:
+                # ✅ SESSION-004: Update DB status BEFORE memory cleanup
+                if self._current_session.mode == ExecutionMode.DATA_COLLECTION:
                     # Determine final status
-                    final_status = 'completed' if self._current_session.status == ExecutionState.STOPPED else 'failed'
+                    final_status = 'completed' if self._current_session.status in (ExecutionState.STOPPED, ExecutionState.IDLE) else 'failed'
 
                     await self.db_persistence_service.update_session_status(
                         session_id=self._current_session.session_id,
@@ -1525,14 +1538,41 @@ class ExecutionController:
                         "session_id": self._current_session.session_id,
                         "status": final_status
                     })
-                except Exception as db_error:
-                    # ✅ STEP 0.1: Log as ERROR - session status update is important
-                    self.logger.error("data_collection.db_session_update_failed", {
-                        "session_id": self._current_session.session_id,
-                        "error": str(db_error),
-                        "error_type": type(db_error).__name__
-                    })
-                    # Don't raise here - session is already ending, just log the error
+
+                # ✅ SESSION-004: DB update succeeded, now safe to cleanup memory
+                # Clean up active symbols
+                await self._release_symbols(self._current_session.symbols)
+
+                if self._current_session.status != ExecutionState.STOPPED:
+                    if self._current_session.status == ExecutionState.IDLE:
+                        self._current_session.status = ExecutionState.STOPPED
+                    else:
+                        await self._transition_to(ExecutionState.STOPPED)
+                    self._current_session.end_time = datetime.now()
+
+            except Exception as db_error:
+                # ✅ SESSION-004: DB update failed - ROLLBACK and propagate error
+                self.logger.error("data_collection.db_session_update_failed_rollback", {
+                    "session_id": self._current_session.session_id if self._current_session else "unknown",
+                    "error": str(db_error),
+                    "error_type": type(db_error).__name__,
+                    "action": "rollback_initiated"
+                })
+
+                # Restore session state (memory stays intact)
+                self._current_session = session_backup
+
+                # Re-acquire symbols if they were released
+                async with self._symbol_lock:
+                    for symbol in symbols_backup:
+                        self._active_symbols[symbol] = session_backup.session_id
+
+                # Don't clear session from memory - DB update failed
+                # Let caller handle retry or manual intervention
+                raise RuntimeError(
+                    f"Failed to update session status in QuestDB: {str(db_error)}\n"
+                    f"Session state rolled back. Manual intervention may be required."
+                ) from db_error
 
         # ✅ MEMORY LEAK FIX: Clear progress callbacks to prevent accumulation
         self._progress_callbacks.clear()

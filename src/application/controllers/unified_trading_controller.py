@@ -362,31 +362,30 @@ class UnifiedTradingController:
             "parameters": parameters
         })
 
-        # ✅ FIX: Use execute_command_with_result to get session_id immediately
-        # This ensures API endpoint POST /sessions/start returns correct session_id
-        # instead of command_id, fixing the "unknown" session_id bug in frontend
+        # ✅ SESSION-005 FIX: Always return session_id, never command_id
+        # Increased timeout and removed fallback to prevent client lookup failures
         try:
             result = await self.command_processor.execute_command_with_result(
                 CommandType.START_DATA_COLLECTION,
                 parameters,
-                timeout=5.0  # Wait up to 5 seconds for session creation
+                timeout=15.0  # ✅ SESSION-005: Increased from 5s to 15s for DB persistence
             )
 
             session_id = result.get("session_id")
 
             if not session_id:
-                # Fallback: log warning and use command_id (shouldn't happen)
-                self.logger.warning("unified_trading_controller.no_session_id_in_result", {
+                # ✅ SESSION-005: Raise error instead of fallback to command_id
+                self.logger.error("unified_trading_controller.no_session_id_in_result", {
                     "result_keys": list(result.keys()) if result else [],
+                    "result": result,
                     "symbols": symbols,
                     "duration": duration
                 })
-                # Fall back to old behavior
-                command_id = await self.command_processor.execute_command(
-                    CommandType.START_DATA_COLLECTION,
-                    parameters
+                raise RuntimeError(
+                    f"Session creation failed: No session_id returned. "
+                    f"Result keys: {list(result.keys()) if result else 'None'}. "
+                    f"This indicates a critical issue in ExecutionController."
                 )
-                return command_id
 
             self.logger.info("unified_trading_controller.data_collection_started", {
                 "session_id": session_id,
@@ -396,29 +395,33 @@ class UnifiedTradingController:
 
             return session_id
 
-        except (TimeoutError, ValueError) as e:
-            # If execute_command_with_result fails, fall back to old async behavior
-            self.logger.error("unified_trading_controller.execute_with_result_failed", {
+        except TimeoutError as e:
+            # ✅ SESSION-005: Timeout is a real error - don't fallback
+            self.logger.error("unified_trading_controller.session_creation_timeout", {
+                "error": str(e),
+                "timeout_seconds": 15.0,
+                "symbols": symbols,
+                "duration": duration,
+                "action": "Check QuestDB connectivity and ExecutionController health"
+            })
+            raise RuntimeError(
+                f"Session creation timed out after 15 seconds. "
+                f"This may indicate QuestDB connectivity issues or ExecutionController deadlock. "
+                f"Symbols: {symbols}, Duration: {duration}"
+            ) from e
+
+        except Exception as e:
+            # ✅ SESSION-005: Any error is critical - propagate with context
+            self.logger.error("unified_trading_controller.session_creation_failed", {
                 "error": str(e),
                 "error_type": type(e).__name__,
                 "symbols": symbols,
-                "duration": duration,
-                "fallback": "using execute_command"
-            })
-
-            # Fallback to async command execution
-            command_id = await self.command_processor.execute_command(
-                CommandType.START_DATA_COLLECTION,
-                parameters
-            )
-
-            self.logger.info("unified_trading_controller.data_collection_started_fallback", {
-                "command_id": command_id,
-                "symbols": symbols,
                 "duration": duration
             })
-
-            return command_id
+            raise RuntimeError(
+                f"Session creation failed: {str(e)}. "
+                f"Symbols: {symbols}, Duration: {duration}"
+            ) from e
     
     async def stop_execution(self, force: bool = False) -> str:
         """Stop current execution"""

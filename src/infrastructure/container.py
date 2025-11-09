@@ -785,6 +785,14 @@ class Container:
                 })
                 raise RuntimeError(f"Failed to initialize strategy manager: {str(e)}") from e
 
+        # ✅ CRITICAL FIX: Start strategy manager to enable strategy evaluation
+        if hasattr(strategy_manager, 'start'):
+            await strategy_manager.start()
+            self.logger.info("container.strategy_manager_started_at_creation", {
+                "strategies_active": True,
+                "evaluation_enabled": True
+            })
+
         return strategy_manager
 
     async def create_mexc_adapter(self):
@@ -1327,6 +1335,57 @@ class Container:
                 raise RuntimeError(f"Failed to create session manager: {str(e)}") from e
 
         return await self._get_or_create_singleton_async("session_manager", _create)
+
+    async def create_session_service(self):
+        """
+        Create unified session lookup service.
+
+        ✅ SESSION-003 FIX: Provides consistent session lookup across all endpoints
+        - Before: Different endpoints used different lookup strategies
+        - After: Single service with unified lookup logic (controller → QuestDB → None)
+
+        Returns:
+            Configured session service
+        """
+        async def _create():
+            try:
+                from ..domain.services.session_service import SessionService
+                from ..data.questdb_data_provider import QuestDBDataProvider
+
+                # Get execution controller
+                execution_controller = await self.create_data_collection_controller()
+
+                # Create QuestDB provider for session lookups
+                questdb_provider = QuestDBDataProvider(
+                    host='127.0.0.1',
+                    port=8812,
+                    user='admin',
+                    password='quest',
+                    database='qdb',
+                    logger=self.logger
+                )
+
+                service = SessionService(
+                    execution_controller=execution_controller,
+                    db_provider=questdb_provider,
+                    logger=self.logger
+                )
+
+                self.logger.info("container.session_service_created", {
+                    "has_execution_controller": execution_controller is not None,
+                    "has_db_provider": questdb_provider is not None
+                })
+
+                return service
+
+            except Exception as e:
+                self.logger.error("container.session_service_creation_failed", {
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                })
+                raise RuntimeError(f"Failed to create session service: {str(e)}") from e
+
+        return await self._get_or_create_singleton_async("session_service", _create)
 
     async def create_metrics_exporter(self) -> MetricsExporter:
         """
