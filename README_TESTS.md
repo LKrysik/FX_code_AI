@@ -451,7 +451,7 @@ python run_tests.py --fast
 ### **Problem: Timeout errors**
 
 ```bash
-# Zwiększ timeout w pytest.ini:
+# Zwiększ timeout w tests_e2e/pytest.ini:
 timeout = 600  # 10 minutes
 
 # Lub dla konkretnego testu:
