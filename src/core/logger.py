@@ -171,8 +171,9 @@ class StructuredLogger:
                 encoding='utf-8'
             )
         except Exception as e:
-            # In a real system, this error should be logged to a fallback or stderr
-            # For now, we'll just let it fail silently if file handler can't be created
+            # ⚠️ CRITICAL: Log to stderr if file handler creation fails
+            # This prevents silent failure where we think we're logging but aren't
+            print(f"ERROR: Failed to create file handler for {log_file}: {e}", file=sys.stderr)
             return
 
         formatter = JsonFormatter() if structured else logging.Formatter(
@@ -198,6 +199,90 @@ class StructuredLogger:
 
     def debug(self, event_type: str, data: Dict[str, Any] = None):
         self._log(logging.DEBUG, event_type, data or {})
+
+
+def configure_module_logger(
+    module_name: str,
+    log_file: str,
+    level: str = "DEBUG",
+    console_enabled: bool = False,
+    max_file_size_mb: int = 100,
+    backup_count: int = 5
+) -> logging.Logger:
+    """
+    Configure a dedicated file logger for a specific module.
+
+    Use this for critical modules that need separate log files (e.g., EventBus).
+    This function configures the Python logging hierarchy directly, avoiding
+    StructuredLogger complexity when we just need basic file logging.
+
+    ✅ IDEMPOTENT: Safe to call multiple times - checks for existing handlers
+    ✅ THREAD-SAFE: Uses logging module's built-in thread safety
+
+    Args:
+        module_name: Module logger name (e.g., "src.core.event_bus")
+        log_file: Path to log file (e.g., "logs/event_bus.jsonl")
+        level: Log level (DEBUG, INFO, WARNING, ERROR)
+        console_enabled: Whether to also log to console
+        max_file_size_mb: Max file size before rotation
+        backup_count: Number of backup files to keep
+
+    Returns:
+        Configured logging.Logger instance
+
+    Example:
+        >>> logger = configure_module_logger("src.core.event_bus", "logs/event_bus.jsonl")
+        >>> logger.info("EventBus started")
+    """
+    logger = logging.getLogger(module_name)
+    logger.setLevel(getattr(logging, level.upper(), logging.DEBUG))
+    logger.propagate = False  # Don't propagate to parent loggers
+
+    # Ensure log directory exists
+    log_dir = os.path.dirname(log_file)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+
+    # ✅ DEFENSIVE: Check if file handler already exists (idempotency)
+    log_file_normalized = os.path.abspath(log_file)
+    file_handler_exists = False
+    for existing_handler in logger.handlers:
+        if isinstance(existing_handler, RotatingFileHandler):
+            if hasattr(existing_handler, 'baseFilename'):
+                existing_file = os.path.abspath(existing_handler.baseFilename)
+                if existing_file == log_file_normalized:
+                    file_handler_exists = True
+                    break
+
+    # Add file handler if it doesn't exist
+    if not file_handler_exists:
+        try:
+            file_handler = RotatingFileHandler(
+                log_file,
+                maxBytes=max_file_size_mb * 1024 * 1024,
+                backupCount=backup_count,
+                encoding='utf-8'
+            )
+            file_handler.setFormatter(JsonFormatter())
+            logger.addHandler(file_handler)
+        except Exception as e:
+            print(f"ERROR: Failed to create file handler for {log_file}: {e}", file=sys.stderr)
+
+    # ✅ DEFENSIVE: Check if console handler already exists (idempotency)
+    if console_enabled:
+        console_handler_exists = False
+        for existing_handler in logger.handlers:
+            if isinstance(existing_handler, logging.StreamHandler):
+                if hasattr(existing_handler, 'stream') and existing_handler.stream == sys.stdout:
+                    console_handler_exists = True
+                    break
+
+        if not console_handler_exists:
+            console_handler = logging.StreamHandler(sys.stdout)
+            console_handler.setFormatter(JsonFormatter())
+            logger.addHandler(console_handler)
+
+    return logger
 
 
 def get_logger(name: str) -> StructuredLogger:
@@ -242,7 +327,22 @@ def get_logger(name: str) -> StructuredLogger:
             logger = StructuredLogger(name, settings.logging)
             _logger_cache[name] = logger
             return logger
-        except Exception:
-            # Fallback to basic logging if config loading fails
-            import logging
-            return logging.getLogger(name)
+        except Exception as e:
+            # ⚠️ CRITICAL: Fallback must return StructuredLogger, not logging.Logger
+            # Otherwise we get AttributeError on .info(event_type, data) calls
+            print(f"WARNING: Failed to load config for logger '{name}': {e}", file=sys.stderr)
+            print(f"WARNING: Using basic StructuredLogger with defaults", file=sys.stderr)
+
+            # Create minimal config for fallback
+            class FallbackConfig:
+                level = "INFO"
+                console_enabled = True
+                file_enabled = False
+                structured_logging = True
+                log_dir = "logs"
+                max_file_size_mb = 100
+                backup_count = 5
+
+            fallback_logger = StructuredLogger(name, FallbackConfig())
+            _logger_cache[name] = fallback_logger
+            return fallback_logger
