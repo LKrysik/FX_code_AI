@@ -147,6 +147,14 @@ def create_unified_app():
         ws_server.controller = ws_controller
         ws_server.strategy_manager = ws_strategy_manager
 
+        # ✅ CRITICAL FIX: Start controller services (OrderManager, TradingPersistence, ExecutionMonitor)
+        await ws_controller.start()
+        logger.info("unified_trading_controller.started_at_startup", {
+            "order_manager_started": True,
+            "trading_persistence_started": True,
+            "execution_monitor_started": True
+        })
+
         # Initialize core services using new factory methods
         live_market_adapter = await container.create_live_market_adapter()
         session_manager = await container.create_session_manager()

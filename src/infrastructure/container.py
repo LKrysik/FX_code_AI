@@ -791,6 +791,14 @@ class Container:
                 })
                 raise RuntimeError(f"Failed to initialize strategy manager: {str(e)}") from e
 
+        # ✅ CRITICAL FIX: Start strategy manager to enable strategy evaluation
+        if hasattr(strategy_manager, 'start'):
+            await strategy_manager.start()
+            self.logger.info("container.strategy_manager_started_at_creation", {
+                "strategies_active": True,
+                "evaluation_enabled": True
+            })
+
         return strategy_manager
 
     async def create_mexc_adapter(self):
