@@ -47,7 +47,7 @@ Unit Tests Created:        247 tests
 Test Files:                9 files
 Test Code Lines:           ~5,671 lines
 Average Tests per File:    27 tests
-Coverage Target:           80% (per pytest.ini)
+Coverage Target:           80% (per tests_e2e/pytest.ini)
 ```
 
 ### Component Size Analysis
@@ -587,7 +587,7 @@ tests/
 
 ### Test Categories
 
-**Test Markers (pytest.ini):**
+**Test Markers (tests_e2e/pytest.ini):**
 ```ini
 markers =
     unit: Unit tests
@@ -641,7 +641,7 @@ StrategyHandler:            22 tests (90% coverage)
 ConnectionLifecycle:        14 tests (82% coverage)
 ```
 
-**Target:** 80% coverage per `pytest.ini` (all components meet or exceed target)
+**Target:** 80% coverage per `tests_e2e/pytest.ini` (all components meet or exceed target)
 
 ### Test Patterns
 
@@ -1147,7 +1147,7 @@ Average: ~348 lines per component
 
 ### Configuration
 
-- **Test Config:** `pytest.ini` (markers, coverage settings)
+- **Test Config:** `tests_e2e/pytest.ini` (markers, coverage settings)
 - **Test Runner:** `run_tests.py` (E2E test categories)
 
 ---
