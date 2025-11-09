@@ -700,8 +700,8 @@ def create_unified_app():
             if "strategy_name" not in body:
                 return _json_error("validation_error", "strategy_name is required")
 
-            if "s1_signal" not in body or "z1_entry" not in body or "o1_cancel" not in body or "emergency_exit" not in body:
-                return _json_error("validation_error", "All 4 sections (s1_signal, z1_entry, o1_cancel, emergency_exit) are required")
+            if "s1_signal" not in body or "z1_entry" not in body or "ze1_close" not in body or "o1_cancel" not in body or "emergency_exit" not in body:
+                return _json_error("validation_error", "All 5 sections (s1_signal, z1_entry, ze1_close, o1_cancel, emergency_exit) are required")
 
             # Validate strategy config
             validation_result = validate_strategy_config(body)
@@ -1262,6 +1262,10 @@ def create_unified_app():
             username = body.get("username")
             password = body.get("password")
 
+            # Validate required fields
+            if not username or not password:
+                return _json_error("validation_error", "username and password are required", status=422)
+
             # Get client IP
             client_ip = request.client.host if request.client else "127.0.0.1"
 
@@ -1543,7 +1547,7 @@ def create_unified_app():
         return _json_ok({"status": "health_status", "data": health_status})
 
     @app.post("/health/clear-cache")
-    async def clear_health_cache():
+    async def clear_health_cache(current_user: UserSession = Depends(get_current_user)):
         """Clear the health endpoint cache"""
         try:
             app.state._health_cache_ts = 0.0
@@ -1567,8 +1571,12 @@ def create_unified_app():
     async def get_registered_services():
         """Get all registered services"""
         try:
-            services = health_monitor.get_registered_services()
-            return _json_ok({"status": "registered_services", "data": {"services": services}})
+            services_dict = health_monitor.get_registered_services()
+            services_list = [
+                {"name": name, **details}
+                for name, details in services_dict.items()
+            ]
+            return _json_ok({"status": "registered_services", "data": {"services": services_list}})
         except Exception as e:
             return _json_error("service_error", f"Failed to get services: {str(e)}")
 
@@ -1582,19 +1590,23 @@ def create_unified_app():
             return _json_error("service_error", f"Failed to get service status: {str(e)}")
 
     @app.post("/health/services/{service_name}/enable")
-    async def enable_service(service_name: str):
+    async def enable_service(service_name: str, current_user: UserSession = Depends(get_current_user)):
         """Enable a service"""
         try:
-            health_monitor.enable_service(service_name)
+            success = health_monitor.enable_service(service_name)
+            if not success:
+                return _json_error("not_found", f"Service '{service_name}' not found", status=404)
             return _json_ok({"status": "service_enabled", "data": {"service_name": service_name}})
         except Exception as e:
             return _json_error("service_error", f"Failed to enable service: {str(e)}")
 
     @app.post("/health/services/{service_name}/disable")
-    async def disable_service(service_name: str):
+    async def disable_service(service_name: str, current_user: UserSession = Depends(get_current_user)):
         """Disable a service"""
         try:
-            health_monitor.disable_service(service_name)
+            success = health_monitor.disable_service(service_name)
+            if not success:
+                return _json_error("not_found", f"Service '{service_name}' not found", status=404)
             return _json_ok({"status": "service_disabled", "data": {"service_name": service_name}})
         except Exception as e:
             return _json_error("service_error", f"Failed to disable service: {str(e)}")
@@ -2236,7 +2248,7 @@ def create_unified_app():
 
     # Wallet endpoint
     @app.get("/wallet/balance")
-    async def get_wallet_balance():
+    async def get_wallet_balance(current_user: UserSession = Depends(get_current_user)):
         controller = await app.state.rest_service.get_controller()
         balance = controller.get_wallet_balance()
         if balance is None:
@@ -2245,14 +2257,14 @@ def create_unified_app():
 
     # Order management endpoints
     @app.get("/orders")
-    async def get_orders():
+    async def get_orders(current_user: UserSession = Depends(get_current_user)):
         """Get all orders"""
         controller = await app.state.rest_service.get_controller()
         orders = controller.get_all_orders()
         return _json_ok({"status": "orders_list", "data": {"orders": orders}})
 
     @app.get("/orders/{order_id}")
-    async def get_order(order_id: str):
+    async def get_order(order_id: str, current_user: UserSession = Depends(get_current_user)):
         """Get specific order by ID"""
         controller = await app.state.rest_service.get_controller()
         orders = controller.get_all_orders()
@@ -2263,14 +2275,14 @@ def create_unified_app():
         return _json_ok({"status": "order_status", "data": {"order": order}})
 
     @app.get("/positions")
-    async def get_positions():
+    async def get_positions(current_user: UserSession = Depends(get_current_user)):
         """Get all positions"""
         controller = await app.state.rest_service.get_controller()
         positions = controller.get_all_positions()
         return _json_ok({"status": "positions_list", "data": {"positions": positions}})
 
     @app.get("/positions/{symbol}")
-    async def get_position(symbol: str):
+    async def get_position(symbol: str, current_user: UserSession = Depends(get_current_user)):
         """Get position for specific symbol"""
         controller = await app.state.rest_service.get_controller()
         positions = controller.get_all_positions()
@@ -2281,7 +2293,7 @@ def create_unified_app():
         return _json_ok({"status": "position_status", "data": {"position": position}})
 
     @app.get("/trading/performance")
-    async def get_trading_performance():
+    async def get_trading_performance(current_user: UserSession = Depends(get_current_user)):
         """Get trading performance summary"""
         controller = await app.state.rest_service.get_controller()
         performance = controller.get_trading_performance()
