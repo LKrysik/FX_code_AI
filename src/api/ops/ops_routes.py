@@ -40,6 +40,45 @@ from ...monitoring.metrics_exporter import MetricsExporter
 router = APIRouter(prefix="/api/ops", tags=["operations"])
 security = HTTPBearer()
 
+# ✅ ARCHITECTURE FIX: Module-level declaration (not instantiation)
+# Follows DI pattern from indicators_routes.py, paper_trading_routes.py, trading_routes.py
+_ops_api: Optional['OpsAPI'] = None
+
+
+def initialize_ops_dependencies(ops_api: 'OpsAPI') -> None:
+    """
+    ✅ ARCHITECTURE FIX: Explicit dependency injection instead of module-level instantiation.
+
+    This function is called from unified_server.py during app startup
+    to inject the properly configured OpsAPI instance from Container.
+
+    Args:
+        ops_api: Pre-configured OpsAPI instance from Container.create_ops_api()
+    """
+    global _ops_api
+    _ops_api = ops_api
+
+
+def get_ops_api() -> 'OpsAPI':
+    """
+    Get injected OpsAPI instance or fail-fast if not initialized.
+
+    Services MUST be injected via initialize_ops_dependencies() during startup.
+    No fallback lazy initialization - enforces proper DI architecture.
+
+    Returns:
+        Injected OpsAPI instance
+
+    Raises:
+        RuntimeError: If OpsAPI not injected (indicates DI failure)
+    """
+    if _ops_api is None:
+        raise RuntimeError(
+            "OpsAPI not injected into ops_routes. "
+            "Call initialize_ops_dependencies() from unified_server.py during startup."
+        )
+    return _ops_api
+
 
 class OpsAPI:
     """
@@ -141,8 +180,10 @@ class OpsAPI:
         self.logger.info("ops_api.audit_action", audit_entry)
 
 
-# Create API instance (would be injected in real app)
-ops_api = OpsAPI(None, None, None, None)  # Placeholder
+# ✅ ARCHITECTURE FIX: Removed module-level instantiation anti-pattern
+# Before: ops_api = OpsAPI(None, None, None, None)  # ❌ Created at import time, caused JWT_SECRET error
+# After: Instance injected via initialize_ops_dependencies() from Container
+# Follows pattern from indicators_routes.py, paper_trading_routes.py, trading_routes.py
 
 
 @router.get("/health")
@@ -166,6 +207,7 @@ async def get_live_positions(
 
     Returns aggregated position data across all active sessions.
     """
+    ops_api = get_ops_api()  # ✅ Get injected instance
     user = await ops_api.authenticate_user(credentials)
     ops_api.check_permission(user, "read")
 
@@ -224,6 +266,7 @@ async def get_incidents(
     """
     Get incident timeline with filtering and acknowledgements.
     """
+    ops_api = get_ops_api()  # ✅ Get injected instance
     user = await ops_api.authenticate_user(credentials)
     ops_api.check_permission(user, "read")
 
@@ -265,6 +308,7 @@ async def acknowledge_incident(
     """
     Acknowledge an incident with optional note.
     """
+    ops_api = get_ops_api()  # ✅ Get injected instance
     user = await ops_api.authenticate_user(credentials)
     ops_api.check_permission(user, "write")
 
@@ -306,6 +350,7 @@ async def get_risk_controls(
     """
     Get current risk control status and settings.
     """
+    ops_api = get_ops_api()  # ✅ Get injected instance
     user = await ops_api.authenticate_user(credentials)
     ops_api.check_permission(user, "read")
 
@@ -336,6 +381,7 @@ async def trigger_kill_switch(
     """
     Trigger global kill switch to stop all trading.
     """
+    ops_api = get_ops_api()  # ✅ Get injected instance
     user = await ops_api.authenticate_user(credentials)
     ops_api.check_permission(user, "admin")
 
@@ -372,6 +418,7 @@ async def get_telemetry(
     """
     Get aggregated telemetry data for dashboards.
     """
+    ops_api = get_ops_api()  # ✅ Get injected instance
     user = await ops_api.authenticate_user(credentials)
     ops_api.check_permission(user, "read")
 
@@ -429,6 +476,7 @@ async def get_audit_log(
     """
     Get audit log for compliance and monitoring.
     """
+    ops_api = get_ops_api()  # ✅ Get injected instance
     user = await ops_api.authenticate_user(credentials)
     ops_api.check_permission(user, "read")
 
@@ -513,6 +561,7 @@ async def _get_risk_status() -> Dict[str, Any]:
 
 async def _execute_kill_switch(reason: str, user: Dict[str, Any]) -> Dict[str, Any]:
     """Execute global kill switch"""
+    ops_api = get_ops_api()  # ✅ Get injected instance
     affected_sessions = 0
 
     # Stop all sessions for the user

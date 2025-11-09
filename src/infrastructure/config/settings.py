@@ -429,11 +429,19 @@ class RedisSettings(BaseSettings):
 
 class AppSettings(BaseSettings):
     """Main application settings - Single Source of Truth"""
-    
+
     # Core settings
     app_name: str = Field(default="Crypto Monitor")
     version: str = Field(default="2.0.0")
     debug: bool = Field(default=False)
+
+    # JWT Authentication (for OpsAPI and WebSocket authentication)
+    jwt_secret: Optional[str] = Field(
+        default=None,
+        description="JWT secret for API authentication (minimum 32 characters). "
+                    "If not set, will be auto-generated at startup (non-persistent). "
+                    "Generate a secure secret using: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
+    )
     
     # Configuration sections
     trading: TradingSettings = Field(default_factory=TradingSettings)
