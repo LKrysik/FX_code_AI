@@ -365,6 +365,9 @@ class ExecutionController:
         # ✅ THREAD SAFETY FIX: Lock for atomic state transitions
         self._state_lock = asyncio.Lock()
 
+        # ✅ RACE CONDITION FIX: Lock for cleanup operations to prevent concurrent cleanup
+        self._cleanup_lock = asyncio.Lock()
+
         # State transitions
         self._valid_transitions = {
             ExecutionState.IDLE: [ExecutionState.STARTING],
@@ -1217,7 +1220,12 @@ class ExecutionController:
         )
     
     async def _cleanup_execution(self) -> None:
-        """Cleanup execution resources"""
+        """✅ RACE CONDITION FIX: Cleanup execution resources atomically"""
+        async with self._cleanup_lock:
+            await self._cleanup_execution_impl()
+
+    async def _cleanup_execution_impl(self) -> None:
+        """Internal implementation of cleanup (called under cleanup lock)"""
         if self._data_source:
             try:
                 await self._data_source.stop_stream()
@@ -1486,6 +1494,11 @@ class ExecutionController:
 
     async def _cleanup_session(self) -> None:
         """✅ MEMORY LEAK FIX: Cleanup session and all resources properly"""
+        async with self._cleanup_lock:
+            await self._cleanup_session_impl()
+
+    async def _cleanup_session_impl(self) -> None:
+        """Internal implementation of cleanup (called under cleanup lock)"""
         if self._current_session:
             # Clean up active symbols
             await self._release_symbols(self._current_session.symbols)
@@ -1543,7 +1556,8 @@ class ExecutionController:
             self._data_buffers.clear()
             delattr(self, '_data_buffers')
 
-        await self._cleanup_execution()
+        # Call internal impl directly to avoid double-locking (we're already under cleanup_lock)
+        await self._cleanup_execution_impl()
 
         self.logger.info("execution.session_cleaned", {
             "session_id": self._current_session.session_id if self._current_session else "unknown"

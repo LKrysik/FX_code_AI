@@ -86,7 +86,8 @@ class LiveOrderManager:
         event_bus: EventBus,
         mexc_adapter: MexcRealAdapter,
         risk_manager,  # RiskManager (avoid circular import)
-        max_orders: int = 1000
+        max_orders: int = 1000,
+        order_timeout_seconds: int = 60  # FIX (Agent 4 - Task 3): Order timeout
     ):
         """
         Initialize LiveOrderManager.
@@ -96,14 +97,19 @@ class LiveOrderManager:
             mexc_adapter: MEXC adapter with circuit breaker
             risk_manager: RiskManager for order validation
             max_orders: Maximum number of orders to track
+            order_timeout_seconds: Timeout for pending orders (default: 60s)
         """
         self.event_bus = event_bus
         self.mexc_adapter = mexc_adapter
         self.risk_manager = risk_manager
         self.max_orders = max_orders
+        self.order_timeout_seconds = order_timeout_seconds
 
         # Order tracking (CRITICAL: Not defaultdict to prevent memory leak)
         self.orders: Dict[str, Order] = {}
+
+        # FIX (Agent 4 - Task 3): Order timeout tracking
+        self._order_timeouts: Dict[str, asyncio.Task] = {}
 
         # Lock for thread-safe order dict access
         self._order_lock = asyncio.Lock()
@@ -155,6 +161,18 @@ class LiveOrderManager:
                 await self._cleanup_task
             except asyncio.CancelledError:
                 pass
+
+        # FIX (Agent 4 - Task 3): Cancel all timeout tasks
+        timeout_count = len(self._order_timeouts)
+        for order_id, timeout_task in list(self._order_timeouts.items()):
+            timeout_task.cancel()
+            try:
+                await timeout_task
+            except asyncio.CancelledError:
+                pass
+        self._order_timeouts.clear()
+        if timeout_count > 0:
+            logger.info(f"Cancelled {timeout_count} timeout tasks")
 
         # Explicit cleanup (memory leak prevention)
         async with self._order_lock:
@@ -270,6 +288,11 @@ class LiveOrderManager:
                     f"Order submitted: {order.order_id} → Exchange ID: {exchange_order_id}"
                 )
 
+                # FIX (Agent 4 - Task 3): Create timeout task
+                timeout_task = asyncio.create_task(self._timeout_order(order.order_id))
+                self._order_timeouts[order.order_id] = timeout_task
+                logger.debug(f"Timeout task created for order {order.order_id} ({self.order_timeout_seconds}s)")
+
                 await self._emit_order_event("order_created", order, status="submitted")
                 return True
 
@@ -328,6 +351,48 @@ class LiveOrderManager:
                 price=order.price
             )
 
+    async def _timeout_order(self, order_id: str):
+        """
+        FIX (Agent 4 - Task 3): Timeout handler for pending orders.
+
+        Automatically cancels order if it stays in PENDING/SUBMITTED state
+        for longer than order_timeout_seconds.
+
+        Args:
+            order_id: Local order ID to timeout
+        """
+        try:
+            await asyncio.sleep(self.order_timeout_seconds)
+
+            # Check if order still pending/submitted
+            async with self._order_lock:
+                if order_id not in self.orders:
+                    return  # Order already removed
+
+                order = self.orders[order_id]
+
+            if order.status in [OrderStatus.PENDING, OrderStatus.SUBMITTED]:
+                logger.warning(
+                    f"Order timeout: {order_id} still in {order.status.value} after {self.order_timeout_seconds}s, cancelling..."
+                )
+
+                # Attempt to cancel the order
+                success = await self.cancel_order(order_id)
+
+                if success:
+                    logger.info(f"Order {order_id} cancelled due to timeout")
+                else:
+                    logger.error(f"Failed to cancel timed out order {order_id}")
+            else:
+                # Order already in terminal state, no action needed
+                logger.debug(f"Order {order_id} timeout task found order in {order.status.value}, no cancellation needed")
+
+        except asyncio.CancelledError:
+            # Timeout task cancelled (order filled or manually cancelled)
+            logger.debug(f"Timeout task cancelled for order {order_id} (order completed)")
+        except Exception as e:
+            logger.error(f"Error in timeout handler for order {order_id}: {e}")
+
     async def cancel_order(self, order_id: str) -> bool:
         """
         Cancel pending order.
@@ -362,6 +427,12 @@ class LiveOrderManager:
                 order.updated_at = time.time()
 
                 logger.info(f"Order cancelled: {order_id}")
+
+                # FIX (Agent 4 - Task 3): Cancel timeout task
+                if order_id in self._order_timeouts:
+                    self._order_timeouts[order_id].cancel()
+                    del self._order_timeouts[order_id]
+                    logger.debug(f"Timeout task cancelled for manually cancelled order {order_id}")
 
                 await self.event_bus.publish("order_cancelled", {
                     "order_id": order_id,
@@ -452,12 +523,23 @@ class LiveOrderManager:
                 f"Order status changed: {order.order_id} {old_status.value} → {order.status.value}"
             )
 
+            # FIX (Agent 4 - Task 3): Cancel timeout task for terminal states
+            if order.status in [OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.FAILED]:
+                if order.order_id in self._order_timeouts:
+                    self._order_timeouts[order.order_id].cancel()
+                    del self._order_timeouts[order.order_id]
+                    logger.debug(f"Timeout task cancelled for order {order.order_id} (status: {order.status.value})")
+
             if order.status == OrderStatus.FILLED:
                 # Calculate commission (0.1% of filled value)
                 commission = order.filled_quantity * order.average_fill_price * 0.001
 
                 await self.event_bus.publish("order_filled", {
                     "order_id": order.order_id,
+                    "symbol": order.symbol,  # FIX: Add symbol for position tracking
+                    "side": order.side,      # FIX: Add side for position tracking
+                    "quantity": order.filled_quantity,  # FIX: Use filled_quantity for position calc
+                    "price": order.average_fill_price,  # FIX: Use average_fill_price for position calc
                     "filled_quantity": order.filled_quantity,
                     "filled_price": order.average_fill_price,
                     "commission": commission,

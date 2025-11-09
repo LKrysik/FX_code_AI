@@ -143,6 +143,10 @@ class PositionSyncService:
 
         Updates local position or creates new position.
 
+        FIX (Agent 4): Emit position_updated with correct status:
+        - "opened" for new positions
+        - "updated" for existing position updates
+
         Args:
             data: Order filled event data
         """
@@ -157,6 +161,7 @@ class PositionSyncService:
         # Track if we need to close position (outside lock)
         should_close = False
         position_to_close = None
+        is_new_position = False  # FIX: Track if this is a new position
 
         # Protect positions dict access with lock
         async with self._positions_lock:
@@ -221,6 +226,7 @@ class PositionSyncService:
                 )
 
                 self.positions[symbol] = position
+                is_new_position = True  # FIX: Mark as new position
 
                 logger.info(f"New position created: {symbol} {position.side} {position.quantity}")
 
@@ -229,7 +235,7 @@ class PositionSyncService:
             await self._close_position(symbol, position_to_close)
             return
 
-        # Emit position updated event for new positions (outside lock)
+        # FIX: Emit position event with correct status (outside lock)
         if symbol in self.positions and not should_close:
             async with self._positions_lock:
                 if symbol in self.positions:
@@ -237,7 +243,7 @@ class PositionSyncService:
                     await self.event_bus.publish("position_updated", {
                         "position_id": symbol,
                         "symbol": symbol,
-                        "status": "opened",
+                        "status": "opened" if is_new_position else "updated",  # FIX: Correct status
                         "side": pos.side,
                         "quantity": pos.quantity,
                         "entry_price": pos.entry_price,
