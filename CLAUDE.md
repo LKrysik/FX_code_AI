@@ -33,11 +33,14 @@ npm run dev  # Runs on port 3000
 # Install and configure
 python database/questdb/install_questdb.py
 
-# Connection details:
+# Connection details (QuestDB multi-protocol support):
 # - Web UI: http://127.0.0.1:9000
-# - PostgreSQL: localhost:8812 (user: admin, password: quest)
-# - InfluxDB Line Protocol: localhost:9009 (fast writes)
+# - PostgreSQL Protocol: localhost:8812 (user: admin, password: quest) ← SQL queries
+# - InfluxDB Line Protocol: localhost:9009 ← Ultra-fast writes
 # - REST API: http://127.0.0.1:9000/exec
+#
+# NOTE: We use ONLY QuestDB as database, NOT PostgreSQL!
+# QuestDB implements PostgreSQL wire protocol for SQL compatibility.
 ```
 
 **Why QuestDB?** 10x faster ingestion than TimescaleDB (1M+ rows/sec), 4x less memory, native Windows support, no Docker/WSL2 required.
@@ -279,10 +282,11 @@ with Sender(Protocol.Tcp, 'localhost', 9009) as sender:
                at=TimestampNanos(timestamp_ns))
 ```
 
-**Queries (PostgreSQL Protocol):**
+**Queries (QuestDB via PostgreSQL Protocol):**
 ```python
 import asyncpg
 
+# Connect to QuestDB using PostgreSQL wire protocol (NOT a PostgreSQL database!)
 pool = await asyncpg.create_pool(host='localhost', port=8812,
                                  user='admin', password='quest', database='qdb')
 async with pool.acquire() as conn:
