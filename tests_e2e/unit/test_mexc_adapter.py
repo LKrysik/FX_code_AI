@@ -27,7 +27,7 @@ from src.infrastructure.adapters.mexc_adapter import (
     PositionResponse
 )
 from src.core.logger import StructuredLogger
-from src.core.circuit_breaker import CircuitBreakerOpenError
+from src.core.circuit_breaker import CircuitBreakerOpenException
 
 
 class TestMexcAdapterOrderSubmission:

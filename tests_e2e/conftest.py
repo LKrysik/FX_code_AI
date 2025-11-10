@@ -54,7 +54,7 @@ def app():
 @pytest.fixture(scope="function")
 def api_client(app) -> Generator[TestClient, None, None]:
     """
-    FastAPI TestClient for API testing.
+    FastAPI TestClient for API testing with CSRF token.
 
     Usage:
         def test_endpoint(api_client):
@@ -62,6 +62,18 @@ def api_client(app) -> Generator[TestClient, None, None]:
             assert response.status_code == 200
     """
     with TestClient(app) as client:
+        # Get CSRF token for POST/PUT/DELETE requests
+        try:
+            csrf_response = client.get("/csrf-token")
+            if csrf_response.status_code == 200:
+                csrf_data = csrf_response.json()
+                csrf_token = csrf_data.get("data", {}).get("token")
+                if csrf_token:
+                    client.headers["X-CSRF-Token"] = csrf_token
+        except Exception:
+            # If CSRF token fetch fails, continue without it (some tests may not need it)
+            pass
+
         yield client
 
 

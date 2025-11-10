@@ -102,6 +102,8 @@ addopts = [
 markers = [
     "unit: Unit tests",
     "integration: Integration tests",
+    "e2e: End-to-end tests",
+    "performance: Performance tests",
     "slow: Slow running tests",
     "asyncio: Async tests",
 ]
