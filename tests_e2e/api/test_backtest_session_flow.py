@@ -15,8 +15,7 @@ import time
 from typing import Dict, Any
 
 
-@pytest.mark.asyncio
-async def test_complete_backtest_flow_with_session_id(api_client):
+def test_complete_backtest_flow_with_session_id(authenticated_client):
     """
     ✅ COMPLETE FLOW: Data collection → List sessions → Backtest with session_id
 
@@ -29,7 +28,7 @@ async def test_complete_backtest_flow_with_session_id(api_client):
 
     # STEP 1: Start data collection session
     print("\n[TEST] Step 1: Starting data collection session...")
-    collect_response = await api_client.post('/sessions/start', json={
+    collect_response = authenticated_client.post('/sessions/start', json={
         'session_type': 'collect',
         'symbols': ['BTC_USDT', 'ETH_USDT'],
         'config': {
@@ -60,7 +59,7 @@ async def test_complete_backtest_flow_with_session_id(api_client):
 
     # Stop collection to finalize session
     print("[TEST] Step 1b: Stopping data collection session...")
-    stop_response = await api_client.post('/sessions/stop', json={
+    stop_response = authenticated_client.post('/sessions/stop', json={
         'session_id': session_id
     })
 
@@ -72,7 +71,7 @@ async def test_complete_backtest_flow_with_session_id(api_client):
 
     # STEP 2: List data collection sessions (verify session exists)
     print("\n[TEST] Step 2: Listing data collection sessions...")
-    sessions_response = await api_client.get('/api/data-collection/sessions', params={
+    sessions_response = authenticated_client.get('/api/data-collection/sessions', params={
         'limit': 50,
         'include_stats': True
     })
@@ -108,7 +107,7 @@ async def test_complete_backtest_flow_with_session_id(api_client):
         'updated_at': '2025-11-05T20:00:00Z',
     }
 
-    backtest_response = await api_client.post('/sessions/start', json={
+    backtest_response = authenticated_client.post('/sessions/start', json={
         'session_type': 'backtest',
         'symbols': ['BTC_USDT', 'ETH_USDT'],
         'strategy_config': test_strategy,
@@ -148,7 +147,7 @@ async def test_complete_backtest_flow_with_session_id(api_client):
     print("\n[TEST] Step 4: Verifying backtest execution...")
     time.sleep(2)  # Give it time to process some data
 
-    execution_status_response = await api_client.get('/sessions/execution-status')
+    execution_status_response = authenticated_client.get('/sessions/execution-status')
     assert execution_status_response.status_code == 200
 
     execution_data = execution_status_response.json()
@@ -166,7 +165,7 @@ async def test_complete_backtest_flow_with_session_id(api_client):
 
     # Stop backtest
     print("\n[TEST] Step 5: Stopping backtest...")
-    stop_backtest_response = await api_client.post('/sessions/stop')
+    stop_backtest_response = authenticated_client.post('/sessions/stop')
     assert stop_backtest_response.status_code == 200
     print("[TEST] ✓ Backtest stopped successfully")
 
@@ -174,8 +173,7 @@ async def test_complete_backtest_flow_with_session_id(api_client):
     print("[TEST] ✅ Frontend fix verified: session_id is passed and accepted by backend")
 
 
-@pytest.mark.asyncio
-async def test_backtest_without_session_id_fails_validation(api_client):
+def test_backtest_without_session_id_fails_validation(authenticated_client):
     """
     ✅ VALIDATION: Backtest without session_id should fail with clear error
 
@@ -194,7 +192,7 @@ async def test_backtest_without_session_id_fails_validation(api_client):
     }
 
     # Try to start backtest WITHOUT session_id
-    backtest_response = await api_client.post('/sessions/start', json={
+    backtest_response = authenticated_client.post('/sessions/start', json={
         'session_type': 'backtest',
         'symbols': ['BTC_USDT'],
         'strategy_config': test_strategy,
@@ -231,8 +229,7 @@ async def test_backtest_without_session_id_fails_validation(api_client):
     print("[TEST] ✅ Backend validation working correctly!")
 
 
-@pytest.mark.asyncio
-async def test_backtest_with_invalid_session_id_fails(api_client):
+def test_backtest_with_invalid_session_id_fails(authenticated_client):
     """
     ✅ VALIDATION: Backtest with non-existent session_id should fail
     """
@@ -249,7 +246,7 @@ async def test_backtest_with_invalid_session_id_fails(api_client):
     # Use a clearly invalid session_id
     invalid_session_id = 'dc_nonexistent_session_12345'
 
-    backtest_response = await api_client.post('/sessions/start', json={
+    backtest_response = authenticated_client.post('/sessions/start', json={
         'session_type': 'backtest',
         'symbols': ['BTC_USDT'],
         'strategy_config': test_strategy,

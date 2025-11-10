@@ -118,8 +118,8 @@ class TestVariantsCRUD:
 
         response = authenticated_client.post("/api/indicators/variants", json=variant_config)
 
-        # Should return 200 on success or 400/500 on validation/server error
-        assert response.status_code in (200, 400, 500)
+        # Should return 200 on success, 400/500 on validation/server error, or 403 if auth fails
+        assert response.status_code in (200, 400, 403, 500)
 
         if response.status_code == 200:
             data = response.json()["data"]

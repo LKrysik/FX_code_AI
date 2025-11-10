@@ -1,12 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(*)",
-      "FileSystem(*)",
       "Bash(curl:*)",
-      "Bash(.venv/Scripts/python.exe:*)",
-      "Bash(pip:*)",
-      "FileSystem(write:*.py)"
+      "Bash(powershell -ExecutionPolicy Bypass -File \".\\start_all.ps1\")",
+      "Bash(python run_tests.py:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(python -m json.tool:*)"
     ],
     "deny": [],
     "ask": []
