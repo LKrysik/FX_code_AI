@@ -108,8 +108,11 @@ logger = logging.getLogger(__name__)
 class QuestDBProvider:
     """
     QuestDB data provider with dual-protocol support:
-    - InfluxDB line protocol (ILP) for fast writes
-    - PostgreSQL wire protocol for queries
+    - InfluxDB line protocol (ILP) for fast writes (port 9009)
+    - PostgreSQL wire protocol for SQL queries (port 8812)
+
+    NOTE: We use QuestDB as the database, NOT PostgreSQL!
+    QuestDB implements PostgreSQL wire protocol for SQL compatibility.
     """
 
     def __init__(
@@ -127,21 +130,21 @@ class QuestDBProvider:
         ilp_retry_delays: Optional[List[float]] = None,
     ):
         """
-        Initialize QuestDB provider with connection pooling for both PostgreSQL and ILP.
+        Initialize QuestDB provider with connection pooling for both protocols.
 
         ✅ PERFORMANCE FIX: Now uses connection pool pattern for ILP Senders to prevent
         port exhaustion and reduce connection overhead. Reuses persistent TCP connections
         instead of creating new ones for each batch write.
 
         Args:
-            ilp_host: InfluxDB line protocol host
-            ilp_port: InfluxDB line protocol port (default 9009)
-            pg_host: PostgreSQL wire protocol host
-            pg_port: PostgreSQL wire protocol port (default 8812)
-            pg_user: PostgreSQL user
-            pg_password: PostgreSQL password
-            pg_database: PostgreSQL database name
-            pg_pool_size: PostgreSQL connection pool size (default 10)
+            ilp_host: QuestDB ILP endpoint host
+            ilp_port: QuestDB ILP endpoint port (default 9009)
+            pg_host: QuestDB host for PostgreSQL protocol
+            pg_port: QuestDB PostgreSQL protocol port (default 8812)
+            pg_user: QuestDB username (for PostgreSQL protocol)
+            pg_password: QuestDB password (for PostgreSQL protocol)
+            pg_database: QuestDB database name (default 'qdb')
+            pg_pool_size: Connection pool size for PostgreSQL protocol (default 10)
             ilp_sender_pool_size: ILP Sender pool size (default 5)
             ilp_retry_attempts: Number of retry attempts for ILP operations (default 3)
             ilp_retry_delays: Retry delays in seconds (default [1.0, 2.0, 4.0] for exponential backoff)
@@ -153,7 +156,7 @@ class QuestDBProvider:
         self.ilp_retry_attempts = ilp_retry_attempts
         self.ilp_retry_delays = ilp_retry_delays or [1.0, 2.0, 4.0]
 
-        # PostgreSQL config
+        # QuestDB config (PostgreSQL protocol)
         self.pg_host = pg_host
         self.pg_port = pg_port
         self.pg_user = pg_user
@@ -161,7 +164,7 @@ class QuestDBProvider:
         self.pg_database = pg_database
         self.pg_pool_size = pg_pool_size
 
-        # PostgreSQL connection pool (initialized in async context)
+        # QuestDB connection pool via PostgreSQL protocol (initialized in async context)
         self.pg_pool: Optional[asyncpg.Pool] = None
 
         # ✅ RACE CONDITION FIX: Initialization lock to prevent concurrent pool creation
@@ -195,7 +198,7 @@ class QuestDBProvider:
             if self._initialized:
                 return
 
-            # Initialize PostgreSQL pool
+            # Initialize QuestDB connection pool (PostgreSQL protocol)
             if self.pg_pool is None:
                 try:
                     self.pg_pool = await asyncpg.create_pool(
@@ -209,12 +212,12 @@ class QuestDBProvider:
                         timeout=10.0,  # ✅ CONNECTION TIMEOUT: Prevent infinite hangs
                         command_timeout=30.0,  # ✅ QUERY TIMEOUT: Prevent stuck queries
                     )
-                    logger.info(f"PostgreSQL pool created ({self.pg_pool_size} connections)")
+                    logger.info(f"QuestDB connection pool created (PostgreSQL protocol, {self.pg_pool_size} connections)")
                 except (ConnectionRefusedError, OSError) as e:
-                    # ✅ CRITICAL ERROR: PostgreSQL wire protocol connection failed
+                    # ✅ CRITICAL ERROR: QuestDB connection failed (PostgreSQL protocol)
                     # This is REQUIRED (not optional like ILP)
                     error_msg = (
-                        f"CRITICAL: Cannot connect to QuestDB PostgreSQL protocol\n"
+                        f"CRITICAL: Cannot connect to QuestDB (PostgreSQL protocol)\n"
                         f"Error: {e}\n"
                         f"Error Type: {type(e).__name__}\n"
                         f"\n"
@@ -237,12 +240,13 @@ class QuestDBProvider:
                         f"     - Run query: SELECT 1\n"
                         f"     - Check logs for \"server is ready\" message\n"
                         f"\n"
-                        f"  2. Verify PostgreSQL protocol is enabled:\n"
+                        f"  2. Enable QuestDB PostgreSQL protocol:\n"
                         f"     - Edit: <questdb_root>/conf/server.conf\n"
                         f"     - Add/verify lines:\n"
                         f"         pg.enabled=true\n"
                         f"         pg.net.bind.to=0.0.0.0:8812\n"
                         f"     - Restart QuestDB after config changes\n"
+                        f"     - NOTE: This is QuestDB's PostgreSQL PROTOCOL, not a separate PostgreSQL database!\n"
                         f"\n"
                         f"  3. Check Windows Firewall:\n"
                         f"     - Allow QuestDB.exe through firewall\n"
@@ -266,10 +270,10 @@ class QuestDBProvider:
                     })
                     raise RuntimeError(error_msg) from e
                 except Exception as e:
-                    # ✅ CATCH-ALL: Unexpected PostgreSQL errors (auth, invalid database, etc.)
+                    # ✅ CATCH-ALL: Unexpected QuestDB connection errors (auth, invalid database, etc.)
                     # NOTE: asyncpg is already imported globally (line 102), no need for local import
                     error_msg = (
-                        f"CRITICAL: QuestDB PostgreSQL connection failed\n"
+                        f"CRITICAL: QuestDB connection failed (PostgreSQL protocol)\n"
                         f"Error: {e}\n"
                         f"Error Type: {type(e).__name__}\n"
                         f"\n"
@@ -293,14 +297,15 @@ class QuestDBProvider:
                         )
                     else:
                         error_msg += (
-                            f"DIAGNOSIS: Unexpected error during connection\n"
+                            f"DIAGNOSIS: Unexpected error during QuestDB connection\n"
                             f"SOLUTION:\n"
                             f"  1. Check QuestDB logs for errors\n"
-                            f"  2. Verify PostgreSQL protocol is enabled in server.conf\n"
+                            f"  2. Enable PostgreSQL protocol in server.conf (pg.enabled=true, pg.net.bind.to=0.0.0.0:8812)\n"
                             f"  3. Restart QuestDB\n"
+                            f"  4. NOTE: QuestDB uses PostgreSQL PROTOCOL for SQL queries, NOT a separate PostgreSQL database!\n"
                         )
 
-                    logger.error("questdb_provider.postgresql_unexpected_error", {
+                    logger.error("questdb_provider.connection_error", {
                         "error": str(e),
                         "error_type": type(e).__name__,
                         "pg_host": self.pg_host,
@@ -347,7 +352,7 @@ class QuestDBProvider:
                     if self._sender_pool:
                         logger.info(f"ILP Sender pool created ({len(self._sender_pool)} connections)")
                     elif ilp_initialization_failed:
-                        logger.warning(f"QuestDB running in DEGRADED MODE: PostgreSQL protocol only (ILP unavailable)")
+                        logger.warning(f"QuestDB running in DEGRADED MODE: SQL queries only via PostgreSQL protocol (ILP writes unavailable)")
 
             # ✅ MARK AS INITIALIZED: Prevents re-initialization
             self._initialized = True
@@ -365,11 +370,11 @@ class QuestDBProvider:
             if not self._initialized:
                 return
 
-            # Close PostgreSQL pool
+            # Close QuestDB connection pool (PostgreSQL protocol)
             if self.pg_pool:
                 await self.pg_pool.close()
                 self.pg_pool = None
-                logger.info("PostgreSQL pool closed")
+                logger.info("QuestDB connection pool closed (PostgreSQL protocol)")
 
             # ✅ PERFORMANCE FIX: Close ILP Sender pool
             async with self._sender_pool_lock:
@@ -413,7 +418,7 @@ class QuestDBProvider:
         except Exception as e:
             logger.warning(f"QuestDB ILP health check error: {e}")
 
-        # Test PostgreSQL connection (port 8812)
+        # Test QuestDB connection via PostgreSQL protocol (port 8812)
         try:
             await self.initialize()  # Ensure pool is created
             if self.pg_pool:
@@ -1399,7 +1404,7 @@ class QuestDBProvider:
 
     async def execute_query(self, query: str, params: Optional[List[Any]] = None) -> List[Dict[str, Any]]:
         """
-        Execute arbitrary SQL query via PostgreSQL wire protocol.
+        Execute arbitrary SQL query on QuestDB via PostgreSQL wire protocol.
 
         ✅ CRITICAL FIX: Converts datetime objects to Unix timestamps (float).
 
