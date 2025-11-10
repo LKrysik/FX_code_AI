@@ -222,11 +222,6 @@ class EventBusMarketDataProvider(IMarketDataProvider):
     def get_exchange_name(self) -> str:
         return self._exchange
 
-    async def health_check(self) -> bool:
-        """Legacy health check method for backward compatibility"""
-        health_status = await self.health_check()
-        return health_status.get("healthy", False)
-
     async def _on_price_update(self, event: Any):
         """
         Process price updates with controlled resource access.
