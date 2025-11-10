@@ -267,7 +267,7 @@ class QuestDBProvider:
                     raise RuntimeError(error_msg) from e
                 except Exception as e:
                     # ✅ CATCH-ALL: Unexpected PostgreSQL errors (auth, invalid database, etc.)
-                    import asyncpg.exceptions
+                    # NOTE: asyncpg is already imported globally (line 102), no need for local import
                     error_msg = (
                         f"CRITICAL: QuestDB PostgreSQL connection failed\n"
                         f"Error: {e}\n"
