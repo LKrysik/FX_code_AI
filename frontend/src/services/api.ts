@@ -122,7 +122,15 @@ axios.interceptors.response.use(
     const originalRequest = error.config;
 
     // Handle 401 Unauthorized - JWT token expired
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // ✅ ARCHITECTURE FIX: Skip retry for login/refresh endpoints
+    // Previously: All 401 responses triggered retry (including login failures)
+    // Problem: Login failure → retry login → doubles failed attempts (4x total with React Strict Mode)
+    // Solution: Only retry for authenticated resource requests, not auth endpoints themselves
+    // Related: docs/bugfixes/STRATEGY_BUILDER_AUTH_ISSUE.md
+    const isAuthEndpoint = originalRequest.url?.includes('/auth/login') ||
+                          originalRequest.url?.includes('/auth/refresh');
+
+    if (error.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
       originalRequest._retry = true;
 
       try {

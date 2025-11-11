@@ -877,6 +877,39 @@ class ExecutionController:
             "force": force
         })
 
+        # ✅ BUGFIX: Immediately update QuestDB status to 'stopping' for read-your-writes consistency
+        # This prevents race condition where:
+        # - ExecutionController shows "stopping" (in-memory)
+        # - QuestDB shows "running" (stale)
+        # - GET /api/data-collection/sessions reads QuestDB → returns wrong status
+        #
+        # Two-phase update approach:
+        # - Phase 1 (here): Update to 'stopping' immediately when user clicks stop
+        # - Phase 2 (_cleanup_session_impl): Update to final status ('stopped', 'completed', 'failed')
+        #
+        # Impact: Users see correct status immediately, no confusion about session state
+        # Related: docs/bugfixes/login_session.md - session stuck in "running" after stop
+        if self._current_session.mode == ExecutionMode.DATA_COLLECTION and self.db_persistence_service:
+            try:
+                await self.db_persistence_service.update_session_status(
+                    session_id=self._current_session.session_id,
+                    status='stopping',
+                    records_collected=self._current_session.metrics.get('records_collected', 0)
+                )
+                self.logger.info("execution.db_status_updated_to_stopping", {
+                    "session_id": self._current_session.session_id,
+                    "status": "stopping",
+                    "timing": "immediate_after_stop_request"
+                })
+            except Exception as db_error:
+                # Log but don't fail - final status update will happen in cleanup
+                self.logger.warning("execution.db_status_update_failed_nonfatal", {
+                    "session_id": self._current_session.session_id,
+                    "error": str(db_error),
+                    "error_type": type(db_error).__name__,
+                    "note": "Final status will be updated in cleanup phase"
+                })
+
         # Cancel execution task
         if self._execution_task and not self._execution_task.done():
             self._execution_task.cancel()

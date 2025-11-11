@@ -647,10 +647,34 @@ def create_unified_app():
 
     app = FastAPI(title="Unified Trading API", debug=True, lifespan=lifespan)
 
+    # ✅ BUGFIX: Custom rate limit handler with structured logging
+    # Previously used slowapi's default handler which doesn't log to structured logger
+    # Users reported "too many requests" errors with no logs
+    # Related: docs/bugfixes/login_session.md - login rate limit issue
+    async def custom_rate_limit_handler(request: Request, exc: RateLimitExceeded):
+        """Custom rate limit handler with structured logging"""
+        client_ip = request.client.host if request.client else "unknown"
+        logger.warning("api.rate_limit_exceeded", {
+            "client_ip": client_ip,
+            "endpoint": str(request.url.path),
+            "method": request.method,
+            "limit": str(exc.detail) if hasattr(exc, 'detail') else "unknown"
+        })
+
+        return JSONResponse(
+            status_code=429,
+            content={
+                "type": "error",
+                "error_code": "rate_limit_exceeded",
+                "error_message": "Too many requests. Please try again later.",
+                "retry_after": "60 seconds"
+            }
+        )
+
     # Initialize rate limiter for security
     limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
     app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)
 
     # Include data analysis API router
     app.include_router(data_analysis_router)
@@ -1199,9 +1223,9 @@ def create_unified_app():
             return {"error": str(e), "method": "POST", "raw_body": body_str}
 
     @app.post("/auth/login-test")
-    @limiter.limit("5/minute")
+    @limiter.limit("30/minute")
     async def login_test(request: Request):
-        """Test login endpoint without Pydantic model (rate limited: 5/minute)"""
+        """Test login endpoint without Pydantic model (rate limited: 30/minute)"""
         try:
             body = await request.json()
             username = body.get("username")
@@ -1240,9 +1264,9 @@ def create_unified_app():
             return _json_error("login_error", f"Login failed: {str(e)}", status=500)
 
     @app.post("/api/v1/auth/login")
-    @limiter.limit("5/minute")
+    @limiter.limit("30/minute")
     async def login(request: Request):
-        """JWT login endpoint - authenticate user and return tokens (rate limited: 5/minute)"""
+        """JWT login endpoint - authenticate user and return tokens (rate limited: 30/minute)"""
         try:
             body = await request.json()
             username = body.get("username")

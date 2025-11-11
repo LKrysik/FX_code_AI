@@ -358,7 +358,7 @@ class TestRateLimiting:
 
         # Verify rate limits are applied
         assert "@limiter.limit" in source
-        assert '"5/minute"' in source  # Login rate limit
+        assert '"30/minute"' in source  # Login rate limit (increased from 5 to 30 for usability)
 
     def test_login_endpoint_has_rate_limit(self):
         """Test that login endpoint has rate limiting"""
