@@ -97,8 +97,20 @@ class TestAuthLogin:
             "password": "any_password"
         })
 
-        # Should fail (either 400 or 422 for validation error)
-        assert response.status_code in (400, 422, 500)
+        assert response.status_code == 422
+        error_response = response.json()
+
+        # Handle both error formats: FastAPI's "detail" OR custom "error_message"
+        if "detail" in error_response:
+            # FastAPI format
+            assert any("username" in str(err).lower() for err in error_response["detail"])
+        elif "error_message" in error_response:
+            # Custom format
+            assert "username" in error_response["error_message"].lower()
+        else:
+            # Fallback
+            error_text = str(error_response)
+            assert "username" in error_text.lower()
 
     def test_login_fails_with_missing_password(self, api_client, test_config):
         """Test login fails when password is missing"""
@@ -106,8 +118,20 @@ class TestAuthLogin:
             "username": test_config["admin_username"]
         })
 
-        # Should fail (either 400 or 422 for validation error)
-        assert response.status_code in (400, 422, 500)
+        assert response.status_code == 422
+        error_response = response.json()
+
+        # Handle both error formats: FastAPI's "detail" OR custom "error_message"
+        if "detail" in error_response:
+            # FastAPI format
+            assert any("password" in str(err).lower() for err in error_response["detail"])
+        elif "error_message" in error_response:
+            # Custom format
+            assert "password" in error_response["error_message"].lower()
+        else:
+            # Fallback
+            error_text = str(error_response)
+            assert "password" in error_text.lower()
 
 
 @pytest.mark.api
@@ -170,15 +194,6 @@ class TestAuthLogout:
         data = response.json()
         assert "data" in data
         assert data["data"]["message"] == "Successfully logged out"
-
-    def test_logout_clears_cookies(self, authenticated_client):
-        """Test that logout clears auth cookies"""
-        response = authenticated_client.post("/api/v1/auth/logout")
-
-        assert response.status_code == 200
-
-        # Cookies should be cleared (set to empty or deleted)
-        # This depends on FastAPI cookie deletion implementation
 
     def test_logout_without_auth_fails(self, api_client):
         """Test logout fails without authentication"""

@@ -30,6 +30,10 @@ class TestRiskBudget:
 
         # Should have budget information
         assert isinstance(budget_summary, dict)
+        # Budget summary should contain budget-related fields
+        expected_fields = ["total_budget", "allocated", "available", "allocations", "usage"]
+        has_budget_info = any(field in budget_summary for field in expected_fields)
+        assert has_budget_info, "Budget summary should contain budget information"
 
     def test_get_strategy_budget_not_found(self, authenticated_client):
         """Test GET /risk/budget/{strategy_name} returns 404 for non-existent strategy"""
@@ -133,6 +137,8 @@ class TestRiskEmergencyStop:
         assert "data" in data
         assert "released_strategies" in data["data"]
         assert isinstance(data["data"]["released_strategies"], list)
+        # Validate response contains emergency stop confirmation
+        assert "status" in data["data"] or "message" in data["data"]
 
     def test_emergency_stop_specific_strategy(self, authenticated_client):
         """Test emergency stop for specific strategy"""
@@ -168,6 +174,12 @@ class TestRiskAssessPosition:
 
         data = response.json()
         assert "data" in data
+        risk_assessment = data["data"]
+        # Validate risk assessment contains assessment results
+        assert isinstance(risk_assessment, dict)
+        expected_fields = ["risk_score", "risk_level", "approved", "recommendation", "assessment"]
+        has_assessment = any(field in risk_assessment for field in expected_fields)
+        assert has_assessment, "Risk assessment should contain assessment results"
         result = data["data"]
 
         assert "symbol" in result

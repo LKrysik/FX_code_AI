@@ -15,6 +15,26 @@ import time
 
 @pytest.mark.api
 @pytest.mark.sessions
+class TestSessionAuthRequirements:
+    """Tests for authentication requirements across session endpoints"""
+
+    @pytest.mark.parametrize("endpoint,method,payload", [
+        ("/sessions/start", "POST", {"symbols": ["BTC_USDT"], "session_type": "collect", "config": {}}),
+        ("/sessions/stop", "POST", {"session_id": "any-id"}),
+    ])
+    def test_endpoints_require_authentication(self, api_client, endpoint, method, payload):
+        """Test that protected session endpoints require authentication"""
+        # Clear auth header
+        api_client.headers.pop("Authorization", None)
+
+        if method == "POST":
+            response = api_client.post(endpoint, json=payload)
+
+        assert response.status_code == 401
+
+
+@pytest.mark.api
+@pytest.mark.sessions
 class TestSessionStart:
     """Tests for starting sessions"""
 
@@ -40,20 +60,6 @@ class TestSessionStart:
         assert "session_type" in data["data"]
         assert data["data"]["session_type"] == "collect"
 
-    def test_start_session_requires_auth(self, api_client, test_symbols):
-        """Test that starting a session requires authentication"""
-        # Clear auth header
-        api_client.headers.pop("Authorization", None)
-
-        session_config = {
-            "symbols": test_symbols,
-            "session_type": "collect",
-            "config": {}
-        }
-
-        response = api_client.post("/sessions/start", json=session_config)
-
-        assert response.status_code == 401
 
 
 @pytest.mark.api
@@ -111,14 +117,6 @@ class TestSessionStop:
         assert "error_code" in data
         assert "invalid_request" in data["error_code"]
 
-    def test_stop_session_requires_auth(self, api_client):
-        """Test that stopping a session requires authentication"""
-        # Clear auth header
-        api_client.headers.pop("Authorization", None)
-
-        response = api_client.post("/sessions/stop", json={"session_id": "any-id"})
-
-        assert response.status_code == 401
 
 
 @pytest.mark.api

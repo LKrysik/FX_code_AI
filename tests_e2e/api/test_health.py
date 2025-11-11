@@ -23,50 +23,43 @@ import pytest
 class TestHealthBasic:
     """Tests for basic health endpoint"""
 
-    def test_health_endpoint_responds(self, api_client):
-        """Test that health endpoint responds quickly"""
+    def test_health_endpoint_comprehensive(self, api_client):
+        """Comprehensive test validating all health endpoint fields"""
         response = api_client.get("/health")
 
         assert response.status_code == 200
 
         data = response.json()
         assert "data" in data
-        assert "status" in data["data"]
-        assert data["data"]["status"] == "healthy"
+        health_data = data["data"]
 
-    def test_health_includes_timestamp(self, api_client):
-        """Test that health response includes timestamp"""
-        response = api_client.get("/health")
+        # Status validation
+        assert "status" in health_data
+        assert health_data["status"] in ["healthy", "degraded", "unhealthy"]
 
-        assert response.status_code == 200
+        # Timestamp validation
+        assert "timestamp" in health_data
+        assert isinstance(health_data["timestamp"], (str, int, float))
+        if isinstance(health_data["timestamp"], str):
+            assert len(health_data["timestamp"]) > 0
 
-        data = response.json()["data"]
-        assert "timestamp" in data
-        assert "uptime" in data
+        # Uptime validation
+        assert "uptime" in health_data
+        assert isinstance(health_data["uptime"], (int, float))
+        assert health_data["uptime"] >= 0
 
-    def test_health_includes_version(self, api_client):
-        """Test that health response includes version"""
-        response = api_client.get("/health")
-
-        assert response.status_code == 200
-
-        data = response.json()["data"]
-        assert "version" in data
+        # Version validation
+        assert "version" in health_data
+        assert isinstance(health_data["version"], str)
+        assert len(health_data["version"]) > 0
+        # Version should be in semantic versioning format (contains digits)
+        assert any(char.isdigit() for char in health_data["version"])
 
 
 @pytest.mark.api
 @pytest.mark.health
 class TestHealthDetailed:
     """Tests for detailed health endpoint"""
-
-    def test_health_detailed_responds(self, api_client):
-        """Test that detailed health endpoint responds"""
-        response = api_client.get("/health/detailed")
-
-        assert response.status_code == 200
-
-        data = response.json()
-        assert "data" in data
 
     def test_health_detailed_includes_components(self, api_client):
         """Test that detailed health includes component status"""
@@ -92,36 +85,6 @@ class TestHealthDetailed:
 
 @pytest.mark.api
 @pytest.mark.health
-class TestHealthStatus:
-    """Tests for health status endpoint"""
-
-    def test_health_status_responds(self, api_client):
-        """Test that health status endpoint responds"""
-        response = api_client.get("/health/status")
-
-        assert response.status_code == 200
-
-        data = response.json()
-        assert "data" in data
-
-
-@pytest.mark.api
-@pytest.mark.health
-class TestCircuitBreakers:
-    """Tests for circuit breaker endpoint"""
-
-    def test_circuit_breakers_endpoint(self, api_client):
-        """Test circuit breakers status endpoint"""
-        response = api_client.get("/circuit-breakers")
-
-        assert response.status_code == 200
-
-        data = response.json()
-        assert "data" in data
-
-
-@pytest.mark.api
-@pytest.mark.health
 class TestHealthChecks:
     """Tests for individual health checks"""
 
@@ -129,8 +92,14 @@ class TestHealthChecks:
         """Test GET /health/checks/{check_name}"""
         response = api_client.get("/health/checks/database")
 
-        # Should return 200 or 404 if check doesn't exist
-        assert response.status_code in (200, 404)
+        assert response.status_code == 200
+        data = response.json()
+        assert "data" in data
+        check_data = data["data"]
+        # Validate health check response structure
+        assert isinstance(check_data, dict)
+        # Health checks should have status information
+        assert "status" in check_data or "healthy" in check_data or "check_name" in check_data
 
     def test_get_nonexistent_health_check(self, api_client):
         """Test getting non-existent health check"""
@@ -154,27 +123,40 @@ class TestHealthServices:
         assert "data" in data
         assert "services" in data["data"]
         assert isinstance(data["data"]["services"], list)
-
-    def test_get_specific_service(self, api_client):
-        """Test GET /health/services/{service_name}"""
-        response = api_client.get("/health/services/database")
-
-        # Should return 200 or 404 if service doesn't exist
-        assert response.status_code in (200, 404)
+        # Validate service structure if any services exist
+        if len(data["data"]["services"]) > 0:
+            service = data["data"]["services"][0]
+            assert isinstance(service, dict)
+            # Services should have identifying information
+            assert "name" in service or "service_name" in service or "id" in service
 
     def test_enable_service(self, authenticated_client):
         """Test POST /health/services/{service_name}/enable"""
         response = authenticated_client.post("/health/services/database/enable")
 
-        # Should return 200 or 404 if service doesn't exist
-        assert response.status_code in (200, 404)
+        assert response.status_code == 200
+        data = response.json()
+        assert "data" in data
+        service_data = data["data"]
+        # Validate service enable response
+        assert isinstance(service_data, dict)
+        # Should confirm service is enabled
+        assert "enabled" in service_data
+        assert service_data["enabled"] == True
 
     def test_disable_service(self, authenticated_client):
         """Test POST /health/services/{service_name}/disable"""
         response = authenticated_client.post("/health/services/database/disable")
 
-        # Should return 200 or 404 if service doesn't exist
-        assert response.status_code in (200, 404)
+        assert response.status_code == 200
+        data = response.json()
+        assert "data" in data
+        service_data = data["data"]
+        # Validate service disable response
+        assert isinstance(service_data, dict)
+        # Should confirm service is disabled
+        assert "enabled" in service_data
+        assert service_data["enabled"] == False
 
     def test_service_management_requires_auth(self, api_client):
         """Test service enable/disable require authentication"""

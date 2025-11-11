@@ -118,14 +118,11 @@ class TestVariantsCRUD:
 
         response = authenticated_client.post("/api/indicators/variants", json=variant_config)
 
-        # Should return 200 on success, 400/500 on validation/server error, or 403 if auth fails
-        assert response.status_code in (200, 400, 403, 500)
-
-        if response.status_code == 200:
-            data = response.json()["data"]
-            assert "variant_id" in data
-            assert "status" in data
-            assert data["status"] == "created"
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert "variant_id" in data
+        assert "status" in data
+        assert data["status"] == "created"
 
     def test_get_variant_details(self, authenticated_client):
         """Test GET /api/indicators/variants/{variant_id}"""
@@ -177,7 +174,9 @@ class TestVariantsCRUD:
             }
 
             update_response = authenticated_client.put(f"/api/indicators/variants/{variant_id}", json=update_data)
-            assert update_response.status_code in (200, 400)
+            assert update_response.status_code == 200
+            data = update_response.json()["data"]
+            assert "variant_id" in data or "status" in data
 
     def test_update_variant_not_found(self, authenticated_client):
         """Test updating non-existent variant"""
@@ -204,7 +203,9 @@ class TestVariantsCRUD:
 
             # Delete variant
             delete_response = authenticated_client.delete(f"/api/indicators/variants/{variant_id}")
-            assert delete_response.status_code in (200, 404)
+            assert delete_response.status_code == 200
+            data = delete_response.json()["data"]
+            assert "variant_id" in data or "status" in data
 
     def test_delete_variant_not_found(self, authenticated_client):
         """Test deleting non-existent variant"""
@@ -216,8 +217,9 @@ class TestVariantsCRUD:
         """Test GET /api/indicators/variants/files to load from config"""
         response = api_client.get("/api/indicators/variants/files")
 
-        # Should return 200 with loaded variants or 503 if not available
-        assert response.status_code in (200, 503)
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert "variants" in data or "loaded_count" in data
 
 
 @pytest.mark.api
@@ -240,8 +242,9 @@ class TestSessionIndicators:
             json={"variant_id": "nonexistent_variant"}
         )
 
-        # Should return 404 for variant not found
-        assert response.status_code in (404, 422, 500)
+        assert response.status_code == 404
+        error_response = response.json()
+        assert "error" in error_response or "detail" in error_response
 
     def test_add_indicator_to_nonexistent_session(self, authenticated_client):
         """Test adding indicator to non-existent session"""
@@ -250,8 +253,9 @@ class TestSessionIndicators:
             json={"variant_id": "some_variant"}
         )
 
-        # Should return 404 for session not found
-        assert response.status_code in (404, 422, 500)
+        assert response.status_code == 404
+        error_response = response.json()
+        assert "error" in error_response or "detail" in error_response
 
     def test_remove_indicator_from_session(self, authenticated_client):
         """Test DELETE /api/indicators/sessions/{session_id}/symbols/{symbol}/indicators/{indicator_id}"""
@@ -259,8 +263,9 @@ class TestSessionIndicators:
             "/api/indicators/sessions/test_session/symbols/BTC_USDT/indicators/test_indicator"
         )
 
-        # Should return 404 if indicator not found, or 200 if successful
-        assert response.status_code in (200, 404)
+        assert response.status_code == 404
+        error_response = response.json()
+        assert "error" in error_response or "detail" in error_response
 
     def test_cleanup_duplicate_indicators(self, authenticated_client):
         """Test POST cleanup-duplicates endpoint"""
@@ -268,8 +273,9 @@ class TestSessionIndicators:
             "/api/indicators/sessions/test_session/symbols/BTC_USDT/cleanup-duplicates"
         )
 
-        # Should return 200 with cleanup results
-        assert response.status_code in (200, 500)
+        assert response.status_code == 200
+        data = response.json()
+        assert "status" in data or "data" in data
 
     def test_get_session_indicator_values(self, api_client):
         """Test GET session indicator values"""
@@ -277,8 +283,9 @@ class TestSessionIndicators:
             "/api/indicators/sessions/test_session/symbols/BTC_USDT/values"
         )
 
-        # Should return 200 with indicator map (possibly empty)
-        assert response.status_code in (200, 500)
+        assert response.status_code == 200
+        data = response.json()
+        assert "status" in data or "data" in data
 
     def test_get_indicator_history(self, api_client):
         """Test GET indicator history"""
@@ -286,8 +293,9 @@ class TestSessionIndicators:
             "/api/indicators/sessions/test_session/symbols/BTC_USDT/indicators/test_indicator/history"
         )
 
-        # Should return 404 for non-existent indicator or 200 with history
-        assert response.status_code in (200, 404)
+        assert response.status_code == 404
+        error_response = response.json()
+        assert "error" in error_response or "detail" in error_response
 
     def test_get_indicator_history_with_limit(self, api_client):
         """Test indicator history with limit parameter"""
@@ -295,7 +303,9 @@ class TestSessionIndicators:
             "/api/indicators/sessions/test_session/symbols/BTC_USDT/indicators/test_indicator/history?limit=100"
         )
 
-        assert response.status_code in (200, 404)
+        assert response.status_code == 404
+        error_response = response.json()
+        assert "error" in error_response or "detail" in error_response
 
     def test_process_market_data(self, authenticated_client):
         """Test POST market-data processing"""
@@ -311,8 +321,9 @@ class TestSessionIndicators:
             json=market_data
         )
 
-        # Should process or return error
-        assert response.status_code in (200, 400, 500)
+        assert response.status_code == 200
+        data = response.json()
+        assert "status" in data or "data" in data
 
     def test_process_historical_data(self, authenticated_client):
         """Test POST historical-data processing"""
@@ -327,7 +338,9 @@ class TestSessionIndicators:
             json=historical_data
         )
 
-        assert response.status_code in (200, 400, 500)
+        assert response.status_code == 200
+        data = response.json()
+        assert "status" in data or "data" in data
 
     def test_set_session_preferences(self, authenticated_client):
         """Test POST session preferences"""
@@ -341,7 +354,9 @@ class TestSessionIndicators:
             json=preferences
         )
 
-        assert response.status_code in (200, 500)
+        assert response.status_code == 200
+        data = response.json()
+        assert "status" in data or "data" in data
 
     def test_get_session_preferences(self, api_client):
         """Test GET session preferences"""
@@ -349,50 +364,45 @@ class TestSessionIndicators:
             "/api/indicators/sessions/test_session/symbols/BTC_USDT/preferences"
         )
 
-        assert response.status_code in (200, 500)
+        assert response.status_code == 200
+        data = response.json()
+        assert "status" in data or "data" in data
 
 
 @pytest.mark.api
 class TestAlgorithmRegistry:
     """Tests for algorithm registry endpoints"""
 
-    def test_get_available_algorithms(self, api_client):
-        """Test GET /api/indicators/algorithms"""
-        response = api_client.get("/api/indicators/algorithms")
+    def test_algorithm_registry_comprehensive(self, api_client):
+        """Comprehensive test for algorithm registry endpoints"""
+        # Test 1: Get all available algorithms
+        algorithms_response = api_client.get("/api/indicators/algorithms")
+        assert algorithms_response.status_code == 200
+        algorithms_data = algorithms_response.json()
+        assert "status" in algorithms_data
+        assert "data" in algorithms_data
+        assert "algorithms" in algorithms_data["data"]
+        assert "statistics" in algorithms_data["data"]
 
-        # Should return 200 with algorithms or 503 if not available
-        assert response.status_code in (200, 503)
+        # Test 2: Get algorithm categories
+        categories_response = api_client.get("/api/indicators/algorithms/categories")
+        assert categories_response.status_code == 200
+        categories_data = categories_response.json()["data"]
+        assert "categories" in categories_data
 
-        if response.status_code == 200:
-            data = response.json()
-            assert "status" in data
-            assert "data" in data
-            assert "algorithms" in data["data"]
-            assert "statistics" in data["data"]
-
-    def test_get_algorithm_categories(self, api_client):
-        """Test GET /api/indicators/algorithms/categories"""
-        response = api_client.get("/api/indicators/algorithms/categories")
-
-        assert response.status_code in (200, 503)
-
-        if response.status_code == 200:
-            data = response.json()["data"]
-            assert "categories" in data
-
-    def test_get_algorithm_details(self, api_client):
-        """Test GET /api/indicators/algorithms/{algorithm_type}"""
-        # Try with a common algorithm type
-        response = api_client.get("/api/indicators/algorithms/TWPA")
-
-        # Should return 200 if found, 404 if not, or 503 if registry unavailable
-        assert response.status_code in (200, 404, 503)
+        # Test 3: Get algorithm details for a common algorithm type
+        details_response = api_client.get("/api/indicators/algorithms/TWPA")
+        assert details_response.status_code == 200
+        details_data = details_response.json()["data"]
+        assert "algorithm_type" in details_data or "name" in details_data
 
     def test_get_algorithm_details_not_found(self, api_client):
         """Test algorithm details for non-existent algorithm"""
         response = api_client.get("/api/indicators/algorithms/NONEXISTENT_ALGO")
 
-        assert response.status_code in (404, 503)
+        assert response.status_code == 404
+        error_response = response.json()
+        assert "error" in error_response or "detail" in error_response
 
     def test_calculate_refresh_interval(self, api_client):
         """Test POST calculate-refresh-interval endpoint"""
@@ -408,8 +418,9 @@ class TestAlgorithmRegistry:
             json=parameters
         )
 
-        # Should return 200 with interval, 404 if algorithm not found, or 503 if unavailable
-        assert response.status_code in (200, 404, 503)
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert "refresh_interval" in data or "interval" in data
 
 
 @pytest.mark.api
@@ -420,28 +431,33 @@ class TestLegacyIndicatorEndpoints:
         """Test GET /api/indicators/types"""
         response = api_client.get("/api/indicators/types")
 
-        assert response.status_code in (200, 500)
-
-        if response.status_code == 200:
-            data = response.json()["data"]
-            assert "types" in data
+        assert response.status_code == 200
+        response_json = response.json()
+        # Handle both flat and nested response formats
+        data = response_json.get("data", response_json)
+        assert "types" in data or "indicators" in data
+        if "types" in data:
             assert isinstance(data["types"], list)
 
     def test_list_indicators(self, api_client):
         """Test GET /api/indicators/list"""
         response = api_client.get("/api/indicators/list")
 
-        assert response.status_code in (200, 500)
-
-        if response.status_code == 200:
-            data = response.json()["data"]
-            assert "indicators" in data
+        assert response.status_code == 200
+        response_json = response.json()
+        # Handle both flat and nested response formats
+        data = response_json.get("data", response_json)
+        assert "indicators" in data
 
     def test_list_indicators_with_filters(self, api_client):
         """Test indicator list with filters"""
         response = api_client.get("/api/indicators/list?symbol=BTC_USDT&type=TWPA")
 
-        assert response.status_code in (200, 500)
+        assert response.status_code == 200
+        response_json = response.json()
+        # Handle both flat and nested response formats
+        data = response_json.get("data", response_json)
+        assert "status" in response_json or "data" in response_json
 
     def test_add_single_indicator(self, authenticated_client):
         """Test POST /api/indicators/add"""
@@ -454,8 +470,9 @@ class TestLegacyIndicatorEndpoints:
 
         response = authenticated_client.post("/api/indicators/add", json=indicator_data)
 
-        # Should return 200 on success or 400/500 on error
-        assert response.status_code in (200, 400, 500)
+        assert response.status_code == 200
+        data = response.json()
+        assert "status" in data or "data" in data
 
     def test_add_single_indicator_missing_fields(self, authenticated_client):
         """Test adding indicator without required fields"""
@@ -484,8 +501,9 @@ class TestLegacyIndicatorEndpoints:
 
         response = authenticated_client.post("/api/indicators/bulk", json=bulk_data)
 
-        # Should return 200 on success or 400/500 on error
-        assert response.status_code in (200, 400, 500)
+        assert response.status_code == 200
+        data = response.json()
+        assert "status" in data or "data" in data
 
     def test_add_indicators_bulk_empty_list(self, authenticated_client):
         """Test bulk add with empty list"""
@@ -501,15 +519,17 @@ class TestLegacyIndicatorEndpoints:
 
         response = authenticated_client.delete("/api/indicators/bulk", json=bulk_delete)
 
-        # Should return 200 with removed indicators (possibly empty)
-        assert response.status_code in (200, 400)
+        assert response.status_code == 200
+        data = response.json()
+        assert "status" in data or "data" in data
 
     def test_delete_indicator_by_key(self, authenticated_client):
         """Test DELETE /api/indicators/{key}"""
         response = authenticated_client.delete("/api/indicators/test_indicator_key")
 
-        # Should return 200 if found and deleted, 404 if not found
-        assert response.status_code in (200, 404)
+        assert response.status_code == 404
+        error_response = response.json()
+        assert "error" in error_response or "detail" in error_response
 
     def test_update_indicator(self, authenticated_client):
         """Test PUT /api/indicators/{key}"""
@@ -521,8 +541,9 @@ class TestLegacyIndicatorEndpoints:
 
         response = authenticated_client.put("/api/indicators/test_key", json=update_data)
 
-        # Should return 200 on success, 404 if not found, 400 on validation error
-        assert response.status_code in (200, 400, 404)
+        assert response.status_code == 404
+        error_response = response.json()
+        assert "error" in error_response or "detail" in error_response
 
 
 @pytest.mark.api
@@ -552,7 +573,9 @@ class TestIndicatorIntegration:
             # Update
             update_data = {"parameters": {"t1": 120, "t2": 0}}
             update_response = authenticated_client.put(f"/api/indicators/variants/{variant_id}", json=update_data)
-            assert update_response.status_code in (200, 400)
+            assert update_response.status_code == 200
+            data = update_response.json()["data"]
+            assert "variant_id" in data or "status" in data
 
             # Delete
             delete_response = authenticated_client.delete(f"/api/indicators/variants/{variant_id}")

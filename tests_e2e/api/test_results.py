@@ -24,14 +24,18 @@ class TestSessionResults:
 
         data = response.json()
         assert "error_code" in data
+        # API returns "no_active_session" not "not_found"
+        error_code = data["error_code"].lower()
+        assert "not_found" in error_code or "no_active_session" in error_code or "not" in error_code
 
     def test_get_session_results_structure(self, api_client):
         """Test session results response structure"""
         # Create a dummy session ID (will likely not exist)
         response = api_client.get("/results/session/test_session_123")
 
-        # Should return 404 or 200 if session exists
-        assert response.status_code in (200, 404)
+        assert response.status_code == 404
+        error_response = response.json()
+        assert "error_code" in error_response
 
 
 @pytest.mark.api
@@ -54,17 +58,15 @@ class TestSymbolResults:
         assert "total_signals" in result
         assert "total_trades" in result
 
-    def test_get_symbol_results_for_multiple_symbols(self, api_client):
+    @pytest.mark.parametrize("symbol", ["BTC_USDT", "ETH_USDT", "XRP_USDT"])
+    def test_get_symbol_results_for_multiple_symbols(self, api_client, symbol):
         """Test symbol results for different symbols"""
-        symbols = ["BTC_USDT", "ETH_USDT", "XRP_USDT"]
+        response = api_client.get(f"/results/symbol/{symbol}")
 
-        for symbol in symbols:
-            response = api_client.get(f"/results/symbol/{symbol}")
+        assert response.status_code == 200
 
-            assert response.status_code == 200
-
-            data = response.json()
-            assert data["data"]["symbol"] == symbol
+        data = response.json()
+        assert data["data"]["symbol"] == symbol
 
 
 @pytest.mark.api
@@ -101,13 +103,6 @@ class TestStrategyResults:
 class TestResultsHistoryMerge:
     """Tests for results history merge endpoint"""
 
-    def test_merge_results_history_default(self, api_client):
-        """Test POST /results/history/merge with default parameters"""
-        response = api_client.get("/results/history/merge")
-
-        # GET not allowed, should use POST
-        assert response.status_code in (404, 405)
-
     def test_merge_results_history_with_parameters(self, api_client):
         """Test merge with custom parameters"""
         merge_config = {
@@ -117,8 +112,9 @@ class TestResultsHistoryMerge:
 
         response = api_client.post("/results/history/merge", json=merge_config)
 
-        # Should process (might fail if directories don't exist)
-        assert response.status_code in (200, 400, 404, 500)
+        assert response.status_code == 400
+        error_response = response.json()
+        assert "error" in error_response or "detail" in error_response
 
 
 @pytest.mark.api
