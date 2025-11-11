@@ -6,7 +6,7 @@ Replaces all existing config managers and config utilities.
 """
 
 from pydantic_settings import BaseSettings
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator, ConfigDict
 from typing import Dict, List, Optional
 from decimal import Decimal
 from enum import Enum
@@ -36,8 +36,9 @@ class PaperTradingSettings(BaseSettings):
     enabled: bool = Field(default=True, description="Enable paper trading")
     initial_balance_usdt: Decimal = Field(default=Decimal('10000'), description="Initial balance")
     
-    class Config:
-        env_prefix = "PAPER_"
+    model_config = ConfigDict(
+        env_prefix = "PAPER_",
+    )
 
 
 class TradingSettings(BaseSettings):
@@ -80,8 +81,9 @@ class TradingSettings(BaseSettings):
             raise ValueError(f"Trading mode '{self.mode}' requires at least one symbol to be configured")
         return self
 
-    class Config:
-        env_prefix = "TRADING_"
+    model_config = ConfigDict(
+        env_prefix = "TRADING_",
+    )
 
 
 # === EXCHANGE CONFIGURATION ===
@@ -105,8 +107,9 @@ class ExchangeSettings(BaseSettings):
     bybit_api_secret: str = Field(default="")
     bybit_paper_trading: bool = Field(default=True)
     
-    class Config:
-        env_prefix = "EXCHANGE_"
+    model_config = ConfigDict(
+        env_prefix = "EXCHANGE_",
+    )
     
     def get(self, exchange_name: str) -> dict:
         """DEPRECATED: Legacy compatibility method. Use direct attribute access instead.
@@ -156,8 +159,9 @@ class FlashPumpDetectionSettings(BaseSettings):
     min_volume_24h_usdt: Decimal = Field(default=Decimal('100000'), description="Minimum 24h volume")
     peak_confirmation_window: int = Field(default=30, description="Peak confirmation window seconds")
     
-    class Config:
-        env_prefix = "PUMP_"
+    model_config = ConfigDict(
+        env_prefix = "PUMP_",
+    )
 
 
 class ReversalDetectionSettings(BaseSettings):
@@ -168,8 +172,9 @@ class ReversalDetectionSettings(BaseSettings):
     volume_decline_threshold: Decimal = Field(default=Decimal('0.4'))
     momentum_shift_required: bool = Field(default=True)
     
-    class Config:
-        env_prefix = "REVERSAL_"
+    model_config = ConfigDict(
+        env_prefix = "REVERSAL_",
+    )
 
 
 class EntryConditionsSettings(BaseSettings):
@@ -182,8 +187,9 @@ class EntryConditionsSettings(BaseSettings):
     min_liquidity_usdt: Decimal = Field(default=Decimal('1000'))
     rsi_max: Decimal = Field(default=Decimal('70'))
     
-    class Config:
-        env_prefix = "ENTRY_"
+    model_config = ConfigDict(
+        env_prefix = "ENTRY_",
+    )
 
 
 # === RISK MANAGEMENT CONFIGURATION ===
@@ -236,8 +242,9 @@ class RiskManagerSettings(BaseSettings):
         description="Margin ratio below this triggers WARNING alert"
     )
 
-    class Config:
-        env_prefix = "RISK_MANAGER_"
+    model_config = ConfigDict(
+        env_prefix = "RISK_MANAGER_",
+    )
 
 
 class StopLossSettings(BaseSettings):
@@ -248,8 +255,9 @@ class StopLossSettings(BaseSettings):
     trailing_threshold_pct: Decimal = Field(default=Decimal('5.0'), description="Threshold to start trailing")
     trailing_adjustment_pct: Decimal = Field(default=Decimal('2.0'), description="Adjustment percentage for trailing stop")
 
-    class Config:
-        env_prefix = "STOP_"
+    model_config = ConfigDict(
+        env_prefix = "STOP_",
+    )
 
 
 class TakeProfitSettings(BaseSettings):
@@ -265,8 +273,9 @@ class TakeProfitSettings(BaseSettings):
     partial_exit_enabled: bool = Field(default=False)
     partial_exit_pct: Decimal = Field(default=Decimal('50.0'))
     
-    class Config:
-        env_prefix = "PROFIT_"
+    model_config = ConfigDict(
+        env_prefix = "PROFIT_",
+    )
 
 
 class RiskManagementSettings(BaseSettings):
@@ -287,8 +296,9 @@ class RiskManagementSettings(BaseSettings):
     volume_death_threshold_pct: Decimal = Field(default=Decimal('80'))
     emergency_min_liquidity: Decimal = Field(default=Decimal('100'))
 
-    class Config:
-        env_prefix = "RISK_"
+    model_config = ConfigDict(
+        env_prefix = "RISK_",
+    )
 
 
 class SafetyLimitsSettings(BaseSettings):
@@ -298,8 +308,9 @@ class SafetyLimitsSettings(BaseSettings):
     daily_loss_limit_pct: Decimal = Field(default=Decimal('2.0'))
     min_cooldown_minutes: int = Field(default=30)
     
-    class Config:
-        env_prefix = "SAFETY_"
+    model_config = ConfigDict(
+        env_prefix = "SAFETY_",
+    )
 
 
 # === POSITION SIZING CONFIGURATION ===
@@ -315,8 +326,9 @@ class PositionSizingSettings(BaseSettings):
     min_size_multiplier: Decimal = Field(default=Decimal('0.3'))
     max_size_multiplier: Decimal = Field(default=Decimal('1.0'))
     
-    class Config:
-        env_prefix = "SIZING_"
+    model_config = ConfigDict(
+        env_prefix = "SIZING_",
+    )
 
 
 # === LOGGING CONFIGURATION ===
@@ -331,8 +343,9 @@ class LoggingSettings(BaseSettings):
     max_file_size_mb: int = Field(default=100)
     backup_count: int = Field(default=5)
     
-    class Config:
-        env_prefix = "LOG_"
+    model_config = ConfigDict(
+        env_prefix = "LOG_",
+    )
 
 
 # === PERFORMANCE TRACKING CONFIGURATION ===
@@ -344,8 +357,9 @@ class PerformanceSettings(BaseSettings):
     report_frequency: str = Field(default="daily")  # daily, hourly
     analysis_interval_seconds: int = Field(default=300)
     
-    class Config:
-        env_prefix = "PERF_"
+    model_config = ConfigDict(
+        env_prefix = "PERF_",
+    )
 
 
 # === BACKTEST CONFIGURATION ===
@@ -359,8 +373,9 @@ class BacktestSettings(BaseSettings):
     parallel_processing: bool = Field(default=True, description="Enable parallel processing")
     max_workers: int = Field(default=4, description="Maximum worker threads")
 
-    class Config:
-        env_prefix = "BACKTEST_"
+    model_config = ConfigDict(
+        env_prefix = "BACKTEST_",
+    )
 
 
 # === PERFORMANCE MONITORING CONFIGURATION ===
@@ -372,8 +387,9 @@ class PerformanceMonitoringSettings(BaseSettings):
     session_ttl_hours: int = Field(default=24, description="Session time-to-live in hours")
     max_latency_measurements: int = Field(default=1000, description="Maximum latency measurements to keep")
 
-    class Config:
-        env_prefix = "PERF_MONITOR_"
+    model_config = ConfigDict(
+        env_prefix = "PERF_MONITOR_",
+    )
 
 
 # === WEBSOCKET CONFIGURATION ===
@@ -385,8 +401,9 @@ class RateLimiterSettings(BaseSettings):
     block_duration_minutes: int = Field(default=5, description="Block duration in minutes")
     cleanup_interval_seconds: int = Field(default=300, description="Cleanup interval in seconds")
 
-    class Config:
-        env_prefix = "RATE_LIMIT_"
+    model_config = ConfigDict(
+        env_prefix = "RATE_LIMIT_",
+    )
 
 
 class WebSocketSettings(BaseSettings):
@@ -397,8 +414,9 @@ class WebSocketSettings(BaseSettings):
     max_batch_size: int = Field(default=50, description="Maximum batch size")
     health_broadcast_interval_seconds: int = Field(default=5, description="Health broadcast interval")
 
-    class Config:
-        env_prefix = "WEBSOCKET_"
+    model_config = ConfigDict(
+        env_prefix = "WEBSOCKET_",
+    )
 
 
 # === REDIS CONFIGURATION ===
@@ -421,8 +439,9 @@ class RedisSettings(BaseSettings):
         auth = f":{self.password}@" if self.password else ""
         return f"redis://{auth}{self.host}:{self.port}/{self.db}"
 
-    class Config:
-        env_prefix = "REDIS_"
+    model_config = ConfigDict(
+        env_prefix = "REDIS_",
+    )
 
 
 # === MAIN APPLICATION SETTINGS ===
@@ -474,14 +493,13 @@ class AppSettings(BaseSettings):
     config_dir: str = Field(default="config")
     data_dir: str = Field(default="data")
     
-    class Config:
-        env_file = ".env"
-        env_nested_delimiter = "__"  # Allows TRADING__MODE=live
-        case_sensitive = False
-        extra = "ignore"  # Allow extra fields from environment variables
-        
+    model_config = ConfigDict(
+        env_file=".env",
+        env_nested_delimiter="__",  # Allows TRADING__MODE=live
+        case_sensitive=False,
+        extra="ignore",  # Allow extra fields from environment variables
         # JSON schema for validation
-        json_schema_extra = {
+        json_schema_extra={
             "example": {
                 "trading": {
                     "mode": "backtest",
@@ -496,6 +514,7 @@ class AppSettings(BaseSettings):
                 }
             }
         }
+    )
     
     @field_validator('config_dir', 'data_dir')
     @classmethod

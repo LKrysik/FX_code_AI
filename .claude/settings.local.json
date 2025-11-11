@@ -1,11 +1,26 @@
 {
   "permissions": {
     "allow": [
+      "WriteFiles(**)",
       "Bash(curl:*)",
       "Bash(powershell -ExecutionPolicy Bypass -File \".\\start_all.ps1\")",
       "Bash(python run_tests.py:*)",
       "Bash(python -m pytest:*)",
-      "Bash(python -m json.tool:*)"
+      "Bash(python -m json.tool:*)",
+      "Bash(exit 0)",
+      "Bash(python:*)",
+      "Bash(for file in api/paper_trading_routes.py api/trading_routes.py application/services/wallet_service.py data/data_analysis_service.py data/data_collection_persistence_service.py data/data_export_service.py data/data_quality_service.py data/questdb_data_provider.py data_feed/questdb_provider.py domain/models/trading.py domain/repositories/indicator_variant_repository.py)",
+      "Bash(do echo \"Processing $file...\")",
+      "Bash(done)",
+      "Bash(do echo \"=== $file ===\")",
+      "Bash(rm:*)",
+      "Bash(taskkill:*)",
+      "Bash(nul)",
+      "Bash(powershell:*)",
+      "Bash(timeout /t 15 /nobreak)",
+      "Bash(npm run build:*)",
+      "Bash(timeout /t 3 /nobreak)",
+      "Bash(timeout /t 30 /nobreak)"
     ],
     "deny": [],
     "ask": []

@@ -17,7 +17,7 @@ Thread-safe for async operations.
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Dict, List, Optional, Any
 from enum import Enum
@@ -93,7 +93,7 @@ class RiskManager:
 
         # Daily tracking
         self.daily_pnl = Decimal('0')
-        self.daily_reset_date = datetime.utcnow().date()
+        self.daily_reset_date = datetime.now(timezone.utc).date()
 
         # Thread safety
         self._lock = asyncio.Lock()
@@ -507,7 +507,7 @@ class RiskManager:
 
     def _check_daily_reset(self):
         """Reset daily P&L if new day started."""
-        current_date = datetime.utcnow().date()
+        current_date = datetime.now(timezone.utc).date()
         if current_date > self.daily_reset_date:
             logger.info(f"Daily P&L reset: {self.daily_pnl:.2f} USDT")
             self.daily_pnl = Decimal('0')
@@ -531,12 +531,12 @@ class RiskManager:
         """
         alert_data = {
             "type": "risk_alert",  # WebSocket message type
-            "alert_id": f"risk_{datetime.utcnow().timestamp()}",
+            "alert_id": f"risk_{datetime.now(timezone.utc).timestamp()}",
             "severity": severity.value,
             "alert_type": alert_type.value,
             "message": message,
             "details": details,
-            "timestamp": int(datetime.utcnow().timestamp() * 1000)  # Epoch milliseconds
+            "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000)  # Epoch milliseconds
         }
 
         await self.event_bus.publish("risk_alert", alert_data)

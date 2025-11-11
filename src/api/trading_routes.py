@@ -14,7 +14,7 @@ Endpoints:
 from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, HTTPException, Query, Path, Depends
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 
 from src.core.logger import get_logger
@@ -31,12 +31,14 @@ logger = get_logger(__name__)
 _questdb_provider: Optional[QuestDBProvider] = None
 _live_order_manager = None  # Will be injected
 _get_current_user_dependency = None  # Will be injected from unified_server
+_verify_csrf_token_dependency = None  # Will be injected from unified_server
 
 
 def initialize_trading_dependencies(
     questdb_provider: QuestDBProvider,
     live_order_manager=None,
-    get_current_user_dependency=None
+    get_current_user_dependency=None,
+    verify_csrf_token_dependency=None
 ) -> None:
     """
     Initialize trading route dependencies.
@@ -47,16 +49,19 @@ def initialize_trading_dependencies(
         questdb_provider: QuestDB provider for database queries
         live_order_manager: LiveOrderManager service (optional, for order operations)
         get_current_user_dependency: FastAPI dependency for authentication
+        verify_csrf_token_dependency: FastAPI dependency for CSRF protection
     """
-    global _questdb_provider, _live_order_manager, _get_current_user_dependency
+    global _questdb_provider, _live_order_manager, _get_current_user_dependency, _verify_csrf_token_dependency
     _questdb_provider = questdb_provider
     _live_order_manager = live_order_manager
     _get_current_user_dependency = get_current_user_dependency
+    _verify_csrf_token_dependency = verify_csrf_token_dependency
 
     logger.info("trading_routes.dependencies_initialized", {
         "questdb_provider_available": _questdb_provider is not None,
         "live_order_manager_available": _live_order_manager is not None,
-        "auth_dependency_available": _get_current_user_dependency is not None
+        "auth_dependency_available": _get_current_user_dependency is not None,
+        "csrf_dependency_available": _verify_csrf_token_dependency is not None
     })
 
 
@@ -97,6 +102,25 @@ def get_current_user():
             )
         return auth_not_configured
     return _get_current_user_dependency
+
+
+def verify_csrf_token():
+    """
+    Get CSRF token verification dependency (wrapper for unified_server's implementation).
+
+    This function returns the actual dependency function that should be used with Depends().
+    """
+    if _verify_csrf_token_dependency is None:
+        # SECURITY: Fail hard if CSRF protection not configured
+        async def csrf_not_configured() -> str:
+            logger.error("trading_routes.csrf_not_configured",
+                        {"message": "CSRF protection not configured - trading endpoints unavailable"})
+            raise HTTPException(
+                status_code=503,
+                detail="CSRF protection not configured - system unavailable. Contact administrator."
+            )
+        return csrf_not_configured
+    return _verify_csrf_token_dependency
 
 
 # ========================================
@@ -279,7 +303,8 @@ async def get_positions(
 async def close_position(
     position_id: str = Path(..., description="Position ID to close (format: session_id:symbol)"),
     request: ClosePositionRequest = ClosePositionRequest(),
-    current_user: UserSession = Depends(get_current_user)
+    current_user: UserSession = Depends(get_current_user),
+    csrf_token: str = Depends(verify_csrf_token)
 ) -> ClosePositionResponse:
     """
     Close a live position by creating a reverse order.
@@ -471,7 +496,8 @@ async def get_orders(
 @router.post("/orders/{order_id}/cancel", response_model=CancelOrderResponse)
 async def cancel_order(
     order_id: str = Path(..., description="Order ID to cancel"),
-    current_user: UserSession = Depends(get_current_user)
+    current_user: UserSession = Depends(get_current_user),
+    csrf_token: str = Depends(verify_csrf_token)
 ) -> CancelOrderResponse:
     """
     Cancel a pending or partially filled order.
@@ -531,7 +557,7 @@ async def cancel_order(
             success=True,
             message=f"Order {order_id} cancelled successfully",
             order_id=order_id,
-            cancelled_at=datetime.utcnow().isoformat()
+            cancelled_at=datetime.now(timezone.utc).isoformat()
         )
 
     except HTTPException:

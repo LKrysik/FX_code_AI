@@ -15,7 +15,7 @@ import json
 import logging
 import statistics
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple, Set
 from dataclasses import dataclass
@@ -134,7 +134,7 @@ class DataAnalysisService:
                 'session_id': session_id,
                 'session_info': session_meta,
                 'symbols_analyzed': list(symbols_data.keys()),
-                'timestamp': datetime.utcnow().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
                 'summary': await self._calculate_session_summary(symbols_data),
                 'symbols': {}
             }

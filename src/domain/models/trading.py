@@ -5,7 +5,7 @@ Pure data models for trading operations and positions.
 """
 
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 from decimal import Decimal
 from enum import Enum
@@ -163,7 +163,7 @@ class Position(BaseModel):
         """Get position duration in seconds"""
         if self.closed_at:
             return Decimal((self.closed_at - self.opened_at).total_seconds())
-        return Decimal((datetime.utcnow() - self.opened_at).total_seconds())
+        return Decimal((datetime.now(timezone.utc) - self.opened_at).total_seconds())
     
     @property
     def notional_value(self) -> Decimal:

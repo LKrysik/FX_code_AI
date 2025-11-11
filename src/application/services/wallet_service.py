@@ -5,7 +5,7 @@ Wallet service for real MEXC API balance management.
 """
 
 from typing import Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class WalletService:
@@ -31,7 +31,7 @@ class WalletService:
             assets = data.get("assets", {})
             total_usd = float(assets.get("USDT", {}).get("free", 0)) + float(assets.get("USDT", {}).get("locked", 0))
             return {
-                "timestamp": data.get("timestamp", datetime.utcnow().isoformat()),
+                "timestamp": data.get("timestamp", datetime.now(timezone.utc).isoformat()),
                 "assets": assets,
                 "total_usd_estimate": total_usd,
                 "source": "mexc_api"

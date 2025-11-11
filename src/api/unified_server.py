@@ -350,11 +350,15 @@ def create_unified_app():
         # ✅ AGENT 0 INTEGRATION: Wire LiveOrderManager to trading_routes
         trading_routes_module.initialize_trading_dependencies(
             questdb_provider=questdb_provider,
-            live_order_manager=live_order_manager  # ✅ Inject LiveOrderManager from Agent 3
+            live_order_manager=live_order_manager,  # ✅ Inject LiveOrderManager from Agent 3
+            get_current_user_dependency=get_current_user,  # ✅ JWT authentication
+            verify_csrf_token_dependency=verify_csrf_token  # ✅ CSRF protection
         )
         logger.info("trading_routes initialized with full dependencies", {
             "questdb_provider": questdb_provider is not None,
-            "live_order_manager": live_order_manager is not None
+            "live_order_manager": live_order_manager is not None,
+            "auth_dependency": "configured",
+            "csrf_dependency": "configured"
         })
 
         # Initialize health monitoring
@@ -659,6 +663,57 @@ def create_unified_app():
     # Include live trading API router (Agent 6)
     app.include_router(trading_router)
 
+    # CSRF Protection dependency
+    async def verify_csrf_token(request: Request) -> str:
+        """
+        FastAPI dependency to verify CSRF token for state-changing requests.
+
+        This dependency validates the X-CSRF-Token header against tokens stored in
+        app.state._csrf_tokens. Raises HTTPException (which properly passes through
+        CORSMiddleware) instead of returning JSONResponse directly.
+
+        Returns:
+            str: Valid CSRF token
+
+        Raises:
+            HTTPException: 403 if token missing, invalid, or expired
+        """
+        token = request.headers.get("X-CSRF-Token")
+
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="CSRF token required",
+            )
+
+        current_time = time.time()
+
+        # Check if token exists in valid token set
+        if token not in request.app.state._csrf_tokens:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Invalid CSRF token",
+            )
+
+        # Check if token is expired
+        if request.app.state._csrf_token_expiry.get(token, 0) < current_time:
+            # Clean up expired token
+            request.app.state._csrf_tokens.discard(token)
+            request.app.state._csrf_token_expiry.pop(token, None)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="CSRF token expired",
+            )
+
+        return token
+
+    # Update paper trading routes with CSRF protection
+    paper_trading_routes_module.initialize_paper_trading_dependencies(
+        persistence_service=paper_trading_persistence,
+        verify_csrf_token=verify_csrf_token
+    )
+    logger.info("paper_trading_routes updated with CSRF protection")
+
     # JWT Authentication dependency
     async def get_current_user(request: Request) -> UserSession:
         """FastAPI dependency to get current authenticated user from cookie or Authorization header"""
@@ -698,8 +753,12 @@ def create_unified_app():
     # 4-Section Strategy API endpoints
     @app.post("/api/strategies")
     @limiter.limit("10/minute")
-    async def create_strategy(request: Request, current_user: UserSession = Depends(get_current_user)):
-        """Create a new 4-section strategy (requires authentication, rate limited: 10/minute)"""
+    async def create_strategy(
+        request: Request,
+        current_user: UserSession = Depends(get_current_user),
+        csrf_token: str = Depends(verify_csrf_token)
+    ):
+        """Create a new 4-section strategy (requires authentication + CSRF, rate limited: 10/minute)"""
         try:
             # Parse JSON body
             body = await request.json()
@@ -803,8 +862,13 @@ def create_unified_app():
             return _json_error("get_failed", f"Failed to get strategy: {str(e)}")
 
     @app.put("/api/strategies/{strategy_id}")
-    async def update_strategy(strategy_id: str, request: Request, current_user: UserSession = Depends(get_current_user)):
-        """Update an existing 4-section strategy (requires authentication)"""
+    async def update_strategy(
+        strategy_id: str,
+        request: Request,
+        current_user: UserSession = Depends(get_current_user),
+        csrf_token: str = Depends(verify_csrf_token)
+    ):
+        """Update an existing 4-section strategy (requires authentication + CSRF)"""
         try:
             # Parse JSON body
             body = await request.json()
@@ -879,8 +943,13 @@ def create_unified_app():
             return _json_error("update_failed", f"Failed to update strategy: {str(e)}")
 
     @app.delete("/api/strategies/{strategy_id}")
-    async def delete_strategy(strategy_id: str, request: Request, current_user: UserSession = Depends(get_current_user)):
-        """Delete a 4-section strategy (requires authentication)"""
+    async def delete_strategy(
+        strategy_id: str,
+        request: Request,
+        current_user: UserSession = Depends(get_current_user),
+        csrf_token: str = Depends(verify_csrf_token)
+    ):
+        """Delete a 4-section strategy (requires authentication + CSRF)"""
         try:
             # Get strategy storage from app state
             strategy_storage = getattr(app.state, 'strategy_storage', None)
@@ -923,7 +992,11 @@ def create_unified_app():
             return _json_error("delete_failed", f"Failed to delete strategy: {str(e)}")
 
     @app.post("/api/strategies/validate")
-    async def validate_strategy(request: Request, body: Dict[str, Any]):
+    async def validate_strategy(
+        request: Request,
+        body: Dict[str, Any],
+        csrf_token: str = Depends(verify_csrf_token)
+    ):
         """Validate a 4-section strategy configuration"""
         try:
             validation_result = validate_strategy_config(body)
@@ -1135,58 +1208,6 @@ def create_unified_app():
     # Lightweight cache for /health to reduce psutil overhead in dev
     app.state._health_cache_ts = 0.0
     app.state._health_cache_data = None
-
-    # CSRF validation middleware - ENABLED for production security
-    @app.middleware("http")
-    async def csrf_validation_middleware(request: Request, call_next):
-        """Validate CSRF tokens for state-changing requests"""
-        if request.method in ["POST", "PUT", "PATCH", "DELETE"]:
-            # Skip CSRF validation for auth endpoints, test endpoints, and WebSocket upgrade
-            exempt_paths = [
-                "/api/v1/auth/login",
-                "/api/v1/auth/refresh",
-                "/api/v1/auth/logout",
-                "/csrf-token",
-                "/test",
-                "/ws",  # WebSocket endpoint
-                "/health",  # Health check endpoint
-            ]
-
-            # Check if path matches exempt patterns
-            path_exempt = False
-            for exempt_path in exempt_paths:
-                if request.url.path.startswith(exempt_path):
-                    path_exempt = True
-                    break
-
-            if not path_exempt:
-                token = request.headers.get("X-CSRF-Token")
-                if not token:
-                    return JSONResponse(
-                        content={"type": "error", "error_code": "csrf_missing", "error_message": "CSRF token required"},
-                        status_code=403
-                    )
-
-                current_time = time.time()
-
-                # Check if token exists and is not expired
-                if token not in app.state._csrf_tokens:
-                    return JSONResponse(
-                        content={"type": "error", "error_code": "csrf_invalid", "error_message": "Invalid CSRF token"},
-                        status_code=403
-                    )
-
-                # Check expiry
-                if app.state._csrf_token_expiry.get(token, 0) < current_time:
-                    app.state._csrf_tokens.discard(token)
-                    del app.state._csrf_token_expiry[token]
-                    return JSONResponse(
-                        content={"type": "error", "error_code": "csrf_expired", "error_message": "CSRF token expired"},
-                        status_code=403
-                    )
-
-        response = await call_next(request)
-        return response
 
     # JWT Authentication setup
     security = HTTPBearer()
@@ -1555,8 +1576,11 @@ def create_unified_app():
         return _json_ok({"status": "health_status", "data": health_status})
 
     @app.post("/health/clear-cache")
-    async def clear_health_cache(current_user: UserSession = Depends(get_current_user)):
-        """Clear the health endpoint cache"""
+    async def clear_health_cache(
+        current_user: UserSession = Depends(get_current_user),
+        csrf_token: str = Depends(verify_csrf_token)
+    ):
+        """Clear the health endpoint cache (requires authentication + CSRF)"""
         try:
             app.state._health_cache_ts = 0.0
             app.state._health_cache_data = None
@@ -1584,7 +1608,7 @@ def create_unified_app():
                 {"name": name, **details}
                 for name, details in services_dict.items()
             ]
-            return _json_ok({"status": "registered_services", "data": {"services": services_list}})
+            return _json_ok({"services": services_list})
         except Exception as e:
             return _json_error("service_error", f"Failed to get services: {str(e)}")
 
@@ -1598,8 +1622,12 @@ def create_unified_app():
             return _json_error("service_error", f"Failed to get service status: {str(e)}")
 
     @app.post("/health/services/{service_name}/enable")
-    async def enable_service(service_name: str, current_user: UserSession = Depends(get_current_user)):
-        """Enable a service"""
+    async def enable_service(
+        service_name: str,
+        current_user: UserSession = Depends(get_current_user),
+        csrf_token: str = Depends(verify_csrf_token)
+    ):
+        """Enable a service (requires authentication + CSRF)"""
         try:
             success = health_monitor.enable_service(service_name)
             if not success:
@@ -1609,8 +1637,12 @@ def create_unified_app():
             return _json_error("service_error", f"Failed to enable service: {str(e)}")
 
     @app.post("/health/services/{service_name}/disable")
-    async def disable_service(service_name: str, current_user: UserSession = Depends(get_current_user)):
-        """Disable a service"""
+    async def disable_service(
+        service_name: str,
+        current_user: UserSession = Depends(get_current_user),
+        csrf_token: str = Depends(verify_csrf_token)
+    ):
+        """Disable a service (requires authentication + CSRF)"""
         try:
             success = health_monitor.disable_service(service_name)
             if not success:
@@ -1631,8 +1663,11 @@ def create_unified_app():
         }})
 
     @app.post("/alerts/{alert_id}/resolve")
-    async def resolve_alert(alert_id: str):
-        """Resolve an active alert"""
+    async def resolve_alert(
+        alert_id: str,
+        csrf_token: str = Depends(verify_csrf_token)
+    ):
+        """Resolve an active alert (requires CSRF)"""
         try:
             health_monitor.resolve_alert(alert_id)
             return _json_ok({"status": "alert_resolved", "data": {"alert_id": alert_id}})
@@ -1842,8 +1877,12 @@ def create_unified_app():
         return _json_ok({"status": "execution_status", "data": status})
 
     @app.post("/sessions/start")
-    async def post_sessions_start(body: Dict[str, Any], current_user: UserSession = Depends(get_current_user)):
-        """Start a new session (backtest, live/paper, or collect)."""
+    async def post_sessions_start(
+        body: Dict[str, Any],
+        current_user: UserSession = Depends(get_current_user),
+        csrf_token: str = Depends(verify_csrf_token)
+    ):
+        """Start a new session (backtest, live/paper, or collect) - requires authentication + CSRF."""
         try:
             controller = await app.state.rest_service.get_controller()
 
@@ -1952,7 +1991,13 @@ def create_unified_app():
                 msg = str(e)
                 if "budget_cap_exceeded" in msg:
                     return _json_error("budget_cap_exceeded", msg, status=400)
-                return _json_error("command_failed", msg)
+                # CRITICAL: Validation errors (session_id, parameters) must return 400
+                # Checks for session-related validation errors (missing or invalid session_id)
+                if (("session" in msg.lower() and
+                     ("required" in msg.lower() or "not found" in msg.lower())) or
+                    "validation" in msg.lower()):
+                    return _json_error("validation_error", msg, status=400)
+                return _json_error("command_failed", msg, status=400)
             except Exception as e:
                 return _json_error("command_failed", f"Failed to execute {session_type} session: {str(e)}")
 
@@ -1960,9 +2005,13 @@ def create_unified_app():
             return _json_error("command_failed", f"Failed to start session: {str(e)}", status=500)
 
     @app.post("/sessions/stop")
-    async def post_sessions_stop(body: Dict[str, Any], current_user: UserSession = Depends(get_current_user)):
+    async def post_sessions_stop(
+        body: Dict[str, Any],
+        current_user: UserSession = Depends(get_current_user),
+        csrf_token: str = Depends(verify_csrf_token)
+    ):
         """
-        Stop a data collection session with proper validation and QuestDB fallback.
+        Stop a data collection session with proper validation and QuestDB fallback - requires authentication + CSRF.
 
         ✅ FIX: Handles orphaned sessions (session in QuestDB but not in controller)
         - Validates session_id exists in QuestDB
@@ -2257,8 +2306,11 @@ def create_unified_app():
         return _json_ok({"status": "results", "data": strategy_results, "request_type": "strategy_results", "symbol": symbol, "strategy": name})
 
     @app.post("/results/history/merge")
-    async def merge_results_history(body: Dict[str, Any]):
-        """Merge historical session results from disk.
+    async def merge_results_history(
+        body: Dict[str, Any],
+        csrf_token: str = Depends(verify_csrf_token)
+    ):
+        """Merge historical session results from disk - requires CSRF.
 
         Body fields:
         - base_dir: optional, path to sessions base (default: backtest/backtest_results)
@@ -2354,8 +2406,11 @@ def create_unified_app():
         return _json_ok({"status": "strategy_budget", "data": {"allocation": allocation}})
 
     @app.post("/risk/budget/allocate")
-    async def allocate_budget(body: Dict[str, Any]):
-        """Allocate budget for a strategy"""
+    async def allocate_budget(
+        body: Dict[str, Any],
+        csrf_token: str = Depends(verify_csrf_token)
+    ):
+        """Allocate budget for a strategy - requires CSRF"""
         strategy_name = (body or {}).get("strategy_name")
         amount = (body or {}).get("amount")
         max_allocation_pct = (body or {}).get("max_allocation_pct", 5.0)
@@ -2381,8 +2436,11 @@ def create_unified_app():
         }})
 
     @app.post("/risk/emergency-stop")
-    async def emergency_stop(body: Dict[str, Any]):
-        """Emergency stop - release all budget"""
+    async def emergency_stop(
+        body: Dict[str, Any],
+        csrf_token: str = Depends(verify_csrf_token)
+    ):
+        """Emergency stop - release all budget - requires CSRF"""
         strategy_name = (body or {}).get("strategy_name")  # Optional: stop specific strategy
 
         sm = await app.state.rest_service.get_strategy_manager()
@@ -2395,8 +2453,11 @@ def create_unified_app():
         }})
 
     @app.post("/risk/assess-position")
-    async def assess_position_risk(body: Dict[str, Any]):
-        """Assess risk for a potential position"""
+    async def assess_position_risk(
+        body: Dict[str, Any],
+        csrf_token: str = Depends(verify_csrf_token)
+    ):
+        """Assess risk for a potential position - requires CSRF"""
         symbol = (body or {}).get("symbol", "").upper()
         position_size = (body or {}).get("position_size", 0.0)
         current_price = (body or {}).get("current_price", 100.0)
@@ -2435,7 +2496,10 @@ def create_unified_app():
         return JSONResponse(controller.get_execution_status() or {"status": "idle"})
 
     @app.post("/api/v1/start")
-    async def start_session(body: StartSessionRequest):
+    async def start_session(
+        body: StartSessionRequest,
+        csrf_token: str = Depends(verify_csrf_token)
+    ):
         controller = app.state.websocket_api_server.controller
         session_id = await controller.start_live_trading(
             symbols=body.symbols,
@@ -2445,7 +2509,7 @@ def create_unified_app():
         return JSONResponse({"status": "session_started", "session_id": session_id})
 
     @app.post("/api/v1/stop")
-    async def stop_session():
+    async def stop_session(csrf_token: str = Depends(verify_csrf_token)):
         controller = app.state.websocket_api_server.controller
         await controller.stop_execution()
         return JSONResponse({"status": "session_stopped"})

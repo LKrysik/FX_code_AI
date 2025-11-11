@@ -224,9 +224,9 @@ def test_backtest_without_session_id_fails_validation(authenticated_client):
         f"Error message should have instructions, got: {error_message}"
     )
 
-    print(f"[TEST] ✓ Validation error as expected:")
+    print(f"[TEST] > Validation error as expected:")
     print(f"[TEST]   {error_message}")
-    print("[TEST] ✅ Backend validation working correctly!")
+    print("[TEST] OK: Backend validation working correctly!")
 
 
 def test_backtest_with_invalid_session_id_fails(authenticated_client):
@@ -268,8 +268,8 @@ def test_backtest_with_invalid_session_id_fails(authenticated_client):
     error_data = backtest_response.json()
     error_message = error_data.get('error_message', '') or error_data.get('message', '')
 
-    print(f"[TEST] ✓ Error as expected: {error_message}")
-    print("[TEST] ✅ Invalid session_id rejected correctly!")
+    print(f"[TEST] > Error as expected: {error_message}")
+    print("[TEST] OK: Invalid session_id rejected correctly!")
 
 
 if __name__ == '__main__':

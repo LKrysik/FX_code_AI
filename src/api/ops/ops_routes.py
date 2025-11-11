@@ -32,6 +32,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import jwt
 
 from ...core.logger import StructuredLogger
+from ..unified_server import verify_csrf_token
 from ...data.live_market_adapter import LiveMarketAdapter
 from ...trading.session_manager import SessionManager
 from ...monitoring.metrics_exporter import MetricsExporter
@@ -306,7 +307,8 @@ async def get_incidents(
 async def acknowledge_incident(
     incident_id: str,
     note: Optional[str] = None,
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    csrf_token: str = Depends(verify_csrf_token)
 ):
     """
     Acknowledge an incident with optional note.
@@ -379,7 +381,8 @@ async def get_risk_controls(
 @router.post("/risk-controls/kill-switch")
 async def trigger_kill_switch(
     reason: str,
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    csrf_token: str = Depends(verify_csrf_token)
 ):
     """
     Trigger global kill switch to stop all trading.

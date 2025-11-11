@@ -97,7 +97,7 @@ import asyncio
 import time
 from contextlib import asynccontextmanager
 from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 import asyncpg
 from questdb.ingress import Sender, IngressError, TimestampNanos, Protocol
@@ -2003,7 +2003,7 @@ async def example_usage():
     # Insert single price
     await provider.insert_price(
         symbol='BTC/USD',
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(timezone.utc),
         open_price=50000.0,
         high=50100.0,
         low=49900.0,
@@ -2015,7 +2015,7 @@ async def example_usage():
     prices = [
         {
             'symbol': 'BTC/USD',
-            'timestamp': datetime.utcnow() - timedelta(seconds=i),
+            'timestamp': datetime.now(timezone.utc) - timedelta(seconds=i),
             'open': 50000 + i,
             'high': 50100 + i,
             'low': 49900 + i,
@@ -2030,7 +2030,7 @@ async def example_usage():
     await provider.insert_indicator(
         symbol='BTC/USD',
         indicator_id='RSI_14',
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(timezone.utc),
         value=45.5,
         confidence=0.95,
     )

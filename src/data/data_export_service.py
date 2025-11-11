@@ -10,7 +10,7 @@ Provides functionality to export collected market data in multiple formats:
 import csv
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from io import StringIO, BytesIO
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union
@@ -256,7 +256,7 @@ class DataExportService:
                 'session_id': session_id,
                 'session_info': session_meta,
                 'data_points': all_data_points[:self.max_export_size],  # Limit size
-                'export_timestamp': datetime.utcnow().isoformat(),
+                'export_timestamp': datetime.now(timezone.utc).isoformat(),
                 'total_points': len(all_data_points),
                 'exported_points': min(len(all_data_points), self.max_export_size)
             }

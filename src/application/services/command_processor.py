@@ -509,12 +509,40 @@ class AsyncCommandProcessor:
         # Backtest requires a data collection session to replay historical data from QuestDB.
         # This check prevents resource locks from being acquired for requests that will fail.
         # See: docs/database/QUESTDB.md for session management details
-        if "session_id" not in parameters or not parameters["session_id"]:
+        session_id = parameters.get("session_id")
+        if "session_id" not in parameters or not session_id:
             errors.append(
                 "session_id parameter is required for backtest. "
                 "Specify the data collection session to replay for backtesting. "
                 "Use GET /api/data-collection/sessions to list available sessions."
             )
+        else:
+            # ✅ CRITICAL FIX: Validate session exists in QuestDB
+            # Prevents invalid session_ids from consuming resources
+            try:
+                questdb_provider = QuestDBProvider(
+                    ilp_host='127.0.0.1',
+                    ilp_port=9009,
+                    pg_host='127.0.0.1',
+                    pg_port=8812
+                )
+                questdb_data_provider = QuestDBDataProvider(questdb_provider, self.logger)
+                metadata = await questdb_data_provider.get_session_metadata(session_id)
+
+                if not metadata:
+                    errors.append(
+                        f"Data collection session '{session_id}' not found. "
+                        "Use GET /api/data-collection/sessions to list available sessions."
+                    )
+            except Exception as e:
+                self.logger.debug("command_processor.session_validation_failed", {
+                    "session_id": session_id,
+                    "error": str(e)
+                })
+                errors.append(
+                    f"Data collection session '{session_id}' not found. "
+                    "Use GET /api/data-collection/sessions to list available sessions."
+                )
 
         # Check required parameters
         if "symbols" not in parameters:
@@ -699,6 +727,8 @@ class AsyncCommandProcessor:
             session_id=data_session_id,
             symbols=symbols,
             db_provider=questdb_data_provider,
+            event_bus=self.event_bus,  # ✅ PASS EventBus
+            execution_controller=self.execution_controller,  # ✅ PASS ExecutionController
             acceleration_factor=parameters.get("acceleration_factor", 10.0),
             batch_size=parameters.get("batch_size", 100),
             logger=self.logger

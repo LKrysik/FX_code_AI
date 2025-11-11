@@ -14,8 +14,8 @@ Endpoints:
 - DELETE /api/paper-trading/sessions/{session_id} - Delete session
 """
 
-from typing import Dict, Any, List, Optional
-from fastapi import APIRouter, HTTPException, Query
+from typing import Dict, Any, List, Optional, Callable
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 
 from src.core.logger import get_logger
@@ -30,9 +30,13 @@ logger = get_logger(__name__)
 # Global persistence service (injected during startup)
 _persistence_service: Optional[PaperTradingPersistenceService] = None
 
+# CSRF verification dependency (injected during startup)
+_verify_csrf_token: Optional[Callable] = None
+
 
 def initialize_paper_trading_dependencies(
-    persistence_service: PaperTradingPersistenceService
+    persistence_service: PaperTradingPersistenceService,
+    verify_csrf_token: Optional[Callable] = None
 ) -> None:
     """
     Initialize paper trading route dependencies.
@@ -41,11 +45,15 @@ def initialize_paper_trading_dependencies(
 
     Args:
         persistence_service: Paper trading persistence service
+        verify_csrf_token: Optional CSRF verification dependency function
     """
-    global _persistence_service
+    global _persistence_service, _verify_csrf_token
     _persistence_service = persistence_service
+    _verify_csrf_token = verify_csrf_token
 
-    logger.info("paper_trading_routes.dependencies_initialized")
+    logger.info("paper_trading_routes.dependencies_initialized", {
+        "csrf_protection": verify_csrf_token is not None
+    })
 
 
 def get_persistence_service() -> PaperTradingPersistenceService:
@@ -56,6 +64,16 @@ def get_persistence_service() -> PaperTradingPersistenceService:
             detail="Paper trading service not initialized"
         )
     return _persistence_service
+
+
+def get_csrf_token_dependency() -> Callable:
+    """Get CSRF token verification dependency."""
+    if _verify_csrf_token is None:
+        # Return a no-op dependency if CSRF is not configured
+        async def no_csrf_check() -> str:
+            return ""
+        return no_csrf_check
+    return _verify_csrf_token
 
 
 # ========================================
@@ -105,12 +123,16 @@ class SessionResponse(BaseModel):
 # ========================================
 
 @router.post("/sessions", response_model=Dict[str, Any])
-async def create_session(request: CreateSessionRequest) -> Dict[str, Any]:
+async def create_session(
+    request: CreateSessionRequest,
+    csrf_token: str = Depends(get_csrf_token_dependency())
+) -> Dict[str, Any]:
     """
     Create new paper trading session.
 
     Args:
         request: Session creation parameters
+        csrf_token: CSRF token for request validation
 
     Returns:
         Created session data with session_id
@@ -120,8 +142,8 @@ async def create_session(request: CreateSessionRequest) -> Dict[str, Any]:
 
         # Generate session ID
         import uuid
-        from datetime import datetime
-        session_id = f"paper_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        from datetime import datetime, timezone
+        session_id = f"paper_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
         # Create session
         session_data = {
@@ -331,12 +353,16 @@ async def get_session_orders(
 
 
 @router.post("/sessions/{session_id}/stop", response_model=Dict[str, Any])
-async def stop_session(session_id: str) -> Dict[str, Any]:
+async def stop_session(
+    session_id: str,
+    csrf_token: str = Depends(get_csrf_token_dependency())
+) -> Dict[str, Any]:
     """
     Stop running paper trading session.
 
     Args:
         session_id: Session ID
+        csrf_token: CSRF token for request validation
 
     Returns:
         Success confirmation
@@ -382,12 +408,16 @@ async def stop_session(session_id: str) -> Dict[str, Any]:
 
 
 @router.delete("/sessions/{session_id}", response_model=Dict[str, Any])
-async def delete_session(session_id: str) -> Dict[str, Any]:
+async def delete_session(
+    session_id: str,
+    csrf_token: str = Depends(get_csrf_token_dependency())
+) -> Dict[str, Any]:
     """
     Delete paper trading session (soft delete - updates status).
 
     Args:
         session_id: Session ID
+        csrf_token: CSRF token for request validation
 
     Returns:
         Success confirmation
