@@ -32,7 +32,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import jwt
 
 from ...core.logger import StructuredLogger
-from ..unified_server import verify_csrf_token
+from ..dependencies import verify_csrf_token
 from ...data.live_market_adapter import LiveMarketAdapter
 from ...trading.session_manager import SessionManager
 from ...monitoring.metrics_exporter import MetricsExporter

@@ -23,7 +23,7 @@ from fastapi.responses import JSONResponse
 from src.core.logger import get_logger
 
 from src.core.event_bus import EventBus
-from src.api.unified_server import verify_csrf_token
+from src.api.dependencies import verify_csrf_token
 from src.domain.services.streaming_indicator_engine import StreamingIndicatorEngine
 from src.api.response_envelope import ensure_envelope
 from src.domain.services.indicator_persistence_service import IndicatorPersistenceService
