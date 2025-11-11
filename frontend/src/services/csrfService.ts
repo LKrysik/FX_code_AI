@@ -18,10 +18,10 @@
 import { config } from '@/utils/config';
 
 interface CsrfTokenResponse {
-  status: string;
+  type: string;
   data: {
     token: string;
-    expires_at: number;
+    expires_in: number; // Backend returns relative seconds from now
   };
 }
 
@@ -124,16 +124,17 @@ class CsrfService {
 
       const data: CsrfTokenResponse = await response.json();
 
-      if (!data.data?.token) {
-        throw new Error('Invalid CSRF token response: missing token');
+      if (!data.data?.token || !data.data?.expires_in) {
+        throw new Error('Invalid CSRF token response: missing token or expires_in');
       }
 
-      // Store token and expiry
+      // Store token and calculate absolute expiry time from relative expires_in
       this.token = data.data.token;
-      this.expiresAt = data.data.expires_at * 1000; // Convert to milliseconds
+      this.expiresAt = Date.now() + (data.data.expires_in * 1000); // Convert relative seconds to absolute ms timestamp
 
       console.debug('[CSRF] Token fetched successfully', {
         expires_at: new Date(this.expiresAt).toISOString(),
+        expires_in_seconds: data.data.expires_in,
       });
 
       return this.token;
