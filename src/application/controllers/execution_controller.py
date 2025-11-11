@@ -1526,8 +1526,24 @@ class ExecutionController:
             try:
                 # ✅ SESSION-004: Update DB status BEFORE memory cleanup
                 if self._current_session.mode == ExecutionMode.DATA_COLLECTION:
-                    # Determine final status
-                    final_status = 'completed' if self._current_session.status in (ExecutionState.STOPPED, ExecutionState.IDLE) else 'failed'
+                    # ✅ BUGFIX: Determine final status based on state machine semantics
+                    # STOPPING = user manual stop or graceful shutdown (NORMAL, not an error)
+                    # STOPPED = cleanup already completed (edge case, idempotent)
+                    # IDLE = natural completion without errors
+                    # ERROR = execution error (actual failure)
+                    if self._current_session.status in (ExecutionState.STOPPING, ExecutionState.STOPPED):
+                        final_status = 'stopped'  # User manually stopped or graceful shutdown
+                    elif self._current_session.status == ExecutionState.IDLE:
+                        final_status = 'completed'  # Natural completion
+                    else:
+                        final_status = 'failed'  # ERROR state or unexpected state
+
+                    self.logger.debug("data_collection.determining_final_status", {
+                        "session_id": self._current_session.session_id,
+                        "current_state": self._current_session.status.value,
+                        "final_status": final_status,
+                        "error_message": self._current_session.error_message
+                    })
 
                     await self.db_persistence_service.update_session_status(
                         session_id=self._current_session.session_id,
