@@ -126,6 +126,10 @@ def _extract_duration_and_clean_config(body_in: Dict[str, Any]) -> tuple[str, Di
 def create_unified_app():
     """Creates the single, unified FastAPI application."""
 
+    # ✅ CIRCULAR IMPORT FIX: Import verify_csrf_token from dependencies.py
+    # Imported at function level to avoid circular imports at module load time
+    from src.api.dependencies import verify_csrf_token
+
     # 1. Initialize Dependencies
     settings = get_settings_from_working_directory()
     logger = StructuredLogger("UnifiedServer", settings.logging)
@@ -663,56 +667,9 @@ def create_unified_app():
     # Include live trading API router (Agent 6)
     app.include_router(trading_router)
 
-    # CSRF Protection dependency
-    async def verify_csrf_token(request: Request) -> str:
-        """
-        FastAPI dependency to verify CSRF token for state-changing requests.
-
-        This dependency validates the X-CSRF-Token header against tokens stored in
-        app.state._csrf_tokens. Raises HTTPException (which properly passes through
-        CORSMiddleware) instead of returning JSONResponse directly.
-
-        Returns:
-            str: Valid CSRF token
-
-        Raises:
-            HTTPException: 403 if token missing, invalid, or expired
-        """
-        token = request.headers.get("X-CSRF-Token")
-
-        if not token:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="CSRF token required",
-            )
-
-        current_time = time.time()
-
-        # Check if token exists in valid token set
-        if token not in request.app.state._csrf_tokens:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Invalid CSRF token",
-            )
-
-        # Check if token is expired
-        if request.app.state._csrf_token_expiry.get(token, 0) < current_time:
-            # Clean up expired token
-            request.app.state._csrf_tokens.discard(token)
-            request.app.state._csrf_token_expiry.pop(token, None)
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="CSRF token expired",
-            )
-
-        return token
-
-    # Update paper trading routes with CSRF protection
-    paper_trading_routes_module.initialize_paper_trading_dependencies(
-        persistence_service=paper_trading_persistence,
-        verify_csrf_token=verify_csrf_token
-    )
-    logger.info("paper_trading_routes updated with CSRF protection")
+    # ✅ CIRCULAR IMPORT FIX: verify_csrf_token is now in dependencies.py
+    # No need to import it here - routes already import it directly from dependencies.py
+    # Paper trading routes initialization happens in lifespan context (line 344-346)
 
     # JWT Authentication dependency
     async def get_current_user(request: Request) -> UserSession:

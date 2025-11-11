@@ -22,7 +22,7 @@ from ..data.data_quality_service import DataQualityService
 from ..data.questdb_data_provider import QuestDBDataProvider
 from ..data_feed.questdb_provider import QuestDBProvider
 from ..core.logger import get_logger
-from src.api.unified_server import verify_csrf_token
+from src.api.dependencies import verify_csrf_token
 
 logger = get_logger(__name__)
 
