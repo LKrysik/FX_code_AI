@@ -1469,7 +1469,7 @@ def create_unified_app():
                 app.state._csrf_tokens.discard(t)
                 del app.state._csrf_token_expiry[t]
 
-            return _json_ok({"token": token})
+            return _json_ok({"token": token, "expires_in": 3600})
         except Exception as e:
             return _json_error("csrf_error", f"Failed to generate CSRF token: {str(e)}", status=500)
 
