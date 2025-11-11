@@ -81,6 +81,9 @@ class IndicatorScheduler:
         self.is_running = False
         self._scheduler_task: Optional[asyncio.Task] = None
 
+        # ✅ MEMORY LEAK FIX: Background task tracking with strong references
+        self._background_tasks: set = set()
+
         # Statistics
         self.stats = {
             'total_ticks': 0,
@@ -156,6 +159,9 @@ class IndicatorScheduler:
 
         self.is_running = True
         self._scheduler_task = asyncio.create_task(self._scheduler_loop())
+        # ✅ MEMORY LEAK FIX: Track task and auto-cleanup when done
+        self._background_tasks.add(self._scheduler_task)
+        self._scheduler_task.add_done_callback(self._background_tasks.discard)
 
         logger.info(
             f"Indicator scheduler started: {self.get_indicator_count()} indicators, "
@@ -170,12 +176,18 @@ class IndicatorScheduler:
         logger.info("Stopping indicator scheduler...")
         self.is_running = False
 
-        if self._scheduler_task:
-            self._scheduler_task.cancel()
-            try:
-                await self._scheduler_task
-            except asyncio.CancelledError:
-                pass
+        # ✅ MEMORY LEAK FIX: Cancel all background tasks (prevents dangling task warnings)
+        for task in self._background_tasks:
+            if not task.done():
+                task.cancel()
+
+        # Wait for all tasks to complete or be cancelled
+        if self._background_tasks:
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+
+        # Clear the task set
+        self._background_tasks.clear()
+        self._scheduler_task = None
 
         # Flush remaining writes
         if self.write_buffer:

@@ -17,6 +17,38 @@ from datetime import datetime
 
 @pytest.mark.api
 @pytest.mark.strategies
+class TestStrategyAuthRequirements:
+    """Tests for authentication requirements across strategy endpoints"""
+
+    @pytest.mark.parametrize("endpoint,method,payload_required", [
+        ("/api/strategies", "POST", True),
+        ("/api/strategies", "GET", False),
+        ("/api/strategies/any-id", "GET", False),
+        ("/api/strategies/any-id", "PUT", True),
+        ("/api/strategies/any-id", "DELETE", False),
+        ("/api/strategies/validate", "POST", True),
+    ])
+    def test_endpoints_require_authentication(self, api_client, valid_strategy_config, endpoint, method, payload_required):
+        """Test that protected strategy endpoints require authentication"""
+        # Clear auth header
+        api_client.headers.pop("Authorization", None)
+
+        if method == "GET":
+            response = api_client.get(endpoint)
+        elif method == "POST":
+            payload = valid_strategy_config if payload_required else {}
+            response = api_client.post(endpoint, json=payload)
+        elif method == "PUT":
+            payload = valid_strategy_config if payload_required else {}
+            response = api_client.put(endpoint, json=payload)
+        elif method == "DELETE":
+            response = api_client.delete(endpoint)
+
+        assert response.status_code == 401
+
+
+@pytest.mark.api
+@pytest.mark.strategies
 class TestStrategyCreate:
     """Tests for creating strategies"""
 
@@ -86,15 +118,6 @@ class TestStrategyCreate:
         data = response.json()
         assert "validation_error" in data["error_code"]
 
-    def test_create_strategy_without_auth_fails(self, api_client, valid_strategy_config):
-        """Test that strategy creation requires authentication"""
-        # Clear auth header
-        api_client.headers.pop("Authorization", None)
-
-        response = api_client.post("/api/strategies", json=valid_strategy_config)
-
-        assert response.status_code == 401
-
 
 @pytest.mark.api
 @pytest.mark.strategies
@@ -133,14 +156,6 @@ class TestStrategyList:
         assert "strategy_name" in strategy
         assert "created_at" in strategy
 
-    def test_list_strategies_without_auth_fails(self, api_client):
-        """Test that listing strategies requires authentication"""
-        # Clear auth header
-        api_client.headers.pop("Authorization", None)
-
-        response = api_client.get("/api/strategies")
-
-        assert response.status_code == 401
 
 
 @pytest.mark.api
@@ -184,14 +199,6 @@ class TestStrategyRead:
         assert "error_code" in data
         assert "not_found" in data["error_code"]
 
-    def test_get_strategy_without_auth_fails(self, api_client):
-        """Test that getting a strategy requires authentication"""
-        # Clear auth header
-        api_client.headers.pop("Authorization", None)
-
-        response = api_client.get("/api/strategies/any-id")
-
-        assert response.status_code == 401
 
 
 @pytest.mark.api
@@ -255,14 +262,6 @@ class TestStrategyUpdate:
         data = response.json()
         assert "not_found" in data["error_code"]
 
-    def test_update_strategy_without_auth_fails(self, api_client, valid_strategy_config):
-        """Test that updating a strategy requires authentication"""
-        # Clear auth header
-        api_client.headers.pop("Authorization", None)
-
-        response = api_client.put("/api/strategies/any-id", json=valid_strategy_config)
-
-        assert response.status_code == 401
 
 
 @pytest.mark.api
@@ -300,14 +299,6 @@ class TestStrategyDelete:
         data = response.json()
         assert "not_found" in data["error_code"]
 
-    def test_delete_strategy_without_auth_fails(self, api_client):
-        """Test that deleting a strategy requires authentication"""
-        # Clear auth header
-        api_client.headers.pop("Authorization", None)
-
-        response = api_client.delete("/api/strategies/any-id")
-
-        assert response.status_code == 401
 
 
 @pytest.mark.api
@@ -347,14 +338,6 @@ class TestStrategyValidate:
         assert data["data"]["isValid"] is False
         assert len(data["data"]["errors"]) > 0
 
-    def test_validate_without_auth_fails(self, api_client, valid_strategy_config):
-        """Test that validation requires authentication"""
-        # Clear auth header
-        api_client.headers.pop("Authorization", None)
-
-        response = api_client.post("/api/strategies/validate", json=valid_strategy_config)
-
-        assert response.status_code == 401
 
 
 @pytest.mark.api

@@ -101,6 +101,10 @@ class BroadcastProvider:
         self.is_running = False
         self._shutdown_event = asyncio.Event()
 
+        # ✅ MEMORY LEAK FIX: Background task tracking to prevent fire-and-forget leaks
+        # Tasks are tracked and properly cancelled during shutdown (following StrategyManager pattern)
+        self._background_tasks: set = set()
+
         # Background processing task
         self._processing_task: Optional[asyncio.Task] = None
 
@@ -123,7 +127,9 @@ class BroadcastProvider:
 
         self.is_running = True
         self._processing_task = asyncio.create_task(self._process_broadcast_queue())
-
+        # ✅ MEMORY LEAK FIX: Track task and auto-cleanup when done
+        self._background_tasks.add(self._processing_task)
+        self._processing_task.add_done_callback(self._background_tasks.discard)
 
         self.logger.info("broadcast_provider.started", {
             "max_queue_size": self.max_queue_size,
@@ -141,16 +147,25 @@ class BroadcastProvider:
         # Drain remaining messages to prevent loss
         await self.broadcast_queue.join()
 
-        if self._processing_task:
+        # ✅ MEMORY LEAK FIX: Cancel all background tasks (prevents dangling task warnings)
+        for task in self._background_tasks:
+            if not task.done():
+                task.cancel()
+
+        # Wait for all tasks to complete or be cancelled
+        if self._background_tasks:
             try:
-                await asyncio.wait_for(self._processing_task, timeout=5.0)
+                await asyncio.wait_for(
+                    asyncio.gather(*self._background_tasks, return_exceptions=True),
+                    timeout=5.0
+                )
             except asyncio.TimeoutError:
-                if not self._processing_task.done():
-                    self._processing_task.cancel()
-                    try:
-                        await self._processing_task
-                    except asyncio.CancelledError:
-                        pass
+                self.logger.warning("broadcast_provider.shutdown_timeout", {
+                    "remaining_tasks": len([t for t in self._background_tasks if not t.done()])
+                })
+
+        # Clear the task set
+        self._background_tasks.clear()
 
         self.logger.info("broadcast_provider.stopped")
 

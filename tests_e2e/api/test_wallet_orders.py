@@ -15,6 +15,26 @@ import pytest
 
 
 @pytest.mark.api
+class TestAuthRequirements:
+    """Tests for authentication requirements across wallet and trading endpoints"""
+
+    @pytest.mark.parametrize("endpoint", [
+        "/wallet/balance",
+        "/orders",
+        "/positions",
+        "/trading/performance",
+    ])
+    def test_endpoints_require_authentication(self, api_client, endpoint):
+        """Test that protected endpoints require authentication"""
+        # Clear auth header
+        api_client.headers.pop("Authorization", None)
+
+        response = api_client.get(endpoint)
+
+        assert response.status_code == 401
+
+
+@pytest.mark.api
 class TestWallet:
     """Tests for wallet endpoints"""
 
@@ -22,21 +42,9 @@ class TestWallet:
         """Test GET /wallet/balance returns balance info"""
         response = authenticated_client.get("/wallet/balance")
 
-        # Should return 200 or 503 if service unavailable
-        assert response.status_code in (200, 503)
-
-        if response.status_code == 200:
-            data = response.json()
-            assert "data" in data
-
-    def test_wallet_balance_requires_auth(self, api_client):
-        """Test wallet balance requires authentication"""
-        # Clear auth header
-        api_client.headers.pop("Authorization", None)
-
-        response = api_client.get("/wallet/balance")
-
-        assert response.status_code == 401
+        assert response.status_code == 200
+        data = response.json()
+        assert "data" in data
 
 
 @pytest.mark.api
@@ -63,15 +71,6 @@ class TestOrders:
         data = response.json()
         assert "error_code" in data
         assert "not_found" in data["error_code"]
-
-    def test_orders_require_auth(self, api_client):
-        """Test orders endpoints require authentication"""
-        # Clear auth header
-        api_client.headers.pop("Authorization", None)
-
-        response = api_client.get("/orders")
-
-        assert response.status_code == 401
 
 
 @pytest.mark.api
@@ -103,15 +102,6 @@ class TestPositions:
         position = data["data"]["position"]
         assert position is None or isinstance(position, dict)
 
-    def test_positions_require_auth(self, api_client):
-        """Test positions endpoints require authentication"""
-        # Clear auth header
-        api_client.headers.pop("Authorization", None)
-
-        response = api_client.get("/positions")
-
-        assert response.status_code == 401
-
 
 @pytest.mark.api
 class TestTradingPerformance:
@@ -121,18 +111,6 @@ class TestTradingPerformance:
         """Test GET /trading/performance returns performance data"""
         response = authenticated_client.get("/trading/performance")
 
-        # Should return 200 or 503 if service unavailable
-        assert response.status_code in (200, 503)
-
-        if response.status_code == 200:
-            data = response.json()
-            assert "data" in data
-
-    def test_trading_performance_requires_auth(self, api_client):
-        """Test trading performance requires authentication"""
-        # Clear auth header
-        api_client.headers.pop("Authorization", None)
-
-        response = api_client.get("/trading/performance")
-
-        assert response.status_code == 401
+        assert response.status_code == 200
+        data = response.json()
+        assert "data" in data

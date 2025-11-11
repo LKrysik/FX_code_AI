@@ -149,7 +149,7 @@ export const UserMenu: React.FC = () => {
 
         <Divider />
 
-        <MenuItem onClick={handleLogout}>
+        <MenuItem onClick={handleLogout} data-testid="logout-button">
           <ListItemIcon>
             <LogoutIcon fontSize="small" />
           </ListItemIcon>

@@ -138,7 +138,10 @@ class ExecutionProcessor(IExecutionProcessor):
         self.broadcast_provider = broadcast_provider
         self.logger = logger
         self.settings = settings
-        self._background_tasks: weakref.WeakSet = weakref.WeakSet()
+        # ✅ MEMORY LEAK FIX: Background task tracking with strong references (not WeakSet)
+        # Strong references required for proper shutdown cancellation
+        # WeakSet allows tasks to be GC'd before proper cancellation
+        self._background_tasks: set = set()
 
         # Thread safety locks - OPTIMIZED: Only async locks for consistency
         self._progress_lock = asyncio.Lock()  # Protects active_progress dictionary
@@ -223,9 +226,24 @@ class ExecutionProcessor(IExecutionProcessor):
         self.logger.info("execution_processor.started")
 
     async def stop(self):
-        """Stop the execution processor gracefully with deadlock prevention"""
+        """Stop the execution processor gracefully with background task cleanup"""
         self._shutdown_event.set()
-        self.logger.info("execution_processor.stopped")
+
+        # ✅ MEMORY LEAK FIX: Cancel all background tasks (prevents dangling task warnings)
+        for task in self._background_tasks:
+            if not task.done():
+                task.cancel()
+
+        # Wait for all tasks to complete or be cancelled
+        if self._background_tasks:
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+
+        # Clear the task set
+        self._background_tasks.clear()
+
+        self.logger.info("execution_processor.stopped", {
+            "background_tasks_cancelled": len(self._background_tasks)
+        })
 
     async def process_execution_event(self, event_type: str, event_data: Dict[str, Any]):
         """

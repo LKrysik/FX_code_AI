@@ -428,15 +428,10 @@ def cleanup_sessions(api_client):
 
 
 # ============================================================================
-# ASYNC EVENT LOOP (for async tests)
+# ASYNC EVENT LOOP - Removed (conflicts with pytest-asyncio auto mode)
 # ============================================================================
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create event loop for async tests"""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+# pytest-asyncio with asyncio_mode=auto provides automatic event loop management
+# Custom event_loop fixture was causing conflicts and has been removed
 
 
 # ============================================================================

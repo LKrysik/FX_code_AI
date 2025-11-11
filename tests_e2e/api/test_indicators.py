@@ -17,30 +17,34 @@ class TestIndicators:
         """Test GET /api/v1/indicators/{symbol} returns indicator data"""
         response = api_client.get("/api/v1/indicators/BTC_USDT")
 
-        # Should return 200 or 500 if indicators not available
-        assert response.status_code in (200, 500)
-
-        if response.status_code == 200:
-            data = response.json()
-            assert "symbol" in data
-            assert data["symbol"] == "BTC_USDT"
-            assert "indicators" in data
-            assert isinstance(data["indicators"], dict)
-            assert "timestamp" in data
+        assert response.status_code == 200
+        response_json = response.json()
+        # Handle both flat and nested response formats
+        data = response_json.get("data", response_json)
+        assert "symbol" in data
+        assert data["symbol"] == "BTC_USDT"
+        assert "indicators" in data
+        assert isinstance(data["indicators"], dict)
+        assert "timestamp" in data
 
     def test_get_indicators_for_invalid_symbol(self, api_client):
         """Test indicators endpoint with invalid symbol"""
         response = api_client.get("/api/v1/indicators/INVALID_SYMBOL")
 
-        # Should handle gracefully (200 with empty data or 404)
-        assert response.status_code in (200, 404, 500)
+        assert response.status_code == 404
+        error_response = response.json()
+        assert "error" in error_response or "detail" in error_response
 
-    def test_get_indicators_for_multiple_symbols(self, api_client):
+    @pytest.mark.parametrize("symbol", ["BTC_USDT", "ETH_USDT"])
+    def test_get_indicators_for_multiple_symbols(self, api_client, symbol):
         """Test indicators for different symbols"""
-        symbols = ["BTC_USDT", "ETH_USDT"]
+        response = api_client.get(f"/api/v1/indicators/{symbol}")
 
-        for symbol in symbols:
-            response = api_client.get(f"/api/v1/indicators/{symbol}")
-
-            # Should respond (may be empty if no data)
-            assert response.status_code in (200, 404, 500)
+        assert response.status_code == 200
+        response_json = response.json()
+        # Handle both flat and nested response formats
+        data = response_json.get("data", response_json)
+        assert "symbol" in data
+        assert data["symbol"] == symbol
+        assert "indicators" in data
+        assert isinstance(data["indicators"], dict)

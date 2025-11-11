@@ -32,11 +32,14 @@ class LiveDataSource(IExecutionDataSource):
         self.market_data_provider = market_data_provider
         self.symbols = symbols
         self.logger = logger
-        
+
+        # ✅ MEMORY LEAK FIX: Background task tracking with strong references
+        self._background_tasks: set = set()
+
         # State
         self._is_streaming = False
         self._data_queues: Dict[str, asyncio.Queue] = {}
-        self._consumer_tasks: List[asyncio.Task] = []
+        self._consumer_tasks: List[asyncio.Task] = []  # Legacy list, use _background_tasks instead
     
     async def start_stream(self) -> None:
         """Start live data streaming"""
@@ -55,7 +58,10 @@ class LiveDataSource(IExecutionDataSource):
             
             # Start consumer task for this symbol
             task = asyncio.create_task(self._consume_symbol_data(symbol))
-            self._consumer_tasks.append(task)
+            # ✅ MEMORY LEAK FIX: Track task and auto-cleanup when done
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+            self._consumer_tasks.append(task)  # Legacy list for backwards compatibility
         
         if self.logger:
             self.logger.info("live_data.stream_started", {
@@ -88,14 +94,19 @@ class LiveDataSource(IExecutionDataSource):
     async def stop_stream(self) -> None:
         """Stop live data streaming"""
         self._is_streaming = False
-        
-        # Cancel consumer tasks
-        for task in self._consumer_tasks:
+
+        # ✅ MEMORY LEAK FIX: Cancel all background tasks (prevents dangling task warnings)
+        for task in self._background_tasks:
             if not task.done():
                 task.cancel()
-        
-        if self._consumer_tasks:
-            await asyncio.gather(*self._consumer_tasks, return_exceptions=True)
+
+        # Wait for all tasks to complete or be cancelled
+        if self._background_tasks:
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+
+        # Clear the task set
+        self._background_tasks.clear()
+        self._consumer_tasks.clear()  # Also clear legacy list
         
         # Disconnect from market data provider
         try:
@@ -230,6 +241,9 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
         self.batch_size = batch_size
         self.logger = logger
 
+        # ✅ MEMORY LEAK FIX: Background task tracking with strong references
+        self._background_tasks: set = set()
+
         # State tracking
         self._cursors: Dict[str, int] = {}  # symbol -> current offset
         self._total_rows: Dict[str, int] = {}  # symbol -> total row count
@@ -276,6 +290,9 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
 
         # ✅ NEW: Start background replay task
         self._replay_task = asyncio.create_task(self._replay_historical_data())
+        # ✅ MEMORY LEAK FIX: Track task and auto-cleanup when done
+        self._background_tasks.add(self._replay_task)
+        self._replay_task.add_done_callback(self._background_tasks.discard)
 
     async def _replay_historical_data(self):
         """
@@ -434,16 +451,21 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
         return batch
     
     async def stop_stream(self) -> None:
-        """Stop streaming and cancel replay task"""
+        """Stop streaming and cancel all background tasks"""
         self._is_streaming = False
 
-        # ✅ NEW: Cancel replay task
-        if self._replay_task:
-            self._replay_task.cancel()
-            try:
-                await self._replay_task
-            except asyncio.CancelledError:
-                pass
+        # ✅ MEMORY LEAK FIX: Cancel all background tasks (prevents dangling task warnings)
+        for task in self._background_tasks:
+            if not task.done():
+                task.cancel()
+
+        # Wait for all tasks to complete or be cancelled
+        if self._background_tasks:
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+
+        # Clear the task set
+        self._background_tasks.clear()
+        self._replay_task = None
 
         if self.logger:
             total_processed = sum(self._cursors.values())
