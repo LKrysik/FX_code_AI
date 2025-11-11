@@ -68,11 +68,16 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSuccess }) => {
   };
 
   const handleDemoLogin = async (userType: 'demo' | 'trader' | 'premium' | 'admin') => {
+    // ✅ SECURITY FIX: Match credentials with backend .env configuration
+    // Previously: admin password was 'admin123' (hardcoded, wrong)
+    // Backend .env has: ADMIN_PASSWORD=supersecret
+    // This mismatch caused 401 authentication failures
+    // Related: docs/bugfixes/STRATEGY_BUILDER_AUTH_ISSUE.md
     const credentials = {
       demo: { username: 'demo', password: 'demo123' },
       trader: { username: 'trader', password: 'trader123' },
       premium: { username: 'premium', password: 'premium123' },
-      admin: { username: 'admin', password: 'admin123' },
+      admin: { username: 'admin', password: 'supersecret' },  // ✅ Fixed: matches backend .env
     };
 
     const { username: demoUsername, password: demoPassword } = credentials[userType];

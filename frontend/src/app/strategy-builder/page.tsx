@@ -114,18 +114,14 @@ export default function StrategyBuilderPage() {
   const loadInitialData = async () => {
     try {
       setLoading(true);
-      
-      // Try to authenticate first (demo credentials)
-      try {
-        console.log('Strategy Builder: Attempting auto-login...');
-        await apiService.login('admin', 'admin123');
-        console.log('Strategy Builder: Auto-login successful');
-      } catch (authError) {
-        console.warn('Strategy Builder: Auto-login failed:', authError);
-        showNotification('Auto-login failed - some features may not work', 'warning');
-      }
-      
-      // Load indicators from API
+
+      // ✅ ARCHITECTURE FIX: Check authentication state instead of auto-login
+      // Previously: Automatic login with hardcoded credentials ('admin', 'admin123')
+      // Problem: Password mismatch with backend (.env has 'supersecret'), caused 4x failed login attempts
+      // Solution: Check if user is already authenticated, let them login explicitly via LoginForm
+      // Related: docs/bugfixes/STRATEGY_BUILDER_AUTH_ISSUE.md
+
+      // Load indicators from API (works without authentication)
       try {
         console.log('Strategy Builder: Loading indicator variants...');
         const apiVariants = await apiService.getVariants();
@@ -137,12 +133,12 @@ export default function StrategyBuilderPage() {
         showNotification('Failed to load indicators - using empty list', 'warning');
         setAvailableIndicators([]);
       }
-      
-      // Load strategies list
+
+      // Load strategies list (requires authentication)
       await loadStrategiesList();
     } catch (error) {
       console.error('Failed to load initial data:', error);
-      showNotification('Failed to load data - using offline mode', 'warning');
+      showNotification('Failed to load data - check if you are logged in', 'warning');
       // Set empty strategies list as fallback
       setStrategiesList([]);
     } finally {

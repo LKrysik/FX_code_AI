@@ -82,10 +82,13 @@ export const useAuthStore = create<AuthState>()(
             throw new Error(data.error_message || 'Login failed');
           }
 
-          const { access_token, refresh_token, user } = data.data;
+          const { access_token, refresh_token, user, expires_in } = data.data;
 
-          // Calculate token expiry time (access tokens are valid for token_expiry_hours)
-          const tokenExpiry = Date.now() + (auth_handler.token_expiry_hours * 60 * 60 * 1000);
+          // ✅ BUG FIX: Use expires_in from server response (in seconds), not undefined auth_handler
+          // Previously: auth_handler.token_expiry_hours (ReferenceError - undefined variable)
+          // Backend returns expires_in in seconds (e.g., 86400 for 24 hours)
+          // Related: docs/bugfixes/STRATEGY_BUILDER_AUTH_ISSUE.md
+          const tokenExpiry = Date.now() + ((expires_in || 86400) * 1000);  // Default: 24h
 
           // Clear any existing refresh timer
           const { refreshTimer } = get();
@@ -193,10 +196,11 @@ export const useAuthStore = create<AuthState>()(
             throw new Error(data.error_message || 'Token refresh failed');
           }
 
-          const { access_token, refresh_token, user } = data.data;
+          const { access_token, refresh_token, user, expires_in } = data.data;
 
-          // Calculate new token expiry time
-          const tokenExpiry = Date.now() + (auth_handler.token_expiry_hours * 60 * 60 * 1000);
+          // ✅ BUG FIX: Use expires_in from server response, not undefined auth_handler
+          // Related: docs/bugfixes/STRATEGY_BUILDER_AUTH_ISSUE.md
+          const tokenExpiry = Date.now() + ((expires_in || 86400) * 1000);  // Default: 24h
 
           // Clear existing refresh timer
           const { refreshTimer } = get();
