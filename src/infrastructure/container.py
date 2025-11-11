@@ -1351,29 +1351,38 @@ class Container:
             try:
                 from ..domain.services.session_service import SessionService
                 from ..data.questdb_data_provider import QuestDBDataProvider
+                from ..data_feed.questdb_provider import QuestDBProvider
 
                 # Get execution controller
                 execution_controller = await self.create_data_collection_controller()
 
-                # Create QuestDB provider for session lookups
-                questdb_provider = QuestDBDataProvider(
-                    host='127.0.0.1',
-                    port=8812,
-                    user='admin',
-                    password='quest',
-                    database='qdb',
+                # ✅ FIX: Create low-level QuestDB provider first
+                questdb_low_level = QuestDBProvider(
+                    ilp_host='127.0.0.1',
+                    ilp_port=9009,
+                    pg_host='127.0.0.1',
+                    pg_port=8812,
+                    pg_user='admin',
+                    pg_password='quest',
+                    pg_database='qdb'
+                )
+                await questdb_low_level.initialize()
+
+                # ✅ FIX: Create high-level data provider with correct constructor
+                questdb_data_provider = QuestDBDataProvider(
+                    db_provider=questdb_low_level,
                     logger=self.logger
                 )
 
                 service = SessionService(
                     execution_controller=execution_controller,
-                    db_provider=questdb_provider,
+                    db_provider=questdb_data_provider,
                     logger=self.logger
                 )
 
                 self.logger.info("container.session_service_created", {
                     "has_execution_controller": execution_controller is not None,
-                    "has_db_provider": questdb_provider is not None
+                    "has_db_provider": questdb_data_provider is not None
                 })
 
                 return service

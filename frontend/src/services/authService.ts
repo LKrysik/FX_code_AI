@@ -1,4 +1,5 @@
 import { config, debugLog, errorLog } from '@/utils/config';
+import { csrfService } from './csrfService';
 
 interface User {
   user_id: string;
@@ -59,6 +60,13 @@ class AuthService {
       this.token = data.data.access_token || null;
       this.refreshToken = data.data.refresh_token || null;
       localStorage.setItem('current_user', JSON.stringify(this.currentUser));
+
+      // Fetch new CSRF token after successful login
+      try {
+        await csrfService.refreshToken();
+      } catch (csrfError) {
+        console.warn('Failed to fetch CSRF token after login:', csrfError);
+      }
 
       debugLog('Login successful', { user: data.user });
       return data;
@@ -132,6 +140,17 @@ class AuthService {
       ...this.getAuthHeaders(),
       ...options.headers,
     };
+
+    // Add CSRF token for state-changing requests
+    const method = options.method?.toUpperCase() || 'GET';
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+      try {
+        const csrfToken = await csrfService.getToken();
+        (headers as any)['X-CSRF-Token'] = csrfToken;
+      } catch (csrfError) {
+        console.warn('Failed to get CSRF token for request:', csrfError);
+      }
+    }
 
     try {
       let response = await fetch(this.getApiUrl(path), { ...options, headers, credentials: 'include' });

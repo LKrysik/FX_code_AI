@@ -63,16 +63,47 @@ def api_client(app) -> Generator[TestClient, None, None]:
     """
     with TestClient(app) as client:
         # Get CSRF token for POST/PUT/DELETE requests
+        csrf_token = None
         try:
             csrf_response = client.get("/csrf-token")
             if csrf_response.status_code == 200:
                 csrf_data = csrf_response.json()
                 csrf_token = csrf_data.get("data", {}).get("token")
-                if csrf_token:
-                    client.headers["X-CSRF-Token"] = csrf_token
         except Exception:
             # If CSRF token fetch fails, continue without it (some tests may not need it)
             pass
+
+        if csrf_token:
+            # Monkey-patch request methods to auto-include CSRF token
+            original_post = client.post
+            original_put = client.put
+            original_patch = client.patch
+            original_delete = client.delete
+
+            def post_with_csrf(*args, **kwargs):
+                kwargs.setdefault('headers', {})
+                kwargs['headers']['X-CSRF-Token'] = csrf_token
+                return original_post(*args, **kwargs)
+
+            def put_with_csrf(*args, **kwargs):
+                kwargs.setdefault('headers', {})
+                kwargs['headers']['X-CSRF-Token'] = csrf_token
+                return original_put(*args, **kwargs)
+
+            def patch_with_csrf(*args, **kwargs):
+                kwargs.setdefault('headers', {})
+                kwargs['headers']['X-CSRF-Token'] = csrf_token
+                return original_patch(*args, **kwargs)
+
+            def delete_with_csrf(*args, **kwargs):
+                kwargs.setdefault('headers', {})
+                kwargs['headers']['X-CSRF-Token'] = csrf_token
+                return original_delete(*args, **kwargs)
+
+            client.post = post_with_csrf
+            client.put = put_with_csrf
+            client.patch = patch_with_csrf
+            client.delete = delete_with_csrf
 
         yield client
 
@@ -98,8 +129,51 @@ def authenticated_client(api_client, test_config) -> TestClient:
     data = login_response.json()
     access_token = data["data"]["access_token"]
 
-    # Set authorization header
-    api_client.headers["Authorization"] = f"Bearer {access_token}"
+    # Monkey-patch ALL request methods to include Authorization header
+    # Store original methods (might be already patched with CSRF)
+    original_request = api_client.request
+    original_get = api_client.get
+    original_post = api_client.post
+    original_put = api_client.put
+    original_patch = api_client.patch
+    original_delete = api_client.delete
+
+    def request_with_auth(*args, **kwargs):
+        kwargs.setdefault('headers', {})
+        kwargs['headers']['Authorization'] = f"Bearer {access_token}"
+        return original_request(*args, **kwargs)
+
+    def get_with_auth(*args, **kwargs):
+        kwargs.setdefault('headers', {})
+        kwargs['headers']['Authorization'] = f"Bearer {access_token}"
+        return original_get(*args, **kwargs)
+
+    def post_with_auth(*args, **kwargs):
+        kwargs.setdefault('headers', {})
+        kwargs['headers']['Authorization'] = f"Bearer {access_token}"
+        return original_post(*args, **kwargs)
+
+    def put_with_auth(*args, **kwargs):
+        kwargs.setdefault('headers', {})
+        kwargs['headers']['Authorization'] = f"Bearer {access_token}"
+        return original_put(*args, **kwargs)
+
+    def patch_with_auth(*args, **kwargs):
+        kwargs.setdefault('headers', {})
+        kwargs['headers']['Authorization'] = f"Bearer {access_token}"
+        return original_patch(*args, **kwargs)
+
+    def delete_with_auth(*args, **kwargs):
+        kwargs.setdefault('headers', {})
+        kwargs['headers']['Authorization'] = f"Bearer {access_token}"
+        return original_delete(*args, **kwargs)
+
+    api_client.request = request_with_auth
+    api_client.get = get_with_auth
+    api_client.post = post_with_auth
+    api_client.put = put_with_auth
+    api_client.patch = patch_with_auth
+    api_client.delete = delete_with_auth
 
     return api_client
 

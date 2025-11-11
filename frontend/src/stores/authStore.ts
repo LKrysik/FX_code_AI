@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { csrfService } from '@/services/csrfService';
 
 export interface User {
   user_id: string;
@@ -106,6 +107,13 @@ export const useAuthStore = create<AuthState>()(
             refreshTimer: newRefreshTimer,
           });
 
+          // Fetch new CSRF token after successful login
+          try {
+            await csrfService.refreshToken();
+          } catch (csrfError) {
+            console.warn('Failed to fetch CSRF token after login:', csrfError);
+          }
+
           return true;
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Login failed';
@@ -147,6 +155,9 @@ export const useAuthStore = create<AuthState>()(
         if (refreshTimer) {
           clearTimeout(refreshTimer);
         }
+
+        // Clear CSRF token on logout
+        csrfService.clearToken();
 
         // Clear state regardless of API response
         set({

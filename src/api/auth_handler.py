@@ -833,8 +833,8 @@ class AuthHandler:
             "user_id": user_id,
             "username": username,
             "permission_level": permission_level,
-            "exp": datetime.utcnow() + timedelta(hours=self.token_expiry_hours),
-            "iat": datetime.utcnow(),
+            "exp": datetime.now(timezone.utc) + timedelta(hours=self.token_expiry_hours),
+            "iat": datetime.now(timezone.utc),
             "iss": "trading_api"
         }
 
@@ -857,8 +857,8 @@ class AuthHandler:
         payload = {
             "user_id": user_id,
             "type": "refresh",
-            "exp": datetime.utcnow() + timedelta(days=self.refresh_token_expiry_days),
-            "iat": datetime.utcnow(),
+            "exp": datetime.now(timezone.utc) + timedelta(days=self.refresh_token_expiry_days),
+            "iat": datetime.now(timezone.utc),
             "iss": "trading_api"
         }
 

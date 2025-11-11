@@ -254,9 +254,44 @@ class UnifiedTradingController:
 
             return session_id
 
-        except (TimeoutError, ValueError) as e:
-            # Fallback to async command execution
+        except ValueError as e:
+            # CRITICAL: Re-raise validation errors so endpoint can return 400
+            # Validation errors (missing session_id, invalid parameters) must fail fast
+            error_msg = str(e)
+
+            # Check if this is a validation error by looking for validation-related keywords
+            # Catches: "session_id parameter is required" and "session not found" and similar errors
+            if ("session" in error_msg.lower() and
+                ("required" in error_msg.lower() or
+                 "not found" in error_msg.lower() or
+                 "validation" in error_msg.lower())):
+                # Re-raise validation errors related to session for endpoint to handle (400 response)
+                self.logger.error("unified_trading_controller.backtest_validation_failed", {
+                    "error": error_msg
+                })
+                raise  # Let endpoint return 400
+
+            # For other ValueErrors, use fallback
             self.logger.error("unified_trading_controller.backtest_execute_with_result_failed", {
+                "error": error_msg,
+                "fallback": "using execute_command"
+            })
+
+            command_id = await self.command_processor.execute_command(
+                CommandType.START_BACKTEST,
+                parameters
+            )
+
+            self.logger.info("unified_trading_controller.backtest_started_fallback", {
+                "command_id": command_id,
+                "symbols": symbols
+            })
+
+            return command_id
+
+        except TimeoutError as e:
+            # Fallback to async command execution on timeout
+            self.logger.error("unified_trading_controller.backtest_timeout", {
                 "error": str(e),
                 "fallback": "using execute_command"
             })

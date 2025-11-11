@@ -4,7 +4,7 @@ Market Data Models - Core market data structures
 Pure data models for market information without external dependencies.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 from typing import Optional, List, Tuple
 from decimal import Decimal
@@ -12,7 +12,15 @@ from decimal import Decimal
 
 class MarketData(BaseModel):
     """Core market data event - standardized across all exchanges"""
-    
+
+    model_config = ConfigDict(
+        # Use Decimal for precise financial calculations
+        json_encoders={
+            Decimal: lambda v: float(v),
+            datetime: lambda v: v.isoformat()
+        }
+    )
+
     symbol: str = Field(..., description="Trading symbol (e.g., BTCUSDT)")
     exchange: str = Field(..., description="Exchange name (e.g., mexc)")
     price: Decimal = Field(..., description="Current price")
@@ -21,13 +29,6 @@ class MarketData(BaseModel):
     volume_24h_usdt: Optional[Decimal] = Field(None, description="24h volume in USDT")
     liquidity_usdt: Optional[Decimal] = Field(None, description="Available liquidity in USDT")
     side: Optional[str] = Field(None, description="Trade side: buy/sell/unknown")
-    
-    class Config:
-        # Use Decimal for precise financial calculations
-        json_encoders = {
-            Decimal: lambda v: float(v),
-            datetime: lambda v: v.isoformat()
-        }
     
     @property
     def symbol_key(self) -> str:

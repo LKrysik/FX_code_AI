@@ -9,7 +9,7 @@ This replaces CSV file reading with database queries.
 """
 
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 
 from ..data_feed.questdb_provider import QuestDBProvider
@@ -567,7 +567,7 @@ class QuestDBDataProvider:
 
                     # Consider session "truly active" if updated within last hour
                     stale_threshold = timedelta(hours=1)
-                    time_since_update = datetime.utcnow() - updated_at.replace(tzinfo=None)
+                    time_since_update = datetime.now(timezone.utc) - updated_at.replace(tzinfo=None)
 
                     if time_since_update < stale_threshold:
                         # Session is truly active (recently updated)

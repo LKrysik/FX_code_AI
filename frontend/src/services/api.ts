@@ -13,10 +13,36 @@ import { config } from '@/utils/config';
 import { wsService } from './websocket';
 import { recordApiCall } from '@/hooks/usePerformanceMonitor';
 import { categorizeError, logUnifiedError, getErrorRecoveryStrategy } from '@/utils/statusUtils';
+import { csrfService } from './csrfService';
 
 // Configure axios defaults
 axios.defaults.baseURL = config.apiUrl;
 axios.defaults.withCredentials = true;
+
+// CSRF token injection interceptor
+// Automatically adds X-CSRF-Token header to all state-changing requests (POST/PUT/PATCH/DELETE)
+axios.interceptors.request.use(
+  async (request) => {
+    const method = request.method?.toLowerCase();
+    const stateChangingMethods = ['post', 'put', 'patch', 'delete'];
+
+    // Only add CSRF token to state-changing requests
+    if (method && stateChangingMethods.includes(method)) {
+      try {
+        const token = await csrfService.getToken();
+        request.headers['X-CSRF-Token'] = token;
+      } catch (error) {
+        console.error('[CSRF] Failed to get CSRF token for request:', error);
+        // Continue with request - backend will reject if token required
+      }
+    }
+
+    return request;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
 
 // Cookie-based Authentication - HttpOnly cookies for security
 class CookieAuth {
@@ -34,6 +60,14 @@ class CookieAuth {
         username,
         password
       });
+
+      // Fetch new CSRF token after successful login
+      try {
+        await csrfService.refreshToken();
+      } catch (csrfError) {
+        console.warn('Failed to fetch CSRF token after login:', csrfError);
+      }
+
       return response.data;
     } catch (error: any) {
       console.error('Login failed:', error);
@@ -46,6 +80,9 @@ class CookieAuth {
       await axios.post('/api/v1/auth/logout');
     } catch (error) {
       console.warn('Logout request failed:', error);
+    } finally {
+      // Clear CSRF token on logout
+      csrfService.clearToken();
     }
   }
 
@@ -78,12 +115,13 @@ class CookieAuth {
 // Global cookie auth instance
 const cookieAuth = new CookieAuth();
 
-// Handle token refresh on 401 responses
+// Handle token refresh on 401 responses and CSRF token expiry on 403 responses
 axios.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
 
+    // Handle 401 Unauthorized - JWT token expired
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
 
@@ -98,6 +136,28 @@ axios.interceptors.response.use(
         console.error('Token refresh failed:', refreshError);
         // Could emit an event here to trigger login modal
         // window.dispatchEvent(new CustomEvent('auth:session-expired'));
+      }
+    }
+
+    // Handle 403 Forbidden - CSRF token expired or invalid
+    if (error.response?.status === 403 && !originalRequest._csrfRetry) {
+      const errorCode = error.response?.data?.error_code;
+
+      // Only retry if error is CSRF-related
+      if (errorCode === 'csrf_expired' || errorCode === 'csrf_invalid') {
+        originalRequest._csrfRetry = true;
+
+        try {
+          console.debug('[CSRF] Token expired/invalid, refreshing...');
+          // Refresh CSRF token
+          await csrfService.refreshToken();
+
+          // Retry the original request with new CSRF token
+          return axios(originalRequest);
+        } catch (csrfError) {
+          console.error('[CSRF] Token refresh failed:', csrfError);
+          // Fall through to error handling below
+        }
       }
     }
 

@@ -15,7 +15,7 @@ execution_controller.py, providing a database-backed alternative to CSV files.
 
 import asyncio
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
@@ -84,7 +84,7 @@ class DataCollectionPersistenceService:
             Session metadata dictionary
         """
         try:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
 
             session_metadata = {
                 'session_id': session_id,
@@ -149,7 +149,7 @@ class DataCollectionPersistenceService:
             if session_id in self._active_sessions:
                 session = self._active_sessions[session_id]
                 session['status'] = status
-                session['updated_at'] = datetime.utcnow()
+                session['updated_at'] = datetime.now(timezone.utc)
 
                 if records_collected is not None:
                     session['records_collected'] = records_collected
@@ -159,7 +159,7 @@ class DataCollectionPersistenceService:
 
                 # Calculate duration if completing
                 if status in ('completed', 'failed', 'stopped'):
-                    session['end_time'] = datetime.utcnow()
+                    session['end_time'] = datetime.now(timezone.utc)
                     duration = (session['end_time'] - session['start_time']).total_seconds()
                     session['duration_seconds'] = int(duration)
 
@@ -398,7 +398,7 @@ class DataCollectionPersistenceService:
             while True:
                 await asyncio.sleep(self._cleanup_interval)
 
-                now = datetime.utcnow()
+                now = datetime.now(timezone.utc)
                 stale_sessions = []
 
                 for session_id, session in self._active_sessions.items():

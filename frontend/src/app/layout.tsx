@@ -4,6 +4,7 @@ import ThemeProvider from '@/components/theme/ThemeProvider'
 import Layout from '@/components/layout/Layout'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import NotificationProvider from '@/components/common/NotificationProvider'
+import CsrfInitializer from '@/components/common/CsrfInitializer'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -22,6 +23,7 @@ export default function RootLayout({
       <body className={inter.className}>
         <ThemeProvider>
           <ErrorBoundary>
+            <CsrfInitializer />
             <Layout>
               {children}
               <NotificationProvider />

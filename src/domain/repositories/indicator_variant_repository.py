@@ -19,7 +19,7 @@ Architecture:
 """
 
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import uuid
 import traceback
@@ -142,8 +142,8 @@ class IndicatorVariantRepository:
             created_by,
             user_id,
             scope,
-            datetime.utcnow(),
-            datetime.utcnow(),
+            datetime.now(timezone.utc),
+            datetime.now(timezone.utc),
             False  # is_deleted - Will be cast to BOOLEAN in query
         ]
 
@@ -348,7 +348,7 @@ class IndicatorVariantRepository:
         param_idx = 1
 
         # Always update updated_at - use literal value for QuestDB compatibility
-        updated_at = datetime.utcnow()
+        updated_at = datetime.now(timezone.utc)
         updated_at_str = updated_at.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
         set_clauses.append(f"updated_at = '{updated_at_str}'")
 
@@ -436,7 +436,7 @@ class IndicatorVariantRepository:
         """
         # ✅ FORWARD-COMPATIBLE FIX: Explicit CAST to BOOLEAN for type safety
         # QuestDB requires explicit type casting for BOOLEAN values in UPDATE
-        deleted_at = datetime.utcnow()
+        deleted_at = datetime.now(timezone.utc)
         deleted_at_str = deleted_at.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
 
         query = f"""

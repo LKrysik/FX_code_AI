@@ -11,7 +11,7 @@ Provides comprehensive data quality assessment including:
 
 import logging
 import statistics
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
 
@@ -446,7 +446,7 @@ class DataQualityService:
 
             report = {
                 'session_id': session_id,
-                'assessment_timestamp': datetime.utcnow().isoformat(),
+                'assessment_timestamp': datetime.now(timezone.utc).isoformat(),
                 'metrics': {
                     'overall_score': metrics.overall_score,
                     'completeness_score': metrics.completeness_score,

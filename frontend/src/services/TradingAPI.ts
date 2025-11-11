@@ -11,6 +11,8 @@
  * - GET /api/trading/performance/:session_id - Get session performance
  */
 
+import { csrfService } from './csrfService';
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
 // ========================================
@@ -147,6 +149,22 @@ export class TradingAPI {
   }
 
   /**
+   * Get headers with CSRF token for state-changing requests
+   */
+  private async getHeadersWithCsrf(): Promise<HeadersInit> {
+    try {
+      const csrfToken = await csrfService.getToken();
+      return {
+        ...this.headers,
+        'X-CSRF-Token': csrfToken
+      };
+    } catch (error) {
+      console.warn('[TradingAPI] Failed to get CSRF token:', error);
+      return this.headers;
+    }
+  }
+
+  /**
    * GET /api/trading/positions
    * Query live positions with optional filters
    */
@@ -180,10 +198,11 @@ export class TradingAPI {
    */
   async closePosition(position_id: string, reason: string = 'USER_REQUESTED'): Promise<ClosePositionResponse> {
     const url = `${this.baseUrl}/api/trading/positions/${encodeURIComponent(position_id)}/close`;
+    const headers = await this.getHeadersWithCsrf();
 
     const response = await fetch(url, {
       method: 'POST',
-      headers: this.headers,
+      headers,
       body: JSON.stringify({ reason })
     });
 
@@ -223,10 +242,11 @@ export class TradingAPI {
    */
   async cancelOrder(order_id: string): Promise<CancelOrderResponse> {
     const url = `${this.baseUrl}/api/trading/orders/${encodeURIComponent(order_id)}/cancel`;
+    const headers = await this.getHeadersWithCsrf();
 
     const response = await fetch(url, {
       method: 'POST',
-      headers: this.headers
+      headers
     });
 
     return handleResponse<CancelOrderResponse>(response);

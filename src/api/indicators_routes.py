@@ -23,6 +23,7 @@ from fastapi.responses import JSONResponse
 from src.core.logger import get_logger
 
 from src.core.event_bus import EventBus
+from src.api.unified_server import verify_csrf_token
 from src.domain.services.streaming_indicator_engine import StreamingIndicatorEngine
 from src.api.response_envelope import ensure_envelope
 from src.domain.services.indicator_persistence_service import IndicatorPersistenceService
@@ -802,7 +803,8 @@ async def add_indicator_for_session(
     session_id: str,
     symbol: str,
     request: Request,
-    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine)
+    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine),
+    csrf_token: str = Depends(verify_csrf_token)
 ) -> JSONResponse:
     """
     Add indicator for specific session and symbol using StreamingIndicatorEngine.
@@ -1011,7 +1013,8 @@ async def remove_indicator_from_session(
     session_id: str,
     symbol: str,
     indicator_id: str,
-    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine)
+    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine),
+    csrf_token: str = Depends(verify_csrf_token)
 ) -> JSONResponse:
     """
     Remove indicator from specific session and symbol.
@@ -1050,7 +1053,8 @@ async def remove_indicator_from_session(
 async def cleanup_duplicate_indicators(
     session_id: str,
     symbol: str,
-    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine)
+    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine),
+    csrf_token: str = Depends(verify_csrf_token)
 ) -> JSONResponse:
     """
     Clean up duplicate indicators for session and symbol.
@@ -1363,7 +1367,8 @@ async def process_market_data(
     session_id: str,
     symbol: str,
     request: Request,
-    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine)
+    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine),
+    csrf_token: str = Depends(verify_csrf_token)
 ) -> JSONResponse:
     """
     Process new market data and trigger indicator calculations.
@@ -1394,7 +1399,8 @@ async def process_historical_data(
     session_id: str,
     symbol: str,
     request: Request,
-    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine)
+    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine),
+    csrf_token: str = Depends(verify_csrf_token)
 ) -> JSONResponse:
     """
     Process historical data for backtesting and simulation.
@@ -1425,7 +1431,8 @@ async def set_session_preferences(
     session_id: str,
     symbol: str,
     request: Request,
-    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine)
+    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine),
+    csrf_token: str = Depends(verify_csrf_token)
 ) -> JSONResponse:
     """
     Set preferences for session and symbol.
@@ -1478,7 +1485,8 @@ async def get_session_preferences(
 @router.post("/variants")
 async def create_variant(
     request: Request,
-    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine)
+    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine),
+    csrf_token: str = Depends(verify_csrf_token)
 ) -> JSONResponse:
     """
     Create new indicator variant.
@@ -1568,7 +1576,8 @@ async def create_variant(
 async def update_variant(
     variant_id: str,
     request: Request,
-    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine)
+    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine),
+    csrf_token: str = Depends(verify_csrf_token)
 ) -> JSONResponse:
     """
     Update existing indicator variant.
@@ -1645,7 +1654,8 @@ async def update_variant(
 @router.delete("/variants/{variant_id}")
 async def delete_variant(
     variant_id: str,
-    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine)
+    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine),
+    csrf_token: str = Depends(verify_csrf_token)
 ) -> JSONResponse:
     """
     Delete indicator variant.
@@ -1893,7 +1903,8 @@ async def list_indicators(
 @router.post("/bulk")
 async def add_indicators_bulk(
     request: Request,
-    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine)
+    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine),
+    csrf_token: str = Depends(verify_csrf_token)
 ) -> JSONResponse:
     """
     Add multiple indicators in bulk operation.
@@ -1958,7 +1969,8 @@ async def add_indicators_bulk(
 @router.delete("/bulk")
 async def delete_indicators_bulk(
     request: Request,
-    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine)
+    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine),
+    csrf_token: str = Depends(verify_csrf_token)
 ) -> JSONResponse:
     """
     Delete multiple indicators in bulk operation.
@@ -2010,7 +2022,8 @@ async def delete_indicators_bulk(
 @router.post("/add")
 async def add_indicator(
     request: Request,
-    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine)
+    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine),
+    csrf_token: str = Depends(verify_csrf_token)
 ) -> JSONResponse:
     """
     Add a single indicator.
@@ -2081,7 +2094,8 @@ async def add_indicator(
 @router.delete("/{key}")
 async def delete_indicator(
     key: str,
-    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine)
+    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine),
+    csrf_token: str = Depends(verify_csrf_token)
 ) -> JSONResponse:
     """
     Delete a single indicator by key.
@@ -2127,7 +2141,8 @@ async def delete_indicator(
 async def update_indicator(
     key: str,
     request: Request,
-    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine)
+    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine),
+    csrf_token: str = Depends(verify_csrf_token)
 ) -> JSONResponse:
     """
     Update an indicator (implemented as delete and re-add for MVP).

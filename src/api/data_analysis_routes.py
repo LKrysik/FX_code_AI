@@ -22,6 +22,7 @@ from ..data.data_quality_service import DataQualityService
 from ..data.questdb_data_provider import QuestDBDataProvider
 from ..data_feed.questdb_provider import QuestDBProvider
 from ..core.logger import get_logger
+from src.api.unified_server import verify_csrf_token
 
 logger = get_logger(__name__)
 
@@ -85,6 +86,8 @@ async def get_session_analysis(
         })
         return analysis
 
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions (404, etc.)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -128,6 +131,8 @@ async def get_chart_data(
             'data': chart_data
         }
 
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions (404, etc.)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -198,6 +203,8 @@ async def export_session_data(
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported format: {format}")
 
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions (400, 404, 413, etc.)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -247,6 +254,8 @@ async def get_data_quality(
         })
         return quality_report
 
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions (404, etc.)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -278,6 +287,8 @@ async def get_export_estimate(
 
         return estimate
 
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions (404, etc.)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -318,10 +329,11 @@ async def list_sessions(
 async def delete_session(
     session_id: str,
     request: Request,
-    analysis_service: DataAnalysisService = Depends(get_analysis_service)
+    analysis_service: DataAnalysisService = Depends(get_analysis_service),
+    csrf_token: str = Depends(verify_csrf_token)
 ):
     """
-    Delete a data collection session and its associated data.
+    Delete a data collection session and its associated data (requires CSRF).
 
     Performs cascade delete of:
     - Session metadata
