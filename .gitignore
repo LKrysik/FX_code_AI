@@ -55,6 +55,9 @@ test_results_*.xml
 test_report.html
 test_report_*.html
 test_log_*.txt
+test_results_summary.txt
+test_results_summary_*.txt
+test_analysis_detailed.json
 
 # Translations
 *.mo
