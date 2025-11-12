@@ -39,9 +39,12 @@ from src.core.circuit_breaker import CircuitBreakerOpenException
 # ============================================================================
 
 @pytest.fixture
-def event_bus():
+async def event_bus():
     """Create EventBus instance"""
-    return EventBus()
+    bus = EventBus()
+    yield bus
+    # Cleanup
+    await bus.shutdown()
 
 
 @pytest.fixture
@@ -660,8 +663,8 @@ class TestEventBusIntegration:
             assert subscriber2_messages[i]["message_id"] == i
 
         # Cleanup
-        event_bus.unsubscribe("test_topic", subscriber1)
-        event_bus.unsubscribe("test_topic", subscriber2)
+        await event_bus.unsubscribe("test_topic", subscriber1)
+        await event_bus.unsubscribe("test_topic", subscriber2)
 
 
     async def test_eventbus_error_isolation(self, event_bus):
@@ -697,5 +700,5 @@ class TestEventBusIntegration:
         assert good_subscriber_messages[0]["test"] == "data"
 
         # Cleanup
-        event_bus.unsubscribe("test_topic", failing_subscriber)
-        event_bus.unsubscribe("test_topic", good_subscriber)
+        await event_bus.unsubscribe("test_topic", failing_subscriber)
+        await event_bus.unsubscribe("test_topic", good_subscriber)

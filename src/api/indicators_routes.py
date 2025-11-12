@@ -1061,8 +1061,8 @@ async def cleanup_duplicate_indicators(
     Keeps the most recent indicator for each unique variant_id + parameters combination.
     """
     try:
-        result = engine.cleanup_duplicate_indicators(session_id, symbol)
-        
+        result = await engine.cleanup_duplicate_indicators(session_id, symbol)
+
         return _json_ok({
             "cleanup_result": result,
             "session_id": session_id,
@@ -1439,9 +1439,9 @@ async def set_session_preferences(
     """
     try:
         body = await request.json()
-        
+
         # Set preferences using StreamingIndicatorEngine
-        success = engine.set_session_preferences(session_id, symbol, body)
+        success = await engine.set_session_preferences(session_id, symbol, body)
 
         return _json_ok({
             "session_id": session_id,

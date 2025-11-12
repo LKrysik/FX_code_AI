@@ -9,7 +9,11 @@
       "Bash(python -c:*)",
       "Bash(Test-NetConnection -ComputerName 127.0.0.1 -Port 8812 -InformationLevel Quiet)",
       "Bash(Test-NetConnection -ComputerName 127.0.0.1 -Port 9000 -InformationLevel Quiet)",
-      "Bash(python -m pytest:*)"
+      "Bash(python -m pytest:*)",
+      "Bash(git log:*)",
+      "Bash(temp_indicators_old.txt)",
+      "Bash(del temp_indicators_old.txt)",
+      "Bash(rm:*)"
     ],
     "deny": [],
     "ask": []
