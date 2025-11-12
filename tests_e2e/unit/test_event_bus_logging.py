@@ -14,6 +14,9 @@ import json
 import os
 import tempfile
 import shutil
+import gc
+import logging
+import time
 from pathlib import Path
 from src.core.event_bus import EventBus
 from src.core.logger import configure_module_logger
@@ -28,9 +31,31 @@ class TestEventBusLogging:
         self.log_file = os.path.join(self.temp_dir, "event_bus.jsonl")
 
     def teardown_method(self):
-        """Clean up temporary directory."""
+        """Clean up temporary directory with proper Windows file handle cleanup."""
+        # Close all logging handlers that might have open file handles
+        # This prevents Windows PermissionError when deleting temp directories
+        for logger_name in list(logging.Logger.manager.loggerDict.keys()):
+            logger = logging.getLogger(logger_name)
+            for handler in logger.handlers[:]:  # Copy list to avoid modification during iteration
+                if hasattr(handler, 'close'):
+                    handler.close()
+                logger.removeHandler(handler)
+
+        # Force garbage collection to release any remaining file handles
+        gc.collect()
+
+        # Small delay to ensure Windows releases file handles
+        time.sleep(0.1)
+
+        # Now safe to delete temp directory
         if os.path.exists(self.temp_dir):
-            shutil.rmtree(self.temp_dir)
+            try:
+                shutil.rmtree(self.temp_dir)
+            except PermissionError:
+                # Windows may still hold the file - retry after another gc
+                gc.collect()
+                time.sleep(0.2)
+                shutil.rmtree(self.temp_dir)
 
     def test_configure_module_logger_creates_file(self):
         """Test that configure_module_logger creates log file."""

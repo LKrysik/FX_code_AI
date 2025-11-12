@@ -1,21 +1,15 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cat:*)",
-      "Bash(python:*)",
-      "Bash(pytest:*)",
-      "Bash(timeout 10 python -m pytest:*)",
-      "Bash(find:*)",
-      "Bash(for f in tests_e2e/mocks/*.py)",
-      "Bash(do python -m py_compile \"$f\")",
-      "Bash(echo:*)",
-      "Bash(done)",
-      "Bash(for f in tests_e2e/unit/*.py)",
+      "Bash(timeout:*)",
+      "Bash(python run_tests.py:*)",
+      "Bash($null)",
       "Bash(findstr:*)",
-      "Bash(Select-String -Pattern \"collected|passed|failed|ERROR\")",
-      "Bash(Select-Object -First 20)",
-      "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(python analyze_test_results.py:*)",
+      "Bash(python -c:*)",
+      "Bash(Test-NetConnection -ComputerName 127.0.0.1 -Port 8812 -InformationLevel Quiet)",
+      "Bash(Test-NetConnection -ComputerName 127.0.0.1 -Port 9000 -InformationLevel Quiet)",
+      "Bash(python -m pytest:*)"
     ],
     "deny": [],
     "ask": []

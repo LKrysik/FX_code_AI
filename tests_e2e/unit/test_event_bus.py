@@ -21,7 +21,7 @@ class TestEventBusBasics:
         async def handler(data):
             received.append(data)
 
-        bus.subscribe("test_topic", handler)
+        await bus.subscribe("test_topic", handler)
         await bus.publish("test_topic", {"value": 123})
 
         # Wait a bit for async delivery
@@ -47,9 +47,9 @@ class TestEventBusBasics:
         async def handler3(data):
             received3.append(data)
 
-        bus.subscribe("test", handler1)
-        bus.subscribe("test", handler2)
-        bus.subscribe("test", handler3)
+        await bus.subscribe("test", handler1)
+        await bus.subscribe("test", handler2)
+        await bus.subscribe("test", handler3)
 
         await bus.publish("test", {"value": 42})
         await asyncio.sleep(0.1)
@@ -79,11 +79,11 @@ class TestEventBusBasics:
             received.append(data)
 
         # Subscribe
-        bus.subscribe("test", handler)
+        await bus.subscribe("test", handler)
         assert "test" in bus._subscribers
 
         # Unsubscribe
-        bus.unsubscribe("test", handler)
+        await bus.unsubscribe("test", handler)
 
         # Topic should be cleaned up (no subscribers left)
         assert "test" not in bus._subscribers
@@ -130,7 +130,7 @@ class TestEventBusRetry:
             if len(attempts) < 2:  # Fail first attempt, succeed on second
                 raise ValueError("Simulated failure")
 
-        bus.subscribe("test", failing_handler)
+        await bus.subscribe("test", failing_handler)
 
         # Should succeed on retry
         await bus.publish("test", {"value": 1})
@@ -151,7 +151,7 @@ class TestEventBusRetry:
             attempts.append(1)
             raise ValueError("Always fails")
 
-        bus.subscribe("test", always_failing_handler)
+        await bus.subscribe("test", always_failing_handler)
 
         # Should try 4 times total (initial + 3 retries)
         await bus.publish("test", {"value": 1})
@@ -179,9 +179,9 @@ class TestEventBusRetry:
             received_good2.append(data)
 
         # Subscribe in order: good, failing, good
-        bus.subscribe("test", good_handler1)
-        bus.subscribe("test", failing_handler)
-        bus.subscribe("test", good_handler2)
+        await bus.subscribe("test", good_handler1)
+        await bus.subscribe("test", failing_handler)
+        await bus.subscribe("test", good_handler2)
 
         # Publish event
         await bus.publish("test", {"value": 123})
@@ -210,8 +210,8 @@ class TestEventBusMemoryLeak:
         # 10,000 subscribe/unsubscribe cycles
         for i in range(10000):
             topic = f"topic_{i % 100}"  # Reuse 100 topics
-            bus.subscribe(topic, handler)
-            bus.unsubscribe(topic, handler)
+            await bus.subscribe(topic, handler)
+            await bus.unsubscribe(topic, handler)
 
         # All topics should be cleaned up
         assert len(bus._subscribers) == 0
@@ -228,18 +228,18 @@ class TestEventBusMemoryLeak:
             pass
 
         # Add two subscribers
-        bus.subscribe("test", handler1)
-        bus.subscribe("test", handler2)
+        await bus.subscribe("test", handler1)
+        await bus.subscribe("test", handler2)
         assert "test" in bus._subscribers
         assert len(bus._subscribers["test"]) == 2
 
         # Remove first subscriber
-        bus.unsubscribe("test", handler1)
+        await bus.unsubscribe("test", handler1)
         assert "test" in bus._subscribers
         assert len(bus._subscribers["test"]) == 1
 
         # Remove second subscriber - topic should be cleaned up
-        bus.unsubscribe("test", handler2)
+        await bus.unsubscribe("test", handler2)
         assert "test" not in bus._subscribers
 
 
@@ -257,7 +257,7 @@ class TestEventBusConcurrency:
             async with lock:
                 received.append(data)
 
-        bus.subscribe("test", handler)
+        await bus.subscribe("test", handler)
 
         # Publish 100 events concurrently
         tasks = [
@@ -288,7 +288,7 @@ class TestEventBusConcurrency:
 
         async def subscribe_task():
             for i in range(10):
-                bus.subscribe("test", handler)
+                await bus.subscribe("test", handler)
                 await asyncio.sleep(0.01)
 
         async def publish_task():
@@ -316,8 +316,8 @@ class TestEventBusShutdown:
             pass
 
         # Add subscribers
-        bus.subscribe("topic1", handler)
-        bus.subscribe("topic2", handler)
+        await bus.subscribe("topic1", handler)
+        await bus.subscribe("topic2", handler)
 
         assert len(bus._subscribers) == 2
 
@@ -337,7 +337,7 @@ class TestEventBusShutdown:
         async def handler(data):
             received.append(data)
 
-        bus.subscribe("test", handler)
+        await bus.subscribe("test", handler)
 
         # Shutdown
         await bus.shutdown()
@@ -353,7 +353,8 @@ class TestEventBusShutdown:
 class TestEventBusValidation:
     """Test input validation."""
 
-    def test_subscribe_invalid_topic(self):
+    @pytest.mark.asyncio
+    async def test_subscribe_invalid_topic(self):
         """Test subscribe with invalid topic."""
         bus = EventBus()
 
@@ -361,20 +362,21 @@ class TestEventBusValidation:
             pass
 
         with pytest.raises(ValueError, match="Topic must be a non-empty string"):
-            bus.subscribe("", handler)
+            await bus.subscribe("", handler)
 
         with pytest.raises(ValueError, match="Topic must be a non-empty string"):
-            bus.subscribe(None, handler)
+            await bus.subscribe(None, handler)
 
-    def test_subscribe_invalid_handler(self):
+    @pytest.mark.asyncio
+    async def test_subscribe_invalid_handler(self):
         """Test subscribe with invalid handler."""
         bus = EventBus()
 
         with pytest.raises(ValueError, match="Handler must be callable"):
-            bus.subscribe("test", "not a callable")
+            await bus.subscribe("test", "not a callable")
 
         with pytest.raises(ValueError, match="Handler must be callable"):
-            bus.subscribe("test", None)
+            await bus.subscribe("test", None)
 
     @pytest.mark.asyncio
     async def test_publish_invalid_topic(self):
