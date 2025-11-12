@@ -39,7 +39,11 @@
       "Bash(rd /s /q .pytest_cache 2)",
       "Bash(Get-ChildItem -Path . -Include __pycache__ -Recurse -Force)",
       "Bash(Remove-Item -Force -Recurse)",
-      "Bash(Select-String -Pattern \"DEBUG|AssertionError\" -Context 2,2)"
+      "Bash(Select-String -Pattern \"DEBUG|AssertionError\" -Context 2,2)",
+      "Bash(if [ -f .env ])",
+      "Bash(then grep -i PASSWORD .env)",
+      "Bash(else echo \".env file not found\")",
+      "Bash(fi)"
     ],
     "deny": [],
     "ask": []
