@@ -35,7 +35,7 @@ async def test_basic_functionality():
     assert health['subscribed_to_eventbus'] is True
     print("✓ Health check passed")
 
-    pm.unsubscribe_from_events()
+    await pm.unsubscribe_from_events()
     print("✓ Unsubscribed from EventBus")
 
     return True
@@ -77,7 +77,7 @@ async def test_order_metrics():
     assert len(metrics) > 0
     print("✓ Metrics collected successfully")
 
-    pm.unsubscribe_from_events()
+    await pm.unsubscribe_from_events()
     return True
 
 
@@ -105,7 +105,7 @@ async def test_position_metrics():
     assert len(metrics) > 0
     print("✓ Position metrics collected")
 
-    pm.unsubscribe_from_events()
+    await pm.unsubscribe_from_events()
     return True
 
 
@@ -131,7 +131,7 @@ async def test_risk_metrics():
     assert len(metrics) > 0
     print("✓ Risk metrics collected")
 
-    pm.unsubscribe_from_events()
+    await pm.unsubscribe_from_events()
     return True
 
 
@@ -175,7 +175,7 @@ async def test_api_endpoints():
     assert health['subscribed_to_eventbus'] is True
     print("✓ GET /health/metrics endpoint (status: healthy)")
 
-    pm.unsubscribe_from_events()
+    await pm.unsubscribe_from_events()
     return True
 
 
@@ -225,7 +225,7 @@ async def test_full_trading_flow():
     print("✓ Full trading flow simulated")
     print(f"✓ Metrics output: {len(metrics_text)} bytes")
 
-    pm.unsubscribe_from_events()
+    await pm.unsubscribe_from_events()
     return True
 
 
@@ -280,7 +280,7 @@ async def generate_example_output():
         if line.strip():
             print(f"  {line}")
 
-    pm.unsubscribe_from_events()
+    await pm.unsubscribe_from_events()
     return True
 
 

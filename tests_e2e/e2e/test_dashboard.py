@@ -16,8 +16,8 @@ class TestDashboard:
 
     def test_dashboard_loads_after_login(self, authenticated_page: Page, test_config):
         """Test that dashboard loads after successful login"""
-        # Already authenticated and on dashboard
-        expect(authenticated_page).to_have_url(f"{test_config['frontend_base_url']}/dashboard")
+        # Already authenticated and on dashboard (root / is the dashboard)
+        expect(authenticated_page).to_have_url(f"{test_config['frontend_base_url']}/")
 
     def test_dashboard_displays_key_sections(self, authenticated_page: Page):
         """Test that dashboard displays key UI sections"""

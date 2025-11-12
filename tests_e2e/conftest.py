@@ -53,31 +53,32 @@ def pytest_configure(config):
     print("\n[INFO] Checking QuestDB availability (required for integration tests)...")
 
     try:
-        import asyncpg
+        import socket
 
-        async def check_questdb():
-            """Try to connect to QuestDB."""
+        def check_questdb_sync():
+            """
+            Synchronous QuestDB availability check (no asyncio).
+
+            Uses socket connection to avoid event loop conflicts with pytest-asyncio.
+            This check runs BEFORE pytest-asyncio sets up event loops.
+            """
             try:
-                pool = await asyncpg.create_pool(
-                    host='127.0.0.1',
-                    port=8812,
-                    user='admin',
-                    password='quest',
-                    database='qdb',
-                    min_size=1,
-                    max_size=2,
-                    timeout=2.0  # Fast check (2 seconds)
-                )
-                await pool.close()
-                return True, None
-            except ConnectionRefusedError:
-                return False, "Connection refused - QuestDB not running"
-            except asyncio.TimeoutError:
+                # Try to connect to QuestDB PostgreSQL port
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(2.0)  # 2 second timeout
+                result = sock.connect_ex(('127.0.0.1', 8812))
+                sock.close()
+
+                if result == 0:
+                    return True, None
+                else:
+                    return False, "Connection refused - QuestDB not running"
+            except socket.timeout:
                 return False, "Connection timeout - QuestDB not responding"
             except Exception as e:
                 return False, f"{type(e).__name__}: {e}"
 
-        success, error = asyncio.run(check_questdb())
+        success, error = check_questdb_sync()
 
         if success:
             print("[OK] QuestDB is running on port 8812\n")
@@ -97,9 +98,9 @@ def pytest_configure(config):
             pytest.exit(error_msg, returncode=1)
 
     except ImportError:
-        # asyncpg not installed
+        # socket is built-in, should never happen
         pytest.exit(
-            "asyncpg not installed. Run: pip install asyncpg",
+            "socket module not available (Python installation issue)",
             returncode=1
         )
     except Exception as e:

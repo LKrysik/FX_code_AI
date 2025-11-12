@@ -1414,7 +1414,7 @@ def create_unified_app():
 
             # Use cached result if recent (30 seconds)
             if (now - getattr(app.state, "_health_cache_ts", 0.0)) < 30.0 and getattr(app.state, "_health_cache_data", None):
-                return _json_ok({"status": "comprehensive_health_check", "data": app.state._health_cache_data})
+                return _json_ok(app.state._health_cache_data)
 
             # Get comprehensive health status with proper error handling
             monitor_status = {"overall_status": "unknown", "checks": {}, "active_alerts": [], "timestamp": None}
@@ -1468,7 +1468,7 @@ def create_unified_app():
             # Update cache and return
             app.state._health_cache_ts = now
             app.state._health_cache_data = data
-            return _json_ok({"status": "comprehensive_health_check", "data": data})
+            return _json_ok(data)
         except Exception as e:
             return _json_error("health_error", f"Failed to get health: {str(e)}", status=500)
 
@@ -1502,7 +1502,7 @@ def create_unified_app():
     async def get_metrics():
         """Get comprehensive system metrics (JSON format)"""
         metrics = telemetry.get_metrics()
-        return _json_ok({"status": "metrics", "data": metrics})
+        return _json_ok(metrics)
 
     @app.get("/metrics/prometheus")
     async def get_prometheus_metrics():
@@ -1534,13 +1534,13 @@ def create_unified_app():
     async def get_health_metrics():
         """Get health-specific metrics"""
         health_status = telemetry.get_health_status()
-        return _json_ok({"status": "health_metrics", "data": health_status})
+        return _json_ok(health_status)
 
     @app.get("/circuit-breakers")
     async def get_circuit_breakers():
         """Get status of all circuit breakers"""
         circuit_breaker_status = get_all_service_statuses()
-        return _json_ok({"status": "circuit_breakers", "data": circuit_breaker_status})
+        return _json_ok(circuit_breaker_status)
 
     @app.get("/health/status")
     async def get_detailed_health_status():
@@ -1554,7 +1554,7 @@ def create_unified_app():
                 "active_alerts": [],
                 "timestamp": None
             }
-        return _json_ok({"status": "health_status", "data": health_status})
+        return _json_ok(health_status)
 
     @app.post("/health/clear-cache")
     async def clear_health_cache(
@@ -1565,7 +1565,7 @@ def create_unified_app():
         try:
             app.state._health_cache_ts = 0.0
             app.state._health_cache_data = None
-            return _json_ok({"status": "cache_cleared", "message": "Health cache cleared successfully"})
+            return _json_ok({"message": "Health cache cleared successfully"})
         except Exception as e:
             return _json_error("cache_clear_failed", f"Failed to clear cache: {str(e)}")
 
@@ -1578,7 +1578,7 @@ def create_unified_app():
             check_details = None
         if check_details is None:
             return _json_error("not_found", f"Health check not found: {check_name}", status=404)
-        return _json_ok({"status": "health_check_details", "data": check_details})
+        return _json_ok(check_details)
 
     @app.get("/health/services")
     async def get_registered_services():
@@ -1598,7 +1598,7 @@ def create_unified_app():
         """Get status of a specific service"""
         try:
             service_status = health_monitor.check_service_health(service_name)
-            return _json_ok({"status": "service_status", "data": service_status})
+            return _json_ok(service_status)
         except Exception as e:
             return _json_error("service_error", f"Failed to get service status: {str(e)}")
 
@@ -1613,7 +1613,7 @@ def create_unified_app():
             success = health_monitor.enable_service(service_name)
             if not success:
                 return _json_error("not_found", f"Service '{service_name}' not found", status=404)
-            return _json_ok({"status": "service_enabled", "data": {"service_name": service_name}})
+            return _json_ok({"service_name": service_name})
         except Exception as e:
             return _json_error("service_error", f"Failed to enable service: {str(e)}")
 
@@ -1628,7 +1628,7 @@ def create_unified_app():
             success = health_monitor.disable_service(service_name)
             if not success:
                 return _json_error("not_found", f"Service '{service_name}' not found", status=404)
-            return _json_ok({"status": "service_disabled", "data": {"service_name": service_name}})
+            return _json_ok({"service_name": service_name})
         except Exception as e:
             return _json_error("service_error", f"Failed to disable service: {str(e)}")
 
@@ -1639,9 +1639,7 @@ def create_unified_app():
             health_status = health_monitor.get_health_status()
         except Exception:
             health_status = {"active_alerts": []}
-        return _json_ok({"status": "active_alerts", "data": {
-            "alerts": health_status.get("active_alerts", [])
-        }})
+        return _json_ok({"alerts": health_status.get("active_alerts", [])})
 
     @app.post("/alerts/{alert_id}/resolve")
     async def resolve_alert(
@@ -1650,8 +1648,12 @@ def create_unified_app():
     ):
         """Resolve an active alert (requires CSRF)"""
         try:
+            # Check if alert exists before attempting resolution
+            if alert_id not in health_monitor.active_alerts:
+                return _json_error("alert_not_found", f"Alert {alert_id} not found", status=404)
+
             health_monitor.resolve_alert(alert_id)
-            return _json_ok({"status": "alert_resolved", "data": {"alert_id": alert_id}})
+            return _json_ok({"alert_id": alert_id})
         except Exception as e:
             return _json_error("resolution_failed", "Health monitoring is disabled", status=503)
 
@@ -1666,14 +1668,14 @@ def create_unified_app():
                 with open(config_path, 'r', encoding='utf-8') as f:
                     config_data = json.load(f)
                 symbols = config_data.get("trading", {}).get("default_symbols", [])
-                return _json_ok({"status": "symbols_list", "data": {"symbols": symbols}})
+                return _json_ok({"symbols": symbols})
             else:
                 # Fallback to container settings if config file not found
                 container = app.state.rest_service.container
                 settings = container.settings if hasattr(container, 'settings') else None
                 if settings and hasattr(settings, 'trading') and hasattr(settings.trading, 'default_symbols'):
                     symbols = settings.trading.default_symbols
-                    return _json_ok({"status": "symbols_list", "data": {"symbols": symbols}})
+                    return _json_ok({"symbols": symbols})
                 else:
                     return _json_error("config_not_found", "Configuration file not found")
         except Exception as e:
@@ -1691,7 +1693,7 @@ def create_unified_app():
                     strategies = container.strategy_manager.list_strategies() or []
             except Exception:
                 strategies = []
-            return _json_ok({"status": "strategies_status", "data": {"strategies": strategies}})
+            return _json_ok({"strategies": strategies})
         except Exception as e:
             return _json_error("command_failed", f"Failed to get strategies status: {str(e)}")
 
@@ -1855,7 +1857,7 @@ def create_unified_app():
             "error_message": error_message,
             "records_collected": records_collected,
         })
-        return _json_ok({"status": "execution_status", "data": status})
+        return _json_ok(status)
 
     @app.post("/sessions/start")
     async def post_sessions_start(
@@ -2114,7 +2116,7 @@ def create_unified_app():
             if not session:
                 return _json_error("session_not_found", f"Session {id} not found", status=404)
 
-            return _json_ok({"status": "session_found", "data": session})
+            return _json_ok(session)
 
         except Exception as e:
             app.state.rest_service.container.logger.error("get_session_failed", {
@@ -2153,7 +2155,7 @@ def create_unified_app():
                 }
                 for s in symbols
             ]
-            return _json_ok({"status": "market_data", "data": data})
+            return _json_ok(data)
         except Exception as e:
             return _json_error("command_failed", f"Failed to get market data: {str(e)}")
 
@@ -2163,6 +2165,17 @@ def create_unified_app():
         """Get current indicator values for a specific symbol."""
         try:
             controller = await app.state.rest_service.get_controller()
+
+            # Validate symbol exists in configuration
+            container = app.state.rest_service.container
+            settings = container.settings if hasattr(container, 'settings') else None
+            valid_symbols = []
+            if settings and hasattr(settings, 'trading') and hasattr(settings.trading, 'default_symbols'):
+                valid_symbols = [str(s).upper() for s in (settings.trading.default_symbols or [])]
+
+            # If symbol not in valid list, return 404
+            if valid_symbols and symbol.upper() not in valid_symbols:
+                return _json_error("symbol_not_found", f"Symbol {symbol} not found", status=404)
 
             # Get indicators from controller
             indicators = controller.list_indicators()
@@ -2194,14 +2207,14 @@ def create_unified_app():
 
         # Check if live session matches
         if results and results.get("session_id") == id:
-            return _json_ok({"status": "results", "data": results, "request_type": "session_results", "source": "live"})
+            return _json_ok({**results, "request_type": "session_results", "source": "live"})
 
         # Try to get results from UnifiedResultsManager
         try:
             if hasattr(controller, 'results_manager') and controller.results_manager:
                 session_summary = controller.results_manager.get_session_summary()
                 if session_summary and session_summary.get("session_id") == id:
-                    return _json_ok({"status": "results", "data": session_summary, "request_type": "session_results", "source": "unified_manager"})
+                    return _json_ok({**session_summary, "request_type": "session_results", "source": "unified_manager"})
         except Exception as e:
             pass
 
@@ -2211,7 +2224,7 @@ def create_unified_app():
             if os.path.exists(summary_path):
                 with open(summary_path, 'r', encoding='utf-8') as f:
                     file_results = json.load(f)
-                return _json_ok({"status": "results", "data": file_results, "request_type": "session_results", "source": "file"})
+                return _json_ok({**file_results, "request_type": "session_results", "source": "file"})
         except Exception:
             pass
         return _json_error("no_active_session", f"Session not active and no results file: {id}", status=404)
@@ -2225,7 +2238,7 @@ def create_unified_app():
             if hasattr(controller, 'results_manager') and controller.results_manager:
                 symbol_stats = controller.results_manager.get_symbol_statistics(symbol.upper())
                 if symbol_stats:
-                    return _json_ok({"status": "results", "data": symbol_stats, "request_type": "symbol_results", "symbol": symbol})
+                    return _json_ok({**symbol_stats, "request_type": "symbol_results", "symbol": symbol})
         except Exception as e:
             pass
 
@@ -2237,9 +2250,10 @@ def create_unified_app():
             "total_trades": 0,
             "win_rate": 0.0,
             "total_pnl": 0.0,
-            "last_updated": None
+            "last_updated": None,
+            "request_type": "symbol_results"
         }
-        return _json_ok({"status": "results", "data": symbol_results, "request_type": "symbol_results", "symbol": symbol})
+        return _json_ok(symbol_results)
 
     @app.get("/results/strategy/{name}")
     async def get_strategy_results(name: str, symbol: Optional[str] = None):
@@ -2269,9 +2283,10 @@ def create_unified_app():
                         "risk_metrics": {
                             "max_drawdown": 0.0,
                             "sharpe_ratio": 0.0
-                        }
+                        },
+                        "request_type": "strategy_results"
                     }
-                    return _json_ok({"status": "results", "data": strategy_results, "request_type": "strategy_results", "symbol": symbol, "strategy": name})
+                    return _json_ok(strategy_results)
         except Exception as e:
             pass
 
@@ -2282,9 +2297,10 @@ def create_unified_app():
             "detailed_signals": [],
             "detailed_orders": [],
             "performance_metrics": {"total_signals": 0, "conversion_rate": 0.0, "win_rate": 0.0},
-            "risk_metrics": {"max_drawdown": 0.0, "sharpe_ratio": 0.0}
+            "risk_metrics": {"max_drawdown": 0.0, "sharpe_ratio": 0.0},
+            "request_type": "strategy_results"
         }
-        return _json_ok({"status": "results", "data": strategy_results, "request_type": "strategy_results", "symbol": symbol, "strategy": name})
+        return _json_ok(strategy_results)
 
     @app.post("/results/history/merge")
     async def merge_results_history(
@@ -2302,7 +2318,7 @@ def create_unified_app():
             base_dir = (body or {}).get("base_dir") or str(Path("backtest") / "backtest_results")
             session_ids = (body or {}).get("session_ids")
             result = merge_sessions(base_dir=base_dir, session_ids=session_ids)
-            return _json_ok({"status": "results_merged", "data": result})
+            return _json_ok(result)
         except Exception as e:
             return _json_error("command_failed", f"Failed to merge results: {str(e)}")
 
@@ -2313,7 +2329,7 @@ def create_unified_app():
         balance = controller.get_wallet_balance()
         if balance is None:
             return _json_error("service_unavailable", "Wallet service not available", status=503)
-        return _json_ok({"status": "wallet_balance", "data": balance})
+        return _json_ok(balance)
 
     # Order management endpoints
     @app.get("/orders")
@@ -2321,7 +2337,7 @@ def create_unified_app():
         """Get all orders"""
         controller = await app.state.rest_service.get_controller()
         orders = controller.get_all_orders()
-        return _json_ok({"status": "orders_list", "data": {"orders": orders}})
+        return _json_ok({"orders": orders})
 
     @app.get("/orders/{order_id}")
     async def get_order(order_id: str, current_user: UserSession = Depends(get_current_user)):
@@ -2332,14 +2348,14 @@ def create_unified_app():
         if not order:
             return _json_error("not_found", f"Order not found: {order_id}", status=404)
 
-        return _json_ok({"status": "order_status", "data": {"order": order}})
+        return _json_ok({"order": order})
 
     @app.get("/positions")
     async def get_positions(current_user: UserSession = Depends(get_current_user)):
         """Get all positions"""
         controller = await app.state.rest_service.get_controller()
         positions = controller.get_all_positions()
-        return _json_ok({"status": "positions_list", "data": {"positions": positions}})
+        return _json_ok({"positions": positions})
 
     @app.get("/positions/{symbol}")
     async def get_position(symbol: str, current_user: UserSession = Depends(get_current_user)):
@@ -2348,9 +2364,9 @@ def create_unified_app():
         positions = controller.get_all_positions()
         position = next((p for p in positions if p.get("symbol") == symbol.upper()), None)
         if not position:
-            return _json_ok({"status": "position_status", "data": {"position": None}})
+            return _json_ok({"position": None})
 
-        return _json_ok({"status": "position_status", "data": {"position": position}})
+        return _json_ok({"position": position})
 
     @app.get("/trading/performance")
     async def get_trading_performance(current_user: UserSession = Depends(get_current_user)):
@@ -2360,115 +2376,7 @@ def create_unified_app():
         if performance is None:
             return _json_error("service_unavailable", "Trading performance not available", status=503)
 
-        return _json_ok({"status": "trading_performance", "data": performance})
-
-    # Risk management endpoints
-    @app.get("/risk/budget")
-    async def get_budget_summary():
-        """Get budget utilization summary"""
-        sm = await app.state.rest_service.get_strategy_manager()
-        if not sm.risk_manager:
-            return _json_error("service_unavailable", "Risk manager not available", status=503)
-
-        budget_summary = sm.risk_manager.get_budget_summary()
-        return _json_ok({"status": "budget_summary", "data": budget_summary})
-
-    @app.get("/risk/budget/{strategy_name}")
-    async def get_strategy_budget(strategy_name: str):
-        """Get budget allocation for a specific strategy"""
-        sm = await app.state.rest_service.get_strategy_manager()
-        if not sm.risk_manager:
-            return _json_error("service_unavailable", "Risk manager not available", status=503)
-
-        allocation = sm.risk_manager.get_strategy_allocation(strategy_name)
-        if not allocation:
-            return _json_error("not_found", f"No budget allocation for strategy: {strategy_name}", status=404)
-
-        return _json_ok({"status": "strategy_budget", "data": {"allocation": allocation}})
-
-    @app.post("/risk/budget/allocate")
-    async def allocate_budget(
-        body: Dict[str, Any],
-        csrf_token: str = Depends(verify_csrf_token)
-    ):
-        """Allocate budget for a strategy - requires CSRF"""
-        strategy_name = (body or {}).get("strategy_name")
-        amount = (body or {}).get("amount")
-        max_allocation_pct = (body or {}).get("max_allocation_pct", 5.0)
-
-        if not strategy_name or amount is None:
-            return _json_error("validation_error", "strategy_name and amount are required")
-
-        if not isinstance(amount, (int, float)) or amount <= 0:
-            return _json_error("validation_error", "amount must be a positive number")
-
-        sm = await app.state.rest_service.get_strategy_manager()
-        if not sm.risk_manager:
-            return _json_error("service_unavailable", "Risk manager not available", status=503)
-
-        success = sm.risk_manager.allocate_budget(strategy_name, float(amount), max_allocation_pct)
-        if not success:
-            return _json_error("allocation_failed", f"Failed to allocate budget for {strategy_name}", status=400)
-
-        return _json_ok({"status": "budget_allocated", "data": {
-            "strategy_name": strategy_name,
-            "amount": amount,
-            "max_allocation_pct": max_allocation_pct
-        }})
-
-    @app.post("/risk/emergency-stop")
-    async def emergency_stop(
-        body: Dict[str, Any],
-        csrf_token: str = Depends(verify_csrf_token)
-    ):
-        """Emergency stop - release all budget - requires CSRF"""
-        strategy_name = (body or {}).get("strategy_name")  # Optional: stop specific strategy
-
-        sm = await app.state.rest_service.get_strategy_manager()
-        if not sm.risk_manager:
-            return _json_error("service_unavailable", "Risk manager not available", status=503)
-
-        released_strategies = sm.risk_manager.emergency_stop(strategy_name)
-        return _json_ok({"status": "emergency_stop_executed", "data": {
-            "released_strategies": released_strategies
-        }})
-
-    @app.post("/risk/assess-position")
-    async def assess_position_risk(
-        body: Dict[str, Any],
-        csrf_token: str = Depends(verify_csrf_token)
-    ):
-        """Assess risk for a potential position - requires CSRF"""
-        symbol = (body or {}).get("symbol", "").upper()
-        position_size = (body or {}).get("position_size", 0.0)
-        current_price = (body or {}).get("current_price", 100.0)
-        volatility = (body or {}).get("volatility", 0.02)
-        max_drawdown = (body or {}).get("max_drawdown", 0.05)
-        sharpe_ratio = (body or {}).get("sharpe_ratio", 1.5)
-
-        if not symbol or position_size <= 0:
-            return _json_error("validation_error", "symbol and positive position_size are required")
-
-        sm = await app.state.rest_service.get_strategy_manager()
-        if not sm.risk_manager:
-            return _json_error("service_unavailable", "Risk manager not available", status=503)
-
-        risk_metrics = sm.risk_manager.assess_position_risk(
-            symbol=symbol,
-            position_size=position_size,
-            current_price=current_price,
-            volatility=volatility,
-            max_drawdown=max_drawdown,
-            sharpe_ratio=sharpe_ratio
-        )
-
-        return _json_ok({"status": "risk_assessment", "data": {
-            "symbol": symbol,
-            "risk_level": risk_metrics.risk_level.value,
-            "var_95": risk_metrics.var_95,
-            "expected_return": risk_metrics.expected_return,
-            "recommendation": "APPROVE" if risk_metrics.risk_level.value in ["low", "medium"] else "REJECT"
-        }})
+        return _json_ok(performance)
 
     # Legacy API endpoints for backward compatibility
     @app.get("/api/v1/status")

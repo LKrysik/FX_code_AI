@@ -333,7 +333,8 @@ async def test_sync_positions_circuit_breaker_open(position_sync, mexc_adapter):
 
 # ===== TEST: Getters =====
 
-def test_get_position(position_sync):
+@pytest.mark.asyncio
+async def test_get_position(position_sync):
     """Test get_position method."""
     position = LocalPosition(
         symbol="BTC_USDT",
@@ -351,15 +352,16 @@ def test_get_position(position_sync):
     )
     position_sync.positions["BTC_USDT"] = position
 
-    retrieved = position_sync.get_position("BTC_USDT")
+    retrieved = await position_sync.get_position("BTC_USDT")
     assert retrieved is not None
     assert retrieved.symbol == "BTC_USDT"
 
     # Test unknown position
-    assert position_sync.get_position("UNKNOWN") is None
+    assert await position_sync.get_position("UNKNOWN") is None
 
 
-def test_get_all_positions(position_sync):
+@pytest.mark.asyncio
+async def test_get_all_positions(position_sync):
     """Test get_all_positions method."""
     # Add multiple positions
     for i, symbol in enumerate(["BTC_USDT", "ETH_USDT", "XRP_USDT"]):
@@ -379,11 +381,12 @@ def test_get_all_positions(position_sync):
         )
         position_sync.positions[symbol] = position
 
-    all_positions = position_sync.get_all_positions()
+    all_positions = await position_sync.get_all_positions()
     assert len(all_positions) == 3
 
 
-def test_get_metrics(position_sync):
+@pytest.mark.asyncio
+async def test_get_metrics(position_sync):
     """Test get_metrics method."""
     # Add positions with different sides and P&L
     positions_data = [
@@ -409,8 +412,8 @@ def test_get_metrics(position_sync):
         )
         position_sync.positions[symbol] = position
 
-    metrics = position_sync.get_metrics()
-    
+    metrics = await position_sync.get_metrics()
+
     assert metrics["total_positions"] == 3
     assert metrics["long_positions"] == 2
     assert metrics["short_positions"] == 1

@@ -65,8 +65,11 @@ def authenticated_page(page: Page, test_config) -> Page:
             authenticated_page.goto("http://localhost:3000/dashboard")
             # Already logged in
     """
-    # Navigate to login page
-    page.goto(f"{test_config['frontend_base_url']}/login")
+    # Navigate to root page (inline authentication via AuthGuard)
+    page.goto(f"{test_config['frontend_base_url']}/")
+
+    # Wait for login form to appear
+    page.wait_for_selector('input[name="username"]', timeout=10000)
 
     # Fill login form
     page.fill('input[name="username"]', test_config["admin_username"])
@@ -75,7 +78,11 @@ def authenticated_page(page: Page, test_config) -> Page:
     # Submit
     page.click('button[type="submit"]')
 
-    # Wait for redirect to dashboard
-    page.wait_for_url(f"{test_config['frontend_base_url']}/dashboard", timeout=10000)
+    # Wait for successful login - frontend uses inline AuthGuard, so after login
+    # the page content changes but URL stays at / (root IS the dashboard)
+    page.wait_for_load_state("networkidle", timeout=10000)
+
+    # Verify we're authenticated by checking dashboard navigation is visible
+    page.wait_for_selector('a[href="/"]', timeout=5000)
 
     return page

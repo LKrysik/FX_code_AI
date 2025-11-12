@@ -389,7 +389,8 @@ async def test_on_signal_generated_z1_ignored(order_manager, mexc_adapter):
 
 # ===== TEST: Getters =====
 
-def test_get_order(order_manager):
+@pytest.mark.asyncio
+async def test_get_order(order_manager):
     """Test get_order method."""
     order = Order(
         order_id="order_9",
@@ -404,15 +405,16 @@ def test_get_order(order_manager):
     )
     order_manager.orders[order.order_id] = order
 
-    retrieved = order_manager.get_order("order_9")
+    retrieved = await order_manager.get_order("order_9")
     assert retrieved is not None
     assert retrieved.order_id == "order_9"
 
     # Test unknown order
-    assert order_manager.get_order("unknown") is None
+    assert await order_manager.get_order("unknown") is None
 
 
-def test_get_all_orders(order_manager):
+@pytest.mark.asyncio
+async def test_get_all_orders(order_manager):
     """Test get_all_orders method."""
     # Add multiple orders
     for i in range(3):
@@ -430,15 +432,16 @@ def test_get_all_orders(order_manager):
         order_manager.orders[order.order_id] = order
 
     # Get all orders
-    all_orders = order_manager.get_all_orders()
+    all_orders = await order_manager.get_all_orders()
     assert len(all_orders) == 3
 
     # Get filtered orders
-    btc_orders = order_manager.get_all_orders(symbol="BTC_USDT")
+    btc_orders = await order_manager.get_all_orders(symbol="BTC_USDT")
     assert len(btc_orders) == 2
 
 
-def test_get_metrics(order_manager):
+@pytest.mark.asyncio
+async def test_get_metrics(order_manager):
     """Test get_metrics method."""
     # Add orders in different statuses
     statuses = [OrderStatus.PENDING, OrderStatus.SUBMITTED, OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.FAILED]
@@ -456,8 +459,8 @@ def test_get_metrics(order_manager):
         )
         order_manager.orders[order.order_id] = order
 
-    metrics = order_manager.get_metrics()
-    
+    metrics = await order_manager.get_metrics()
+
     assert metrics["total_orders"] == 5
     assert metrics["pending"] == 1
     assert metrics["submitted"] == 1
