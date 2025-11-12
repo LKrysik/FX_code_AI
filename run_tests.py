@@ -380,6 +380,23 @@ Frontend Unit Tests (Jest):
     cmd, generated_files = build_pytest_command(args, timestamp)
     exit_code = run_tests(cmd)
 
+    # Generate readable summary report (always, for better UX)
+    if 'junit_xml' in generated_files:
+        junit_file = generated_files['junit_xml']
+        if os.path.exists(junit_file):
+            try:
+                from analyze_test_results import generate_readable_text_report
+
+                summary_file = f'test_results_summary_{timestamp}.txt' if args.detailed else 'test_results_summary.txt'
+                generate_readable_text_report(junit_file, summary_file)
+                generated_files['summary_report'] = summary_file
+                print_info(f"Readable summary generated: {summary_file}")
+            except Exception as e:
+                print_warning(f"Failed to generate readable summary: {e}")
+                # Don't fail the entire test run if summary generation fails
+        else:
+            print_warning(f"JUnit XML file not found: {junit_file}")
+
     # Print summary
     print_header("Test Run Summary")
 
@@ -396,11 +413,15 @@ Frontend Unit Tests (Jest):
     # Display all generated files
     for file_type, file_path in generated_files.items():
         if os.path.exists(file_path):
-            if file_type == 'detailed_log':
+            if file_type == 'summary_report':
+                print_success(f"Readable Summary: {file_path}")
+                print_info("  → Human-readable test results with full test paths and statuses")
+            elif file_type == 'detailed_log':
                 print_success(f"Detailed Log: {file_path}")
                 print_info("  → Full tracebacks, local variables, DEBUG logs")
             elif file_type == 'junit_xml':
                 print_info(f"JUnit XML: {file_path}")
+                print_info("  → Machine-readable format for CI/CD")
             elif file_type == 'html_report':
                 print_info(f"HTML Report: {file_path}")
             elif file_type == 'coverage_html':
