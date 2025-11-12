@@ -14,7 +14,8 @@
       "Bash(temp_indicators_old.txt)",
       "Bash(del temp_indicators_old.txt)",
       "Bash(rm:*)",
-      "Bash(python -m py_compile:*)"
+      "Bash(python -m py_compile:*)",
+      "Bash(tee:*)"
     ],
     "deny": [],
     "ask": []
