@@ -140,6 +140,8 @@ def position_sync_service(event_bus, mock_mexc_adapter, risk_manager):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
+@pytest.mark.database
+@pytest.mark.e2e
 class TestFullSignalToOrderFlow:
     """Test full signal → order flow with EventBus integration"""
 
@@ -339,6 +341,8 @@ class TestFullSignalToOrderFlow:
 
 @pytest.mark.asyncio
 @pytest.mark.integration
+@pytest.mark.database
+@pytest.mark.e2e
 class TestCircuitBreakerActivation:
     """Test circuit breaker activation and recovery"""
 
@@ -443,6 +447,8 @@ class TestCircuitBreakerActivation:
 
 @pytest.mark.asyncio
 @pytest.mark.integration
+@pytest.mark.database
+@pytest.mark.e2e
 class TestPositionLiquidationDetection:
     """Test position liquidation detection"""
 
@@ -608,6 +614,8 @@ class TestPositionLiquidationDetection:
 
 @pytest.mark.asyncio
 @pytest.mark.integration
+@pytest.mark.database
+@pytest.mark.e2e
 class TestEventBusIntegration:
     """Test EventBus integration across all components"""
 

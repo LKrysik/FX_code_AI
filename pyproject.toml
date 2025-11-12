@@ -100,12 +100,20 @@ addopts = [
     "--cov-report=html",
 ]
 markers = [
-    "unit: Unit tests",
-    "integration: Integration tests",
     "e2e: End-to-end tests",
-    "performance: Performance tests",
-    "slow: Slow running tests",
-    "asyncio: Async tests",
+    "performance: Performance and load tests",
+    "api: API endpoint tests",
+    "frontend: Frontend UI tests",
+    "integration: Full integration tests",
+    "slow: Slow running tests (skipped with --fast)",
+    "fast: Fast unit tests (no database required)",
+    "unit: Unit tests (no external dependencies)",
+    "database: Tests requiring QuestDB",
+    "auth: Authentication tests",
+    "strategies: Strategy CRUD tests",
+    "sessions: Session management tests",
+    "health: Health check tests",
+    "risk: Risk management tests",
 ]
 
 [tool.coverage.run]

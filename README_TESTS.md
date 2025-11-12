@@ -17,8 +17,9 @@ System testów E2E (End-to-End) dla FX Code AI zgodny z zasadą **KISS** (Keep I
 
 ### **Kluczowe Cechy:**
 - ✅ **Jeden launcher** dla wszystkich testów: `python run_tests.py`
-- ✅ **224 testy** pokrywające wszystkie API endpoints i kluczowe UI flows (213 API + 9 Frontend + 2 Integration)
-- ✅ **3 kategorie**: API, Frontend, Integration
+- ✅ **596 testów** pokrywających wszystkie API endpoints i kluczowe UI flows (103 Unit + 150 Integration + 20 E2E + 323 API)
+- ✅ **3 kategorie**: Unit (fast, no database), Integration (with database), E2E (full system)
+- ✅ **Lightweight fixtures** dla szybkich unit testów (<10s dla 103 testów)
 - ✅ **Automatyczne cleanup** po każdym teście
 - ✅ **Parallel execution** (pytest-xdist)
 - ✅ **Timeout 10 minut** dla całego suite
@@ -77,9 +78,18 @@ python run_tests.py
 ```
 tests_e2e/
 ├── pytest.ini                  # Pytest configuration
-├── conftest.py                 # Shared fixtures (auth, clients)
+├── conftest.py                 # Shared fixtures (auth, clients, lightweight fixtures)
+├── test_container.py           # TestContainer with mocks
 │
-├── api/                        # Backend API tests (213 tests)
+├── unit/                       # 🆕 Unit tests (103 tests, <10s, NO database)
+│   ├── test_auth_unit.py          # Authentication unit tests (20 tests)
+│   ├── test_indicators_unit.py    # Indicators unit tests (23 tests)
+│   ├── test_strategies_unit.py    # Strategies unit tests (20 tests)
+│   ├── test_sessions_unit.py      # Sessions unit tests (16 tests)
+│   ├── test_health_unit.py        # Health unit tests (11 tests)
+│   └── test_risk_wallet_unit.py   # Risk/Wallet unit tests (13 tests)
+│
+├── integration/                # Integration tests (150 tests, with database)
 │   ├── conftest.py
 │   ├── test_auth.py            # Authentication (13 tests)
 │   ├── test_strategies.py      # Strategy CRUD (22 tests)
@@ -90,17 +100,19 @@ tests_e2e/
 │   ├── test_indicators.py      # Indicators (3 tests)
 │   ├── test_results.py         # Results (9 tests)
 │   ├── test_misc.py            # Misc endpoints (9 tests)
-│   ├── test_data_analysis.py   # Data collection & analysis (25 tests) 🆕
-│   ├── test_indicator_variants.py # Indicator variants CRUD (44 tests) 🆕
-│   └── test_ops.py             # Operations dashboard (36 tests) 🆕
+│   ├── test_data_analysis.py   # Data collection & analysis (25 tests)
+│   └── test_indicator_variants.py # Indicator variants CRUD (44 tests)
 │
-├── frontend/                   # Frontend UI tests (9 tests)
-│   ├── conftest.py             # Playwright fixtures
+├── e2e/                        # Full E2E flows (20 tests, full system)
 │   ├── test_auth_flow.py       # Login/logout flows (5 tests)
-│   └── test_dashboard.py       # Dashboard rendering (2 tests)
+│   ├── test_dashboard.py       # Dashboard rendering (2 tests)
+│   ├── test_complete_flow.py   # Complete user workflows (2 tests)
+│   └── test_ops.py             # Operations dashboard (36 tests)
 │
-├── integration/                # Full E2E flows (2 tests)
-│   └── test_complete_flow.py   # Complete user workflows
+├── mocks/                      # 🆕 Mock factories for unit tests
+│   ├── __init__.py
+│   ├── indicator_engine.py     # Mock StreamingIndicatorEngine
+│   └── strategy_manager.py     # Mock StrategyManager
 │
 └── fixtures/                   # Test data (JSON)
     ├── strategies.json
@@ -120,11 +132,29 @@ python run_tests.py
 
 **Zawsze generuje**: `test_results.xml` (JUnit XML dla CI/CD)
 
-### **Tylko API**
+### **🆕 Tylko Unit Tests (Fast, No Database)**
 
 ```bash
-python run_tests.py --api
+python run_tests.py --unit
 ```
+
+**103 testy** wykonane w **<10 sekund** bez wymaganej bazy danych. Idealny do szybkiej walidacji zmian.
+
+### **🆕 Tylko Database Tests**
+
+```bash
+python run_tests.py --database
+```
+
+**Wszystkie testy wymagające QuestDB** (integration + e2e). Wymaga uruchomionej bazy danych.
+
+### **Tylko Integration**
+
+```bash
+python run_tests.py --integration
+```
+
+**150 testów** z bazą danych (API endpoints z prawdziwym QuestDB).
 
 ### **Tylko Frontend**
 
@@ -132,11 +162,7 @@ python run_tests.py --api
 python run_tests.py --frontend
 ```
 
-### **Tylko Integration**
-
-```bash
-python run_tests.py --integration
-```
+**E2E testy** UI z Playwright (wymaga uruchomionego frontendu).
 
 ### **Szybkie Testy (Bez Slow)**
 

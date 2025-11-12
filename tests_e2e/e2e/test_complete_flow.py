@@ -12,6 +12,8 @@ from playwright.sync_api import Page, expect
 
 @pytest.mark.integration
 @pytest.mark.slow
+@pytest.mark.database
+@pytest.mark.e2e
 class TestCompleteAuthAndStrategyFlow:
     """Integration test: Login → Create strategy → Verify"""
 
@@ -49,6 +51,8 @@ class TestCompleteAuthAndStrategyFlow:
 
 @pytest.mark.integration
 @pytest.mark.slow
+@pytest.mark.database
+@pytest.mark.e2e
 class TestCompleteDataCollectionFlow:
     """Integration test: Start data collection → Monitor → Stop"""
 
