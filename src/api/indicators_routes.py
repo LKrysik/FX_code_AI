@@ -1061,6 +1061,7 @@ async def cleanup_duplicate_indicators(
     Keeps the most recent indicator for each unique variant_id + parameters combination.
     """
     try:
+        # ✅ CRITICAL FIX: cleanup_duplicate_indicators is async (uses _data_lock)
         result = await engine.cleanup_duplicate_indicators(session_id, symbol)
 
         return _json_ok({
@@ -1441,6 +1442,7 @@ async def set_session_preferences(
         body = await request.json()
 
         # Set preferences using StreamingIndicatorEngine
+        # ✅ CRITICAL FIX: set_session_preferences is async (calls save_session_preferences)
         success = await engine.set_session_preferences(session_id, symbol, body)
 
         return _json_ok({
@@ -1467,7 +1469,8 @@ async def get_session_preferences(
     Get preferences for session and symbol.
     """
     try:
-        preferences = engine.get_session_preferences(session_id, symbol)
+        # ✅ CRITICAL FIX: get_session_preferences is async (uses async with _data_lock)
+        preferences = await engine.get_session_preferences(session_id, symbol)
 
         return _json_ok({
             "session_id": session_id,
@@ -1927,7 +1930,8 @@ async def add_indicators_bulk(
         keys = []
         for i, spec in enumerate(lst):
             try:
-                key = engine.add_indicator(
+                # ✅ CRITICAL FIX: add_indicator is async (uses async with _data_lock)
+                key = await engine.add_indicator(
                     symbol=spec.get("symbol"),
                     indicator_type=spec.get("indicator_type"),
                     period=int(spec.get("period", 20)),
@@ -1992,9 +1996,10 @@ async def delete_indicators_bulk(
         
         removed = []
         for key in keys:
-            if engine.remove_indicator(str(key)):
+            # ✅ CRITICAL FIX: remove_indicator is async (uses async with _data_lock)
+            if await engine.remove_indicator(str(key)):
                 removed.append(key)
-        
+
         logger.info("indicators_routes.delete_indicators_bulk.success", {
             "removed_count": len(removed),
             "requested_count": len(keys)
@@ -2058,16 +2063,17 @@ async def add_indicator(
         if "period" in params:
             # Remove period from params to avoid conflict
             params = {k: v for k, v in params.items() if k != "period"}
-        
-        key = engine.add_indicator(
-            symbol=symbol, 
-            indicator_type=ind_type, 
-            period=final_period, 
+
+        # ✅ CRITICAL FIX: add_indicator is async (uses async with _data_lock)
+        key = await engine.add_indicator(
+            symbol=symbol,
+            indicator_type=ind_type,
+            period=final_period,
             timeframe=timeframe,
             scope=scope,
             **params
         )
-        
+
         logger.info("indicators_routes.add_indicator.success", {
             "key": key
         })
@@ -2105,9 +2111,10 @@ async def delete_indicator(
         logger.info("indicators_routes.delete_indicator.start", {
             "key": key
         })
-        
-        removed = engine.remove_indicator(key)
-        
+
+        # ✅ CRITICAL FIX: remove_indicator is async (uses async with _data_lock)
+        removed = await engine.remove_indicator(key)
+
         if removed:
             logger.info("indicators_routes.delete_indicator.success", {
                 "key": key
@@ -2154,9 +2161,10 @@ async def update_indicator(
         logger.info("indicators_routes.update_indicator.start", {
             "key": key
         })
-        
+
         # For MVP: delete and re-add using provided params
-        removed = engine.remove_indicator(key)
+        # ✅ CRITICAL FIX: remove_indicator is async (uses async with _data_lock)
+        removed = await engine.remove_indicator(key)
         if not removed:
             logger.warning("indicators_routes.update_indicator.not_found", {
                 "key": key
@@ -2178,16 +2186,17 @@ async def update_indicator(
         final_period = params.get("period", period)
         if "period" in params:
             params = {k: v for k, v in params.items() if k != "period"}
-        
-        new_key = engine.add_indicator(
-            symbol=symbol, 
-            indicator_type=ind_type, 
-            period=final_period, 
+
+        # ✅ CRITICAL FIX: add_indicator is async (uses async with _data_lock)
+        new_key = await engine.add_indicator(
+            symbol=symbol,
+            indicator_type=ind_type,
+            period=final_period,
             timeframe=timeframe,
             scope=scope,
             **params
         )
-        
+
         logger.info("indicators_routes.update_indicator.success", {
             "old_key": key,
             "new_key": new_key
