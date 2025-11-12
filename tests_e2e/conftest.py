@@ -11,12 +11,103 @@ import json
 from pathlib import Path
 from typing import Dict, Any, Generator
 import httpx
+import sys
 
 # Import FastAPI test client
 from fastapi.testclient import TestClient
 
 # Import the unified app
 from src.api.unified_server import create_unified_app
+
+
+# ============================================================================
+# PYTEST CONFIGURATION HOOK - QuestDB Health Check
+# ============================================================================
+
+def pytest_configure(config):
+    """
+    Run BEFORE any tests - check if QuestDB is available for integration tests.
+
+    Skips check for unit tests (marked with @pytest.mark.fast).
+    Only enforces QuestDB for integration tests (@pytest.mark.database).
+    """
+    # Skip health check if only running unit tests
+    markers = config.option.markexpr or ""
+
+    # Check if we're running only fast/unit tests (no database required)
+    if "fast" in markers or "unit" in markers:
+        if "database" not in markers and "integration" not in markers:
+            print("\n[OK] Running unit tests only - QuestDB not required")
+            return
+
+    # Check if we're explicitly running integration/database tests
+    running_database_tests = (
+        "database" in markers or
+        "integration" in markers or
+        not markers  # No marker filter = running all tests
+    )
+
+    if not running_database_tests:
+        return  # Don't check QuestDB for unit-only test runs
+
+    print("\n[INFO] Checking QuestDB availability (required for integration tests)...")
+
+    try:
+        import asyncpg
+
+        async def check_questdb():
+            """Try to connect to QuestDB."""
+            try:
+                pool = await asyncpg.create_pool(
+                    host='127.0.0.1',
+                    port=8812,
+                    user='admin',
+                    password='quest',
+                    database='qdb',
+                    min_size=1,
+                    max_size=2,
+                    timeout=2.0  # Fast check (2 seconds)
+                )
+                await pool.close()
+                return True, None
+            except ConnectionRefusedError:
+                return False, "Connection refused - QuestDB not running"
+            except asyncio.TimeoutError:
+                return False, "Connection timeout - QuestDB not responding"
+            except Exception as e:
+                return False, f"{type(e).__name__}: {e}"
+
+        success, error = asyncio.run(check_questdb())
+
+        if success:
+            print("[OK] QuestDB is running on port 8812\n")
+        else:
+            # QuestDB not available - fail with helpful message
+            error_msg = (
+                f"\n[FAIL] QuestDB is NOT running on port 8812\n"
+                f"Error: {error}\n\n"
+                f"Integration tests require QuestDB.\n\n"
+                f"To start QuestDB:\n"
+                f"  1. Install: python database/questdb/install_questdb.py\n"
+                f"  2. Start: .\\start_all.ps1\n\n"
+                f"Or run only unit tests (no database required):\n"
+                f"  pytest -m fast\n"
+                f"  pytest -m unit\n"
+            )
+            pytest.exit(error_msg, returncode=1)
+
+    except ImportError:
+        # asyncpg not installed
+        pytest.exit(
+            "asyncpg not installed. Run: pip install asyncpg",
+            returncode=1
+        )
+    except Exception as e:
+        # Unexpected error
+        pytest.exit(
+            f"QuestDB health check failed unexpectedly: {e}",
+            returncode=1
+        )
 
 
 # ============================================================================
@@ -39,6 +130,150 @@ def test_config() -> Dict[str, Any]:
 def fixtures_dir() -> Path:
     """Path to test fixtures directory"""
     return Path(__file__).parent / "fixtures"
+
+
+# ============================================================================
+# LIGHTWEIGHT FIXTURES (for fast unit tests - no QuestDB)
+# ============================================================================
+
+@pytest.fixture(scope="session")
+def mock_questdb_provider():
+    """
+    Lightweight QuestDB mock - no real database connection.
+
+    Use for unit tests that don't need real data.
+    For integration tests, use full stack with QuestDB.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+    from src.data_feed.questdb_provider import QuestDBProvider
+
+    mock = MagicMock(spec=QuestDBProvider)
+
+    # Mock async methods
+    mock.initialize = AsyncMock()
+    mock.close = AsyncMock()
+    mock.is_healthy = AsyncMock(return_value=True)
+    mock.execute_query = AsyncMock(return_value=[])
+    mock.fetch_tick_prices = AsyncMock(return_value=[])
+    mock.fetch_session_data = AsyncMock(return_value=[])
+
+    # Mock attributes
+    mock.pg_pool = MagicMock()
+    mock._initialized = True
+
+    return mock
+
+
+@pytest.fixture(scope="session")
+def test_settings():
+    """
+    Minimal settings for testing.
+
+    Overrides production settings to use mock mode.
+    """
+    from src.infrastructure.config.settings import AppSettings, TradingMode
+
+    settings = AppSettings()
+    settings.trading.mode = TradingMode.BACKTEST  # Don't connect to real exchange
+    settings.debug = True
+
+    return settings
+
+
+@pytest.fixture(scope="function")
+def lightweight_container(mock_questdb_provider, test_settings):
+    """
+    Container with mocked QuestDB - no database required.
+
+    Use for unit tests. For integration tests, use full container.
+    """
+    from src.infrastructure.container import Container
+    from src.core.event_bus import EventBus
+    from src.core.logger import StructuredLogger
+
+    event_bus = EventBus()
+    logger = StructuredLogger("Test", test_settings.logging)
+    container = Container(test_settings, event_bus, logger)
+
+    # Inject mock QuestDB provider (bypass initialization)
+    container._singleton_services["questdb_provider"] = mock_questdb_provider
+
+    return container
+
+
+@pytest.fixture(scope="function")
+def lightweight_app(lightweight_container):
+    """
+    FastAPI app with mocked dependencies - FAST (no QuestDB, no heavy initialization).
+
+    Use for unit tests that only need to test API endpoint logic.
+    For integration tests, use 'app' fixture with full initialization.
+
+    Example:
+        @pytest.mark.fast
+        @pytest.mark.unit
+        def test_get_indicators(lightweight_api_client):
+            response = lightweight_api_client.get("/api/v1/indicators/BTC_USDT")
+            assert response.status_code == 200
+    """
+    from fastapi import FastAPI
+
+    # Create minimal app (no lifespan startup)
+    app = FastAPI(title="Test App", version="1.0.0")
+    app.state.container = lightweight_container
+
+    # Register routes WITHOUT heavy initialization
+    # Import and include routers
+    try:
+        from src.api import (
+            indicators_routes,
+            data_analysis_routes,
+        )
+
+        app.include_router(indicators_routes.router, prefix="/api/v1/indicators", tags=["Indicators"])
+        app.include_router(data_analysis_routes.router, prefix="/api/data-collection", tags=["Data Analysis"])
+
+        # Try to import additional routes that may exist
+        try:
+            from src.api import monitoring_routes
+            app.include_router(monitoring_routes.router, prefix="/health", tags=["Health"])
+        except ImportError:
+            pass
+
+        try:
+            from src.api import trading_routes
+            app.include_router(trading_routes.router, prefix="/api/trading", tags=["Trading"])
+        except ImportError:
+            pass
+
+        try:
+            from src.api import paper_trading_routes
+            app.include_router(paper_trading_routes.router, prefix="/api/paper-trading", tags=["Paper Trading"])
+        except ImportError:
+            pass
+
+    except ImportError as e:
+        # Some routes may not exist, that's OK for tests
+        pass
+
+    return app
+
+
+@pytest.fixture(scope="function")
+def lightweight_api_client(lightweight_app):
+    """
+    TestClient for lightweight app - FAST (no database, no auth).
+
+    Use for unit tests. For integration tests with auth, use 'authenticated_client'.
+
+    Example:
+        @pytest.mark.fast
+        def test_api_endpoint(lightweight_api_client):
+            response = lightweight_api_client.get("/api/v1/indicators/BTC_USDT")
+            assert response.status_code == 200
+    """
+    from starlette.testclient import TestClient
+    return TestClient(lightweight_app)
 
 
 # ============================================================================
@@ -364,9 +599,18 @@ def test_session_config() -> Dict[str, Any]:
 # CLEANUP FIXTURES
 # ============================================================================
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def cleanup_strategies(api_client):
-    """Auto-cleanup: Delete all test strategies after each test"""
+    """
+    Manual cleanup for strategy tests.
+
+    Use this fixture explicitly in tests that create strategies:
+        def test_create_strategy(api_client, cleanup_strategies):
+            # Test creates strategies
+            # cleanup_strategies will delete them after test
+
+    For tests that DON'T create strategies, omit this fixture.
+    """
     yield
 
     # Cleanup after test
@@ -389,14 +633,24 @@ def cleanup_strategies(api_client):
                 # Delete each strategy
                 for strategy in strategies:
                     api_client.delete(f"/api/strategies/{strategy['id']}")
-    except Exception:
-        # Ignore cleanup errors
-        pass
+    except Exception as e:
+        # Log cleanup failures for debugging (don't fail test)
+        import logging
+        logging.warning(f"Strategy cleanup failed: {type(e).__name__}: {e}")
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def cleanup_sessions(api_client):
-    """Auto-cleanup: Stop all running sessions after each test"""
+    """
+    Manual cleanup for session tests.
+
+    Use this fixture explicitly in tests that start sessions:
+        def test_start_session(api_client, cleanup_sessions):
+            # Test starts a session
+            # cleanup_sessions will stop it after test
+
+    For tests that DON'T start sessions, omit this fixture.
+    """
     yield
 
     # Cleanup after test
@@ -422,9 +676,91 @@ def cleanup_sessions(api_client):
 
                         # Stop session
                         api_client.post("/sessions/stop", json={"session_id": session_id})
-    except Exception:
-        # Ignore cleanup errors
-        pass
+    except Exception as e:
+        # Log cleanup failures for debugging (don't fail test)
+        import logging
+        logging.warning(f"Session cleanup failed: {type(e).__name__}: {e}")
+
+
+# Convenience fixtures for common test patterns
+@pytest.fixture
+def strategy_test(api_client, cleanup_strategies):
+    """
+    Convenience fixture for strategy tests.
+
+    Automatically includes cleanup_strategies.
+    Use when test creates/modifies strategies.
+
+    Example:
+        def test_create_strategy(strategy_test):
+            response = strategy_test.post("/api/strategies", json=strategy_data)
+            assert response.status_code == 200
+    """
+    return api_client
+
+
+@pytest.fixture
+def session_test(api_client, cleanup_sessions):
+    """
+    Convenience fixture for session tests.
+
+    Automatically includes cleanup_sessions.
+    Use when test starts/stops sessions.
+
+    Example:
+        def test_start_session(session_test):
+            response = session_test.post("/sessions/start", json=session_data)
+            assert response.status_code == 200
+    """
+    return api_client
+
+
+# ============================================================================
+# PERFORMANCE TRACKING
+# ============================================================================
+
+import time
+
+
+@pytest.fixture(autouse=True)
+def track_test_duration(request):
+    """
+    Track test execution time and warn on slow tests.
+
+    Automatically runs for ALL tests.
+    Logs warning if test takes > 1 second (for unit tests).
+    """
+    start_time = time.time()
+
+    yield
+
+    duration = time.time() - start_time
+    test_name = request.node.nodeid
+
+    # Get test markers
+    markers = [m.name for m in request.node.iter_markers()]
+
+    # Warn on slow tests
+    if "fast" in markers and duration > 0.1:
+        # Unit test should be < 100ms
+        import logging
+        logging.warning(
+            f"SLOW UNIT TEST: {test_name} took {duration:.2f}s "
+            f"(expected < 0.1s for @pytest.mark.fast tests)"
+        )
+    elif "unit" in markers and duration > 0.5:
+        # Unit test should be < 500ms
+        import logging
+        logging.warning(
+            f"SLOW UNIT TEST: {test_name} took {duration:.2f}s "
+            f"(expected < 0.5s for @pytest.mark.unit tests)"
+        )
+    elif duration > 5.0:
+        # Any test > 5s is concerning
+        import logging
+        logging.warning(
+            f"SLOW TEST: {test_name} took {duration:.2f}s"
+        )
 
 
 # ============================================================================

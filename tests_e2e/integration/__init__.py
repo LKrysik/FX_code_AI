@@ -1,1 +1,1 @@
-"""Integration E2E Tests"""
+"""API E2E Tests"""

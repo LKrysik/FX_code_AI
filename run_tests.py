@@ -7,9 +7,10 @@ KISS (Keep It Simple, Stupid) test runner for all E2E tests.
 
 Usage:
     python run_tests.py                  # Run ALL backend E2E tests
-    python run_tests.py --api            # API tests only
+    python run_tests.py --unit           # Unit tests only (fast, no database)
+    python run_tests.py --integration    # Integration tests only (database required)
     python run_tests.py --frontend       # Frontend E2E tests only (Playwright)
-    python run_tests.py --integration    # Integration tests only
+    python run_tests.py --database       # All tests requiring database
     python run_tests.py --fast           # Fast tests only (skip slow)
     python run_tests.py --verbose        # Verbose output
     python run_tests.py --coverage       # With coverage report
@@ -79,23 +80,23 @@ def print_header(message: str):
 
 
 def print_success(message: str):
-    """Print success message"""
-    print(f"{Colors.OKGREEN}✓ {message}{Colors.ENDC}")
+    """Print success message with [OK] prefix (Windows-compatible)."""
+    print(f"{Colors.OKGREEN}[OK] {message}{Colors.ENDC}")
 
 
 def print_error(message: str):
-    """Print error message"""
-    print(f"{Colors.FAIL}✗ {message}{Colors.ENDC}")
+    """Print error message with [FAIL] prefix (Windows-compatible)."""
+    print(f"{Colors.FAIL}[FAIL] {message}{Colors.ENDC}")
 
 
 def print_warning(message: str):
-    """Print warning message"""
-    print(f"{Colors.WARNING}⚠ {message}{Colors.ENDC}")
+    """Print warning message with [WARN] prefix (Windows-compatible)."""
+    print(f"{Colors.WARNING}[WARN] {message}{Colors.ENDC}")
 
 
 def print_info(message: str):
-    """Print info message"""
-    print(f"{Colors.OKCYAN}ℹ {message}{Colors.ENDC}")
+    """Print info message with [INFO] prefix (Windows-compatible)."""
+    print(f"{Colors.OKCYAN}[INFO] {message}{Colors.ENDC}")
 
 
 def check_prerequisites() -> bool:
@@ -182,16 +183,22 @@ def build_pytest_command(args, timestamp: str = None) -> tuple[List[str], dict]:
     Returns:
         tuple: (command list, dict of generated file paths)
     """
-    cmd = [sys.executable, '-m', 'pytest']
+    cmd = [sys.executable, '-m', 'pytest', '-c', 'tests_e2e/pytest.ini']
     generated_files = {}
 
-    # Determine test path
-    if args.api:
-        cmd.append('tests_e2e/api')
-    elif args.frontend:
-        cmd.append('tests_e2e/frontend')
+    # Determine test path/markers
+    if args.unit:
+        cmd.extend(['-m', 'unit'])
+        print_info("Running UNIT tests only (fast, no database)")
     elif args.integration:
-        cmd.append('tests_e2e/integration')
+        cmd.extend(['-m', 'integration'])
+        print_info("Running INTEGRATION tests only (database required)")
+    elif args.frontend:
+        cmd.extend(['-m', 'frontend'])
+        print_info("Running FRONTEND E2E tests only (Playwright)")
+    elif args.database:
+        cmd.extend(['-m', 'database'])
+        print_info("Running all DATABASE tests (integration)")
     else:
         cmd.append('tests_e2e')  # All tests
 
@@ -324,11 +331,12 @@ def main():
         epilog="""
 Examples:
   python run_tests.py                     # Run all backend E2E tests
-  python run_tests.py --api               # API tests only
+  python run_tests.py --unit              # Unit tests only (fast, no database)
+  python run_tests.py --integration       # Integration tests only (database required)
   python run_tests.py --frontend          # Frontend E2E tests only (Playwright)
-  python run_tests.py --integration       # Integration tests only
+  python run_tests.py --database          # All tests requiring database
   python run_tests.py --fast              # Fast tests only
-  python run_tests.py --api --verbose     # API tests with verbose output
+  python run_tests.py --unit --verbose    # Unit tests with verbose output
   python run_tests.py --all --coverage    # All tests with coverage
 
 Frontend Unit Tests (Jest):
@@ -339,9 +347,10 @@ Frontend Unit Tests (Jest):
 
     # Test selection
     test_group = parser.add_mutually_exclusive_group()
-    test_group.add_argument('--api', action='store_true', help='Run API tests only')
-    test_group.add_argument('--frontend', action='store_true', help='Run frontend tests only')
-    test_group.add_argument('--integration', action='store_true', help='Run integration tests only')
+    test_group.add_argument('--unit', action='store_true', help='Run unit tests only (fast, no database)')
+    test_group.add_argument('--integration', action='store_true', help='Run integration tests only (database required)')
+    test_group.add_argument('--frontend', action='store_true', help='Run frontend E2E tests only (Playwright)')
+    test_group.add_argument('--database', action='store_true', help='Run all tests requiring database')
     test_group.add_argument('--all', action='store_true', help='Run all tests (default)')
 
     # Test options

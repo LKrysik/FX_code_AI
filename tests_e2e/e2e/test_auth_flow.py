@@ -14,6 +14,7 @@ from playwright.sync_api import Page, expect
 
 @pytest.mark.frontend
 @pytest.mark.auth
+@pytest.mark.e2e
 class TestLoginPage:
     """Tests for login page"""
 
@@ -66,6 +67,7 @@ class TestLoginPage:
 
 @pytest.mark.frontend
 @pytest.mark.auth
+@pytest.mark.e2e
 class TestLogoutFlow:
     """Tests for logout functionality"""
 

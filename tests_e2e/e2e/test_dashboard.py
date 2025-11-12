@@ -10,6 +10,7 @@ from playwright.sync_api import Page, expect
 
 
 @pytest.mark.frontend
+@pytest.mark.e2e
 class TestDashboard:
     """Tests for dashboard page"""
 
@@ -34,6 +35,7 @@ class TestDashboard:
 
 @pytest.mark.frontend
 @pytest.mark.slow
+@pytest.mark.e2e
 class TestDashboardInteraction:
     """Tests for dashboard interactions"""
 
