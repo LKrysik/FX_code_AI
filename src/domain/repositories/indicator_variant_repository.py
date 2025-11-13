@@ -130,6 +130,11 @@ class IndicatorVariantRepository:
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, CAST($8 AS BOOLEAN), $9, $10, $11, $12, $13, CAST($14 AS BOOLEAN))
         """
 
+        # ✅ FIX: Convert timezone-aware datetime to naive UTC for QuestDB compatibility
+        # QuestDB/asyncpg expects naive UTC datetimes for TIMESTAMP columns
+        # Error was: "can't subtract offset-naive and offset-aware datetimes" in asyncpg codec
+        now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+
         params = [
             variant_id,
             name,
@@ -142,8 +147,8 @@ class IndicatorVariantRepository:
             created_by,
             user_id,
             scope,
-            datetime.now(timezone.utc),
-            datetime.now(timezone.utc),
+            now_utc,  # created_at - naive UTC datetime
+            now_utc,  # updated_at - naive UTC datetime
             False  # is_deleted - Will be cast to BOOLEAN in query
         ]
 
@@ -348,7 +353,8 @@ class IndicatorVariantRepository:
         param_idx = 1
 
         # Always update updated_at - use literal value for QuestDB compatibility
-        updated_at = datetime.now(timezone.utc)
+        # ✅ FIX: Convert to naive UTC for QuestDB compatibility
+        updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
         updated_at_str = updated_at.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
         set_clauses.append(f"updated_at = '{updated_at_str}'")
 
@@ -436,7 +442,8 @@ class IndicatorVariantRepository:
         """
         # ✅ FORWARD-COMPATIBLE FIX: Explicit CAST to BOOLEAN for type safety
         # QuestDB requires explicit type casting for BOOLEAN values in UPDATE
-        deleted_at = datetime.now(timezone.utc)
+        # ✅ FIX: Convert to naive UTC for QuestDB compatibility
+        deleted_at = datetime.now(timezone.utc).replace(tzinfo=None)
         deleted_at_str = deleted_at.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
 
         query = f"""

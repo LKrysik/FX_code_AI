@@ -629,9 +629,13 @@ class UnifiedTradingController:
             for ind in indicators
         ]
 
-    def list_indicators(self) -> List[Dict[str, Any]]:
-        """List all active indicators"""
-        return self.indicator_engine.list_indicators()
+    async def list_indicators(self) -> List[Dict[str, Any]]:
+        """
+        List all active indicators.
+
+        ✅ PHASE 2 FIX: Made async to support race condition protection in engine
+        """
+        return await self.indicator_engine.list_indicators()
     
     async def _setup_default_indicators(self) -> None:
         """Setup default indicators for common symbols"""

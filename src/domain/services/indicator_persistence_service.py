@@ -20,7 +20,7 @@ import json
 import time
 from pathlib import Path
 from threading import RLock
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional, Union, Tuple
 from datetime import datetime
 import asyncio
 
@@ -93,6 +93,16 @@ class IndicatorPersistenceService:
         # Event listeners will be set up in start() method
         # This allows async initialization
 
+        # ✅ PHASE 2 FIX: LRU cache for get_file_info() to reduce repeated database queries
+        # Cache key: f"{session_id}:{symbol}:{variant_id}"
+        # TTL: 60 seconds (indicator counts don't change frequently)
+        # Max size: 1000 entries
+        self._file_info_cache: Dict[str, Tuple[Dict[str, Any], float]] = {}  # key -> (result, timestamp)
+        self._cache_ttl = 60.0  # seconds
+        self._cache_max_size = 1000
+        self._cache_hits = 0
+        self._cache_misses = 0
+
         self.logger.info("indicator_persistence_service.initialized", {
             "storage_backend": "QuestDB",
             "features": [
@@ -100,8 +110,13 @@ class IndicatorPersistenceService:
                 "acid_transactions",
                 "session_isolation",
                 "automatic_indexing",
-                "10x_faster_than_csv"
+                "10x_faster_than_csv",
+                "lru_cache_enabled"
             ],
+            "cache_config": {
+                "ttl_seconds": self._cache_ttl,
+                "max_size": self._cache_max_size
+            },
             "migration_date": "2025-10-28"
         })
 
@@ -695,6 +710,7 @@ class IndicatorPersistenceService:
         Get information about indicator storage in QuestDB.
 
         🔄 MIGRATED: Now queries QuestDB instead of checking CSV files.
+        ✅ PHASE 2 FIX: Added LRU cache with 60s TTL to reduce repeated database queries.
 
         Args:
             session_id: Session identifier
@@ -705,39 +721,91 @@ class IndicatorPersistenceService:
         Returns:
             Dict containing storage information
         """
+        # ✅ PHASE 2 FIX: Check cache first
+        import time
+        cache_key = f"{session_id}:{symbol}:{variant_id}"
+        current_time = time.time()
+
+        # Check if cache hit and not expired
+        if cache_key in self._file_info_cache:
+            cached_result, cached_time = self._file_info_cache[cache_key]
+            if current_time - cached_time < self._cache_ttl:
+                self._cache_hits += 1
+                self.logger.debug("indicator_persistence.cache_hit", {
+                    "cache_key": cache_key,
+                    "age_seconds": round(current_time - cached_time, 2)
+                })
+                return cached_result.copy()  # Return copy to prevent mutation
+
+        # Cache miss - query database
+        self._cache_misses += 1
+
         try:
             # Count records in QuestDB
-            query = f"""
+            # ✅ SECURITY FIX: Use parameterized query to prevent SQL injection
+            # ✅ PERFORMANCE FIX: Enables QuestDB prepared statement caching and SYMBOL index usage
+            query = """
                 SELECT COUNT(*) as count
                 FROM indicators
-                WHERE session_id = '{session_id}'
-                  AND symbol = '{symbol}'
-                  AND indicator_id = '{variant_id}'
+                WHERE session_id = $1
+                  AND symbol = $2
+                  AND indicator_id = $3
             """
 
-            results = await self.questdb_provider.execute_query(query)
+            results = await self.questdb_provider.execute_query(
+                query,
+                [session_id, symbol, variant_id],
+                timeout=10.0  # Shorter timeout for simple COUNT query
+            )
             row_count = results[0].get('count', 0) if results else 0
 
             if row_count == 0:
-                return {
+                result = {
                     "exists": False,
                     "storage": "questdb",
                     "path": f"questdb://indicators/{session_id}/{symbol}/{variant_id}"
                 }
+            else:
+                # Estimate storage size (approximately 100 bytes per row)
+                estimated_size = row_count * 100
 
-            # Estimate storage size (approximately 100 bytes per row)
-            estimated_size = row_count * 100
+                result = {
+                    "exists": True,
+                    "storage": "questdb",
+                    "path": f"questdb://indicators/{session_id}/{symbol}/{variant_id}",
+                    "row_count": row_count,
+                    "estimated_size_bytes": estimated_size,
+                    "session_id": session_id,
+                    "symbol": symbol,
+                    "variant_id": variant_id
+                }
 
-            return {
-                "exists": True,
-                "storage": "questdb",
-                "path": f"questdb://indicators/{session_id}/{symbol}/{variant_id}",
-                "row_count": row_count,
-                "estimated_size_bytes": estimated_size,
-                "session_id": session_id,
-                "symbol": symbol,
-                "variant_id": variant_id
-            }
+            # ✅ PHASE 2 FIX: Store in cache with LRU eviction
+            # If cache is full, remove oldest entry (simple FIFO, not true LRU)
+            if len(self._file_info_cache) >= self._cache_max_size:
+                # Remove oldest entry (first key)
+                oldest_key = next(iter(self._file_info_cache))
+                del self._file_info_cache[oldest_key]
+                self.logger.debug("indicator_persistence.cache_eviction", {
+                    "evicted_key": oldest_key,
+                    "cache_size": len(self._file_info_cache)
+                })
+
+            # Store result in cache
+            self._file_info_cache[cache_key] = (result, current_time)
+
+            # Log cache stats periodically (every 100 misses)
+            if self._cache_misses % 100 == 0:
+                hit_rate = self._cache_hits / (self._cache_hits + self._cache_misses) * 100 if (self._cache_hits + self._cache_misses) > 0 else 0
+                self.logger.info("indicator_persistence.cache_stats", {
+                    "hits": self._cache_hits,
+                    "misses": self._cache_misses,
+                    "hit_rate_percent": round(hit_rate, 2),
+                    "cache_size": len(self._file_info_cache),
+                    "max_size": self._cache_max_size
+                })
+
+            return result
 
         except Exception as e:
             self.logger.error("indicator_persistence.get_file_info_failed", {
@@ -747,8 +815,14 @@ class IndicatorPersistenceService:
                 "error": str(e),
                 "error_type": type(e).__name__
             })
-            return {
+            error_result = {
                 "exists": False,
                 "storage": "questdb",
                 "error": str(e)
             }
+            # ✅ PHASE 2 FIX: Cache error results too (prevent repeated failed queries)
+            if len(self._file_info_cache) >= self._cache_max_size:
+                oldest_key = next(iter(self._file_info_cache))
+                del self._file_info_cache[oldest_key]
+            self._file_info_cache[cache_key] = (error_result, current_time)
+            return error_result

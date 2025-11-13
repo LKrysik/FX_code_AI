@@ -261,11 +261,12 @@ class LoadTestFramework:
     async def _update_variant_operation(self, user_id: int):
         """Simulate updating a variant"""
         # Get existing variants
-        variants = self.engine.list_variants()
+        # ✅ PHASE 2 FIX: Await async method with race condition protection
+        variants = await self.engine.list_variants()
         if not variants:
             # Create one first
             await self._create_indicator_operation(user_id)
-            variants = self.engine.list_variants()
+            variants = await self.engine.list_variants()
 
         if variants:
             variant = random.choice(variants)
@@ -301,12 +302,13 @@ class LoadTestFramework:
     async def _list_variants_operation(self, user_id: int):
         """Simulate listing variants"""
         # Randomly filter by type or list all
+        # ✅ PHASE 2 FIX: Await async methods with race condition protection
         if random.random() < 0.5:
             variant_types = VariantType.get_valid_types()
             variant_type = random.choice(variant_types)
-            self.engine.list_variants(variant_type)
+            await self.engine.list_variants(variant_type)
         else:
-            self.engine.list_variants()
+            await self.engine.list_variants()
 
     async def _delete_indicator_operation(self, user_id: int):
         """Simulate deleting an indicator"""
