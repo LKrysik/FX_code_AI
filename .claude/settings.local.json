@@ -29,7 +29,11 @@
       "Bash(cat:*)",
       "Bash(tar:*)",
       "Bash(./questdb.exe start)",
-      "Bash(java -jar questdb.jar start:*)"
+      "Bash(java -jar questdb.jar start:*)",
+      "Bash(Get-ChildItem -Path \"frontend\" -Recurse -File)",
+      "Bash(Select-String -Pattern \"metamask\" -CaseSensitive:$false)",
+      "Bash(FINAL_SUMMARY.md)",
+      "Bash(del FINAL_SUMMARY.md)"
     ],
     "deny": [],
     "ask": []

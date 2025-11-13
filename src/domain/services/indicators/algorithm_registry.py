@@ -218,11 +218,48 @@ class IndicatorAlgorithmRegistry:
         })
     
     def get_algorithm(self, indicator_type: str) -> Optional[IndicatorAlgorithm]:
-        """Get algorithm instance by type."""
+        """
+        Get algorithm instance by type.
+
+        ✅ OBSERVABILITY: Enhanced logging for algorithm retrieval.
+        """
+        # ✅ OBSERVABILITY: Log algorithm retrieval attempt
+        self.logger.debug("indicator_algorithm_registry.get_algorithm_called", {
+            "indicator_type": indicator_type,
+            "discovery_attempted": self._discovery_attempted,
+            "total_algorithms": len(self._algorithms)
+        })
+
         if not self._discovery_attempted:
-            self.auto_discover_algorithms()
-        
-        return self._algorithms.get(indicator_type)
+            self.logger.info("indicator_algorithm_registry.triggering_auto_discovery", {
+                "indicator_type": indicator_type,
+                "reason": "first algorithm access"
+            })
+            discovered = self.auto_discover_algorithms()
+            self.logger.info("indicator_algorithm_registry.auto_discovery_complete", {
+                "discovered_count": discovered,
+                "total_algorithms": len(self._algorithms)
+            })
+
+        algorithm = self._algorithms.get(indicator_type)
+
+        if algorithm is None:
+            # ❌ CRITICAL: Algorithm not found - log as ERROR
+            self.logger.error("indicator_algorithm_registry.algorithm_not_found", {
+                "indicator_type": indicator_type,
+                "available_types": list(self._algorithms.keys()),
+                "total_available": len(self._algorithms),
+                "impact": "CRITICAL - indicator calculation will fail or use legacy method"
+            })
+        else:
+            # ✅ Algorithm found
+            self.logger.debug("indicator_algorithm_registry.algorithm_found", {
+                "indicator_type": indicator_type,
+                "algorithm_name": algorithm.get_name(),
+                "algorithm_class": type(algorithm).__name__
+            })
+
+        return algorithm
     
     def get_all_algorithms(self) -> Dict[str, IndicatorAlgorithm]:
         """Get all registered algorithms."""
