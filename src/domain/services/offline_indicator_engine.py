@@ -81,9 +81,15 @@ class OfflineIndicatorEngine(IIndicatorEngine):
                 {"discovered_algorithms": discovered_count}
             )
         except Exception as e:
+            import traceback
             self.logger.error(
                 "offline_indicator_engine.algorithm_registry_init_failed",
-                {"error": str(e)}
+                {
+                    "error": str(e),
+                    "traceback": traceback.format_exc(),
+                    "impact": "CRITICAL - will fallback to legacy calculation method for all indicators",
+                    "action": "Check algorithm registry module imports and initialization"
+                }
             )
             self._algorithm_registry = None
     
@@ -388,31 +394,94 @@ class OfflineIndicatorEngine(IIndicatorEngine):
         NEW: Uses algorithm registry with pure function interface when available.
         Falls back to legacy calculate_indicator_unified for unmigrated indicators.
         """
+        # ✅ OBSERVABILITY: Log entry to this method
+        self.logger.info("offline_indicator_engine.calculate_series_start", {
+            "symbol": symbol,
+            "indicator_type": indicator_type.value,
+            "timeframe": timeframe,
+            "period": period,
+            "data_points_count": len(data_points),
+            "params": params,
+            "has_algorithm_registry": self._algorithm_registry is not None
+        })
+
         if not data_points:
+            self.logger.warning("offline_indicator_engine.no_data_points", {
+                "symbol": symbol,
+                "indicator_type": indicator_type.value
+            })
             return []
 
         # Try new algorithm registry method first
         if self._algorithm_registry:
+            self.logger.info("offline_indicator_engine.checking_algorithm_registry", {
+                "indicator_type": indicator_type.value
+            })
+
             algorithm = self._algorithm_registry.get_algorithm(indicator_type.value)
+
+            self.logger.info("offline_indicator_engine.algorithm_retrieved", {
+                "indicator_type": indicator_type.value,
+                "algorithm_found": algorithm is not None,
+                "has_calculate_from_windows": hasattr(algorithm, 'calculate_from_windows') if algorithm else False
+            })
+
             if algorithm and hasattr(algorithm, 'calculate_from_windows'):
                 try:
-                    return self._calculate_indicator_series_new(
+                    self.logger.info("offline_indicator_engine.using_new_method", {
+                        "indicator_type": indicator_type.value
+                    })
+                    result = self._calculate_indicator_series_new(
                         symbol, indicator_type, timeframe, period, params, data_points
                     )
+                    self.logger.info("offline_indicator_engine.new_method_success", {
+                        "indicator_type": indicator_type.value,
+                        "result_count": len(result)
+                    })
+                    return result
                 except Exception as e:
-                    self.logger.warning(
+                    import traceback
+                    self.logger.error(
                         "offline_indicator_engine.new_method_failed_fallback_to_old",
                         {
                             "indicator_type": indicator_type.value,
-                            "error": str(e)
+                            "error": str(e),
+                            "traceback": traceback.format_exc(),
+                            "fallback_action": "using legacy calculation method",
+                            "impact": "CRITICAL - new algorithm failed, performance degraded"
                         }
                     )
                     # Fall through to old method
+            else:
+                self.logger.error("offline_indicator_engine.algorithm_not_ready_fallback", {
+                    "indicator_type": indicator_type.value,
+                    "reason": "algorithm not found or missing calculate_from_windows",
+                    "algorithm_found": algorithm is not None,
+                    "has_method": hasattr(algorithm, 'calculate_from_windows') if algorithm else False,
+                    "fallback_action": "using legacy calculation method",
+                    "impact": "CRITICAL - algorithm not properly registered"
+                })
+        else:
+            self.logger.error("offline_indicator_engine.no_algorithm_registry", {
+                "indicator_type": indicator_type.value,
+                "fallback_action": "using legacy calculation method",
+                "impact": "CRITICAL - algorithm registry not initialized",
+                "check": "Verify OfflineIndicatorEngine initialization"
+            })
 
         # Fallback to legacy method for unmigrated indicators
-        return self._calculate_indicator_series_old(
+        self.logger.warning("offline_indicator_engine.using_old_method", {
+            "indicator_type": indicator_type.value,
+            "reason": "fallback from new method or algorithm not available"
+        })
+        result = self._calculate_indicator_series_old(
             symbol, indicator_type, timeframe, period, params, data_points
         )
+        self.logger.info("offline_indicator_engine.old_method_complete", {
+            "indicator_type": indicator_type.value,
+            "result_count": len(result)
+        })
+        return result
 
     def _calculate_indicator_series_old(
         self,
@@ -428,8 +497,20 @@ class OfflineIndicatorEngine(IIndicatorEngine):
 
         Kept for backward compatibility with unmigrated algorithms.
         Will be removed in Phase 3 after all algorithms are migrated.
+
+        ✅ OBSERVABILITY: Enhanced logging for legacy method.
         """
+        # ✅ OBSERVABILITY: Log entry to old method
+        self.logger.info("offline_indicator_engine.old_method_start", {
+            "indicator_type": indicator_type.value,
+            "data_points_count": len(data_points),
+            "params": params
+        })
+
         if not data_points:
+            self.logger.warning("offline_indicator_engine.old_method_no_data", {
+                "indicator_type": indicator_type.value
+            })
             return []
 
         sorted_points = sorted(data_points, key=lambda p: p.timestamp)
@@ -446,21 +527,53 @@ class OfflineIndicatorEngine(IIndicatorEngine):
         bounds = TimeAxisBounds(start=start_ts, end=end_ts, interval=refresh_interval)
         time_axis = list(TimeAxisGenerator.generate(bounds))
 
+        self.logger.info("offline_indicator_engine.old_method_time_axis", {
+            "indicator_type": indicator_type.value,
+            "time_points_count": len(time_axis),
+            "refresh_interval": refresh_interval,
+            "start_ts": start_ts,
+            "end_ts": end_ts
+        })
+
         series: List[IndicatorValue] = []
         active_points: List[MarketDataPoint] = []
         point_index = 0
+        calculation_errors = 0
 
-        for target_ts in time_axis:
+        for idx, target_ts in enumerate(time_axis):
+            # Log progress every 100 points
+            if idx % 100 == 0 and idx > 0:
+                self.logger.debug("offline_indicator_engine.old_method_progress", {
+                    "indicator_type": indicator_type.value,
+                    "progress": f"{idx}/{len(time_axis)}",
+                    "errors_so_far": calculation_errors
+                })
+
             while point_index < len(sorted_points) and sorted_points[point_index].timestamp <= target_ts:
                 active_points.append(sorted_points[point_index])
                 point_index += 1
 
-            value = IndicatorCalculator.calculate_indicator_unified(
-                indicator_type.value,
-                active_points,
-                target_ts,
-                params_copy,
-            )
+            try:
+                value = IndicatorCalculator.calculate_indicator_unified(
+                    indicator_type.value,
+                    active_points,
+                    target_ts,
+                    params_copy,
+                )
+            except Exception as e:
+                calculation_errors += 1
+                # Only log first 5 errors to avoid spam
+                if calculation_errors <= 5:
+                    self.logger.error(
+                        "offline_indicator_engine.old_method_calculation_error",
+                        {
+                            "indicator_type": indicator_type.value,
+                            "timestamp": target_ts,
+                            "active_points_count": len(active_points),
+                            "error": str(e)
+                        }
+                    )
+                value = None
 
             series.append(
                 IndicatorValue(
@@ -474,6 +587,13 @@ class OfflineIndicatorEngine(IIndicatorEngine):
                     },
                 )
             )
+
+        self.logger.info("offline_indicator_engine.old_method_calculation_complete", {
+            "indicator_type": indicator_type.value,
+            "total_points": len(series),
+            "calculation_errors": calculation_errors,
+            "valid_values": sum(1 for v in series if v.value is not None)
+        })
 
         return series
 
@@ -565,7 +685,17 @@ class OfflineIndicatorEngine(IIndicatorEngine):
         Returns:
             List of IndicatorValue objects
         """
+        # ✅ OBSERVABILITY: Log entry to new calculation method
+        self.logger.info("offline_indicator_engine.new_method_start", {
+            "indicator_type": indicator_type.value,
+            "data_points_count": len(data_points),
+            "params": params
+        })
+
         if not data_points:
+            self.logger.warning("offline_indicator_engine.new_method_no_data", {
+                "indicator_type": indicator_type.value
+            })
             return []
 
         # Get algorithm from registry
@@ -577,6 +707,11 @@ class OfflineIndicatorEngine(IIndicatorEngine):
             )
             return []
 
+        self.logger.info("offline_indicator_engine.algorithm_found", {
+            "indicator_type": indicator_type.value,
+            "algorithm_class": type(algorithm).__name__
+        })
+
         # Wrap parameters
         from .indicators.base_algorithm import IndicatorParameters
         wrapped_params = IndicatorParameters(params or {})
@@ -584,10 +719,19 @@ class OfflineIndicatorEngine(IIndicatorEngine):
         # Get window specifications from algorithm
         try:
             window_specs = algorithm.get_window_specs(wrapped_params)
+            self.logger.info("offline_indicator_engine.window_specs_retrieved", {
+                "indicator_type": indicator_type.value,
+                "window_count": len(window_specs)
+            })
         except Exception as e:
+            import traceback
             self.logger.error(
                 "offline_indicator_engine.get_window_specs_failed",
-                {"indicator_type": indicator_type.value, "error": str(e)}
+                {
+                    "indicator_type": indicator_type.value,
+                    "error": str(e),
+                    "traceback": traceback.format_exc()
+                }
             )
             return []
 
@@ -606,10 +750,27 @@ class OfflineIndicatorEngine(IIndicatorEngine):
         bounds = TimeAxisBounds(start=start_ts, end=end_ts, interval=refresh_interval)
         time_axis = list(TimeAxisGenerator.generate(bounds))
 
+        self.logger.info("offline_indicator_engine.time_axis_generated", {
+            "indicator_type": indicator_type.value,
+            "time_points_count": len(time_axis),
+            "refresh_interval": refresh_interval,
+            "start_ts": start_ts,
+            "end_ts": end_ts
+        })
+
         # Calculate indicator values
         series: List[IndicatorValue] = []
+        calculation_errors = 0
 
-        for target_ts in time_axis:
+        for idx, target_ts in enumerate(time_axis):
+            # Log progress every 100 points to avoid log spam
+            if idx % 100 == 0:
+                self.logger.debug("offline_indicator_engine.calculation_progress", {
+                    "indicator_type": indicator_type.value,
+                    "progress": f"{idx}/{len(time_axis)}",
+                    "errors_so_far": calculation_errors
+                })
+
             # Extract all windows for this timestamp
             windows = self._extract_windows_at_timestamp(
                 sorted_points, target_ts, window_specs
@@ -619,14 +780,17 @@ class OfflineIndicatorEngine(IIndicatorEngine):
             try:
                 value = algorithm.calculate_from_windows(windows, wrapped_params)
             except Exception as e:
-                self.logger.error(
-                    "offline_indicator_engine.calculate_failed",
-                    {
-                        "indicator_type": indicator_type.value,
-                        "timestamp": target_ts,
-                        "error": str(e)
-                    }
-                )
+                calculation_errors += 1
+                # Only log first 5 errors to avoid spam
+                if calculation_errors <= 5:
+                    self.logger.error(
+                        "offline_indicator_engine.calculate_failed",
+                        {
+                            "indicator_type": indicator_type.value,
+                            "timestamp": target_ts,
+                            "error": str(e)
+                        }
+                    )
                 value = None
 
             series.append(
@@ -641,6 +805,13 @@ class OfflineIndicatorEngine(IIndicatorEngine):
                     },
                 )
             )
+
+        self.logger.info("offline_indicator_engine.new_method_complete", {
+            "indicator_type": indicator_type.value,
+            "total_points": len(series),
+            "calculation_errors": calculation_errors,
+            "valid_values": sum(1 for v in series if v.value is not None)
+        })
 
         return series
     

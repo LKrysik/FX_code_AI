@@ -111,17 +111,6 @@ def initialize_indicators_dependencies(
         questdb_data_provider=_questdb_data_provider
     )
 
-    # ✅ VALIDATION: Check if algorithm registry initialized successfully
-    if _offline_indicator_engine._algorithm_registry is None:
-        logger.warning(
-            "indicators_routes.offline_engine_fallback_mode",
-            {
-                "reason": "algorithm registry not initialized",
-                "impact": "All indicators will use legacy calculation method",
-                "performance": "May be slower or less accurate for some indicators"
-            }
-        )
-
     # ✅ SCALABILITY FIX: Initialize dedicated ThreadPoolExecutor for indicator calculations
     # Prevents event loop blocking during 20-100 parallel indicator computations
     # max_workers: 2x CPU cores (up to 24) for I/O waiting during calculations
@@ -214,7 +203,6 @@ async def _load_session_price_data(session_id: str, symbol: str) -> List[Dict[st
     Load tick price data from QuestDB for indicator calculation.
 
     ✅ BUG-002 FIX: Changed from CSV filesystem to QuestDB query
-    ✅ OBSERVABILITY: Enhanced logging for data loading
 
     Args:
         session_id: Session identifier
@@ -226,15 +214,6 @@ async def _load_session_price_data(session_id: str, symbol: str) -> List[Dict[st
     Raises:
         HTTPException: If session/symbol not found or data invalid
     """
-    import time as time_module
-    query_start = time_module.time()
-
-    logger.info("indicators_routes.questdb_query_start", {
-        "session_id": session_id,
-        "symbol": symbol,
-        "operation": "get_tick_prices"
-    })
-
     _, questdb_data_provider = _ensure_questdb_providers()
 
     try:
@@ -245,22 +224,7 @@ async def _load_session_price_data(session_id: str, symbol: str) -> List[Dict[st
             # No limit - indicators need full dataset
         )
 
-        query_time = time_module.time() - query_start
-
-        logger.info("indicators_routes.questdb_query_complete", {
-            "session_id": session_id,
-            "symbol": symbol,
-            "rows_returned": len(tick_prices) if tick_prices else 0,
-            "query_time_ms": query_time * 1000
-        })
-
         if not tick_prices:
-            logger.error("indicators_routes.no_price_data_found", {
-                "session_id": session_id,
-                "symbol": symbol,
-                "query_time_ms": query_time * 1000,
-                "impact": "CRITICAL - cannot calculate indicator without data"
-            })
             raise HTTPException(
                 status_code=404,
                 detail=f"Price data not found for session '{session_id}', symbol '{symbol}'"
@@ -269,8 +233,6 @@ async def _load_session_price_data(session_id: str, symbol: str) -> List[Dict[st
         # Convert QuestDB format to indicator format
         from datetime import datetime
         data: List[Dict[str, float]] = []
-        invalid_rows_count = 0
-
         for tick in tick_prices:
             try:
                 # Convert timestamp if needed
@@ -280,7 +242,6 @@ async def _load_session_price_data(session_id: str, symbol: str) -> List[Dict[st
                 elif timestamp:
                     timestamp = float(timestamp)
                 else:
-                    invalid_rows_count += 1
                     continue  # Skip invalid timestamps
 
                 price = float(tick.get('price', 0))
@@ -293,34 +254,16 @@ async def _load_session_price_data(session_id: str, symbol: str) -> List[Dict[st
                 })
             except (TypeError, ValueError) as exc:
                 # Skip invalid rows instead of failing entire dataset
-                invalid_rows_count += 1
+                # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
                 logger.warning("indicators_routes.invalid_price_row", {
                     "session_id": session_id,
                     "symbol": symbol,
                     "tick": str(tick),
-                    "error": str(exc),
-                    "invalid_count_so_far": invalid_rows_count
+                    "error": str(exc)
                 })
                 continue
 
-        # ✅ OBSERVABILITY: Log conversion summary
-        logger.info("indicators_routes.data_conversion_complete", {
-            "session_id": session_id,
-            "symbol": symbol,
-            "total_rows": len(tick_prices),
-            "valid_rows": len(data),
-            "invalid_rows": invalid_rows_count,
-            "conversion_rate": f"{(len(data) / len(tick_prices) * 100):.1f}%" if tick_prices else "0%"
-        })
-
         if not data:
-            logger.error("indicators_routes.all_rows_invalid", {
-                "session_id": session_id,
-                "symbol": symbol,
-                "total_rows": len(tick_prices),
-                "invalid_rows": invalid_rows_count,
-                "impact": "CRITICAL - all price data rows are invalid, cannot calculate indicator"
-            })
             raise HTTPException(
                 status_code=404,
                 detail=f"No valid price data rows available for session '{session_id}', symbol '{symbol}'"
@@ -375,27 +318,7 @@ async def _compute_indicator_series(
         - Calculates indicator at fixed intervals (default 1.0 second)
         - Respects refresh_interval_seconds parameter
     """
-    import time as time_module
-    start_time = time_module.time()
-
-    logger.info("indicators_routes.compute_indicator.loading_data", {
-        "indicator_id": indicator_id,
-        "session_id": session_id,
-        "symbol": symbol,
-        "variant_id": variant.id,
-        "variant_base_type": variant.base_indicator_type
-    })
-
     price_rows = await _load_session_price_data(session_id, symbol)
-    data_load_time = time_module.time() - start_time
-
-    logger.info("indicators_routes.compute_indicator.data_loaded", {
-        "indicator_id": indicator_id,
-        "session_id": session_id,
-        "symbol": symbol,
-        "price_rows_count": len(price_rows),
-        "load_time_ms": data_load_time * 1000
-    })
 
     # Convert price_rows to MarketDataPoint objects
     from src.domain.types.indicator_types import MarketDataPoint
@@ -453,8 +376,6 @@ async def _compute_indicator_series(
     # Acquire semaphore (wait if 12 calculations already running)
     async with _calculation_semaphore:
         active_count = 12 - _calculation_semaphore._value
-        calculation_start_time = time_module.time()
-
         logger.info("indicators_routes.compute_indicator.start", {
             "session_id": session_id,
             "symbol": symbol,
@@ -467,15 +388,6 @@ async def _compute_indicator_series(
         })
 
         try:
-            # ✅ OBSERVABILITY: Log before entering ThreadPoolExecutor
-            logger.info("indicators_routes.compute_indicator.entering_executor", {
-                "indicator_id": indicator_id,
-                "symbol": symbol,
-                "indicator_type": indicator_enum.value,
-                "executor_type": type(_indicator_calculation_executor).__name__,
-                "timeout_seconds": 120.0
-            })
-
             # Execute CPU-bound calculation in thread pool with 120s timeout
             loop = asyncio.get_event_loop()
             series = await asyncio.wait_for(
@@ -492,15 +404,12 @@ async def _compute_indicator_series(
                 timeout=120.0  # 2 minute timeout per indicator
             )
 
-            calculation_time = time_module.time() - calculation_start_time
-
             logger.info("indicators_routes.compute_indicator.complete", {
                 "session_id": session_id,
                 "symbol": symbol,
                 "indicator_id": indicator_id,
                 "series_length": len(series),
-                "none_count": sum(1 for v in series if v.value is None),
-                "calculation_time_ms": calculation_time * 1000
+                "none_count": sum(1 for v in series if v.value is None)
             })
 
         except asyncio.TimeoutError:
