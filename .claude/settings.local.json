@@ -15,7 +15,21 @@
       "Bash(del temp_indicators_old.txt)",
       "Bash(rm:*)",
       "Bash(python -m py_compile:*)",
-      "Bash(tee:*)"
+      "Bash(tee:*)",
+      "Bash(nul)",
+      "Bash(echo:*)",
+      "Bash(python test_questdb_connection.py:*)",
+      "Bash(python test_datetime_asyncpg.py:*)",
+      "Bash(python:*)",
+      "Bash(netstat:*)",
+      "Bash(powershell:*)",
+      "Bash(curl:*)",
+      "Bash(dir /B databasequestdbquestdb-* 2)",
+      "Bash(dir:*)",
+      "Bash(cat:*)",
+      "Bash(tar:*)",
+      "Bash(./questdb.exe start)",
+      "Bash(java -jar questdb.jar start:*)"
     ],
     "deny": [],
     "ask": []

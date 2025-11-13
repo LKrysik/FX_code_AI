@@ -54,6 +54,12 @@ _offline_indicator_engine: Optional[OfflineIndicatorEngine] = None
 _questdb_provider: Optional[QuestDBProvider] = None
 _questdb_data_provider: Optional[QuestDBDataProvider] = None
 
+# ✅ SCALABILITY FIX: Dedicated ThreadPoolExecutor for CPU-bound indicator calculations
+# Prevents event loop blocking during indicator computation for 20-100 parallel calculations
+from concurrent.futures import ThreadPoolExecutor
+_indicator_calculation_executor: Optional[ThreadPoolExecutor] = None
+_calculation_semaphore: Optional[asyncio.Semaphore] = None
+
 DATA_BASE_PATH = Path(os.environ.get("INDICATOR_DATA_DIR", "data")).resolve()
 
 # ✅ ARCHITECTURE FIX: Removed SimpleEventBus duplication (34 lines of duplicate code)
@@ -82,6 +88,7 @@ def initialize_indicators_dependencies(
     """
     global _event_bus, _streaming_engine, _persistence_service, _offline_indicator_engine
     global _questdb_provider, _questdb_data_provider
+    global _indicator_calculation_executor, _calculation_semaphore
 
     # Inject EventBus (no more SimpleEventBus!)
     _event_bus = event_bus
@@ -104,10 +111,30 @@ def initialize_indicators_dependencies(
         questdb_data_provider=_questdb_data_provider
     )
 
+    # ✅ SCALABILITY FIX: Initialize dedicated ThreadPoolExecutor for indicator calculations
+    # Prevents event loop blocking during 20-100 parallel indicator computations
+    # max_workers: 2x CPU cores (up to 24) for I/O waiting during calculations
+    # semaphore: Limits concurrent calculations to 12 to prevent memory exhaustion
+    if _indicator_calculation_executor is None:
+        import os
+        max_workers = min(os.cpu_count() * 2, 24)
+        _indicator_calculation_executor = ThreadPoolExecutor(
+            max_workers=max_workers,
+            thread_name_prefix="IndicatorCalc-"
+        )
+        _calculation_semaphore = asyncio.Semaphore(12)
+
+        logger.info("indicators_routes.executor_initialized", {
+            "max_workers": max_workers,
+            "semaphore_limit": 12,
+            "cpu_count": os.cpu_count()
+        })
+
     logger.info("indicators_routes.dependencies_initialized", {
         "event_bus_type": type(_event_bus).__name__,
         "has_streaming_engine": _streaming_engine is not None,
-        "has_questdb": _questdb_provider is not None
+        "has_questdb": _questdb_provider is not None,
+        "has_executor": _indicator_calculation_executor is not None
     })
 
 
@@ -335,14 +362,68 @@ async def _compute_indicator_series(
     if "refresh_interval_seconds" not in combined_params:
         combined_params["refresh_interval_seconds"] = 1.0
 
-    series = offline_engine._calculate_indicator_series(
-        symbol=symbol,
-        indicator_type=indicator_enum,
-        timeframe="1m",  # timeframe used for display only
-        period=period,
-        params=combined_params,
-        data_points=market_data_points
-    )
+    # ✅ SCALABILITY FIX: Execute CPU-bound calculation in ThreadPoolExecutor
+    # Prevents event loop blocking during 20-100 parallel indicator computations
+    # Uses semaphore to limit concurrent calculations (max 12) and prevent memory exhaustion
+    global _indicator_calculation_executor, _calculation_semaphore
+
+    if _indicator_calculation_executor is None or _calculation_semaphore is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Indicator calculation executor not initialized. Server misconfiguration."
+        )
+
+    # Acquire semaphore (wait if 12 calculations already running)
+    async with _calculation_semaphore:
+        active_count = 12 - _calculation_semaphore._value
+        logger.info("indicators_routes.compute_indicator.start", {
+            "session_id": session_id,
+            "symbol": symbol,
+            "indicator_id": indicator_id,
+            "indicator_type": indicator_enum.value,
+            "data_points_count": len(market_data_points),
+            "parameters": combined_params,
+            "active_calculations": active_count,
+            "queued": active_count >= 12
+        })
+
+        try:
+            # Execute CPU-bound calculation in thread pool with 120s timeout
+            loop = asyncio.get_event_loop()
+            series = await asyncio.wait_for(
+                loop.run_in_executor(
+                    _indicator_calculation_executor,
+                    offline_engine._calculate_indicator_series,
+                    symbol,
+                    indicator_enum,
+                    "1m",  # timeframe used for display only
+                    period,
+                    combined_params,
+                    market_data_points
+                ),
+                timeout=120.0  # 2 minute timeout per indicator
+            )
+
+            logger.info("indicators_routes.compute_indicator.complete", {
+                "session_id": session_id,
+                "symbol": symbol,
+                "indicator_id": indicator_id,
+                "series_length": len(series),
+                "none_count": sum(1 for v in series if v.value is None)
+            })
+
+        except asyncio.TimeoutError:
+            logger.error("indicators_routes.compute_timeout", {
+                "session_id": session_id,
+                "symbol": symbol,
+                "indicator_id": indicator_id,
+                "timeout_seconds": 120.0,
+                "data_points_count": len(market_data_points)
+            })
+            raise HTTPException(
+                status_code=504,
+                detail=f"Indicator calculation timeout after 120 seconds. Try reducing data range or period."
+            )
 
     # Update indicator_id and metadata for each value
     for value in series:
@@ -683,13 +764,16 @@ async def get_available_variants(
         List of available variants with metadata for UI selection
     """
     try:
-        variants = engine.list_variants()
+        # ✅ PHASE 2 FIX: Await async method with race condition protection
+        variants = await engine.list_variants()
         
         # Convert IndicatorVariant objects to dict format
         variant_dicts = []
         categories = set()
-        
+
         for variant in variants:
+            # ✅ PHASE 2 FIX COMPLETION: Await async method to prevent coroutine iteration error
+            params = await engine.get_variant_parameters(variant.id)
             parameter_definitions = [
                 {
                     "name": param.name,
@@ -701,7 +785,7 @@ async def get_available_variants(
                     "max_value": param.max_value,
                     "allowed_values": param.allowed_values,
                 }
-                for param in engine.get_variant_parameters(variant.id)
+                for param in params
             ]
 
             variant_dict = {
@@ -748,11 +832,14 @@ async def get_variants_by_category(
         category: Variant category (see VariantType enum in streaming_indicator_engine)
     """
     try:
-        variants = engine.list_variants(variant_type=category)
-        
+        # ✅ PHASE 2 FIX COMPLETION: Await async method with race condition protection
+        variants = await engine.list_variants(variant_type=category)
+
         # Convert IndicatorVariant objects to dict format
         variant_dicts = []
         for variant in variants:
+            # ✅ PHASE 2 FIX COMPLETION: Await async method to prevent coroutine iteration error
+            params = await engine.get_variant_parameters(variant.id)
             parameter_definitions = [
                 {
                     "name": param.name,
@@ -764,7 +851,7 @@ async def get_variants_by_category(
                     "max_value": param.max_value,
                     "allowed_values": param.allowed_values,
                 }
-                for param in engine.get_variant_parameters(variant.id)
+                for param in params
             ]
 
             variant_dict = {
@@ -1113,20 +1200,34 @@ async def get_session_indicator_values(
 
         # Execute all tasks in parallel (if any exist)
         if file_tasks:
-            results = await asyncio.gather(*file_tasks.values(), return_exceptions=True)
-            for (indicator_id, _), result in zip(file_tasks.items(), results):
-                if isinstance(result, Exception):
-                    # Log error but don't fail entire request
-                    # logger = get_logger(__name__)  # ✅ FIX #3: Using module-level logger
-                    logger.warning("indicators_routes.get_file_info_failed", {
-                        "session_id": session_id,
-                        "symbol": symbol,
-                        "indicator_id": indicator_id,
-                        "error": str(result)
-                    })
-                    files[indicator_id] = {"exists": False, "error": str(result)}
-                else:
-                    files[indicator_id] = result
+            # ✅ TIMEOUT FIX: Wrap gather in wait_for to prevent indefinite hangs
+            try:
+                results = await asyncio.wait_for(
+                    asyncio.gather(*file_tasks.values(), return_exceptions=True),
+                    timeout=15.0  # 15 second timeout for all parallel queries
+                )
+                for (indicator_id, _), result in zip(file_tasks.items(), results):
+                    if isinstance(result, Exception):
+                        # Log error but don't fail entire request
+                        logger.warning("indicators_routes.get_file_info_failed", {
+                            "session_id": session_id,
+                            "symbol": symbol,
+                            "indicator_id": indicator_id,
+                            "error": str(result)
+                        })
+                        files[indicator_id] = {"exists": False, "error": str(result)}
+                    else:
+                        files[indicator_id] = result
+            except asyncio.TimeoutError:
+                logger.warning("indicators_routes.get_file_info_timeout", {
+                    "session_id": session_id,
+                    "symbol": symbol,
+                    "timeout_seconds": 15.0,
+                    "tasks_count": len(file_tasks)
+                })
+                # Fallback: mark all as not exists
+                for indicator_id in file_tasks.keys():
+                    files[indicator_id] = {"exists": False, "error": "timeout"}
 
         # Add {"exists": False} for indicators without variant_id
         for indicator_id in indicator_map:
@@ -1725,6 +1826,8 @@ async def get_variant_details(
             })
             raise HTTPException(status_code=404, detail=f"Variant '{variant_id}' not found")
 
+        # ✅ PHASE 2 FIX COMPLETION: Await async method to prevent coroutine iteration error
+        params = await engine.get_variant_parameters(variant.id)
         parameter_definitions = [
             {
                 "name": param.name,
@@ -1736,7 +1839,7 @@ async def get_variant_details(
                 "max_value": param.max_value,
                 "allowed_values": param.allowed_values,
             }
-            for param in engine.get_variant_parameters(variant.id)
+            for param in params
         ]
 
         variant_dict = {
@@ -1870,8 +1973,9 @@ async def list_indicators(
             "symbol": symbol,
             "type": type
         })
-        
-        items = engine.list_indicators()
+
+        # ✅ PHASE 2 FIX: Await async method with race condition protection
+        items = await engine.list_indicators()
         
         # Apply filters
         if scope:
@@ -2378,9 +2482,18 @@ async def calculate_algorithm_refresh_interval(
 def _reset_indicators_state_for_tests() -> None:
     """
     Reset module-level state to allow isolated unit tests.
+    ✅ SCALABILITY FIX: Also cleanup ThreadPoolExecutor
     """
     global _streaming_engine, _persistence_service, _offline_indicator_engine, _event_bus
+    global _indicator_calculation_executor, _calculation_semaphore
+
     _streaming_engine = None
     _persistence_service = None
     _offline_indicator_engine = None
     _event_bus = None
+
+    # Cleanup executor if exists
+    if _indicator_calculation_executor is not None:
+        _indicator_calculation_executor.shutdown(wait=False)
+        _indicator_calculation_executor = None
+    _calculation_semaphore = None

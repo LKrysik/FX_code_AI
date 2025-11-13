@@ -1402,11 +1402,17 @@ class QuestDBProvider:
     #            FROM tick_prices SAMPLE BY 1m
     # - Faster, simpler, no pre-aggregation overhead during data collection
 
-    async def execute_query(self, query: str, params: Optional[List[Any]] = None) -> List[Dict[str, Any]]:
+    async def execute_query(
+        self,
+        query: str,
+        params: Optional[List[Any]] = None,
+        timeout: float = 30.0
+    ) -> List[Dict[str, Any]]:
         """
         Execute arbitrary SQL query on QuestDB via PostgreSQL wire protocol.
 
         ✅ CRITICAL FIX: Converts datetime objects to Unix timestamps (float).
+        ✅ TIMEOUT FIX: Added timeout parameter to prevent indefinite hangs (default 30s).
 
         QuestDB returns TIMESTAMP columns as Python datetime objects via asyncpg,
         but the application expects Unix timestamp floats throughout. This conversion
@@ -1416,6 +1422,7 @@ class QuestDBProvider:
         Args:
             query: SQL query string
             params: Query parameters (optional)
+            timeout: Query timeout in seconds (default: 30.0)
 
         Returns:
             List of result dictionaries with datetime values converted to Unix timestamps
@@ -1425,9 +1432,9 @@ class QuestDBProvider:
         try:
             async with self.pg_pool.acquire() as conn:
                 if params:
-                    rows = await conn.fetch(query, *params)
+                    rows = await conn.fetch(query, *params, timeout=timeout)
                 else:
-                    rows = await conn.fetch(query)
+                    rows = await conn.fetch(query, timeout=timeout)
 
             # Convert datetime objects to Unix timestamps (float)
             results = []

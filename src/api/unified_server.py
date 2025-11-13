@@ -616,6 +616,16 @@ def create_unified_app():
         except Exception as e:
             logger.warning(f"Strategy storage shutdown error: {e}")
 
+        # ✅ SCALABILITY FIX: Shutdown indicator calculation ThreadPoolExecutor
+        try:
+            if hasattr(indicators_routes, '_indicator_calculation_executor'):
+                executor = indicators_routes._indicator_calculation_executor
+                if executor is not None:
+                    executor.shutdown(wait=True)
+                    logger.info("Indicator calculation executor shutdown successfully")
+        except Exception as e:
+            logger.warning(f"Indicator executor shutdown error: {e}")
+
         # Shutdown liquidation monitor (TIER 1.4)
         try:
             if hasattr(app.state, 'liquidation_monitor'):
@@ -2178,7 +2188,8 @@ def create_unified_app():
                 return _json_error("symbol_not_found", f"Symbol {symbol} not found", status=404)
 
             # Get indicators from controller
-            indicators = controller.list_indicators()
+            # ✅ PHASE 2 FIX: Await async method with race condition protection
+            indicators = await controller.list_indicators()
             symbol_indicators = [i for i in indicators if i.get("symbol", "").upper() == symbol.upper()]
 
             # For now, return basic structure - in production this would query real-time values

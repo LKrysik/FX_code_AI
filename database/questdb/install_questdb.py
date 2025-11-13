@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 QuestDB Installation and Migration Script (Python Version)
 ==========================================================
@@ -23,6 +24,14 @@ import argparse
 import sys
 import os
 import re
+
+# ✅ FIX: Force UTF-8 encoding for Windows console (prevents cp1250 UnicodeEncodeError)
+if sys.platform == 'win32':
+    import codecs
+    if sys.stdout.encoding != 'utf-8':
+        sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
+    if sys.stderr.encoding != 'utf-8':
+        sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
 import time
 import hashlib
 from datetime import datetime
@@ -72,19 +81,23 @@ def print_header(message: str):
 
 def print_step(message: str):
     """Print step message"""
-    print(Colors.OKBLUE + f"→ {message}" + Colors.ENDC)
+    # ✅ FIX: Use ASCII for Windows console compatibility (cp1250)
+    print(Colors.OKBLUE + f"-> {message}" + Colors.ENDC)
 
 def print_success(message: str):
     """Print success message"""
-    print(Colors.OKGREEN + f"✓ {message}" + Colors.ENDC)
+    # ✅ FIX: Use ASCII for Windows console compatibility
+    print(Colors.OKGREEN + f"OK {message}" + Colors.ENDC)
 
 def print_warn(message: str):
     """Print warning message"""
-    print(Colors.WARNING + f"⚠ {message}" + Colors.ENDC)
+    # ✅ FIX: Use ASCII for Windows console compatibility
+    print(Colors.WARNING + f"!! {message}" + Colors.ENDC)
 
 def print_fail(message: str):
     """Print error message"""
-    print(Colors.FAIL + f"✗ {message}" + Colors.ENDC)
+    # ✅ FIX: Use ASCII for Windows console compatibility
+    print(Colors.FAIL + f"XX {message}" + Colors.ENDC)
 
 # ============================================================================
 # QUESTDB CONNECTION

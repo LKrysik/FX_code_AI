@@ -193,8 +193,16 @@ class StructuredLogger:
     def warning(self, event_type: str, data: Dict[str, Any] = None):
         self._log(logging.WARNING, event_type, data or {})
 
-    def error(self, event_type: str, data: Dict[str, Any], exc_info=False):
-        payload = {"event_type": event_type, "data": data}
+    def error(self, event_type: str, data: Dict[str, Any] = None, exc_info=False):
+        """
+        Log an error event.
+
+        Args:
+            event_type: Type of error event
+            data: Optional error context data
+            exc_info: Include exception info (default: False)
+        """
+        payload = {"event_type": event_type, "data": data or {}}
         self.logger.error(payload, exc_info=exc_info)
 
     def debug(self, event_type: str, data: Dict[str, Any] = None):

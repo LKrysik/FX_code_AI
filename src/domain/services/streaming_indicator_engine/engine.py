@@ -197,7 +197,9 @@ class StreamingIndicatorEngine:
         await self._load_variants_from_database()
 
         if self._subscription_task is None:
-            await self.event_bus.subscribe("market.data_update", self._on_market_data)
+            # ✅ EVENT TOPIC FIX: Changed from "market.data_update" to "market.price_update"
+            # to match publisher in execution_processor.py:597
+            await self.event_bus.subscribe("market.price_update", self._on_market_data)
             self._subscription_task = True  # Mark as subscribed
         if self._time_scheduler_task is None:
             self._time_scheduler_task = asyncio.create_task(self._run_time_driven_scheduler())
@@ -683,10 +685,19 @@ class StreamingIndicatorEngine:
 
 
 
-    def list_indicators(self) -> List[Dict[str, Any]]:
-        """List current indicators in a serializable form"""
+    async def list_indicators(self) -> List[Dict[str, Any]]:
+        """
+        List current indicators in a serializable form.
+
+        ✅ PHASE 2 FIX: Made async and added lock protection to prevent race conditions
+        """
         items: List[Dict[str, Any]] = []
-        for key, ind in self._indicators.items():
+        async with self._data_lock:
+            # Create snapshot of dictionary to prevent "changed size during iteration" errors
+            indicators_snapshot = dict(self._indicators)
+
+        # Iterate over snapshot outside lock to minimize lock hold time
+        for key, ind in indicators_snapshot.items():
             items.append({
                 "key": key,
                 "symbol": ind.symbol,
@@ -977,7 +988,10 @@ class StreamingIndicatorEngine:
         self._validate_market_data(data)
 
         # ✅ CRITICAL FIX: Use symbol indexing for O(1) indicator check
-        has_indicators = symbol in self._indicators_by_symbol and len(self._indicators_by_symbol[symbol]) > 0
+        # ✅ PHASE 2 FIX: Check indicator existence inside lock to prevent race condition
+        async with self._data_lock:
+            has_indicators = symbol in self._indicators_by_symbol and len(self._indicators_by_symbol[symbol]) > 0
+
         if not has_indicators:
             return  # Skip data storage and processing if no indicators are using this symbol
 
@@ -2536,14 +2550,28 @@ class StreamingIndicatorEngine:
         denom = (var_pc ** 0.5) * (var_vc ** 0.5)
         return cov / denom if denom != 0 else 0.0
 
-    def get_indicator(self, indicator_key: str) -> Optional[StreamingIndicator]:
-        """Get indicator by key"""
-        return self._indicators.get(indicator_key)
-    
-    def get_indicators_for_symbol(self, symbol: str) -> List[StreamingIndicator]:
-        """Get all indicators for a symbol"""
+    async def get_indicator(self, indicator_key: str) -> Optional[StreamingIndicator]:
+        """
+        Get indicator by key.
+
+        ✅ PHASE 2 FIX: Made async and added lock protection to prevent race conditions
+        """
+        async with self._data_lock:
+            return self._indicators.get(indicator_key)
+
+    async def get_indicators_for_symbol(self, symbol: str) -> List[StreamingIndicator]:
+        """
+        Get all indicators for a symbol.
+
+        ✅ PHASE 2 FIX: Made async and added lock protection to prevent race conditions
+        """
+        async with self._data_lock:
+            # Create snapshot to prevent "changed size during iteration" errors
+            indicators_snapshot = dict(self._indicators)
+
+        # Iterate over snapshot outside lock
         return [
-            indicator for key, indicator in self._indicators.items()
+            indicator for key, indicator in indicators_snapshot.items()
             if key.startswith(symbol)
         ]
     
@@ -2723,17 +2751,27 @@ class StreamingIndicatorEngine:
         async with self._data_lock:
             return self._variants.get(variant_id)
 
-    def list_variants(self, variant_type: str = None) -> List[IndicatorVariant]:
-        """List variants, optionally filtered by type"""
-        if variant_type:
-            variant_ids = self._variants_by_type.get(variant_type, [])
-            return [self._variants[vid] for vid in variant_ids if vid in self._variants]
-        else:
-            return list(self._variants.values())
+    async def list_variants(self, variant_type: str = None) -> List[IndicatorVariant]:
+        """
+        List variants, optionally filtered by type.
 
-    def get_variant_parameters(self, variant_id: str) -> List[VariantParameter]:
-        """Get parameter definitions for a variant"""
-        return self._variant_parameters.get(variant_id, [])
+        ✅ PHASE 2 FIX: Made async and added lock protection to prevent race conditions
+        """
+        async with self._data_lock:
+            if variant_type:
+                variant_ids = self._variants_by_type.get(variant_type, [])
+                return [self._variants[vid] for vid in variant_ids if vid in self._variants]
+            else:
+                return list(self._variants.values())
+
+    async def get_variant_parameters(self, variant_id: str) -> List[VariantParameter]:
+        """
+        Get parameter definitions for a variant.
+
+        ✅ PHASE 2 FIX: Made async and added lock protection to prevent race conditions
+        """
+        async with self._data_lock:
+            return self._variant_parameters.get(variant_id, [])
 
     async def update_variant_parameters(self, variant_id: str, parameters: Dict[str, Any]) -> bool:
         """
