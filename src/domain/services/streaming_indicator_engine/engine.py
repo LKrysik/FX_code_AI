@@ -3591,6 +3591,9 @@ class StreamingIndicatorEngine:
         """
         Find existing indicator with same variant_id and parameters in session.
 
+        ⚠️ CRITICAL: This method is called INSIDE add_indicator_to_session which already holds _data_lock.
+        DO NOT acquire lock here - would cause deadlock (asyncio.Lock is not reentrant).
+
         Args:
             session_id: Session identifier
             symbol: Trading symbol
@@ -3601,37 +3604,38 @@ class StreamingIndicatorEngine:
             indicator_id if found, None otherwise
         """
         try:
-            async with self._data_lock:
-                if (session_id not in self._session_indicators or 
-                    symbol not in self._session_indicators[session_id]):
-                    return None
-                
-                # Normalize parameters for comparison
-                normalized_params = (parameters or {}).copy()
-                
-                # Check each indicator in session
-                for indicator_id in self._session_indicators[session_id][symbol]:
-                    indicator = self._indicators.get(indicator_id)
-                    if not indicator:
-                        continue
-                        
-                    # Match variant_id
-                    if indicator.metadata.get("variant_id") != variant_id:
-                        continue
-                        
-                    # Match parameters
-                    existing_params = indicator.metadata.get("parameters", {})
-                    if existing_params == normalized_params:
-                        self.logger.info("streaming_indicator_engine.found_existing_indicator", {
-                            "session_id": session_id,
-                            "symbol": symbol,
-                            "variant_id": variant_id,
-                            "existing_indicator_id": indicator_id,
-                            "parameters": normalized_params
-                        })
-                        return indicator_id
-                
+            # ✅ DEADLOCK FIX: Removed async with self._data_lock
+            # Lock is already held by caller (add_indicator_to_session)
+            if (session_id not in self._session_indicators or
+                symbol not in self._session_indicators[session_id]):
                 return None
+
+            # Normalize parameters for comparison
+            normalized_params = (parameters or {}).copy()
+
+            # Check each indicator in session
+            for indicator_id in self._session_indicators[session_id][symbol]:
+                indicator = self._indicators.get(indicator_id)
+                if not indicator:
+                    continue
+
+                # Match variant_id
+                if indicator.metadata.get("variant_id") != variant_id:
+                    continue
+
+                # Match parameters
+                existing_params = indicator.metadata.get("parameters", {})
+                if existing_params == normalized_params:
+                    self.logger.info("streaming_indicator_engine.found_existing_indicator", {
+                        "session_id": session_id,
+                        "symbol": symbol,
+                        "variant_id": variant_id,
+                        "existing_indicator_id": indicator_id,
+                        "parameters": normalized_params
+                    })
+                    return indicator_id
+
+            return None
                 
         except Exception as e:
             self.logger.error("streaming_indicator_engine.find_existing_indicator_failed", {
