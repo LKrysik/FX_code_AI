@@ -33,7 +33,10 @@
       "Bash(Get-ChildItem -Path \"frontend\" -Recurse -File)",
       "Bash(Select-String -Pattern \"metamask\" -CaseSensitive:$false)",
       "Bash(FINAL_SUMMARY.md)",
-      "Bash(del FINAL_SUMMARY.md)"
+      "Bash(del FINAL_SUMMARY.md)",
+      "Bash(grep:*)",
+      "Bash(docs/database/lorax_CORRECTED_temp.md)",
+      "Bash(docs/database/lor_temp.md)"
     ],
     "deny": [],
     "ask": []
