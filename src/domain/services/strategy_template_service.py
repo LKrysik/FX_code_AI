@@ -599,12 +599,12 @@ class StrategyTemplateService:
                 template_id,
             )
 
-            # Get recent usage
+            # Get recent usage (QuestDB syntax: dateadd instead of INTERVAL)
             recent_usage = await conn.fetchrow(
                 """
                 SELECT
-                    COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days') as last_week,
-                    COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days') as last_month
+                    COUNT(*) FILTER (WHERE created_at > dateadd('d', -7, now())) as last_week,
+                    COUNT(*) FILTER (WHERE created_at > dateadd('d', -30, now())) as last_month
                 FROM template_usage_history
                 WHERE template_id = $1
                 """,

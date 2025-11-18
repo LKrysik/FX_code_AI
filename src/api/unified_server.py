@@ -63,6 +63,11 @@ import src.api.ops.ops_routes as ops_routes_module
 # Import indicators API
 from src.api.indicators_routes import router as indicators_router
 
+# Import dashboard API (Unified Trading Dashboard)
+from src.api.dashboard_routes import router as dashboard_router
+import src.api.dashboard_routes as dashboard_routes_module
+from src.domain.services.dashboard_cache_service import DashboardCacheService
+
 # Import paper trading API (TIER 1.2)
 from src.api.paper_trading_routes import router as paper_trading_router
 import src.api.paper_trading_routes as paper_trading_routes_module
@@ -71,6 +76,14 @@ from src.domain.services.paper_trading_persistence import PaperTradingPersistenc
 # Import live trading API (Agent 6)
 from src.api.trading_routes import router as trading_router
 import src.api.trading_routes as trading_routes_module
+
+# Import new signal/transaction/chart APIs
+from src.api.signals_routes import router as signals_router
+import src.api.signals_routes as signals_routes_module
+from src.api.transactions_routes import router as transactions_router
+import src.api.transactions_routes as transactions_routes_module
+from src.api.chart_routes import router as chart_router
+import src.api.chart_routes as chart_routes_module
 
 
 class LoginRequest(BaseModel):
@@ -291,6 +304,47 @@ def create_unified_app():
             "event_bus_id": id(event_bus),
             "streaming_engine_id": id(streaming_engine),
             "questdb_provider_id": id(questdb_provider)
+        })
+
+        # Initialize dashboard_routes with proper DI (Unified Trading Dashboard)
+        # NOTE: get_current_user is defined later in this function (line ~747)
+        # For now, initialize without auth - will be added when get_current_user is created
+        dashboard_routes_module.initialize_dashboard_dependencies(
+            questdb_provider=questdb_provider,
+            streaming_engine=streaming_engine,
+            get_current_user_dependency=None  # TODO: Pass get_current_user after it's defined
+        )
+        logger.info("dashboard_routes initialized with proper dependency injection", {
+            "questdb_provider_id": id(questdb_provider),
+            "streaming_engine_id": id(streaming_engine)
+        })
+
+        # Initialize new signal/transaction/chart routes with proper DI
+        signals_routes_module.initialize_signals_dependencies(
+            questdb_provider=questdb_provider
+        )
+        logger.info("signals_routes initialized")
+
+        transactions_routes_module.initialize_transactions_dependencies(
+            questdb_provider=questdb_provider
+        )
+        logger.info("transactions_routes initialized")
+
+        chart_routes_module.initialize_chart_dependencies(
+            questdb_provider=questdb_provider
+        )
+        logger.info("chart_routes initialized")
+
+        # Start DashboardCacheService (background updates every 1 second)
+        dashboard_cache_service = DashboardCacheService(
+            questdb_provider=questdb_provider,
+            update_interval=1.0  # Update cache every 1 second
+        )
+        await dashboard_cache_service.start()
+        app.state.dashboard_cache_service = dashboard_cache_service
+        logger.info("dashboard_cache_service.started", {
+            "update_interval": 1.0,
+            "status": "background_task_running"
         })
 
         # ========================================
@@ -642,6 +696,14 @@ def create_unified_app():
         except Exception as e:
             logger.warning(f"Paper trading persistence shutdown error: {e}")
 
+        # Shutdown dashboard cache service (Unified Trading Dashboard)
+        try:
+            if hasattr(app.state, 'dashboard_cache_service'):
+                await app.state.dashboard_cache_service.stop()
+                logger.info("Dashboard cache service stopped successfully")
+        except Exception as e:
+            logger.warning(f"Dashboard cache service shutdown error: {e}")
+
         # Shutdown health monitoring
         try:
             health_monitor.stop_monitoring()
@@ -695,11 +757,19 @@ def create_unified_app():
     # Include indicators API router
     app.include_router(indicators_router)
 
+    # Include dashboard API router (Unified Trading Dashboard)
+    app.include_router(dashboard_router)
+
     # Include paper trading API router (TIER 1.2)
     app.include_router(paper_trading_router)
 
     # Include live trading API router (Agent 6)
     app.include_router(trading_router)
+
+    # Include new signal/transaction/chart API routers
+    app.include_router(signals_router)
+    app.include_router(transactions_router)
+    app.include_router(chart_router)
 
     # ✅ CIRCULAR IMPORT FIX: verify_csrf_token is now in dependencies.py
     # No need to import it here - routes already import it directly from dependencies.py

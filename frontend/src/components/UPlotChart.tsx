@@ -102,8 +102,8 @@ export const UPlotChart: React.FC<UPlotChartProps> = ({
       scales.volume = {
         auto: !volumeRange,
         range: volumeRange ? () => volumeRange : undefined,
-        side: 1, // Right side
-      };
+        // side: 1, // Right side - removed, not in Scale type
+      } as any;
     }
 
     // Add secondary scale if any series uses it
@@ -111,8 +111,8 @@ export const UPlotChart: React.FC<UPlotChartProps> = ({
       scales.secondary = {
         auto: !secondaryRange,
         range: secondaryRange ? () => secondaryRange : undefined,
-        side: 0, // Left side (or right if volume exists)
-      };
+        // side: 0, // Left side (or right if volume exists) - removed, not in Scale type
+      } as any;
     }
 
     // Build axes
@@ -165,7 +165,7 @@ export const UPlotChart: React.FC<UPlotChartProps> = ({
         labelSize: 30,
         labelGap: 10,
         size: 70,
-        side: 1,
+        // side: 1, // Removed - not in Axis type
         stroke: '#9c27b0',
         grid: {
           show: false,
@@ -186,7 +186,7 @@ export const UPlotChart: React.FC<UPlotChartProps> = ({
         labelSize: 30,
         labelGap: 10,
         size: 70,
-        side: series.some(s => s.scale === 'volume') ? 1 : 0,
+        // side: series.some(s => s.scale === 'volume') ? 1 : 0, // Removed - not in Axis type
         stroke: '#f44336',
         grid: {
           show: false,

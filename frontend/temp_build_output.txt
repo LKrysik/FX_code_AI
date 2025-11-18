@@ -1,0 +1,23 @@
+
+> crypto-trading-ui@1.0.0 build
+> next build
+
+  ▲ Next.js 14.2.32
+  - Environments: .env.local
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+   Linting and checking validity of types ...
+Failed to compile.
+
+./src/app/strategies/page.tsx:540:45
+Type error: Property 'valid' does not exist on type 'Strategy'.
+
+[0m [90m 538 |[39m                         [33m<[39m[33mBox[39m sx[33m=[39m{{ display[33m:[39m [32m'flex'[39m[33m,[39m gap[33m:[39m [35m1[39m[33m,[39m mt[33m:[39m [35m1[39m }}[33m>[39m[0m
+[0m [90m 539 |[39m                           [33m<[39m[33mChip[39m[0m
+[0m[31m[1m>[22m[39m[90m 540 |[39m                             label[33m=[39m{strategy[33m.[39mvalid [33m?[39m [32m"Valid"[39m [33m:[39m [32m"Invalid"[39m}[0m
+[0m [90m     |[39m                                             [31m[1m^[22m[39m[0m
+[0m [90m 541 |[39m                             color[33m=[39m{strategy[33m.[39mvalid [33m?[39m [32m"success"[39m [33m:[39m [32m"error"[39m}[0m
+[0m [90m 542 |[39m                             size[33m=[39m[32m"small"[39m[0m
+[0m [90m 543 |[39m                           [33m/[39m[33m>[39m[0m
+Next.js build worker exited with code: 1 and signal: null

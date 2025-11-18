@@ -214,10 +214,10 @@ export const ConditionBlock = ({
                     label={indicator.type}
                     size="small"
                     color={
-                      indicator.type === 'risk' ? 'error' :
-                      indicator.type === 'price' ? 'success' :
-                      indicator.type === 'stop_loss' ? 'warning' :
-                      indicator.type === 'take_profit' ? 'info' :
+                      indicator.type === 'stop_loss_price' ? 'warning' :
+                      indicator.type === 'take_profit_price' ? 'info' :
+                      indicator.type === 'order_price' ? 'success' :
+                      indicator.type === 'close_price' ? 'success' :
                       'default'
                     }
                     variant="outlined"

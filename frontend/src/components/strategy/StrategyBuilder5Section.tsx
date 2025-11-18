@@ -733,8 +733,12 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                               stopLoss: {
                                 ...strategyData.z1_entry.stopLoss!,
                                 riskScaling: {
-                                  ...strategyData.z1_entry.stopLoss?.riskScaling,
                                   enabled: e.target.checked,
+                                  lowRiskThreshold: strategyData.z1_entry.stopLoss?.riskScaling?.lowRiskThreshold || 20,
+                                  lowRiskScale: strategyData.z1_entry.stopLoss?.riskScaling?.lowRiskScale || 0.5,
+                                  highRiskThreshold: strategyData.z1_entry.stopLoss?.riskScaling?.highRiskThreshold || 80,
+                                  highRiskScale: strategyData.z1_entry.stopLoss?.riskScaling?.highRiskScale || 1.5,
+                                  ...strategyData.z1_entry.stopLoss?.riskScaling,
                                 },
                               },
                             })}
@@ -859,8 +863,9 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                         checked={strategyData.z1_entry.takeProfit?.enabled || false}
                         onChange={(e) => handleZ1OrderConfigChange({
                           takeProfit: {
-                            ...strategyData.z1_entry.takeProfit,
                             enabled: e.target.checked,
+                            offsetPercent: strategyData.z1_entry.takeProfit?.offsetPercent || 2,
+                            ...strategyData.z1_entry.takeProfit,
                           },
                         })}
                       />
@@ -982,8 +987,12 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                                 takeProfit: {
                                   ...strategyData.z1_entry.takeProfit!,
                                   riskScaling: {
-                                    ...strategyData.z1_entry.takeProfit?.riskScaling,
                                     enabled: e.target.checked,
+                                    lowRiskThreshold: strategyData.z1_entry.takeProfit?.riskScaling?.lowRiskThreshold || 20,
+                                    lowRiskScale: strategyData.z1_entry.takeProfit?.riskScaling?.lowRiskScale || 0.5,
+                                    highRiskThreshold: strategyData.z1_entry.takeProfit?.riskScaling?.highRiskThreshold || 80,
+                                    highRiskScale: strategyData.z1_entry.takeProfit?.riskScaling?.highRiskScale || 1.5,
+                                    ...strategyData.z1_entry.takeProfit?.riskScaling,
                                   },
                                 },
                               })}
@@ -1149,8 +1158,12 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                           positionSize: {
                             ...strategyData.z1_entry.positionSize,
                             riskScaling: {
-                              ...strategyData.z1_entry.positionSize.riskScaling,
                               enabled: e.target.checked,
+                              lowRiskThreshold: strategyData.z1_entry.positionSize.riskScaling?.lowRiskThreshold || 20,
+                              lowRiskScale: strategyData.z1_entry.positionSize.riskScaling?.lowRiskScale || 0.5,
+                              highRiskThreshold: strategyData.z1_entry.positionSize.riskScaling?.highRiskThreshold || 80,
+                              highRiskScale: strategyData.z1_entry.positionSize.riskScaling?.highRiskScale || 1.5,
+                              ...strategyData.z1_entry.positionSize.riskScaling,
                             },
                           },
                         })}
@@ -1330,14 +1343,14 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                           calculateLiquidationPrice(
                             50000,
                             strategyData.z1_entry.leverage,
-                            strategyData.direction || 'LONG'
+                            strategyData.direction === 'SHORT' ? 'SHORT' : 'LONG'
                           ),
-                          strategyData.direction || 'LONG'
+                          strategyData.direction === 'SHORT' ? 'SHORT' : 'LONG'
                         )}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
                         {(() => {
-                          const liqPrice = calculateLiquidationPrice(50000, strategyData.z1_entry.leverage, strategyData.direction || 'LONG');
+                          const liqPrice = calculateLiquidationPrice(50000, strategyData.z1_entry.leverage, strategyData.direction === 'SHORT' ? 'SHORT' : 'LONG');
                           const distance = Math.abs(((liqPrice - 50000) / 50000) * 100);
                           return `${distance.toFixed(1)}% from entry price`;
                         })()}
@@ -1625,8 +1638,12 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                         checked={strategyData.ze1_close.riskAdjustedPricing?.enabled || false}
                         onChange={(e) => handleZE1OrderConfigChange({
                           riskAdjustedPricing: {
-                            ...strategyData.ze1_close.riskAdjustedPricing,
                             enabled: e.target.checked,
+                            lowRiskThreshold: strategyData.ze1_close.riskAdjustedPricing?.lowRiskThreshold || 20,
+                            lowRiskAdjustment: strategyData.ze1_close.riskAdjustedPricing?.lowRiskAdjustment || 0,
+                            highRiskThreshold: strategyData.ze1_close.riskAdjustedPricing?.highRiskThreshold || 80,
+                            highRiskAdjustment: strategyData.ze1_close.riskAdjustedPricing?.highRiskAdjustment || 0,
+                            ...strategyData.ze1_close.riskAdjustedPricing,
                           },
                         })}
                       />

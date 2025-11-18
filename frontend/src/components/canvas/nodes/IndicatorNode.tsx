@@ -164,7 +164,6 @@ const IndicatorNode = React.memo(function IndicatorNode({ data, selected }: Node
             <Alert
               severity="error"
               variant="outlined"
-              size="small"
               icon={<ErrorIcon fontSize="small" />}
               action={
                 <Button

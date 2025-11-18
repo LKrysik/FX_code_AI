@@ -387,8 +387,13 @@ const DashboardContent = React.memo(function DashboardContent() {
   };
 
   const handleQuickTradeSetup = () => {
-    // Navigate to trading page
+    // Navigate to live trading page
     router.push('/trading');
+  };
+
+  const handlePaperTrading = () => {
+    // Navigate to paper trading page
+    router.push('/paper');
   };
 
   const handleRiskManagement = () => {
@@ -416,41 +421,28 @@ const DashboardContent = React.memo(function DashboardContent() {
 
   const handleStartBacktest = async () => {
     try {
-      // Start a backtest session
-      const sessionData = {
-        session_type: 'backtest',
-        symbols: ['BTC_USDT', 'ETH_USDT', 'ADA_USDT', 'SOL_USDT', 'DOT_USDT'],
-        strategy_config: {
-          pump_dump_detector: {
-            scan_interval: 60,
-            min_pump_magnitude: 5.0,
-            min_volume_surge: 2.0
-          }
-        },
-        config: {
-          budget: { global_cap: 10000 },
-          data_collection: { duration: 'continuous' }
-        },
-        idempotent: true
-      };
+      // ❌ CRITICAL BUG FIXED: This function was missing session_id parameter!
+      // Backtest requires a data collection session_id to replay historical data.
+      //
+      // CURRENT LIMITATION: This hardcoded implementation will fail because there's
+      // no UI for users to select a session. The proper fix requires:
+      // 1. Add state: const [backtestSessionId, setBacktestSessionId] = useState('')
+      // 2. Load sessions: GET /api/data-collection/sessions (like dashboard/page.tsx:214)
+      // 3. Add UI selector (like backtesting page SessionSelector component)
+      //
+      // For now, showing error to prevent confusion.
+      //
+      // See: docs/frontend/BACKTEST_SESSION_FIX.md for complete implementation example
 
-      const response = await startSession(sessionData);
+      addNotification({
+        type: 'error',
+        message: 'Backtest feature requires session selection UI (not yet implemented on this page). Please use /backtesting page instead.',
+      });
+      console.error('[PumpDumpDashboard] CRITICAL: Backtest button clicked but no session_id selector exists. Redirecting to /backtesting...');
 
-      // Validate response before showing success
-      if (response?.data?.session_id) {
-        addNotification({
-          type: 'success',
-          message: `Backtest started successfully: ${response.data.session_id}`,
-        });
-      } else {
-        // Response missing expected data - show warning instead
-        addNotification({
-          type: 'warning',
-          message: 'Backtest may have started but session ID is unavailable',
-        });
-      }
-      // Refresh data to show new session
-      loadDashboardData();
+      // Redirect to proper backtesting page
+      router.push('/backtesting');
+      return;
     } catch (error) {
       addNotification({
         type: 'error',
@@ -695,7 +687,7 @@ const DashboardContent = React.memo(function DashboardContent() {
 
       {/* Quick Actions Bar */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={12} md={2.4}>
+        <Grid item xs={12} sm={6} md={2.4}>
           <Button
             variant="contained"
             color="success"
@@ -705,10 +697,10 @@ const DashboardContent = React.memo(function DashboardContent() {
             sx={{ py: 1.5 }}
             onClick={handleStartPumpScanner}
           >
-            Start Pump Scanner
+            Pump Scanner
           </Button>
         </Grid>
-        <Grid item xs={12} md={2.4}>
+        <Grid item xs={12} sm={6} md={2.4}>
           <Button
             variant="contained"
             color="primary"
@@ -721,7 +713,20 @@ const DashboardContent = React.memo(function DashboardContent() {
             Live Trading
           </Button>
         </Grid>
-        <Grid item xs={12} md={2.4}>
+        <Grid item xs={12} sm={6} md={2.4}>
+          <Button
+            variant="contained"
+            color="info"
+            fullWidth
+            startIcon={<ChartIcon />}
+            size="large"
+            sx={{ py: 1.5 }}
+            onClick={handlePaperTrading}
+          >
+            Paper Trading
+          </Button>
+        </Grid>
+        <Grid item xs={12} sm={6} md={2.4}>
           <Button
             variant="contained"
             color="secondary"
@@ -731,23 +736,10 @@ const DashboardContent = React.memo(function DashboardContent() {
             sx={{ py: 1.5 }}
             onClick={handleStartBacktest}
           >
-            Run Backtest
+            Backtesting
           </Button>
         </Grid>
-        <Grid item xs={12} md={2.4}>
-          <Button
-            variant="outlined"
-            color="info"
-            fullWidth
-            startIcon={<ChartIcon />}
-            size="large"
-            sx={{ py: 1.5 }}
-            onClick={handleStartDataCollection}
-          >
-            Collect Data
-          </Button>
-        </Grid>
-        <Grid item xs={12} md={2.4}>
+        <Grid item xs={12} sm={6} md={2.4}>
           <Button
             variant="outlined"
             color="warning"

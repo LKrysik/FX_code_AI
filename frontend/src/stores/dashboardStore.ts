@@ -63,7 +63,7 @@ export const useDashboardStore = create<DashboardState>()(
         );
 
         if (existingIndex >= 0) {
-          // Update existing
+          // Update existing - merge new values into existing indicator
           const updatedIndicators = [...currentIndicators];
           updatedIndicators[existingIndex] = { ...updatedIndicators[existingIndex], ...indicator };
           set({ indicators: updatedIndicators });
@@ -106,11 +106,34 @@ export const useDashboardStore = create<DashboardState>()(
         try {
           set({ marketDataLoading: true, marketDataError: null });
           const response = await apiService.getMarketData();
-          if (response && response.data && response.data.market_data) {
-            set({ marketData: response.data.market_data, marketDataLoading: false });
-            debugLog('Market data fetched successfully');
-            return response.data.market_data;
+
+          // Type guard for market data validation
+          const isValidMarketData = (item: any): boolean => {
+            return (
+              item &&
+              typeof item.symbol === 'string' &&
+              typeof item.price === 'number' &&
+              typeof item.priceChange24h === 'number' &&
+              typeof item.volume24h === 'number'
+            );
+          };
+
+          // Validate response structure
+          if (response && response.data && Array.isArray(response.data.market_data)) {
+            const marketData = response.data.market_data;
+
+            // Validate all items
+            const validMarketData = marketData.filter(isValidMarketData);
+
+            if (validMarketData.length !== marketData.length) {
+              console.warn(`Filtered out ${marketData.length - validMarketData.length} invalid market data items`);
+            }
+
+            set({ marketData: validMarketData, marketDataLoading: false });
+            debugLog('Market data fetched successfully', { count: validMarketData.length });
+            return validMarketData;
           } else {
+            console.warn('Invalid market data response structure:', response);
             // Fallback to empty array if no data
             set({ marketData: [], marketDataLoading: false });
             return [];
@@ -127,11 +150,34 @@ export const useDashboardStore = create<DashboardState>()(
         try {
           set({ indicatorsLoading: true, indicatorsError: null });
           const indicators = await apiService.getIndicators();
-          if (indicators && indicators.data && indicators.data.indicators) {
-            set({ indicators: indicators.data.indicators, indicatorsLoading: false });
-            debugLog('Indicators fetched successfully');
-            return indicators.data.indicators;
+
+          // Type guard for indicator validation
+          const isValidIndicator = (item: any): boolean => {
+            return (
+              item &&
+              typeof item.name === 'string' &&
+              typeof item.value === 'number' &&
+              typeof item.symbol === 'string' &&
+              typeof item.timestamp === 'string'
+            );
+          };
+
+          // Validate response structure
+          if (indicators && (indicators as any).data && Array.isArray((indicators as any).data.indicators)) {
+            const indicatorData = (indicators as any).data.indicators;
+
+            // Validate all items
+            const validIndicators = indicatorData.filter(isValidIndicator);
+
+            if (validIndicators.length !== indicatorData.length) {
+              console.warn(`Filtered out ${indicatorData.length - validIndicators.length} invalid indicators`);
+            }
+
+            set({ indicators: validIndicators, indicatorsLoading: false });
+            debugLog('Indicators fetched successfully', { count: validIndicators.length });
+            return validIndicators;
           } else {
+            console.warn('Invalid indicators response structure:', indicators);
             set({ indicators: [], indicatorsLoading: false });
             return [];
           }
@@ -147,21 +193,33 @@ export const useDashboardStore = create<DashboardState>()(
         try {
           set({ signalsLoading: true, signalsError: null });
           const sessionStatus = await apiService.getExecutionStatus();
-          if (sessionStatus && sessionStatus.signals && sessionStatus.signals.length > 0) {
-            // Transform session signals to ActiveSignal format
-            const signals = sessionStatus.signals.map((signal: any, index: number) => ({
-              id: signal.id || `signal_${index}`,
-              symbol: signal.symbol || 'UNKNOWN',
-              signalType: signal.type === 'pump_detection' ? 'pump' : 'dump',
-              magnitude: signal.magnitude || signal.value || 0,
-              confidence: signal.confidence || 50,
-              timestamp: signal.timestamp || new Date().toISOString(),
-              strategy: signal.strategy || 'unknown'
-            }));
+
+          // Validate response structure
+          if (sessionStatus && Array.isArray(sessionStatus.signals) && sessionStatus.signals.length > 0) {
+            // Transform session signals to ActiveSignal format with null safety
+            const signals = sessionStatus.signals
+              .filter((signal: any) => signal && signal.symbol) // Filter out invalid signals
+              .map((signal: any, index: number) => ({
+                id: signal?.id || `signal_${index}`,
+                symbol: signal?.symbol || 'UNKNOWN',
+                // Handle signal type with explicit checks
+                signalType: signal?.type === 'pump_detection'
+                  ? 'pump'
+                  : signal?.type === 'dump_detection'
+                    ? 'dump'
+                    : 'pump', // Default to 'pump' if type is unknown
+                // Use nullish coalescing for numeric values to handle 0 correctly
+                magnitude: signal?.magnitude ?? signal?.value ?? 0,
+                confidence: signal?.confidence ?? 50,
+                timestamp: signal?.timestamp || new Date().toISOString(),
+                strategy: signal?.strategy || 'unknown'
+              }));
+
             set({ activeSignals: signals, signalsLoading: false });
-            debugLog('Active signals fetched successfully');
+            debugLog('Active signals fetched successfully', { count: signals.length });
             return signals;
           } else {
+            // Empty array or invalid structure
             set({ activeSignals: [], signalsLoading: false });
             return [];
           }

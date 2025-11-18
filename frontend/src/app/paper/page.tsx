@@ -5,18 +5,18 @@ import { useRouter } from 'next/navigation';
 import { Box, CircularProgress, Typography } from '@mui/material';
 
 /**
- * Backtesting Redirect Page
- * ==========================
+ * Paper Trading Redirect Page
+ * ============================
  *
- * Redirects /backtesting → /dashboard?mode=backtest
- * This provides backward compatibility with legacy URLs
+ * Redirects /paper → /dashboard?mode=paper
+ * This provides a clean URL for paper trading access
  */
-export default function BacktestingRedirectPage() {
+export default function PaperTradingRedirectPage() {
   const router = useRouter();
 
   useEffect(() => {
-    // Redirect to unified dashboard with backtest mode
-    router.replace('/dashboard?mode=backtest');
+    // Redirect to unified dashboard with paper mode
+    router.replace('/dashboard?mode=paper');
   }, [router]);
 
   return (
@@ -32,7 +32,7 @@ export default function BacktestingRedirectPage() {
     >
       <CircularProgress />
       <Typography variant="body1" color="text.secondary">
-        Redirecting to Backtesting...
+        Redirecting to Paper Trading...
       </Typography>
     </Box>
   );

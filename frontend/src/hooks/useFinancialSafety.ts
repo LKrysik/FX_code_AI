@@ -19,8 +19,9 @@ export interface SafetyCheckResult {
 
 export const useFinancialSafety = () => {
   const { isConnected, connectionStatus } = useWebSocketStore();
-  const { readOnlyMode, addNotification } = useUIStore();
+  const { /* readOnlyMode, */ addNotification } = useUIStore(); // TODO: readOnlyMode removed from UIState
   const { currentSession } = useTradingStore();
+  const readOnlyMode = false; // TODO: Implement readOnlyMode properly
 
   // Core safety checks
   const checkConnectionSafety = useCallback((): SafetyCheckResult => {

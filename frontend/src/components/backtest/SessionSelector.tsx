@@ -174,7 +174,7 @@ export const SessionSelector: React.FC<SessionSelectorProps> = ({
       quality = 'error';
     } else if (recordCount < minRecords * 2) {
       issues.push(`Warning: Only ${recordCount} records (recommended: ${minRecords * 2}+)`);
-      quality = quality === 'error' ? 'error' : 'warning';
+      quality = 'warning';
     }
 
     // Check required symbols

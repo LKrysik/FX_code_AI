@@ -2570,6 +2570,125 @@ async def calculate_algorithm_refresh_interval(
         )
 
 
+@router.get("/current")
+async def get_current_indicator_values(
+    session_id: str,
+    symbol: str,
+    engine: StreamingIndicatorEngine = Depends(get_streaming_indicator_engine)
+) -> JSONResponse:
+    """
+    Get CURRENT (latest) indicator values for Live Indicator Panel.
+
+    PERFORMANCE REQUIREMENT: Must return within <100ms.
+
+    Used by: Dashboard Live Indicator Panel component
+
+    Returns latest values with thresholds for UI display.
+
+    Response format:
+        {
+            "session_id": "session_123",
+            "symbol": "BTC_USDT",
+            "timestamp": "2025-11-15T13:05:23Z",
+            "indicators": [
+                {
+                    "name": "TWPA",
+                    "indicator_id": "twpa_300_0",
+                    "value": 50250,
+                    "confidence": 85,
+                    "timestamp": "2025-11-15T13:05:23Z",
+                    "parameters": {"t1": 300, "t2": 0}
+                },
+                ...
+            ],
+            "next_evaluation_in_seconds": 12
+        }
+    """
+    import time as time_module
+    import json
+    start_time = time_module.time()
+
+    try:
+        # Get active indicators for session/symbol
+        session_indicators = await engine.get_session_indicators(session_id, symbol)
+
+        if not session_indicators:
+            return _json_ok({
+                "session_id": session_id,
+                "symbol": symbol,
+                "timestamp": datetime.now().isoformat(),
+                "indicators": [],
+                "next_evaluation_in_seconds": 0
+            })
+
+        # Get QuestDB provider
+        questdb_provider, _ = _ensure_questdb_providers()
+
+        # Extract indicator IDs
+        indicator_ids = [ind["indicator_id"] for ind in session_indicators if "indicator_id" in ind]
+
+        # Get latest values using optimized method
+        latest_values = await questdb_provider.get_latest_indicators_detailed(
+            symbol=symbol,
+            indicator_ids=indicator_ids
+        )
+
+        # Build response with indicator details
+        indicators_data = []
+        for value_data in latest_values:
+            # Find matching session indicator for metadata
+            session_ind = next(
+                (ind for ind in session_indicators if ind.get("indicator_id") == value_data["indicator_id"]),
+                {}
+            )
+
+            # Parse metadata if exists
+            metadata = {}
+            if value_data.get("metadata"):
+                try:
+                    metadata = json.loads(value_data["metadata"])
+                except:
+                    pass
+
+            indicators_data.append({
+                "name": session_ind.get("name", value_data["indicator_id"]),
+                "indicator_id": value_data["indicator_id"],
+                "value": value_data["value"],
+                "confidence": value_data["confidence"],
+                "timestamp": value_data["timestamp"].isoformat() if value_data["timestamp"] else None,
+                "parameters": session_ind.get("parameters", {})
+            })
+
+        elapsed_ms = (time_module.time() - start_time) * 1000
+
+        logger.info("indicators_routes.current_values_success", {
+            "session_id": session_id,
+            "symbol": symbol,
+            "indicators_count": len(indicators_data),
+            "elapsed_ms": elapsed_ms
+        })
+
+        return _json_ok({
+            "session_id": session_id,
+            "symbol": symbol,
+            "timestamp": datetime.now().isoformat(),
+            "indicators": indicators_data,
+            "next_evaluation_in_seconds": 12  # TODO: Get from strategy config
+        })
+
+    except Exception as e:
+        logger.error("indicators_routes.current_values_failed", {
+            "session_id": session_id,
+            "symbol": symbol,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        })
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get current indicator values: {str(e)}"
+        )
+
+
 def _reset_indicators_state_for_tests() -> None:
     """
     Reset module-level state to allow isolated unit tests.

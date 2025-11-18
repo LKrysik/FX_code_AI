@@ -70,7 +70,7 @@ class WebSocketService {
       }
       // Check if we have auth credentials and authenticate first
       this.initializeWithAuth();
-    } catch (e) {
+    } catch (e: any) {
       errorLog('WebSocket initialization failed', e);
       this.debouncedStoreUpdate(() => {
         useWebSocketStore.getState().setConnected(false);
@@ -113,7 +113,7 @@ class WebSocketService {
     } catch (error) {
       const wsUrl = config.wsUrl?.replace(/^http/, 'ws');
       const unifiedError = categorizeError(error, 'WebSocket instantiation');
-      logUnifiedError(unifiedError, { url: wsUrl });
+      logUnifiedError(unifiedError);
       this.safeStoreUpdate(() => {
         useWebSocketStore.getState().setConnectionStatus('error');
         useWebSocketStore.getState().setLastError(`Failed to create WebSocket connection to ${wsUrl}. ${unifiedError.message}`);
@@ -405,7 +405,7 @@ class WebSocketService {
     try {
       this.callbacks.onSessionUpdate?.(message);
     } finally {
-      for (const handler of this.sessionUpdateListeners) {
+      for (const handler of Array.from(this.sessionUpdateListeners)) {
         try {
           handler(message);
         } catch (error) {
@@ -436,12 +436,12 @@ class WebSocketService {
       return;
     }
 
-    for (const [stream, params] of this.activeSubscriptions.entries()) {
+    for (const [stream, params] of Array.from(this.activeSubscriptions.entries())) {
       this.sendSubscription(stream, params);
     }
 
     if (this.pendingSubscriptions.size > 0) {
-      for (const [stream, params] of this.pendingSubscriptions.entries()) {
+      for (const [stream, params] of Array.from(this.pendingSubscriptions.entries())) {
         this.activeSubscriptions.set(stream, params);
         this.sendSubscription(stream, params);
       }
@@ -638,7 +638,7 @@ class WebSocketService {
         }
 
         return await response.json();
-      } catch (error) {
+      } catch (error: any) {
         // If we get an auth error, mark as unauthenticated
         if (error.message.includes('401') || error.message.includes('authentication')) {
           this.isAuthenticated = false;
