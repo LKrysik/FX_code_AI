@@ -70,6 +70,11 @@ export interface DashboardState {
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   reset: () => void;
+
+  // Async Actions
+  fetchMarketData: () => Promise<MarketData[]>;
+  fetchIndicators: () => Promise<IndicatorData[]>;
+  fetchActiveSignals: () => Promise<ActiveSignal[]>;
 }
 
 // WebSocket State

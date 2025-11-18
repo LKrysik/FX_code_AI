@@ -22,7 +22,7 @@ const GlobalErrorFallback: React.FC<{
   resetError: () => void;
   isFinancialError: boolean;
 }> = ({ error, resetError, isFinancialError }) => {
-  const { setReadOnlyMode, addNotification } = useUIStore();
+  const { addNotification } = useUIStore();
   const { setConnectionStatus } = useWebSocketStore();
 
   const handleRecovery = useCallback(() => {
@@ -42,7 +42,7 @@ const GlobalErrorFallback: React.FC<{
     setTimeout(() => {
       window.location.reload();
     }, 1000);
-  }, [isFinancialError, setReadOnlyMode, setConnectionStatus, addNotification, resetError]);
+  }, [isFinancialError, setConnectionStatus, addNotification, resetError]);
 
   return (
     <Box

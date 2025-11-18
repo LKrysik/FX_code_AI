@@ -19,7 +19,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket';
-import { createChart, IChartApi, ISeriesApi, CandlestickData, Time } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, CandlestickData, Time, CandlestickSeriesPartialOptions } from 'lightweight-charts';
 
 // ========================================
 // TypeScript Types
@@ -113,8 +113,8 @@ export default function TradingChart({
 
     chartRef.current = chart;
 
-    // Add candlestick series
-    const candlestickSeries = chart.addCandlestickSeries({
+    // Add candlestick series (v5 API uses addSeries)
+    const candlestickSeries = (chart as any).addCandlestickSeries({
       upColor: '#26a69a',
       downColor: '#ef5350',
       borderVisible: false,
@@ -125,7 +125,7 @@ export default function TradingChart({
     candlestickSeriesRef.current = candlestickSeries;
 
     // Add volume series (histogram)
-    const volumeSeries = chart.addHistogramSeries({
+    const volumeSeries = (chart as any).addHistogramSeries({
       color: '#26a69a',
       priceFormat: {
         type: 'volume',
@@ -234,7 +234,7 @@ export default function TradingChart({
         text: signal.signal_type,
       }));
 
-      candlestickSeriesRef.current.setMarkers(markers as any);
+      (candlestickSeriesRef.current as any).setMarkers(markers as any);
     }
 
     // Auto-scroll to latest
@@ -294,8 +294,8 @@ export default function TradingChart({
       };
 
       // Add marker (note: setMarkers replaces all markers, so we need to add to existing)
-      const existingMarkers = candlestickSeriesRef.current.markers?.() || [];
-      candlestickSeriesRef.current.setMarkers([...existingMarkers, marker] as any);
+      const existingMarkers = (candlestickSeriesRef.current as any).markers?.() || [];
+      (candlestickSeriesRef.current as any).setMarkers([...existingMarkers, marker] as any);
     }
   };
 

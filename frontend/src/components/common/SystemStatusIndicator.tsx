@@ -80,9 +80,9 @@ export const StatusChip: React.FC<StatusChipProps> = ({
 
   switch (type) {
     case 'overall':
-      color = getStatusColor(status as OverallStatusType);
-      icon = showIcon ? getStatusIcon(status as OverallStatusType) : undefined;
-      label = compact ? status.toString() : getStatusText(status as OverallStatusType);
+      color = getOverallStatusColor(status as OverallStatusType);
+      icon = showIcon ? getOverallStatusIcon(status as OverallStatusType) : undefined;
+      label = compact ? status.toString() : getOverallStatusText(status as OverallStatusType);
       break;
     case 'websocket':
       color = getWebSocketStatusColor(status as WebSocketStatusType);
@@ -91,7 +91,7 @@ export const StatusChip: React.FC<StatusChipProps> = ({
       break;
     case 'backend':
       color = getBackendStatusColor(status as SystemStatusType);
-      icon = showIcon ? getStatusIcon(status as OverallStatusType) : undefined;
+      icon = showIcon ? getOverallStatusIcon(status as OverallStatusType) : undefined;
       label = compact ? status.toString() : getBackendStatusText(status as SystemStatusType);
       break;
   }
@@ -127,7 +127,7 @@ export const StatusAlert: React.FC<StatusAlertProps> = ({
   websocketStatus,
   lastChecked
 }) => {
-  const defaultTitle = getStatusText(status);
+  const defaultTitle = getOverallStatusText(status);
   const defaultMessage = status === 'healthy'
     ? 'All systems are operating normally.'
     : status === 'warning'
@@ -214,14 +214,6 @@ export const CompactStatusDisplay: React.FC<CompactStatusDisplayProps> = ({
 
 // Direct WebSocket health subscription for SystemStatusIndicator
 let healthWsSubscribed = false;
-
-interface SystemStatus {
-  backend: 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
-  websocket: 'connected' | 'disconnected' | 'connecting' | 'error';
-  readOnlyMode: boolean;
-  lastChecked: number;
-  highLoad?: boolean;
-}
 
 interface SystemStatusIndicatorProps {
   showDetails?: boolean;

@@ -22,7 +22,7 @@ export interface AuthState {
   // Actions
   login: (username: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
-  refreshToken: () => Promise<boolean>;
+  refreshAccessToken: () => Promise<boolean>;
   clearError: () => void;
   checkAuth: () => Promise<void>;
 }
@@ -97,7 +97,7 @@ export const useAuthStore = create<AuthState>()(
           }
 
           // Schedule automatic token refresh
-          const newRefreshTimer = scheduleTokenRefresh(tokenExpiry, () => get().refreshToken());
+          const newRefreshTimer = scheduleTokenRefresh(tokenExpiry, () => get().refreshAccessToken());
 
           set({
             user,
@@ -176,7 +176,7 @@ export const useAuthStore = create<AuthState>()(
       },
 
       // Refresh token action
-      refreshToken: async (): Promise<boolean> => {
+      refreshAccessToken: async (): Promise<boolean> => {
         const { refreshToken: currentRefreshToken } = get();
 
         if (!currentRefreshToken) {
@@ -209,7 +209,7 @@ export const useAuthStore = create<AuthState>()(
           }
 
           // Schedule new automatic token refresh
-          const newRefreshTimer = scheduleTokenRefresh(tokenExpiry, () => get().refreshToken());
+          const newRefreshTimer = scheduleTokenRefresh(tokenExpiry, () => get().refreshAccessToken());
 
           set({
             user,
@@ -252,7 +252,7 @@ export const useAuthStore = create<AuthState>()(
         if (tokenExpiry && now >= tokenExpiry) {
           // Token is expired, try to refresh
           if (storedRefreshToken) {
-            await get().refreshToken();
+            await get().refreshAccessToken();
           } else {
             set({ isAuthenticated: false });
           }
@@ -272,13 +272,13 @@ export const useAuthStore = create<AuthState>()(
               set({ isAuthenticated: true });
               // Restore refresh timer if we have expiry info
               if (tokenExpiry && !get().refreshTimer) {
-                const refreshTimer = scheduleTokenRefresh(tokenExpiry, () => get().refreshToken());
+                const refreshTimer = scheduleTokenRefresh(tokenExpiry, () => get().refreshAccessToken());
                 set({ refreshTimer });
               }
             } else {
               // Token might be expired, try refresh
               if (storedRefreshToken) {
-                await get().refreshToken();
+                await get().refreshAccessToken();
               } else {
                 set({ isAuthenticated: false });
               }
@@ -286,14 +286,14 @@ export const useAuthStore = create<AuthState>()(
           } catch (error) {
             // Network error, try refresh
             if (storedRefreshToken) {
-              await get().refreshToken();
+              await get().refreshAccessToken();
             } else {
               set({ isAuthenticated: false });
             }
           }
         } else if (storedRefreshToken) {
           // No access token but have refresh token, try to refresh
-          await get().refreshToken();
+          await get().refreshAccessToken();
         }
       },
     }),

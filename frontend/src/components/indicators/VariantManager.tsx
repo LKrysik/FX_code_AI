@@ -284,8 +284,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
     }
 
     const systemIndicator = availableIndicators.find(si =>
-      si.id === variant.baseType ||
-      si.id === variant.base_indicator_type
+      si.id === variant.baseType
     );
 
     if (!systemIndicator) {
@@ -578,7 +577,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
     // Validate JSON parameters
     if (selectedSystemIndicator) {
       const param = selectedSystemIndicator.parameters.find(p => p.name === paramName);
-      if (param?.parameter_type === 'json' && value) {
+      if (param?.type === 'json' && value) {
         try {
 
           JSON.parse(value);
@@ -850,21 +849,21 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
                 </Typography>
                 <Grid container spacing={2}>
                   {selectedSystemIndicator.parameters.map((param) => (
-                    <Grid item xs={12} md={param.parameter_type === 'json' ? 12 : 6} key={param.name}>
+                    <Grid item xs={12} md={param.type === 'json' ? 12 : 6} key={param.name}>
                       <TextField
                         fullWidth
-                        label={`${param.name}${param.is_required ? ' *' : ''}`}
-                        type={param.parameter_type === 'int' || param.parameter_type === 'float' ? 'number' : 'text'}
-                        multiline={param.parameter_type === 'json'}
-                        rows={param.parameter_type === 'json' ? 4 : 1}
+                        label={`${param.name}${param.required ? ' *' : ''}`}
+                        type={param.type === 'int' || param.type === 'float' ? 'number' : 'text'}
+                        multiline={param.type === 'json'}
+                        rows={param.type === 'json' ? 4 : 1}
                         value={variantForm.parameters[param.name] || ''}
                         onChange={(e) => handleParameterChange(param.name, e.target.value)}
                         error={!!parameterErrors[param.name]}
-                        helperText={parameterErrors[param.name] || param.description || (param.parameter_type === 'json' ? 'JSON format required' : '')}
+                        helperText={parameterErrors[param.name] || param.description || (param.type === 'json' ? 'JSON format required' : '')}
                         inputProps={{
                           min: param.min_value,
                           max: param.max_value,
-                          step: param.parameter_type === 'float' ? '0.01' : '1',
+                          step: param.type === 'float' ? '0.01' : '1',
                         }}
                       />
                     </Grid>

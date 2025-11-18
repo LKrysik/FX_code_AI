@@ -6,7 +6,7 @@ import { apiService } from './api';
 
 interface HealthStatus {
   backend: 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
-  websocket: 'connected' | 'disconnected' | 'connecting' | 'error';
+  websocket: 'connected' | 'disconnected' | 'connecting' | 'error' | 'disabled';
   overall: 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
   lastUpdated: number;
 }
@@ -143,7 +143,7 @@ class GlobalHealthService {
 
   private calculateOverallStatus(
     backend: 'healthy' | 'degraded' | 'unhealthy' | 'unknown',
-    websocket: 'connected' | 'disconnected' | 'connecting' | 'error'
+    websocket: 'connected' | 'disconnected' | 'connecting' | 'error' | 'disabled'
   ): 'healthy' | 'degraded' | 'unhealthy' | 'unknown' {
     // WebSocket connection is critical for real-time features
     if (websocket === 'error' || websocket === 'disconnected') {

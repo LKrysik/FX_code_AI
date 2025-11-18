@@ -1220,6 +1220,72 @@ class QuestDBProvider:
 
         return {row['indicator_id']: row['value'] for row in rows}
 
+    async def get_latest_indicators_detailed(
+        self,
+        symbol: str,
+        indicator_ids: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get latest indicator values with full details (timestamp, confidence, metadata).
+
+        Used by: Live Indicator Panel (Dashboard UI)
+
+        Args:
+            symbol: Trading pair
+            indicator_ids: List of indicator IDs to filter (optional)
+
+        Returns:
+            List of dictionaries with format:
+            [
+                {
+                    'indicator_id': 'twpa_300_0',
+                    'value': 50250.0,
+                    'confidence': 0.85,
+                    'timestamp': datetime(...),
+                    'metadata': '{"params": {"t1": 300, "t2": 0}}'
+                },
+                ...
+            ]
+
+        Performance: Uses LATEST BY for O(1) lookup per indicator.
+        """
+        await self.initialize()
+
+        if indicator_ids:
+            placeholders = ', '.join([f'${i+2}' for i in range(len(indicator_ids))])
+            query = f"""
+                SELECT indicator_id, value, confidence, timestamp, metadata
+                FROM indicators
+                WHERE symbol = $1
+                  AND indicator_id IN ({placeholders})
+                LATEST BY indicator_id
+            """
+            params = [symbol] + indicator_ids
+        else:
+            query = """
+                SELECT indicator_id, value, confidence, timestamp, metadata
+                FROM indicators
+                WHERE symbol = $1
+                LATEST BY indicator_id
+            """
+            params = [symbol]
+
+        async with self.pg_pool.acquire() as conn:
+            rows = await conn.fetch(query, *params)
+
+        # Convert to list of dicts
+        result = []
+        for row in rows:
+            result.append({
+                'indicator_id': row['indicator_id'],
+                'value': float(row['value']) if row['value'] is not None else None,
+                'confidence': float(row['confidence']) if row['confidence'] is not None else None,
+                'timestamp': row['timestamp'],
+                'metadata': row['metadata']
+            })
+
+        return result
+
     async def get_ohlcv_resample(
         self,
         symbol: str,
@@ -1265,7 +1331,7 @@ class QuestDBProvider:
             query += f" AND timestamp <= ${idx}"
             params.append(end_time)
 
-        query += f" SAMPLE BY {interval} ALIGN TO CALENDAR"
+        query += f" SAMPLE BY {interval} ALIGN TO CALENDAR FILL(PREV)"
 
         async with self.pg_pool.acquire() as conn:
             rows = await conn.fetch(query, *params)

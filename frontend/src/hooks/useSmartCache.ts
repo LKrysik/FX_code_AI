@@ -47,8 +47,9 @@ class SmartCache {
   }
 
   private detectMemoryPressure(): void {
-    if (typeof performance !== 'undefined' && performance.memory) {
-      const usedPercent = performance.memory.usedJSHeapSize / performance.memory.jsHeapSizeLimit;
+    if (typeof performance !== 'undefined' && (performance as any).memory) {
+      const memory = (performance as any).memory;
+      const usedPercent = memory.usedJSHeapSize / memory.jsHeapSizeLimit;
       if (usedPercent > 0.8) {
         this.maxSize = Math.max(20, Math.floor(this.maxSize * 0.5));
       }
@@ -116,7 +117,7 @@ class SmartCache {
   }
 
   invalidatePattern(pattern: string): void {
-    for (const key of this.cache.keys()) {
+    for (const key of Array.from(this.cache.keys())) {
       if (key.includes(pattern)) {
         this.invalidate(key);
       }
@@ -127,7 +128,7 @@ class SmartCache {
   clear(): void {
     this.cache.clear();
     this.accessOrder.clear();
-    for (const timeout of this.refreshTimeouts.values()) {
+    for (const timeout of Array.from(this.refreshTimeouts.values())) {
       clearTimeout(timeout);
     }
     this.refreshTimeouts.clear();

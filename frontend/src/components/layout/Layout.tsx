@@ -47,7 +47,13 @@ const menuItems = [
     text: 'Live Trading',
     icon: <PlayIcon />,
     path: '/trading',
-    description: 'Live and paper trading sessions'
+    description: 'Real trading with live funds'
+  },
+  {
+    text: 'Paper Trading',
+    icon: <ChartIcon />,
+    path: '/paper',
+    description: 'Simulated trading with virtual funds'
   },
   {
     text: 'Backtesting',

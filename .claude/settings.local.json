@@ -36,7 +36,13 @@
       "Bash(del FINAL_SUMMARY.md)",
       "Bash(grep:*)",
       "Bash(docs/database/lorax_CORRECTED_temp.md)",
-      "Bash(docs/database/lor_temp.md)"
+      "Bash(docs/database/lor_temp.md)",
+      "Bash(python3 -m py_compile:*)",
+      "Bash(npm run build:*)",
+      "Bash(taskkill:*)",
+      "Bash(npm install:*)",
+      "Bash(del \"C:\\Users\\lukasz.krysik\\Desktop\\FXcrypto\\FX_code_AI_v2\\frontend\\src\\components\\dashboard\\TradingDashboardNew.tsx\")",
+      "Bash(.venvScriptspython.exe:*)"
     ],
     "deny": [],
     "ask": []

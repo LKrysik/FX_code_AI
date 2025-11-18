@@ -67,6 +67,10 @@ export const StrategyBuilder4Section: React.FC<StrategyBuilder4SectionProps> = (
       o1_cancel: {
         timeoutSeconds: 30,
         conditions: [],
+        cooldownMinutes: 5,
+      },
+      ze1_close: {
+        conditions: [],
       },
       emergency_exit: {
         conditions: [],
@@ -302,8 +306,9 @@ export const StrategyBuilder4Section: React.FC<StrategyBuilder4SectionProps> = (
         );
       case 'z1':
         return availableIndicators.filter(ind =>
-          ind.type === 'general' || ind.type === 'risk' ||
-          ind.type === 'price' || ind.type === 'stop_loss' || ind.type === 'take_profit'
+          ind.type === 'general' ||
+          ind.type === 'stop_loss_price' || ind.type === 'take_profit_price' ||
+          ind.type === 'order_price' || ind.type === 'close_price'
         );
       default:
         return availableIndicators;
@@ -426,7 +431,7 @@ export const StrategyBuilder4Section: React.FC<StrategyBuilder4SectionProps> = (
                     <em>Use market price</em>
                   </MenuItem>
                   {availableIndicators
-                    .filter(ind => ind.type === 'price')
+                    .filter(ind => ind.type === 'order_price')
                     .map((indicator) => (
                       <MenuItem key={indicator.id} value={indicator.id}>
                         {indicator.name} ({indicator.baseType})
@@ -443,8 +448,9 @@ export const StrategyBuilder4Section: React.FC<StrategyBuilder4SectionProps> = (
                         checked={strategyData.z1_entry.stopLoss?.enabled || false}
                         onChange={(e) => handleZ1OrderConfigChange({
                           stopLoss: {
-                            ...strategyData.z1_entry.stopLoss,
                             enabled: e.target.checked,
+                            offsetPercent: strategyData.z1_entry.stopLoss?.offsetPercent || 1,
+                            ...strategyData.z1_entry.stopLoss,
                           },
                         })}
                       />
@@ -467,7 +473,7 @@ export const StrategyBuilder4Section: React.FC<StrategyBuilder4SectionProps> = (
                           })}
                         >
                           {availableIndicators
-                            .filter(ind => ind.type === 'stop_loss')
+                            .filter(ind => ind.type === 'stop_loss_price')
                             .map((indicator) => (
                               <MenuItem key={indicator.id} value={indicator.id}>
                                 {indicator.name} ({indicator.baseType})
@@ -500,8 +506,9 @@ export const StrategyBuilder4Section: React.FC<StrategyBuilder4SectionProps> = (
                         checked={strategyData.z1_entry.takeProfit?.enabled || false}
                         onChange={(e) => handleZ1OrderConfigChange({
                           takeProfit: {
-                            ...strategyData.z1_entry.takeProfit,
                             enabled: e.target.checked,
+                            offsetPercent: strategyData.z1_entry.takeProfit?.offsetPercent || 2,
+                            ...strategyData.z1_entry.takeProfit,
                           },
                         })}
                       />
@@ -524,7 +531,7 @@ export const StrategyBuilder4Section: React.FC<StrategyBuilder4SectionProps> = (
                           })}
                         >
                           {availableIndicators
-                            .filter(ind => ind.type === 'take_profit')
+                            .filter(ind => ind.type === 'take_profit_price')
                             .map((indicator) => (
                               <MenuItem key={indicator.id} value={indicator.id}>
                                 {indicator.name} ({indicator.baseType})

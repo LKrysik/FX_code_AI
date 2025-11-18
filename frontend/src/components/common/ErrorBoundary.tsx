@@ -27,7 +27,7 @@ import {
 
 interface Props {
   children: ReactNode;
-  fallback?: ReactNode;
+  fallback?: ReactNode | ((props: { error: Error; resetError: () => void }) => ReactNode);
   onError?: (error: Error, errorInfo: ErrorInfo) => void;
   showDetails?: boolean;
   financial?: boolean; // Special handling for financial/trading errors
@@ -180,6 +180,12 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       // Custom fallback UI
       if (this.props.fallback) {
+        if (typeof this.props.fallback === 'function') {
+          return this.props.fallback({
+            error: this.state.error!,
+            resetError: this.handleRetry,
+          });
+        }
         return this.props.fallback;
       }
 

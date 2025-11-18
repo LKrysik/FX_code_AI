@@ -1,0 +1,217 @@
+
+> crypto-trading-ui@1.0.0 build
+> next build
+
+  ▲ Next.js 14.2.32
+  - Environments: .env.local
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+   Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/16) ...
+[HIGH] network: Network connection error {
+  type: 'network',
+  severity: 'high',
+  message: 'Network connection error',
+  context: 'WebSocket connection',
+  timestamp: '2025-11-16T22:12:17.463Z',
+  recoverable: true,
+  retryable: true,
+  originalError: 'Received network error or non-101 status code.'
+}
+[HIGH] network: Network connection error {
+  type: 'network',
+  severity: 'high',
+  message: 'Network connection error',
+  context: 'WebSocket connection',
+  timestamp: '2025-11-16T22:12:17.579Z',
+  recoverable: true,
+  retryable: true,
+  originalError: 'Received network error or non-101 status code.'
+}
+[HIGH] network: Network connection error {
+  type: 'network',
+  severity: 'high',
+  message: 'Network connection error',
+  context: 'WebSocket connection',
+  timestamp: '2025-11-16T22:12:17.738Z',
+  recoverable: true,
+  retryable: true,
+  originalError: 'Received network error or non-101 status code.'
+}
+[HIGH] network: Network connection error {
+  type: 'network',
+  severity: 'high',
+  message: 'Network connection error',
+  context: 'WebSocket connection',
+  timestamp: '2025-11-16T22:12:17.795Z',
+  recoverable: true,
+  retryable: true,
+  originalError: 'Received network error or non-101 status code.'
+}
+[HIGH] network: Network connection error {
+  type: 'network',
+  severity: 'high',
+  message: 'Network connection error',
+  context: 'WebSocket connection',
+  timestamp: '2025-11-16T22:12:17.831Z',
+  recoverable: true,
+  retryable: true,
+  originalError: 'Received network error or non-101 status code.'
+}
+[HIGH] network: Network connection error {
+  type: 'network',
+  severity: 'high',
+  message: 'Network connection error',
+  context: 'WebSocket connection',
+  timestamp: '2025-11-16T22:12:17.929Z',
+  recoverable: true,
+  retryable: true,
+  originalError: 'Received network error or non-101 status code.'
+}
+🔄 SystemStatusIndicator - Computing status with: {
+  connectionStatus: 'disconnected',
+  isConnected: false,
+  healthData: 'null',
+  healthStatus: 'present',
+  healthDataStatus: undefined,
+  healthStoreStatus: 'unknown'
+}
+✅ SystemStatusIndicator - Computed status result: {
+  backend: 'healthy',
+  websocket: 'disconnected',
+  highLoad: false,
+  lastChecked: 1763331137983
+}
+🔍 SystemStatusIndicator - getStatusText called with: {
+  backend: 'unknown',
+  websocket: 'connecting',
+  readOnlyMode: false,
+  connectionStatus: 'disconnected',
+  isConnected: false,
+  timestamp: '2025-11-16T22:12:17.983Z'
+}
+🎯 SystemStatusIndicator - Status decision logic: {
+  readOnlyMode: false,
+  backend_unhealthy: false,
+  websocket_error: false,
+  backend_degraded: false,
+  websocket_disconnected: false,
+  healthy_and_connected: false,
+  fallback_to_checking: true
+}
+⏳ SystemStatusIndicator - Falling back to "Checking..." - conditions not met
+🎨 SystemStatusIndicator - RENDERING with status: {
+  finalStatusText: 'Checking...',
+  overallStatus: 'warning',
+  statusColor: 'warning',
+  timestamp: '2025-11-16T22:12:17.984Z'
+}
+🔄 SystemStatusIndicator - Computing status with: {
+  connectionStatus: 'disconnected',
+  isConnected: false,
+  healthData: 'null',
+  healthStatus: 'present',
+  healthDataStatus: undefined,
+  healthStoreStatus: 'unknown'
+}
+✅ SystemStatusIndicator - Computed status result: {
+  backend: 'healthy',
+  websocket: 'disconnected',
+  highLoad: false,
+  lastChecked: 1763331138003
+}
+🔍 SystemStatusIndicator - getStatusText called with: {
+  backend: 'unknown',
+  websocket: 'connecting',
+  readOnlyMode: false,
+  connectionStatus: 'disconnected',
+  isConnected: false,
+  timestamp: '2025-11-16T22:12:18.004Z'
+}
+🎯 SystemStatusIndicator - Status decision logic: {
+  readOnlyMode: false,
+  backend_unhealthy: false,
+  websocket_error: false,
+  backend_degraded: false,
+  websocket_disconnected: false,
+  healthy_and_connected: false,
+  fallback_to_checking: true
+}
+⏳ SystemStatusIndicator - Falling back to "Checking..." - conditions not met
+[HIGH] network: Network connection error {
+  type: 'network',
+  severity: 'high',
+  message: 'Network connection error',
+  context: 'WebSocket connection',
+  timestamp: '2025-11-16T22:12:18.311Z',
+  recoverable: true,
+  retryable: true,
+  originalError: 'Received network error or non-101 status code.'
+}
+   Generating static pages (4/16) 
+   Generating static pages (8/16) 
+🔄 SystemStatusIndicator - Computing status with: {
+  connectionStatus: 'disconnected',
+  isConnected: false,
+  healthData: 'null',
+  healthStatus: 'present',
+  healthDataStatus: undefined,
+  healthStoreStatus: 'unknown'
+}
+✅ SystemStatusIndicator - Computed status result: {
+  backend: 'healthy',
+  websocket: 'disconnected',
+  highLoad: false,
+  lastChecked: 1763331139024
+}
+🔍 SystemStatusIndicator - getStatusText called with: {
+  backend: 'unknown',
+  websocket: 'connecting',
+  readOnlyMode: false,
+  connectionStatus: 'disconnected',
+  isConnected: false,
+  timestamp: '2025-11-16T22:12:19.025Z'
+}
+🎯 SystemStatusIndicator - Status decision logic: {
+  readOnlyMode: false,
+  backend_unhealthy: false,
+  websocket_error: false,
+  backend_degraded: false,
+  websocket_disconnected: false,
+  healthy_and_connected: false,
+  fallback_to_checking: true
+}
+⏳ SystemStatusIndicator - Falling back to "Checking..." - conditions not met
+   Generating static pages (12/16) 
+[VariantManager] component mounted/re-rendered at: 2025-11-16T22:12:19.420Z
+ ✓ Generating static pages (16/16)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                              Size     First Load JS
+┌ ○ /                                    2.67 kB         115 kB
+├ ○ /_not-found                          880 B          88.6 kB
+├ ○ /backtesting                         1.82 kB         114 kB
+├ ○ /dashboard                           17.6 kB         234 kB
+├ ○ /data-collection                     13.6 kB         230 kB
+├ ƒ /data-collection/[sessionId]/chart   40.5 kB         248 kB
+├ ○ /indicators                          7.15 kB         207 kB
+├ ○ /market-data                         7.24 kB         226 kB
+├ ○ /market-scanner                      8.08 kB         193 kB
+├ ○ /paper                               1.82 kB         114 kB
+├ ○ /risk-management                     3.82 kB         227 kB
+├ ○ /settings                            5.29 kB         170 kB
+├ ○ /strategies                          6.08 kB         248 kB
+├ ○ /strategy-builder                    2.79 kB         240 kB
+└ ○ /trading                             1.82 kB         114 kB
++ First Load JS shared by all            87.7 kB
+  ├ chunks/2117-8ca2a7cf0b77d71d.js      31.8 kB
+  ├ chunks/fd9d1056-8dcbdf30cbc112a3.js  53.6 kB
+  └ other shared chunks (total)          2.29 kB
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

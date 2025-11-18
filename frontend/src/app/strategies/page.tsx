@@ -189,11 +189,9 @@ const strategyTemplates: StrategyTemplate[] = [
   }
 ];
 
-import type { Strategy } from '@/types/api';
-
 export default function StrategiesPage() {
   const [activeTab, setActiveTab] = useState(0);
-  const [userStrategies, setUserStrategies] = useState<UserStrategy[]>([]);
+  const [userStrategies, setUserStrategies] = useState<Strategy[]>([]);
   const [strategies, setStrategies] = useState<StrategyTemplate[]>([]);
   const [selectedStrategy, setSelectedStrategy] = useState<StrategyTemplate | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -261,7 +259,7 @@ export default function StrategiesPage() {
   const loadUserStrategies = async () => {
     try {
       // Load user-created strategies from backend
-      const userStrategiesData = await apiService.getUserStrategies();
+      const userStrategiesData = await apiService.getStrategies();
       setUserStrategies(userStrategiesData);
     } catch (error) {
       console.error('Failed to load user strategies:', error);
@@ -432,34 +430,40 @@ export default function StrategiesPage() {
     }
   };
 
-  const handleEditStrategy = (strategy: UserStrategy) => {
+  const handleEditStrategy = (strategy: Strategy) => {
     // TODO: Open strategy in builder tab with pre-filled data
     setActiveTab(1); // Switch to builder tab
   };
 
-  const handleCopyStrategy = async (strategy: UserStrategy) => {
-    try {
-      await apiService.copyStrategy(strategy.id);
-      await loadUserStrategies();
-      setSnackbar({
-        open: true,
-        message: `Strategy "${strategy.strategy_name}" copied successfully`,
-        severity: 'success'
-      });
-    } catch (error) {
-      setSnackbar({
-        open: true,
-        message: 'Failed to copy strategy',
-        severity: 'error'
-      });
-    }
+  const handleCopyStrategy = async (strategy: Strategy) => {
+    // TODO: Implement copyStrategy in apiService
+    setSnackbar({
+      open: true,
+      message: 'Copy strategy feature not yet implemented',
+      severity: 'info'
+    });
+    // try {
+    //   await apiService.copyStrategy(strategy.strategy_name);
+    //   await loadUserStrategies();
+    //   setSnackbar({
+    //     open: true,
+    //     message: `Strategy "${strategy.strategy_name}" copied successfully`,
+    //     severity: 'success'
+    //   });
+    // } catch (error) {
+    //   setSnackbar({
+    //     open: true,
+    //     message: 'Failed to copy strategy',
+    //     severity: 'error'
+    //   });
+    // }
   };
 
-  const handleDeleteStrategy = async (strategy: UserStrategy) => {
+  const handleDeleteStrategy = async (strategy: Strategy) => {
     if (!confirm(`Are you sure you want to delete "${strategy.strategy_name}"?`)) return;
 
     try {
-      await apiService.deleteStrategy(strategy.id);
+      await apiService.deleteStrategy(strategy.strategy_name);
       await loadUserStrategies();
       setSnackbar({
         open: true,
@@ -477,6 +481,34 @@ export default function StrategiesPage() {
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setActiveTab(newValue);
+  };
+
+  const handleSaveStrategy = async (strategy: Strategy5Section) => {
+    try {
+      await apiService.saveStrategy(strategy);
+      await loadUserStrategies();
+      setSnackbar({
+        open: true,
+        message: 'Strategy saved successfully',
+        severity: 'success'
+      });
+    } catch (error) {
+      setSnackbar({
+        open: true,
+        message: 'Failed to save strategy',
+        severity: 'error'
+      });
+    }
+  };
+
+  const handleValidateStrategy = async (strategy: Strategy5Section): Promise<StrategyValidationResult> => {
+    // TODO: Implement validation logic
+    return {
+      isValid: true,
+      errors: [],
+      warnings: [],
+      sectionErrors: {}
+    };
   };
 
   return (
@@ -527,30 +559,27 @@ export default function StrategiesPage() {
             ) : (
               <Grid container spacing={2}>
                 {userStrategies.map((strategy) => (
-                  <Grid item xs={12} md={6} lg={4} key={strategy.id}>
+                  <Grid item xs={12} md={6} lg={4} key={strategy.strategy_name}>
                     <Card>
                       <CardContent>
                         <Typography variant="h6">{strategy.strategy_name}</Typography>
                         <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
                           <Chip
-                            label={strategy.valid ? "Valid" : "Invalid"}
-                            color={strategy.valid ? "success" : "error"}
-                            size="small"
-                          />
-                          <Chip
                             label={strategy.enabled ? "Enabled" : "Disabled"}
                             color={strategy.enabled ? "primary" : "default"}
                             size="small"
                           />
+                          <Chip
+                            label={strategy.current_state || "Unknown"}
+                            size="small"
+                            variant="outlined"
+                          />
                         </Box>
-                        {!strategy.valid && strategy.validation_errors && (
-                          <Typography variant="body2" color="error" sx={{ mt: 1 }}>
-                            {strategy.validation_errors[0]}
+                        {strategy.symbol && (
+                          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                            Symbol: {strategy.symbol}
                           </Typography>
                         )}
-                        <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                          Updated: {new Date(strategy.updated_at).toLocaleDateString()}
-                        </Typography>
                       </CardContent>
                       <CardActions>
                         <IconButton size="small" onClick={() => handleEditStrategy(strategy)}>
@@ -574,7 +603,11 @@ export default function StrategiesPage() {
         {activeTab === 1 && (
           // Builder Tab
           <Box>
-            <StrategyBuilder5Section />
+            <StrategyBuilder5Section
+              availableIndicators={indicatorVariants}
+              onSave={handleSaveStrategy}
+              onValidate={handleValidateStrategy}
+            />
           </Box>
         )}
       </Box>

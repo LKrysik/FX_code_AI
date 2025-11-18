@@ -188,20 +188,7 @@ const theme = createTheme({
         },
       },
     },
-    // Fix for main content area
-    MuiBox: {
-      styleOverrides: {
-        root: {
-          '&.main-content': {
-            marginLeft: 0,
-            '@media (min-width: 960px)': {
-              marginLeft: '280px', // drawerWidth
-            },
-            transition: 'margin 0.2s ease-in-out',
-          },
-        },
-      },
-    },
+    // Note: MuiBox styles removed - Box is not a styled MUI component
     MuiCard: {
       styleOverrides: {
         root: {
