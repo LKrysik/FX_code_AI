@@ -1761,6 +1761,127 @@ def create_unified_app():
         except Exception as e:
             return _json_error("command_failed", f"Failed to get symbols: {str(e)}")
 
+    @app.get("/api/exchange/symbols")
+    async def get_exchange_symbols():
+        """
+        Get tradeable symbols with real-time market data from exchange.
+
+        Returns symbol list with prices, 24h volume, 24h change, and other metadata.
+        This endpoint is used by the session configuration UI to display available symbols.
+
+        Response includes caching (5 minute TTL) to reduce API load on the exchange.
+        """
+        # Create a simple in-memory cache key
+        cache_key = "exchange_symbols_cache"
+        cache_ttl = 300  # 5 minutes in seconds
+
+        # Check if cached data exists and is fresh
+        cache_data = getattr(app.state, cache_key, None)
+        if cache_data:
+            cached_time, cached_symbols = cache_data
+            if time.time() - cached_time < cache_ttl:
+                logger.debug("api.exchange_symbols.cache_hit", {
+                    "cached_count": len(cached_symbols),
+                    "age_seconds": time.time() - cached_time
+                })
+                return _json_ok({"symbols": cached_symbols})
+
+        try:
+            # Get configured symbols from config
+            config_path = os.path.join("config", "config.json")
+            symbols_list = []
+
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config_data = json.load(f)
+                symbols_list = config_data.get("trading", {}).get("default_symbols", [])
+
+            # Fallback to container settings
+            if not symbols_list:
+                container = app.state.rest_service.container
+                settings = container.settings if hasattr(container, 'settings') else None
+                if settings and hasattr(settings, 'trading') and hasattr(settings.trading, 'default_symbols'):
+                    symbols_list = settings.trading.default_symbols
+
+            # If still no symbols, return empty list
+            if not symbols_list:
+                logger.warning("api.exchange_symbols.no_symbols_configured", {
+                    "message": "No symbols configured in config.json or settings"
+                })
+                return _json_ok({"symbols": []})
+
+            # Create MEXC REST fallback to get ticker data
+            # ARCHITECTURE NOTE: We use MEXC REST API directly here instead of going through
+            # LiveMarketAdapter because we need lightweight ticker data without full subscription.
+            # This is a read-only operation that doesn't affect the main trading session.
+            from src.infrastructure.exchanges.mexc_rest_fallback import MEXCRestFallback
+            from src.core.logger import get_logger
+
+            mexc_logger = get_logger("mexc_rest_fallback")
+            mexc_rest = MEXCRestFallback(logger=mexc_logger)
+
+            # Get ticker data for all configured symbols
+            logger.info("api.exchange_symbols.fetching_tickers", {
+                "symbols_count": len(symbols_list)
+            })
+
+            tickers = await mexc_rest.get_multiple_tickers(symbols_list)
+
+            # Build response with symbol metadata
+            symbols_with_data = []
+            for symbol in symbols_list:
+                ticker = tickers.get(symbol)
+
+                if ticker:
+                    # Extract data from MarketData object
+                    symbols_with_data.append({
+                        "symbol": symbol,
+                        "name": symbol.replace("_", "/"),  # BTC_USDT → BTC/USDT
+                        "price": float(ticker.price),
+                        "volume24h": float(ticker.volume),
+                        "change24h": 0.0,  # TODO: Calculate from historical data if needed
+                        "high24h": 0.0,    # Not available in current ticker API
+                        "low24h": 0.0,     # Not available in current ticker API
+                        "exchange": "mexc",
+                        "timestamp": ticker.timestamp.isoformat()
+                    })
+                else:
+                    # Symbol has no ticker data - include with zero values
+                    logger.warning("api.exchange_symbols.no_ticker_data", {
+                        "symbol": symbol,
+                        "message": "No ticker data available from exchange"
+                    })
+                    symbols_with_data.append({
+                        "symbol": symbol,
+                        "name": symbol.replace("_", "/"),
+                        "price": 0.0,
+                        "volume24h": 0.0,
+                        "change24h": 0.0,
+                        "high24h": 0.0,
+                        "low24h": 0.0,
+                        "exchange": "mexc",
+                        "timestamp": datetime.now().isoformat()
+                    })
+
+            # Cache the result
+            setattr(app.state, cache_key, (time.time(), symbols_with_data))
+
+            logger.info("api.exchange_symbols.success", {
+                "total_symbols": len(symbols_with_data),
+                "with_ticker_data": sum(1 for s in symbols_with_data if s["price"] > 0),
+                "cached_for_seconds": cache_ttl
+            })
+
+            return _json_ok({"symbols": symbols_with_data})
+
+        except Exception as e:
+            logger.error("api.exchange_symbols.failed", {
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "traceback": traceback.format_exc()
+            })
+            return _json_error("exchange_symbols_failed", f"Failed to get exchange symbols: {str(e)}")
+
     # Strategy management endpoints
     @app.get("/strategies/status")
     async def get_strategies_status():
