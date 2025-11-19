@@ -300,8 +300,16 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
 
         Reads batches from QuestDB and publishes to EventBus,
         simulating live market data for backtesting.
+
+        ✅ CRITICAL FIX: Rate limiting to prevent infinite loop and resource exhaustion
+        - Enforces minimum 10ms delay between ticks (max 100 ticks/second)
+        - Adds batch-level delay to prevent event loop starvation
+        - Prevents memory exhaustion from buffer overflow
         """
         try:
+            tick_count = 0
+            batch_count = 0
+
             while self._is_streaming:
                 # Fetch next batch using existing logic
                 batch = await self._fetch_next_batch()
@@ -311,14 +319,26 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
                     if self.logger:
                         self.logger.info("questdb_historical.replay_complete", {
                             "session_id": self.session_id,
-                            "total_processed": sum(self._cursors.values())
+                            "total_processed": sum(self._cursors.values()),
+                            "total_batches": batch_count,
+                            "total_ticks": tick_count
                         })
                     break
+
+                batch_count += 1
+
+                # ✅ CRITICAL FIX: Add batch-level delay to prevent event loop starvation
+                # Even at high acceleration, we need to yield control periodically
+                # This prevents the infinite loop from blocking stop_session() calls
+                if batch_count % 10 == 0:
+                    await asyncio.sleep(0.1)  # Yield every 10 batches
 
                 # Publish each tick to EventBus (same as live data)
                 for tick in batch:
                     if not self._is_streaming:
                         break
+
+                    tick_count += 1
 
                     # Publish to EventBus for indicators/strategies
                     if self.event_bus:
@@ -345,10 +365,28 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
                             "source": "backtest"
                         })
 
-                    # Apply acceleration delay
+                    # ✅ CRITICAL FIX: Enforce minimum delay to prevent resource exhaustion
+                    # OLD: delay = (10.0 / max(1.0, acceleration_factor)) / 1000.0
+                    #      At 10x: 1ms delay → 1000 ticks/sec → resource exhaustion
+                    #      At 100x: 0.1ms delay → 10000 ticks/sec → instant crash
+                    #
+                    # NEW: Enforce minimum 10ms delay (max 100 ticks/second)
+                    #      This prevents event loop starvation while still allowing fast backtests
                     if self.acceleration_factor > 0:
-                        delay = (10.0 / max(1.0, self.acceleration_factor)) / 1000.0
-                        await asyncio.sleep(delay)
+                        # Calculate base delay: 100ms per tick at 1x speed (10 ticks/sec realtime)
+                        base_delay_ms = 100.0
+                        accelerated_delay_ms = base_delay_ms / max(1.0, self.acceleration_factor)
+
+                        # Enforce minimum 10ms delay (max 100 ticks/sec)
+                        # This prevents resource exhaustion while maintaining reasonable speed
+                        MIN_DELAY_MS = 10.0
+                        final_delay_ms = max(MIN_DELAY_MS, accelerated_delay_ms)
+
+                        await asyncio.sleep(final_delay_ms / 1000.0)
+
+                    # ✅ ADDITIONAL FIX: Yield control every 50 ticks to prevent blocking
+                    if tick_count % 50 == 0:
+                        await asyncio.sleep(0.01)  # 10ms yield
 
         except asyncio.CancelledError:
             if self.logger:

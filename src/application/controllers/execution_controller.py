@@ -613,9 +613,46 @@ class ExecutionController:
         )
     
     async def stop_session(self, session_id: str) -> None:
-        """Stop execution session"""
-        if not self._current_session or self._current_session.session_id != session_id:
-            raise ValueError(f"Session {session_id} not found")
+        """
+        Stop execution session.
+
+        ✅ CRITICAL FIX: Improved session validation and error messages
+        - Better error messages for debugging session_id mismatches
+        - Idempotent operation (doesn't fail if session already stopped)
+        - Handles edge case where session exists but is in stopping/stopped state
+        """
+        if not self._current_session:
+            # ✅ FIX: More informative error message
+            self.logger.warning("execution.stop_session_no_session", {
+                "requested_session_id": session_id,
+                "current_session": None
+            })
+            raise ValueError(
+                f"Session {session_id} not found. No active session exists. "
+                f"The session may have already stopped or was never created."
+            )
+
+        if self._current_session.session_id != session_id:
+            # ✅ FIX: Log session_id mismatch for debugging
+            self.logger.warning("execution.stop_session_id_mismatch", {
+                "requested_session_id": session_id,
+                "current_session_id": self._current_session.session_id,
+                "current_session_status": self._current_session.status.value
+            })
+            raise ValueError(
+                f"Session {session_id} not found. "
+                f"Current active session is: {self._current_session.session_id} (status: {self._current_session.status.value}). "
+                f"Use the correct session_id or stop the current session first."
+            )
+
+        # ✅ FIX: Idempotent operation - don't fail if already stopped
+        if self._current_session.status in (ExecutionState.STOPPED, ExecutionState.STOPPING):
+            self.logger.info("execution.stop_session_already_stopped", {
+                "session_id": session_id,
+                "status": self._current_session.status.value
+            })
+            # Return silently - session is already stopped or stopping
+            return
 
         await self.stop_execution()
 

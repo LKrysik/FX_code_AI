@@ -70,6 +70,7 @@ import { MultiSymbolGrid } from '@/components/dashboard/MultiSymbolGrid';
 import { SignalDetailPanel, type SignalDetail } from '@/components/dashboard/SignalDetailPanel';
 import { SignalHistoryPanel } from '@/components/dashboard/SignalHistoryPanel';
 import { TransactionHistoryPanel } from '@/components/dashboard/TransactionHistoryPanel';
+import { SessionConfigDialog, type SessionConfig } from '@/components/dashboard/SessionConfigDialog';
 
 // ============================================================================
 // Types
@@ -125,6 +126,9 @@ function DashboardContent() {
   const [isSessionRunning, setIsSessionRunning] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState<string>('BTC_USDT');
 
+  // FIX ERROR 45: Loading state for session start/stop
+  const [sessionActionLoading, setSessionActionLoading] = useState(false);
+
   // Backtest-specific state
   const [backtestSessionId, setBacktestSessionId] = useState<string>('');
   const [availableSessions, setAvailableSessions] = useState<any[]>([]);
@@ -148,6 +152,9 @@ function DashboardContent() {
   // Tab for Signal History / Transaction History
   const [historyTab, setHistoryTab] = useState<number>(0);
 
+  // Session configuration dialog
+  const [configDialogOpen, setConfigDialogOpen] = useState(false);
+
   const [snackbar, setSnackbar] = useState<{
     open: boolean;
     message: string;
@@ -165,19 +172,17 @@ function DashboardContent() {
   /**
    * Load complete dashboard data in SINGLE request.
    * Performance target: <100ms
-   * FIX: Added AbortController for cancellation
+   * FIX: Proper AbortController usage with cleanup
    */
-  const loadDashboardData = useCallback(async () => {
+  const loadDashboardData = useCallback(async (signal?: AbortSignal) => {
     if (!sessionId) return;
-
-    const abortController = new AbortController();
 
     setLoading(true);
     try {
       // OPTIMIZED: Single request for all dashboard data
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/api/dashboard/summary?session_id=${sessionId}`,
-        { signal: abortController.signal }
+        { signal }
       );
 
       if (!response.ok) {
@@ -186,36 +191,51 @@ function DashboardContent() {
 
       const result = await response.json();
 
+      // Type-safe null check
+      if (!result) {
+        throw new Error('Empty response from dashboard API');
+      }
+
       // Handle envelope response format
       const data = result.data || result;
 
       setDashboardData(data);
-    } catch (error: any) {
+    } catch (error) {
       // Don't show error for aborted requests
-      if (error.name === 'AbortError') return;
+      if (error instanceof Error && error.name === 'AbortError') {
+        return;
+      }
 
       console.error('Failed to load dashboard data:', error);
+
+      // Type-safe error message
+      const errorMessage = error instanceof Error
+        ? error.message
+        : 'Unknown error occurred';
+
       setSnackbar({
         open: true,
-        message: 'Failed to load dashboard data',
+        message: `Failed to load dashboard data: ${errorMessage}`,
         severity: 'error',
       });
     } finally {
       setLoading(false);
     }
-
-    // Cleanup function to cancel request on unmount/re-render
-    return () => abortController.abort();
   }, [sessionId]);
 
   /**
    * Load available data collection sessions for backtest mode.
+   * FIX ERROR 38: Added AbortController cleanup
    */
-  const loadAvailableSessions = useCallback(async () => {
+  const loadAvailableSessions = useCallback(async (signal?: AbortSignal) => {
     if (mode !== 'backtest') return;
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/data-collection/sessions`);
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/data-collection/sessions`,
+        { signal }
+      );
+
       if (!response.ok) throw new Error('Failed to load sessions');
 
       const result = await response.json();
@@ -228,6 +248,9 @@ function DashboardContent() {
         setBacktestSessionId(sessions[0].session_id);
       }
     } catch (error) {
+      // Don't log aborted requests
+      if (error instanceof Error && error.name === 'AbortError') return;
+
       console.error('Failed to load available sessions:', error);
     }
   }, [mode, backtestSessionId]);
@@ -267,28 +290,57 @@ function DashboardContent() {
   }, [checkExecutionStatus]);
 
   // Load available sessions when switching to backtest mode
+  // FIX ERROR 40: Add AbortController and remove loadAvailableSessions from deps
   useEffect(() => {
-    if (mode === 'backtest') {
-      loadAvailableSessions();
-    }
-  }, [mode, loadAvailableSessions]);
+    if (mode !== 'backtest') return;
+
+    const abortController = new AbortController();
+    loadAvailableSessions(abortController.signal);
+
+    return () => abortController.abort();
+  }, [mode]); // Removed loadAvailableSessions to prevent unnecessary re-fetches
 
   // Load dashboard data when sessionId changes
+  // FIX: Added AbortController cleanup to prevent state updates after unmount
   useEffect(() => {
-    if (sessionId && isSessionRunning) {
-      loadDashboardData();
-    }
+    if (!sessionId || !isSessionRunning) return;
+
+    const abortController = new AbortController();
+
+    loadDashboardData(abortController.signal);
+
+    // Cleanup: abort fetch on unmount or when sessionId changes
+    return () => abortController.abort();
   }, [sessionId, isSessionRunning, loadDashboardData]);
 
   // Auto-refresh every 2 seconds when session is running
+  // FIX ERROR 37: Track abort controller for interval fetches to prevent memory leak
+  const abortControllerRef = React.useRef<AbortController | null>(null);
+
   useVisibilityAwareInterval(
     () => {
       if (isSessionRunning && sessionId) {
-        loadDashboardData();
+        // Cancel previous fetch if still in progress
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+        }
+
+        // Create new abort controller for this fetch
+        abortControllerRef.current = new AbortController();
+        loadDashboardData(abortControllerRef.current.signal);
       }
     },
     2000 // 2-second refresh for real-time feel
   );
+
+  // Cleanup abort controller on unmount
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   // ========================================
   // Event Handlers
@@ -300,41 +352,28 @@ function DashboardContent() {
     }
   };
 
-  const handleStartSession = async () => {
-    // Validate backtest mode requires session selection
-    if (mode === 'backtest' && !backtestSessionId) {
-      setSnackbar({
-        open: true,
-        message: 'Please select a data collection session for backtesting',
-        severity: 'warning',
-      });
-      return;
-    }
+  const handleStartSessionClick = () => {
+    // FIX: Prevent double-open by checking if already open
+    if (configDialogOpen) return;
+
+    // Open configuration dialog instead of starting directly
+    setConfigDialogOpen(true);
+  };
+
+  const handleSessionConfigSubmit = async (config: SessionConfig) => {
+    // FIX ERROR 45: Add loading state for better UX
+    setSessionActionLoading(true);
+    setConfigDialogOpen(false);
 
     try {
-      const sessionData: any = {
-        session_type: mode,
-        symbols: ['BTC_USDT', 'ETH_USDT', 'ADA_USDT'], // TODO: Make configurable
-        strategy_config: {}, // TODO: Load from strategy selection
-        config: {
-          budget: {
-            global_cap: 1000,
-            allocations: {},
-          },
-        },
-        idempotent: true,
-      };
+      const response = await apiService.startSession(config);
 
-      // ✅ FIX: For backtest mode, include the data collection session_id in config
-      // Backend expects session_id in config object (not on root level)
-      // See: docs/frontend/BACKTEST_SESSION_FIX.md and tests_e2e/integration/test_backtest_session_flow.py
-      if (mode === 'backtest') {
-        sessionData.config.session_id = backtestSessionId;
+      // Type-safe null checks
+      if (!response || !response.data) {
+        throw new Error('Invalid response from startSession API');
       }
 
-      const response = await apiService.startSession(sessionData);
-
-      setSessionId(response.data?.session_id || null);
+      setSessionId(response.data.session_id || null);
       setIsSessionRunning(true);
 
       setSnackbar({
@@ -344,21 +383,33 @@ function DashboardContent() {
       });
     } catch (error) {
       console.error('Failed to start session:', error);
+
+      // Type-safe error message
+      const errorMessage = error instanceof Error
+        ? error.message
+        : 'Unknown error occurred';
+
       setSnackbar({
         open: true,
-        message: 'Failed to start session',
+        message: `Failed to start session: ${errorMessage}`,
         severity: 'error',
       });
+    } finally {
+      setSessionActionLoading(false);
     }
   };
 
   const handleStopSession = async () => {
     if (!sessionId) return;
 
+    // FIX ERROR 46: Add loading state and optimistic UI
+    setSessionActionLoading(true);
+
     try {
       await apiService.stopSession(sessionId);
 
       setIsSessionRunning(false);
+      // FIX ERROR 44: Explicitly clear dashboard data to free memory
       setDashboardData(null);
 
       setSnackbar({
@@ -368,11 +419,19 @@ function DashboardContent() {
       });
     } catch (error) {
       console.error('Failed to stop session:', error);
+
+      // Type-safe error message
+      const errorMessage = error instanceof Error
+        ? error.message
+        : 'Unknown error occurred';
+
       setSnackbar({
         open: true,
-        message: 'Failed to stop session',
+        message: `Failed to stop session: ${errorMessage}`,
         severity: 'error',
       });
+    } finally {
+      setSessionActionLoading(false);
     }
   };
 
@@ -488,41 +547,20 @@ function DashboardContent() {
               color="error"
               startIcon={<StopIcon />}
               onClick={handleStopSession}
+              disabled={sessionActionLoading}
             >
-              Stop Session
+              {sessionActionLoading ? 'Stopping...' : 'Stop Session'}
             </Button>
           ) : (
-            <>
-              {mode === 'backtest' && (
-                <FormControl sx={{ minWidth: 300, mr: 2 }} size="small">
-                  <InputLabel>Data Collection Session</InputLabel>
-                  <Select
-                    value={backtestSessionId}
-                    label="Data Collection Session"
-                    onChange={(e) => setBacktestSessionId(e.target.value)}
-                  >
-                    {availableSessions.length === 0 ? (
-                      <MenuItem disabled>No sessions available</MenuItem>
-                    ) : (
-                      availableSessions.map((session) => (
-                        <MenuItem key={session.session_id} value={session.session_id}>
-                          {session.session_id} ({new Date(session.start_time).toLocaleDateString()})
-                        </MenuItem>
-                      ))
-                    )}
-                  </Select>
-                </FormControl>
-              )}
-              <Button
-                variant="contained"
-                color="success"
-                startIcon={<PlayIcon />}
-                onClick={handleStartSession}
-                disabled={mode === 'backtest' && !backtestSessionId}
-              >
-                Start {mode === 'paper' ? 'Paper' : mode === 'live' ? 'Live' : 'Backtest'} Session
-              </Button>
-            </>
+            <Button
+              variant="contained"
+              color="success"
+              startIcon={<PlayIcon />}
+              onClick={handleStartSessionClick}
+              disabled={sessionActionLoading}
+            >
+              {sessionActionLoading ? 'Starting...' : `Start ${mode === 'paper' ? 'Paper' : mode === 'live' ? 'Live' : 'Backtest'} Session`}
+            </Button>
           )}
         </Box>
       </Box>
@@ -705,6 +743,14 @@ function DashboardContent() {
         open={signalPanelOpen}
         signal={selectedSignal}
         onClose={() => setSignalPanelOpen(false)}
+      />
+
+      {/* Session Configuration Dialog */}
+      <SessionConfigDialog
+        open={configDialogOpen}
+        mode={mode}
+        onClose={() => setConfigDialogOpen(false)}
+        onSubmit={handleSessionConfigSubmit}
       />
 
       {/* Snackbar for notifications */}
