@@ -43,7 +43,8 @@
       "Bash(npm install:*)",
       "Bash(del \"C:\\Users\\lukasz.krysik\\Desktop\\FXcrypto\\FX_code_AI_v2\\frontend\\src\\components\\dashboard\\TradingDashboardNew.tsx\")",
       "Bash(.venvScriptspython.exe:*)",
-      "Bash(npm test:*)"
+      "Bash(npm test:*)",
+      "Bash(npx tsc --noEmit)"
     ],
     "deny": [],
     "ask": []

@@ -337,7 +337,8 @@ describe('SessionConfigDialog', () => {
 
       await waitFor(() => {
         expect(global.fetch).toHaveBeenCalledWith(
-          'http://localhost:8080/api/exchange/symbols'
+          'http://localhost:8080/api/exchange/symbols',
+          expect.objectContaining({ signal: expect.any(Object) })
         );
       });
 
@@ -364,7 +365,8 @@ describe('SessionConfigDialog', () => {
 
       await waitFor(() => {
         expect(global.fetch).toHaveBeenCalledWith(
-          'http://localhost:8080/api/data-collection/sessions?limit=50'
+          'http://localhost:8080/api/data-collection/sessions?limit=50',
+          expect.objectContaining({ signal: expect.any(Object) })
         );
       });
 
@@ -466,7 +468,9 @@ describe('SessionConfigDialog', () => {
       fireEvent.click(checkbox);
 
       // Tab title should update to show 1 selected
-      expect(screen.getByText(/1\. Strategies \(1\)/i)).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText(/1\. Strategies \(1\)/i)).toBeInTheDocument();
+      });
     });
 
     it('allows selecting multiple strategies', async () => {
@@ -488,7 +492,9 @@ describe('SessionConfigDialog', () => {
       fireEvent.click(checkboxes[0]);
       fireEvent.click(checkboxes[1]);
 
-      expect(screen.getByText(/1\. Strategies \(2\)/i)).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText(/1\. Strategies \(2\)/i)).toBeInTheDocument();
+      });
     });
 
     it('allows deselecting a strategy', async () => {
@@ -509,11 +515,15 @@ describe('SessionConfigDialog', () => {
 
       // Select
       fireEvent.click(checkbox);
-      expect(screen.getByText(/1\. Strategies \(1\)/i)).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText(/1\. Strategies \(1\)/i)).toBeInTheDocument();
+      });
 
       // Deselect
       fireEvent.click(checkbox);
-      expect(screen.getByText(/1\. Strategies \(0\)/i)).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText(/1\. Strategies \(0\)/i)).toBeInTheDocument();
+      });
     });
 
     it('displays strategy metadata (win rate, avg profit)', async () => {
@@ -642,7 +652,7 @@ describe('SessionConfigDialog', () => {
       await waitFor(() => {
         expect(screen.getByText('$50250.00')).toBeInTheDocument(); // BTC price
         expect(screen.getByText('$3050.00')).toBeInTheDocument(); // ETH price
-        expect(screen.getByText('$0.45')).toBeInTheDocument(); // ADA price
+        expect(screen.getByText('$0.450000')).toBeInTheDocument(); // ADA price (6 decimals for values < 1)
       });
     });
   });
@@ -705,7 +715,7 @@ describe('SessionConfigDialog', () => {
       fireEvent.click(screen.getByText(/3\. Configuration/i));
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/Data Collection Session/i)).toBeInTheDocument();
+        expect(screen.getByText(/Data Collection Session/i)).toBeInTheDocument();
         expect(screen.getByText(/Acceleration Factor/i)).toBeInTheDocument();
       });
     });
@@ -878,7 +888,7 @@ describe('SessionConfigDialog', () => {
       fireEvent.click(screen.getByRole('button', { name: /Start Session/i }));
 
       await waitFor(() => {
-        expect(screen.getByText(/Global budget must be greater than 0/i)).toBeInTheDocument();
+        expect(screen.getByText(/Global budget must be a valid number greater than 0/i)).toBeInTheDocument();
       });
     });
   });
@@ -904,9 +914,19 @@ describe('SessionConfigDialog', () => {
       });
       fireEvent.click(screen.getAllByRole('checkbox')[0]);
 
+      // Wait for counter to update
+      await waitFor(() => {
+        expect(screen.getByText(/1\. Strategies \(1\)/i)).toBeInTheDocument();
+      });
+
       // Select symbols
       fireEvent.click(screen.getByText(/2\. Symbols/i));
       fireEvent.click(screen.getByText('Top 3'));
+
+      // Wait for symbols counter to update
+      await waitFor(() => {
+        expect(screen.getByText(/2\. Symbols \(3\)/i)).toBeInTheDocument();
+      });
 
       // Configure
       fireEvent.click(screen.getByText(/3\. Configuration/i));
@@ -954,8 +974,16 @@ describe('SessionConfigDialog', () => {
       });
       fireEvent.click(screen.getAllByRole('checkbox')[0]);
 
+      await waitFor(() => {
+        expect(screen.getByText(/1\. Strategies \(1\)/i)).toBeInTheDocument();
+      });
+
       fireEvent.click(screen.getByText(/2\. Symbols/i));
       fireEvent.click(screen.getByText('Top 3'));
+
+      await waitFor(() => {
+        expect(screen.getByText(/2\. Symbols \(3\)/i)).toBeInTheDocument();
+      });
 
       // Submit
       fireEvent.click(screen.getByRole('button', { name: /Start Session/i }));
@@ -1014,18 +1042,24 @@ describe('SessionConfigDialog', () => {
         expect(screen.getByText('Pump Detection v2')).toBeInTheDocument();
       });
       fireEvent.click(screen.getAllByRole('checkbox')[0]);
-      expect(screen.getByText(/1\. Strategies \(1\)/i)).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText(/1\. Strategies \(1\)/i)).toBeInTheDocument();
+      });
 
       // Switch to symbols
       fireEvent.click(screen.getByText(/2\. Symbols/i));
       fireEvent.click(screen.getByText('Top 3'));
-      expect(screen.getByText(/2\. Symbols \(3\)/i)).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText(/2\. Symbols \(3\)/i)).toBeInTheDocument();
+      });
 
       // Switch back to strategies
       fireEvent.click(screen.getByText(/1\. Strategies/i));
 
       // Selection should still be there
-      expect(screen.getByText(/1\. Strategies \(1\)/i)).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText(/1\. Strategies \(1\)/i)).toBeInTheDocument();
+      });
       const checkbox = screen.getAllByRole('checkbox')[0];
       expect(checkbox).toBeChecked();
     });
