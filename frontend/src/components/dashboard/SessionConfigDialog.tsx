@@ -603,7 +603,6 @@ export const SessionConfigDialog: React.FC<SessionConfigDialogProps> = ({
                 <TableRow
                   key={strategy.id}
                   hover
-                  onClick={() => toggleStrategy(strategy.id)}
                   sx={{ cursor: 'pointer' }}
                   selected={selectedStrategies.includes(strategy.id)}
                 >
@@ -881,8 +880,9 @@ export const SessionConfigDialog: React.FC<SessionConfigDialogProps> = ({
           </Typography>
 
           <FormControl fullWidth sx={{ mt: 2 }}>
-            <InputLabel>Data Collection Session</InputLabel>
+            <InputLabel id="backtest-session-label">Data Collection Session</InputLabel>
             <Select
+              labelId="backtest-session-label"
               value={backtestSessionId}
               label="Data Collection Session"
               onChange={(e) => setBacktestSessionId(e.target.value)}

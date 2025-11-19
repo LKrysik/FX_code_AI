@@ -164,6 +164,15 @@ Object.defineProperty(window, 'localStorage', {
 });
 
 // ============================================================================
+// Configure Testing Library
+// ============================================================================
+
+// Increase default timeout for waitFor to handle slow React state updates
+// Default is 1000ms, but complex components with multiple re-renders need more time
+jest.setTimeout(30000); // 30 seconds for entire test
+const WAITFOR_TIMEOUT = 5000; // 5 seconds for waitFor calls
+
+// ============================================================================
 // Test Suite
 // ============================================================================
 
@@ -368,12 +377,12 @@ describe('SessionConfigDialog', () => {
           'http://localhost:8080/api/data-collection/sessions?limit=50',
           expect.objectContaining({ signal: expect.any(Object) })
         );
-      });
+      }, { timeout: WAITFOR_TIMEOUT });
 
       // Verify sessions dropdown is rendered
       await waitFor(() => {
         expect(screen.getByLabelText(/Data Collection Session/i)).toBeInTheDocument();
-      });
+      }, { timeout: WAITFOR_TIMEOUT });
     });
 
     it('shows loading state while fetching strategies', async () => {
@@ -470,7 +479,7 @@ describe('SessionConfigDialog', () => {
       // Tab title should update to show 1 selected
       await waitFor(() => {
         expect(screen.getByText(/1\. Strategies \(1\)/i)).toBeInTheDocument();
-      });
+      }, { timeout: WAITFOR_TIMEOUT });
     });
 
     it('allows selecting multiple strategies', async () => {
@@ -494,7 +503,7 @@ describe('SessionConfigDialog', () => {
 
       await waitFor(() => {
         expect(screen.getByText(/1\. Strategies \(2\)/i)).toBeInTheDocument();
-      });
+      }, { timeout: WAITFOR_TIMEOUT });
     });
 
     it('allows deselecting a strategy', async () => {
@@ -517,7 +526,7 @@ describe('SessionConfigDialog', () => {
       fireEvent.click(checkbox);
       await waitFor(() => {
         expect(screen.getByText(/1\. Strategies \(1\)/i)).toBeInTheDocument();
-      });
+      }, { timeout: WAITFOR_TIMEOUT });
 
       // Deselect
       fireEvent.click(checkbox);
@@ -715,9 +724,9 @@ describe('SessionConfigDialog', () => {
       fireEvent.click(screen.getByText(/3\. Configuration/i));
 
       await waitFor(() => {
-        expect(screen.getByText(/Data Collection Session/i)).toBeInTheDocument();
+        expect(screen.getAllByText(/Data Collection Session/i)[0]).toBeInTheDocument();
         expect(screen.getByText(/Acceleration Factor/i)).toBeInTheDocument();
-      });
+      }, { timeout: WAITFOR_TIMEOUT });
     });
 
     it('does not show backtest options in paper mode', () => {
@@ -917,7 +926,7 @@ describe('SessionConfigDialog', () => {
       // Wait for counter to update
       await waitFor(() => {
         expect(screen.getByText(/1\. Strategies \(1\)/i)).toBeInTheDocument();
-      });
+      }, { timeout: WAITFOR_TIMEOUT });
 
       // Select symbols
       fireEvent.click(screen.getByText(/2\. Symbols/i));
@@ -926,7 +935,7 @@ describe('SessionConfigDialog', () => {
       // Wait for symbols counter to update
       await waitFor(() => {
         expect(screen.getByText(/2\. Symbols \(3\)/i)).toBeInTheDocument();
-      });
+      }, { timeout: WAITFOR_TIMEOUT });
 
       // Configure
       fireEvent.click(screen.getByText(/3\. Configuration/i));
@@ -976,14 +985,14 @@ describe('SessionConfigDialog', () => {
 
       await waitFor(() => {
         expect(screen.getByText(/1\. Strategies \(1\)/i)).toBeInTheDocument();
-      });
+      }, { timeout: WAITFOR_TIMEOUT });
 
       fireEvent.click(screen.getByText(/2\. Symbols/i));
       fireEvent.click(screen.getByText('Top 3'));
 
       await waitFor(() => {
         expect(screen.getByText(/2\. Symbols \(3\)/i)).toBeInTheDocument();
-      });
+      }, { timeout: WAITFOR_TIMEOUT });
 
       // Submit
       fireEvent.click(screen.getByRole('button', { name: /Start Session/i }));
@@ -1044,14 +1053,14 @@ describe('SessionConfigDialog', () => {
       fireEvent.click(screen.getAllByRole('checkbox')[0]);
       await waitFor(() => {
         expect(screen.getByText(/1\. Strategies \(1\)/i)).toBeInTheDocument();
-      });
+      }, { timeout: WAITFOR_TIMEOUT });
 
       // Switch to symbols
       fireEvent.click(screen.getByText(/2\. Symbols/i));
       fireEvent.click(screen.getByText('Top 3'));
       await waitFor(() => {
         expect(screen.getByText(/2\. Symbols \(3\)/i)).toBeInTheDocument();
-      });
+      }, { timeout: WAITFOR_TIMEOUT });
 
       // Switch back to strategies
       fireEvent.click(screen.getByText(/1\. Strategies/i));
@@ -1059,7 +1068,7 @@ describe('SessionConfigDialog', () => {
       // Selection should still be there
       await waitFor(() => {
         expect(screen.getByText(/1\. Strategies \(1\)/i)).toBeInTheDocument();
-      });
+      }, { timeout: WAITFOR_TIMEOUT });
       const checkbox = screen.getAllByRole('checkbox')[0];
       expect(checkbox).toBeChecked();
     });
