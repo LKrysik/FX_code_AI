@@ -969,12 +969,14 @@ export const SessionConfigDialog: React.FC<SessionConfigDialogProps> = ({
       }}
     >
       <DialogTitle>
-        <Typography variant="h5">
-          Configure {mode === 'live' ? 'Live' : mode === 'paper' ? 'Paper' : 'Backtest'} Session
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Set up strategies, symbols, and risk parameters for your trading session
-        </Typography>
+        <Box>
+          <Typography variant="inherit" component="span" sx={{ display: 'block', mb: 0.5 }}>
+            Configure {mode === 'live' ? 'Live' : mode === 'paper' ? 'Paper' : 'Backtest'} Session
+          </Typography>
+          <Typography variant="body2" color="text.secondary" component="span" sx={{ display: 'block' }}>
+            Set up strategies, symbols, and risk parameters for your trading session
+          </Typography>
+        </Box>
       </DialogTitle>
 
       <DialogContent dividers>
