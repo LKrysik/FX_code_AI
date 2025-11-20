@@ -418,7 +418,14 @@ function DashboardContent() {
         severity: 'success',
       });
     } catch (error) {
-      console.error('Failed to stop session:', error);
+      // Enhanced error logging with full context for debugging
+      console.error('[Dashboard] Failed to stop session', {
+        sessionId: sessionId,
+        error: error,
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        timestamp: new Date().toISOString(),
+      });
 
       // Type-safe error message
       const errorMessage = error instanceof Error

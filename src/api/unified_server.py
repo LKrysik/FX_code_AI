@@ -883,8 +883,8 @@ def create_unified_app():
             return _json_error("creation_failed", f"Failed to create strategy: {str(e)}")
 
     @app.get("/api/strategies")
-    async def list_strategies(request: Request, current_user: UserSession = Depends(get_current_user)):
-        """List all 4-section strategies (requires authentication)"""
+    async def list_strategies(request: Request):
+        """List all 4-section strategies (public endpoint for configuration)"""
         try:
             # Get strategy storage from app state
             strategy_storage = getattr(app.state, 'strategy_storage', None)
@@ -1814,11 +1814,11 @@ def create_unified_app():
             # ARCHITECTURE NOTE: We use MEXC REST API directly here instead of going through
             # LiveMarketAdapter because we need lightweight ticker data without full subscription.
             # This is a read-only operation that doesn't affect the main trading session.
-            from src.infrastructure.exchanges.mexc_rest_fallback import MEXCRestFallback
+            from src.infrastructure.exchanges.mexc_rest_fallback import MexcRestFallback
             from src.core.logger import get_logger
 
             mexc_logger = get_logger("mexc_rest_fallback")
-            mexc_rest = MEXCRestFallback(logger=mexc_logger)
+            mexc_rest = MexcRestFallback(logger=mexc_logger)
 
             # Get ticker data for all configured symbols
             logger.info("api.exchange_symbols.fetching_tickers", {
