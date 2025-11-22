@@ -444,9 +444,10 @@ class ExecutionController:
             for symbol in symbols:
                 self._active_symbols[symbol] = session_id
 
-        # ✅ SESSION-002 FIX: For DATA_COLLECTION mode, persist to QuestDB BEFORE creating in-memory session
+        # ✅ SESSION-002 FIX: Persist to QuestDB BEFORE creating in-memory session
         # This prevents race condition where session exists in memory but not in DB
-        if mode == ExecutionMode.DATA_COLLECTION and self.db_persistence_service:
+        # ✅ BUG FIX: Also persist PAPER and LIVE sessions (not just DATA_COLLECTION)
+        if mode in (ExecutionMode.DATA_COLLECTION, ExecutionMode.PAPER, ExecutionMode.LIVE) and self.db_persistence_service:
             try:
                 data_types = (config or {}).get("data_types", ['prices', 'orderbook'])
                 await self.db_persistence_service.create_session(

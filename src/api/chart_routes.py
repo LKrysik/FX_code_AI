@@ -135,7 +135,7 @@ async def get_ohlcv_data(
                 sum(volume) as volume
             FROM tick_prices
             WHERE session_id = $1 AND symbol = $2
-            SAMPLE BY {sample_interval} ALIGN TO CALENDAR FILL(PREV)
+            SAMPLE BY {sample_interval} ALIGN TO CALENDAR
             ORDER BY timestamp DESC
             LIMIT $3
         """

@@ -175,8 +175,13 @@ function DashboardContent() {
    * FIX: Proper AbortController usage with cleanup
    */
   const loadDashboardData = useCallback(async (signal?: AbortSignal) => {
-    if (!sessionId) return;
+    console.log('[DEBUG] loadDashboardData called', { sessionId, signal });
+    if (!sessionId) {
+      console.log('[DEBUG] loadDashboardData SKIPPED - no sessionId');
+      return;
+    }
 
+    console.log('[DEBUG] loadDashboardData STARTING fetch');
     setLoading(true);
     try {
       // OPTIMIZED: Single request for all dashboard data
@@ -184,6 +189,8 @@ function DashboardContent() {
         `${process.env.NEXT_PUBLIC_API_URL}/api/dashboard/summary?session_id=${sessionId}`,
         { signal }
       );
+
+      console.log('[DEBUG] loadDashboardData fetch response', { ok: response.ok, status: response.status });
 
       if (!response.ok) {
         throw new Error(`Dashboard API error: ${response.status}`);
@@ -199,10 +206,12 @@ function DashboardContent() {
       // Handle envelope response format
       const data = result.data || result;
 
+      console.log('[DEBUG] loadDashboardData SUCCESS', { data });
       setDashboardData(data);
     } catch (error) {
       // Don't show error for aborted requests
       if (error instanceof Error && error.name === 'AbortError') {
+        console.log('[DEBUG] loadDashboardData ABORTED');
         return;
       }
 
@@ -219,6 +228,7 @@ function DashboardContent() {
         severity: 'error',
       });
     } finally {
+      console.log('[DEBUG] loadDashboardData FINALLY - setLoading(false)');
       setLoading(false);
     }
   }, [sessionId]);
@@ -302,16 +312,26 @@ function DashboardContent() {
 
   // Load dashboard data when sessionId changes
   // FIX: Added AbortController cleanup to prevent state updates after unmount
+  // FIX: Load dashboard data when sessionId exists, regardless of isSessionRunning state
+  // FIX: Include loadDashboardData in deps to avoid stale closure (React exhaustive-deps rule)
   useEffect(() => {
-    if (!sessionId || !isSessionRunning) return;
+    console.log('[DEBUG] useEffect [sessionId, loadDashboardData] triggered', { sessionId });
+    if (!sessionId) {
+      console.log('[DEBUG] useEffect SKIPPED - no sessionId');
+      return;
+    }
 
+    console.log('[DEBUG] useEffect CALLING loadDashboardData');
     const abortController = new AbortController();
 
     loadDashboardData(abortController.signal);
 
     // Cleanup: abort fetch on unmount or when sessionId changes
-    return () => abortController.abort();
-  }, [sessionId, isSessionRunning, loadDashboardData]);
+    return () => {
+      console.log('[DEBUG] useEffect CLEANUP - aborting');
+      abortController.abort();
+    };
+  }, [sessionId, loadDashboardData]);
 
   // Auto-refresh every 2 seconds when session is running
   // FIX ERROR 37: Track abort controller for interval fetches to prevent memory leak
@@ -319,13 +339,16 @@ function DashboardContent() {
 
   useVisibilityAwareInterval(
     () => {
+      console.log('[DEBUG] useVisibilityAwareInterval TICK', { isSessionRunning, sessionId });
       if (isSessionRunning && sessionId) {
         // Cancel previous fetch if still in progress
         if (abortControllerRef.current) {
+          console.log('[DEBUG] interval ABORTING previous fetch');
           abortControllerRef.current.abort();
         }
 
         // Create new abort controller for this fetch
+        console.log('[DEBUG] interval CALLING loadDashboardData');
         abortControllerRef.current = new AbortController();
         loadDashboardData(abortControllerRef.current.signal);
       }
@@ -361,20 +384,28 @@ function DashboardContent() {
   };
 
   const handleSessionConfigSubmit = async (config: SessionConfig) => {
+    console.log('[DEBUG] handleSessionConfigSubmit START', { config });
     // FIX ERROR 45: Add loading state for better UX
     setSessionActionLoading(true);
     setConfigDialogOpen(false);
 
     try {
+      console.log('[DEBUG] calling apiService.startSession');
       const response = await apiService.startSession(config);
+      console.log('[DEBUG] apiService.startSession response', { response });
 
       // Type-safe null checks
       if (!response || !response.data) {
         throw new Error('Invalid response from startSession API');
       }
 
+      console.log('[DEBUG] Setting sessionId and isSessionRunning', {
+        sessionId: response.data.session_id,
+        isSessionRunning: true
+      });
       setSessionId(response.data.session_id || null);
       setIsSessionRunning(true);
+      console.log('[DEBUG] State set - sessionId and isSessionRunning');
 
       setSnackbar({
         open: true,
@@ -395,6 +426,7 @@ function DashboardContent() {
         severity: 'error',
       });
     } finally {
+      console.log('[DEBUG] handleSessionConfigSubmit FINALLY');
       setSessionActionLoading(false);
     }
   };
@@ -443,7 +475,9 @@ function DashboardContent() {
   };
 
   const handleRefresh = () => {
-    loadDashboardData();
+    // Create abort controller for manual refresh (same pattern as useEffect)
+    const abortController = new AbortController();
+    loadDashboardData(abortController.signal);
   };
 
   const handleSignalClick = (signal: Signal) => {
@@ -543,7 +577,7 @@ function DashboardContent() {
             variant="outlined"
             startIcon={<RefreshIcon />}
             onClick={handleRefresh}
-            disabled={loading || !isSessionRunning}
+            disabled={loading || !sessionId}
           >
             Refresh
           </Button>
@@ -572,7 +606,7 @@ function DashboardContent() {
         </Box>
       </Box>
 
-      {loading && <LinearProgress sx={{ mb: 2 }} />}
+      {/* Loading Indicator - REMOVED to prevent page jumping during auto-refresh */}
 
       {/* Active Session Alert */}
       {isSessionRunning && sessionId && (
