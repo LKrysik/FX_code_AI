@@ -2165,11 +2165,9 @@ def create_unified_app():
 
                 return _json_ok({
                     "status": "session_started",
-                    "data": {
-                        "session_id": session_id,
-                        "session_type": session_type,
-                        "symbols": symbols
-                    }
+                    "session_id": session_id,
+                    "session_type": session_type,
+                    "symbols": symbols
                 })
             except ValueError as e:
                 msg = str(e)
