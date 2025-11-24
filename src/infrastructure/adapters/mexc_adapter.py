@@ -80,10 +80,46 @@ class PositionResponse:
 
 
 
-class MexcRealAdapter:
+# ❌ DEPRECATED - SPOT API IS FORBIDDEN
+# ============================================
+# This adapter uses MEXC Spot API which is EXPLICITLY FORBIDDEN in this system.
+# System requirement: FUTURES ONLY - DO NOT USE THIS ADAPTER.
+#
+# Historical note:
+# - This adapter was originally designed for Spot trading
+# - Base URL: https://api.mexc.com (Spot API)
+# - Endpoints: /api/v3/* (Spot endpoints)
+#
+# Migration:
+# - Use MexcFuturesAdapter instead (src/infrastructure/adapters/mexc_futures_adapter.py)
+# - Futures base URL: https://contract.mexc.com
+# - Futures endpoints: /fapi/v1/*
+#
+# This class is kept temporarily to make migration explicit.
+# It will raise RuntimeError on instantiation to prevent accidental use.
+# Will be removed in future cleanup.
+#
+class MexcSpotAdapter:  # Renamed from MexcRealAdapter
     """
-    Real MEXC API adapter with authentication and rate limiting.
-    Implements HMAC-SHA256 signature authentication.
+    ❌ DEPRECATED: SPOT API IS FORBIDDEN - DO NOT USE
+
+    This adapter was designed for MEXC Spot API (https://api.mexc.com, /api/v3/* endpoints)
+    which is EXPLICITLY FORBIDDEN in this system.
+
+    System requirement: FUTURES ONLY
+
+    ❌ DO NOT use this adapter - it will raise RuntimeError on instantiation.
+    ✅ Use MexcFuturesAdapter instead.
+
+    Rationale for Futures-only:
+    - Spot trading: No leverage, no SHORT positions
+    - Futures trading: Leverage up to 200x, LONG/SHORT positions, margin trading
+    - System architecture: Designed for futures trading strategies
+
+    Historical context:
+    - Original implementation used Spot API
+    - System migrated to Futures-only architecture (2025-11-24)
+    - This class kept as deprecation marker to prevent accidental Spot usage
     """
 
     def __init__(self,
@@ -92,43 +128,46 @@ class MexcRealAdapter:
                  logger: StructuredLogger,
                  base_url: str = "https://api.mexc.com",
                  timeout: int = 30):
-        self.api_key = api_key
-        self.api_secret = api_secret
-        self.logger = logger
-        self.base_url = base_url
-        self.timeout = ClientTimeout(total=timeout)
+        """
+        ❌ DEPRECATED: This adapter is FORBIDDEN and will raise RuntimeError.
 
-        # Rate limiting: 10 requests per second (per IMPLEMENTATION_ROADMAP.md Task 1.1)
-        self.rate_limiter = {
-            "requests_per_second": 10,
-            "last_request_time": 0.0,
-            "request_count": 0
-        }
+        System requirement: SPOT API IS FORBIDDEN - FUTURES ONLY
 
-        # Simple cache for API responses (TTL 30 seconds)
-        self.cache: Dict[str, Dict[str, Any]] = {}
-        self.cache_ttl = 30
+        DO NOT USE THIS ADAPTER.
+        Use MexcFuturesAdapter instead:
+            from ..infrastructure.adapters.mexc_futures_adapter import MexcFuturesAdapter
+            adapter = MexcFuturesAdapter(api_key, api_secret, logger)
 
-        # Initialize resilient service with circuit breaker and retry
-        circuit_config = CircuitBreakerConfig(
-            name="mexc_api",
-            failure_threshold=5,
-            recovery_timeout=60.0,
-            timeout=timeout,
-            expected_exception=(aiohttp.ClientError, asyncio.TimeoutError, Exception)
+        Args:
+            api_key: MEXC API key (not used - will raise error)
+            api_secret: MEXC API secret (not used - will raise error)
+            logger: Logger (not used - will raise error)
+            base_url: Spot base URL (FORBIDDEN - will raise error)
+            timeout: Request timeout (not used - will raise error)
+
+        Raises:
+            RuntimeError: Always - this adapter is forbidden
+        """
+        raise RuntimeError(
+            "❌ SPOT API IS FORBIDDEN - MexcSpotAdapter cannot be used.\n"
+            "\n"
+            "System requirement: FUTURES ONLY\n"
+            "\n"
+            "This adapter uses MEXC Spot API which is explicitly forbidden:\n"
+            "  - Base URL: https://api.mexc.com (Spot)\n"
+            "  - Endpoints: /api/v3/* (Spot endpoints)\n"
+            "\n"
+            "✅ Use MexcFuturesAdapter instead:\n"
+            "  - Base URL: https://contract.mexc.com (Futures)\n"
+            "  - Endpoints: /fapi/v1/* (Futures endpoints)\n"
+            "\n"
+            "Import:\n"
+            "  from src.infrastructure.adapters.mexc_futures_adapter import MexcFuturesAdapter\n"
+            "  adapter = MexcFuturesAdapter(api_key, api_secret, logger)\n"
+            "\n"
+            "If you see this error, it means code is trying to use forbidden Spot adapter.\n"
+            "Update the code to use MexcFuturesAdapter.\n"
         )
-
-        retry_config = RetryConfig(
-            name="mexc_api",
-            max_attempts=3,
-            initial_delay=1.0,
-            backoff_factor=2.0,
-            retry_on=(aiohttp.ClientError, asyncio.TimeoutError, Exception)
-        )
-
-        self.resilient_service = ResilientService("mexc_api", circuit_config, retry_config)
-
-        self.session: Optional[aiohttp.ClientSession] = None
 
     async def __aenter__(self):
         """Async context manager entry"""

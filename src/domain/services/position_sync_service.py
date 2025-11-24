@@ -26,7 +26,9 @@ from typing import Dict, Optional, List, Any
 from dataclasses import dataclass
 
 from ...core.event_bus import EventBus
-from ...infrastructure.adapters.mexc_adapter import MexcRealAdapter, PositionResponse
+# ❌ SPOT API FORBIDDEN - MexcSpotAdapter (renamed from MexcRealAdapter) is deprecated
+# Phase 1: Import updated to show deprecation (will be replaced with MexcFuturesAdapter in Phase 3)
+from ...infrastructure.adapters.mexc_adapter import MexcSpotAdapter, PositionResponse
 from ...core.circuit_breaker import CircuitBreakerOpenException
 
 logger = logging.getLogger(__name__)
@@ -68,7 +70,7 @@ class PositionSyncService:
     def __init__(
         self,
         event_bus: EventBus,
-        mexc_adapter: MexcRealAdapter,
+        mexc_adapter: MexcSpotAdapter,  # ❌ Phase 1: Type hint updated (will change to MexcFuturesAdapter in Phase 3)
         risk_manager,  # RiskManager for margin ratio checking
         max_positions: int = 100
     ):

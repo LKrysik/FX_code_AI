@@ -892,7 +892,8 @@ def check_telemetry_system() -> Dict[str, Any]:
 def check_external_services() -> Dict[str, Any]:
     """Check external service availability (MEXC API, etc.)"""
     try:
-        from ..infrastructure.adapters.mexc_adapter import MexcRealAdapter
+        # ❌ SPOT API FORBIDDEN - MexcSpotAdapter (renamed from MexcRealAdapter) is deprecated
+        from ..infrastructure.adapters.mexc_adapter import MexcSpotAdapter
         from ..infrastructure.adapters.mexc_paper_adapter import MexcPaperAdapter
         from ..infrastructure.config.settings import AppSettings
         from ..core.logger import StructuredLogger
@@ -919,11 +920,14 @@ def check_external_services() -> Dict[str, Any]:
             }
 
         try:
-            adapter = MexcRealAdapter(api_key=api_key, api_secret=api_secret, logger=logger)
+            # ❌ This will raise RuntimeError - MexcSpotAdapter is deprecated (Spot API forbidden)
+            # This is INTENTIONAL for Phase 1 - proves deprecation works
+            # Phase 4 will replace this with MexcFuturesAdapter
+            adapter = MexcSpotAdapter(api_key=api_key, api_secret=api_secret, logger=logger)
         except Exception as exc:
             return {
                 "status": HealthStatus.UNHEALTHY.value,
-                "message": f"Failed to initialize real MEXC adapter: {exc}",
+                "message": f"Failed to initialize MEXC adapter: {exc}",
                 "mexc_api": "initialization_failed"
             }
 

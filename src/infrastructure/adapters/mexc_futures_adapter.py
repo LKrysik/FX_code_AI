@@ -12,7 +12,7 @@ Key differences from SPOT API:
 - Margin types: ISOLATED or CROSS
 
 Circuit Breaker Integration (TIER 2.2):
-- Inherits ResilientService from parent class (MexcRealAdapter)
+- Inherits ResilientService from parent class (MexcSpotAdapter - temporarily, will be standalone in Phase 2)
 - Automatic retry with exponential backoff (3 attempts, 1s → 2s → 4s)
 - Circuit breaker protection (opens after 5 consecutive failures, 60s recovery)
 - Fallback strategies for non-critical operations
@@ -49,15 +49,19 @@ import time
 from typing import Dict, Any, Optional, List, Literal
 from datetime import datetime
 
-from .mexc_adapter import MexcRealAdapter
+# ❌ TEMPORARY: Inherits from MexcSpotAdapter (will be removed in Phase 2)
+# Phase 2 will make this adapter standalone (no inheritance from Spot adapter)
+from .mexc_adapter import MexcSpotAdapter
 from ...core.logger import StructuredLogger
 
 
-class MexcFuturesAdapter(MexcRealAdapter):
+class MexcFuturesAdapter(MexcSpotAdapter):
     """
     MEXC Futures API adapter for margin trading and SHORT selling.
 
-    Inherits authentication, rate limiting, and resilience from MexcRealAdapter.
+    ❌ TEMPORARY: Inherits from MexcSpotAdapter (will be standalone in Phase 2)
+    Phase 2 will remove inheritance and implement standalone futures adapter.
+
     Adds futures-specific functionality:
     - Position management (LONG/SHORT)
     - Leverage configuration

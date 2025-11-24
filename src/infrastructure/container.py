@@ -40,8 +40,10 @@ from ..infrastructure.config.symbol_config import SymbolConfigurationManager
 from ..application.orchestrators.trading_orchestrator import TradingOrchestrator
 from ..application.services.position_management_service import PositionManagementService
 from ..application.controllers.unified_trading_controller import UnifiedTradingController
-from ..infrastructure.adapters.mexc_adapter import MexcRealAdapter
+# ❌ SPOT API FORBIDDEN - MexcSpotAdapter raises RuntimeError (renamed from MexcRealAdapter)
+from ..infrastructure.adapters.mexc_adapter import MexcSpotAdapter
 from ..infrastructure.adapters.mexc_paper_adapter import MexcPaperAdapter
+# ✅ FUTURES ONLY - Use this adapter
 from ..infrastructure.adapters.mexc_futures_adapter import MexcFuturesAdapter
 from ..api.broadcast_provider import BroadcastProvider
 from ..api.event_bridge import EventBridge
@@ -797,43 +799,29 @@ class Container:
 
     async def create_mexc_adapter(self):
         """
-        Create MEXC adapter with real API credentials.
-        Only supports real mode - no mock or virtual implementations.
+        ❌ DEPRECATED: SPOT API IS FORBIDDEN - DO NOT USE
 
-        Returns:
-            Configured MEXC real adapter
+        This method created MexcSpotAdapter (formerly MexcRealAdapter) which uses
+        MEXC Spot API. Spot API is EXPLICITLY FORBIDDEN in this system.
+
+        System requirement: FUTURES ONLY
+
+        ✅ Use create_mexc_futures_adapter() instead.
 
         Raises:
-            RuntimeError: If MEXC API credentials are not configured
+            RuntimeError: Always - Spot adapter is forbidden
         """
-        def _create():
-            try:
-                # Get API credentials from settings
-                api_key = self.settings.exchanges.mexc_api_key
-                api_secret = self.settings.exchanges.mexc_api_secret
-
-                if not api_key or not api_secret or api_key == "" or api_secret == "":
-                    self.logger.info("container.using_paper_adapter", {
-                        "reason": "credentials_not_configured"
-                    })
-                    return MexcPaperAdapter(logger=self.logger)
-
-                self.logger.info("container.creating_real_mexc_adapter")
-                return MexcRealAdapter(
-                    api_key=api_key,
-                    api_secret=api_secret,
-                    logger=self.logger,
-                    base_url="https://api.mexc.com"
-                )
-
-            except Exception as e:
-                self.logger.error("container.mexc_adapter_creation_failed", {
-                    "error": str(e),
-                    "error_type": type(e).__name__
-                })
-                raise RuntimeError(f"Failed to create MEXC adapter: {str(e)}") from e
-
-        return await self._get_or_create_singleton_async("mexc_adapter", _create)
+        raise RuntimeError(
+            "❌ SPOT API IS FORBIDDEN - create_mexc_adapter() cannot be used.\n"
+            "\n"
+            "This method creates MexcSpotAdapter which uses MEXC Spot API.\n"
+            "System requirement: FUTURES ONLY\n"
+            "\n"
+            "✅ Use create_mexc_futures_adapter() instead:\n"
+            "  adapter = await container.create_mexc_futures_adapter()\n"
+            "\n"
+            "If you see this error, update the code to use Futures adapter factory.\n"
+        )
 
     async def create_mexc_futures_adapter(self):
         """
