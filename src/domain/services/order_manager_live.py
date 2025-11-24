@@ -86,7 +86,7 @@ class LiveOrderManager:
     def __init__(
         self,
         event_bus: EventBus,
-        mexc_adapter: MexcSpotAdapter,  # ❌ Phase 1: Type hint updated (will change to MexcFuturesAdapter in Phase 3)
+        mexc_adapter,  # MexcFuturesAdapter or MexcPaperAdapter (Any to avoid circular import)
         risk_manager,  # RiskManager (avoid circular import)
         max_orders: int = 1000,
         order_timeout_seconds: int = 60  # FIX (Agent 4 - Task 3): Order timeout

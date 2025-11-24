@@ -812,6 +812,238 @@ class MexcFuturesAdapter:
             })
 
     # ============================================================================
+    # COMPATIBILITY METHODS (for backward compatibility with Spot adapter interface)
+    # ============================================================================
+
+    async def get_balances(self) -> Dict[str, Any]:
+        """
+        Get account balances from MEXC Futures API.
+
+        Compatibility method - matches Spot adapter interface for WalletService.
+
+        Returns:
+            Dict with timestamp, assets, and source
+
+        Example:
+            {
+                "timestamp": "2025-11-24T10:00:00",
+                "assets": {
+                    "USDT": {"free": 10000.0, "locked": 0.0}
+                },
+                "source": "mexc_futures_api"
+            }
+        """
+        try:
+            response = await self._make_request("GET", "/fapi/v1/account", signed=True)
+
+            # Transform MEXC Futures response format
+            balances = {}
+            for balance in response.get("data", {}).get("assets", []):
+                asset = balance["asset"]
+                free = float(balance.get("availableBalance", 0))
+                locked = float(balance.get("frozenBalance", 0))
+
+                if free > 0 or locked > 0:
+                    balances[asset] = {
+                        "free": free,
+                        "locked": locked
+                    }
+
+            from datetime import datetime, timezone
+            result = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "assets": balances,
+                "source": "mexc_futures_api"
+            }
+
+            return result
+
+        except Exception as e:
+            self.logger.error("mexc_futures_adapter.get_balances_error", {"error": str(e)})
+            raise
+
+    async def get_positions(self) -> List[Dict[str, Any]]:
+        """
+        Get all open positions from MEXC Futures API.
+
+        Compatibility method - matches Spot adapter interface for PositionSyncService.
+        Returns list of position dictionaries (not PositionResponse objects).
+
+        Returns:
+            List of position dictionaries
+
+        Example:
+            [
+                {
+                    "symbol": "BTC_USDT",
+                    "side": "LONG",
+                    "quantity": 0.001,
+                    "entry_price": 50000.0,
+                    "current_price": 51000.0,
+                    "unrealized_pnl": 1.0,
+                    "margin_ratio": 150.0,
+                    "liquidation_price": 45000.0,
+                    "leverage": 3.0,
+                    "margin": 16.67
+                }
+            ]
+        """
+        try:
+            self.logger.debug("mexc_futures_adapter.get_positions")
+
+            response = await self._make_request(
+                "GET",
+                "/fapi/v1/position",
+                params={},
+                signed=True
+            )
+
+            positions = []
+
+            # Parse response - MEXC returns positions under "data" key
+            position_data = response.get("data", []) if isinstance(response.get("data"), list) else []
+
+            for pos in position_data:
+                # Only include positions with non-zero quantity
+                quantity = float(pos.get("holdVol", 0))
+                if quantity == 0:
+                    continue
+
+                # Determine side (1 = LONG, 2 = SHORT in MEXC Futures)
+                position_type = pos.get("positionType", 1)
+                side = "LONG" if position_type == 1 else "SHORT"
+
+                # Calculate margin ratio
+                equity = float(pos.get("equity", 0))
+                maintenance_margin = float(pos.get("maintenanceMargin", 1))
+                margin_ratio = (equity / maintenance_margin * 100) if maintenance_margin > 0 else 0
+
+                position_dict = {
+                    "symbol": pos.get("symbol"),
+                    "side": side,
+                    "quantity": quantity,
+                    "entry_price": float(pos.get("openAvgPrice", 0)),
+                    "current_price": float(pos.get("fairPrice", 0)),
+                    "unrealized_pnl": float(pos.get("unrealizedPnl", 0)),
+                    "margin_ratio": margin_ratio,
+                    "liquidation_price": float(pos.get("liquidatePrice", 0)),
+                    "leverage": float(pos.get("leverage", 1)),
+                    "margin": float(pos.get("positionMargin", 0))
+                }
+
+                positions.append(position_dict)
+
+                self.logger.debug("mexc_futures_adapter.position_found", {
+                    "symbol": position_dict["symbol"],
+                    "side": side,
+                    "quantity": quantity
+                })
+
+            return positions
+
+        except Exception as e:
+            self.logger.error("mexc_adapter.get_positions_error", {
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            raise
+
+    async def create_market_order(self, symbol: str, side: str, quantity: float) -> str:
+        """
+        Create market order on MEXC Futures (compatibility wrapper).
+
+        Compatibility method - wraps place_futures_order() to match Spot adapter interface.
+        Automatically determines position_side based on side parameter.
+
+        Args:
+            symbol: Trading symbol (e.g., "BTC_USDT")
+            side: "BUY" or "SELL"
+            quantity: Order quantity
+
+        Returns:
+            Exchange order ID (string)
+
+        Note:
+            This is a compatibility wrapper. For new code, use place_futures_order() directly
+            with explicit position_side parameter for better control over LONG/SHORT positions.
+        """
+        # Determine position_side: BUY -> LONG, SELL -> SHORT
+        position_side = "LONG" if side.upper() == "BUY" else "SHORT"
+
+        self.logger.info("mexc_futures_adapter.create_market_order_wrapper", {
+            "symbol": symbol,
+            "side": side,
+            "position_side": position_side,
+            "quantity": quantity,
+            "note": "Compatibility wrapper - use place_futures_order() for explicit control"
+        })
+
+        response = await self.place_futures_order(
+            symbol=symbol,
+            side=side.upper(),
+            position_side=position_side,
+            order_type="MARKET",
+            quantity=quantity
+        )
+
+        # Extract order ID from response
+        exchange_order_id = str(response.get("orderId", response.get("data", {}).get("orderId", "")))
+
+        return exchange_order_id
+
+    async def create_limit_order(
+        self,
+        symbol: str,
+        side: str,
+        quantity: float,
+        price: float
+    ) -> str:
+        """
+        Create limit order on MEXC Futures (compatibility wrapper).
+
+        Compatibility method - wraps place_futures_order() to match Spot adapter interface.
+        Automatically determines position_side based on side parameter.
+
+        Args:
+            symbol: Trading symbol (e.g., "BTC_USDT")
+            side: "BUY" or "SELL"
+            quantity: Order quantity
+            price: Limit price
+
+        Returns:
+            Exchange order ID (string)
+
+        Note:
+            This is a compatibility wrapper. For new code, use place_futures_order() directly
+            with explicit position_side parameter for better control over LONG/SHORT positions.
+        """
+        # Determine position_side: BUY -> LONG, SELL -> SHORT
+        position_side = "LONG" if side.upper() == "BUY" else "SHORT"
+
+        self.logger.info("mexc_futures_adapter.create_limit_order_wrapper", {
+            "symbol": symbol,
+            "side": side,
+            "position_side": position_side,
+            "quantity": quantity,
+            "price": price,
+            "note": "Compatibility wrapper - use place_futures_order() for explicit control"
+        })
+
+        response = await self.place_futures_order(
+            symbol=symbol,
+            side=side.upper(),
+            position_side=position_side,
+            order_type="LIMIT",
+            quantity=quantity,
+            price=price
+        )
+
+        # Extract order ID from response
+        exchange_order_id = str(response.get("orderId", response.get("data", {}).get("orderId", "")))
+
+        return exchange_order_id
+
+    # ============================================================================
     # DEPRECATED METHOD - PREVENT SPOT API USAGE
     # ============================================================================
 
