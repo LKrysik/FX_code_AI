@@ -1,8 +1,10 @@
 """
+✅ FUTURES ONLY - Standalone implementation (Phase 2)
+=====================================================
 MEXC Futures Adapter - Futures API Integration for SHORT Selling (TIER 2.2 Enhanced)
-====================================================================================
-Extends MEXC adapter with futures trading support (margin trading, leverage, funding rates).
-Includes circuit breaker fallback strategies and graceful degradation patterns.
+
+Standalone implementation - NO inheritance from MexcSpotAdapter.
+All infrastructure methods are self-contained.
 
 Key differences from SPOT API:
 - Base URL: https://contract.mexc.com (not api.mexc.com)
@@ -12,7 +14,6 @@ Key differences from SPOT API:
 - Margin types: ISOLATED or CROSS
 
 Circuit Breaker Integration (TIER 2.2):
-- Inherits ResilientService from parent class (MexcSpotAdapter - temporarily, will be standalone in Phase 2)
 - Automatic retry with exponential backoff (3 attempts, 1s → 2s → 4s)
 - Circuit breaker protection (opens after 5 consecutive failures, 60s recovery)
 - Fallback strategies for non-critical operations
@@ -20,8 +21,6 @@ Circuit Breaker Integration (TIER 2.2):
 
 Usage:
     async with MexcFuturesAdapter(api_key, api_secret, logger) as adapter:
-        # Circuit breaker is automatic - no configuration needed
-
         # Set leverage before opening position
         await adapter.set_leverage("BTC_USDT", 3)
 
@@ -31,8 +30,7 @@ Usage:
             side="SELL",
             position_side="SHORT",
             order_type="MARKET",
-            quantity=0.001,
-            leverage=3.0
+            quantity=0.001
         )
 
         # Get funding rate (with fallback on failure)
@@ -40,27 +38,27 @@ Usage:
 
         # Monitor circuit breaker status
         status = adapter.get_circuit_breaker_metrics()
-        if status['state'] == 'open':
-            logger.warning(f"Circuit breaker is OPEN - API calls will be rejected")
 """
 
 import asyncio
 import time
+import hmac
+import hashlib
+import json
+import aiohttp
 from typing import Dict, Any, Optional, List, Literal
 from datetime import datetime
+from urllib.parse import urlencode
 
-# ❌ TEMPORARY: Inherits from MexcSpotAdapter (will be removed in Phase 2)
-# Phase 2 will make this adapter standalone (no inheritance from Spot adapter)
-from .mexc_adapter import MexcSpotAdapter
 from ...core.logger import StructuredLogger
+from ...core.circuit_breaker import ResilientService
 
 
-class MexcFuturesAdapter(MexcSpotAdapter):
+class MexcFuturesAdapter:
     """
     MEXC Futures API adapter for margin trading and SHORT selling.
 
-    ❌ TEMPORARY: Inherits from MexcSpotAdapter (will be standalone in Phase 2)
-    Phase 2 will remove inheritance and implement standalone futures adapter.
+    ✅ FUTURES ONLY - Standalone implementation (Phase 2)
 
     Adds futures-specific functionality:
     - Position management (LONG/SHORT)
@@ -73,7 +71,7 @@ class MexcFuturesAdapter(MexcSpotAdapter):
                  api_key: str,
                  api_secret: str,
                  logger: StructuredLogger,
-                 base_url: str = "https://contract.mexc.com",  # Futures base URL
+                 base_url: str = "https://contract.mexc.com",
                  timeout: int = 30):
         """
         Initialize MEXC Futures adapter.
@@ -85,12 +83,28 @@ class MexcFuturesAdapter(MexcSpotAdapter):
             base_url: Futures API base URL (default: https://contract.mexc.com)
             timeout: Request timeout in seconds
         """
-        # Initialize parent with futures base URL
-        super().__init__(api_key, api_secret, logger, base_url, timeout)
+        self.api_key = api_key
+        self.api_secret = api_secret
+        self.logger = logger
+        self.base_url = base_url
+        self.timeout = aiohttp.ClientTimeout(total=timeout)
 
-        # Futures-specific rate limiting (futures API may have different limits)
-        # MEXC futures: 100 requests per second per IP
-        self.rate_limiter["requests_per_second"] = 100
+        # HTTP session (initialized on first use)
+        self.session: Optional[aiohttp.ClientSession] = None
+
+        # Rate limiter (MEXC futures: 100 requests per second per IP)
+        self.rate_limiter = {
+            "requests_per_second": 100,
+            "request_count": 0,
+            "last_request_time": time.time()
+        }
+
+        # Circuit breaker for resilience
+        self.resilient_service = ResilientService(
+            failure_threshold=5,
+            recovery_timeout=60,
+            logger=logger
+        )
 
         # Track leverage settings per symbol
         self._leverage_cache: Dict[str, int] = {}
@@ -99,6 +113,125 @@ class MexcFuturesAdapter(MexcSpotAdapter):
             "base_url": self.base_url,
             "rate_limit": self.rate_limiter["requests_per_second"]
         })
+
+    async def __aenter__(self):
+        """Async context manager entry"""
+        await self._ensure_session()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit"""
+        await self._close_session()
+
+    async def _ensure_session(self):
+        """Ensure HTTP session is available"""
+        if self.session is None or self.session.closed:
+            self.session = aiohttp.ClientSession(timeout=self.timeout)
+
+    async def _close_session(self):
+        """Close HTTP session"""
+        if self.session and not self.session.closed:
+            await self.session.close()
+
+    def _generate_signature(self, params: Dict[str, Any], timestamp: int) -> str:
+        """Generate HMAC-SHA256 signature for MEXC API authentication"""
+        # Add timestamp to params
+        params_with_timestamp = params.copy()
+        params_with_timestamp['timestamp'] = timestamp
+
+        # Create query string
+        query_string = urlencode(params_with_timestamp)
+
+        # Generate signature
+        signature = hmac.new(
+            self.api_secret.encode('utf-8'),
+            query_string.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
+
+        return signature
+
+    async def _make_request(self,
+                            method: str,
+                            endpoint: str,
+                            params: Optional[Dict[str, Any]] = None,
+                            signed: bool = False) -> Dict[str, Any]:
+        """Make HTTP request to MEXC API with resilience patterns"""
+        await self._ensure_session()
+
+        # Rate limiting (still handled here as it's specific to MEXC API limits)
+        current_time = time.time()
+        if current_time - self.rate_limiter["last_request_time"] >= 1.0:
+            self.rate_limiter["request_count"] = 0
+            self.rate_limiter["last_request_time"] = current_time
+
+        if self.rate_limiter["request_count"] >= self.rate_limiter["requests_per_second"]:
+            wait_time = 1.0 - (current_time - self.rate_limiter["last_request_time"])
+            if wait_time > 0:
+                await asyncio.sleep(wait_time)
+
+        self.rate_limiter["request_count"] += 1
+
+        # Prepare request
+        url = f"{self.base_url}{endpoint}"
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "MEXC-TradingBot/1.0"
+        }
+
+        request_params = params or {}
+
+        if signed:
+            timestamp = int(time.time() * 1000)
+            signature = self._generate_signature(request_params, timestamp)
+            request_params['signature'] = signature
+            headers['X-MEXC-APIKEY'] = self.api_key
+
+        # Create the actual HTTP request function
+        async def make_http_request():
+            if method.upper() == "GET":
+                async with self.session.get(url, params=request_params, headers=headers) as response:
+                    return await self._handle_response(response)
+            elif method.upper() == "POST":
+                async with self.session.post(url, json=request_params, headers=headers) as response:
+                    return await self._handle_response(response)
+            elif method.upper() == "DELETE":
+                async with self.session.delete(url, params=request_params, headers=headers) as response:
+                    return await self._handle_response(response)
+            else:
+                raise ValueError(f"Unsupported HTTP method: {method}")
+
+        # Use resilient service for the actual request
+        return await self.resilient_service.call_async(make_http_request)
+
+    async def _handle_response(self, response: aiohttp.ClientResponse) -> Dict[str, Any]:
+        """Handle API response with error checking"""
+        response_text = await response.text()
+
+        try:
+            data = json.loads(response_text) if response_text else {}
+        except json.JSONDecodeError:
+            data = {"error": "Invalid JSON response", "raw_response": response_text}
+
+        if response.status >= 400:
+            error_msg = data.get("msg", f"HTTP {response.status}: {response_text}")
+            # Log the error (circuit breaker handling is now in resilient service)
+            self.logger.error("mexc_futures_adapter.api_error", {
+                "status": response.status,
+                "error": error_msg,
+                "endpoint": response.url.path if hasattr(response, 'url') else 'unknown'
+            })
+            raise Exception(f"MEXC API Error: {error_msg}")
+
+        return data
+
+    def get_circuit_breaker_status(self) -> Dict[str, Any]:
+        """Get circuit breaker status for monitoring"""
+        return self.resilient_service.get_status()
+
+    # ============================================================================
+    # FUTURES-SPECIFIC METHODS
+    # ============================================================================
 
     async def set_leverage(self,
                           symbol: str,
@@ -199,6 +332,54 @@ class MexcFuturesAdapter(MexcSpotAdapter):
         # Default to 1x if unknown
         return 1
 
+    async def get_leverage_with_fallback(self, symbol: str, default_leverage: int = 1) -> int:
+        """
+        Get leverage with fallback to default if circuit breaker is open or API fails.
+
+        This is a graceful degradation pattern - returns cached or default value
+        when API is unavailable instead of raising exception.
+
+        Args:
+            symbol: Trading symbol
+            default_leverage: Default leverage to return on failure (default: 1)
+
+        Returns:
+            Leverage value (from API, cache, or default)
+
+        Example:
+            >>> leverage = await adapter.get_leverage_with_fallback("BTC_USDT", default_leverage=3)
+            >>> # Always returns a value, never throws exception
+        """
+        symbol_upper = symbol.upper()
+
+        # First try cache
+        if symbol_upper in self._leverage_cache:
+            self.logger.debug("mexc_futures_adapter.leverage_from_cache", {
+                "symbol": symbol,
+                "leverage": self._leverage_cache[symbol_upper]
+            })
+            return self._leverage_cache[symbol_upper]
+
+        # Try API if circuit breaker is healthy
+        if self.is_circuit_breaker_healthy():
+            try:
+                return await self.get_leverage(symbol)
+            except Exception as e:
+                self.logger.warning("mexc_futures_adapter.leverage_fallback_to_default", {
+                    "symbol": symbol,
+                    "error": str(e),
+                    "default_leverage": default_leverage
+                })
+        else:
+            self.logger.warning("mexc_futures_adapter.leverage_circuit_breaker_open", {
+                "symbol": symbol,
+                "default_leverage": default_leverage,
+                "circuit_breaker_state": self.get_circuit_breaker_state()
+            })
+
+        # Fallback to default
+        return default_leverage
+
     async def place_futures_order(self,
                                   symbol: str,
                                   side: Literal["BUY", "SELL"],
@@ -253,7 +434,7 @@ class MexcFuturesAdapter(MexcSpotAdapter):
         params = {
             "symbol": symbol.upper(),
             "side": side.upper(),
-            "positionSide": position_side.upper(),  # KEY DIFFERENCE from spot API
+            "positionSide": position_side.upper(),
             "type": order_type.upper(),
             "quantity": str(quantity)
         }
@@ -305,6 +486,49 @@ class MexcFuturesAdapter(MexcSpotAdapter):
                 "error": str(e)
             })
             raise
+
+    async def close_position(self,
+                            symbol: str,
+                            position_side: Literal["LONG", "SHORT"],
+                            order_type: Literal["MARKET", "LIMIT"] = "MARKET",
+                            price: Optional[float] = None) -> Dict[str, Any]:
+        """
+        Close an entire position.
+
+        Args:
+            symbol: Trading symbol
+            position_side: Position to close (LONG or SHORT)
+            order_type: MARKET or LIMIT
+            price: Limit price (for LIMIT orders)
+
+        Returns:
+            Order response
+
+        Example (Close SHORT position):
+            order = await adapter.close_position("BTC_USDT", "SHORT", "MARKET")
+        """
+        # Get current position to determine quantity
+        position = await self.get_position(symbol)
+
+        if not position or position["position_side"] != position_side:
+            raise ValueError(f"No {position_side} position found for {symbol}")
+
+        quantity = abs(position["position_amount"])
+
+        # Determine order side (opposite of position)
+        # To close SHORT: BUY
+        # To close LONG: SELL
+        side = "BUY" if position_side == "SHORT" else "SELL"
+
+        return await self.place_futures_order(
+            symbol=symbol,
+            side=side,
+            position_side=position_side,
+            order_type=order_type,
+            quantity=quantity,
+            price=price,
+            reduce_only=True
+        )
 
     async def get_position(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
@@ -413,6 +637,50 @@ class MexcFuturesAdapter(MexcSpotAdapter):
             })
             raise
 
+    async def get_funding_rate_with_fallback(self, symbol: str) -> Dict[str, Any]:
+        """
+        Get funding rate with fallback to zero if circuit breaker is open or API fails.
+
+        Non-critical operation - funding rate is informational and can be approximated.
+
+        Args:
+            symbol: Trading symbol
+
+        Returns:
+            Funding rate info (real or fallback)
+
+        Example:
+            >>> funding = await adapter.get_funding_rate_with_fallback("BTC_USDT")
+            >>> # Always returns data, even if API is down
+        """
+        if not self.is_circuit_breaker_healthy():
+            self.logger.warning("mexc_futures_adapter.funding_rate_circuit_breaker_open", {
+                "symbol": symbol,
+                "circuit_breaker_state": self.get_circuit_breaker_state()
+            })
+            return {
+                "symbol": symbol,
+                "funding_rate": 0.0,
+                "funding_time": None,
+                "mark_price": 0.0,
+                "source": "fallback_circuit_breaker_open"
+            }
+
+        try:
+            return await self.get_funding_rate(symbol)
+        except Exception as e:
+            self.logger.warning("mexc_futures_adapter.funding_rate_fallback", {
+                "symbol": symbol,
+                "error": str(e)
+            })
+            return {
+                "symbol": symbol,
+                "funding_rate": 0.0,
+                "funding_time": None,
+                "mark_price": 0.0,
+                "source": "fallback_exception"
+            }
+
     async def calculate_funding_cost(self,
                                      symbol: str,
                                      position_amount: float,
@@ -456,64 +724,6 @@ class MexcFuturesAdapter(MexcSpotAdapter):
                 "error": str(e)
             })
             return 0.0  # Return 0 if calculation fails
-
-    async def close_position(self,
-                            symbol: str,
-                            position_side: Literal["LONG", "SHORT"],
-                            order_type: Literal["MARKET", "LIMIT"] = "MARKET",
-                            price: Optional[float] = None) -> Dict[str, Any]:
-        """
-        Close an entire position.
-
-        Args:
-            symbol: Trading symbol
-            position_side: Position to close (LONG or SHORT)
-            order_type: MARKET or LIMIT
-            price: Limit price (for LIMIT orders)
-
-        Returns:
-            Order response
-
-        Example (Close SHORT position):
-            order = await adapter.close_position("BTC_USDT", "SHORT", "MARKET")
-        """
-        # Get current position to determine quantity
-        position = await self.get_position(symbol)
-
-        if not position or position["position_side"] != position_side:
-            raise ValueError(f"No {position_side} position found for {symbol}")
-
-        quantity = abs(position["position_amount"])
-
-        # Determine order side (opposite of position)
-        # To close SHORT: BUY
-        # To close LONG: SELL
-        side = "BUY" if position_side == "SHORT" else "SELL"
-
-        return await self.place_futures_order(
-            symbol=symbol,
-            side=side,
-            position_side=position_side,
-            order_type=order_type,
-            quantity=quantity,
-            price=price,
-            reduce_only=True  # Only close, don't open opposite position
-        )
-
-    # Override parent's place_order to warn about SPOT API usage
-    async def place_order(self, *args, **kwargs):
-        """
-        DEPRECATED: Use place_futures_order() instead.
-
-        This method is for SPOT trading only and won't work for SHORT positions.
-        """
-        self.logger.warning("mexc_futures_adapter.deprecated_method", {
-            "message": "place_order() is for SPOT trading. Use place_futures_order() for futures/SHORT."
-        })
-        raise NotImplementedError(
-            "For futures trading, use place_futures_order() instead of place_order(). "
-            "Futures API requires positionSide parameter which SPOT API doesn't support."
-        )
 
     # ============================================================================
     # Circuit Breaker Management Methods (TIER 2.2)
@@ -573,98 +783,6 @@ class MexcFuturesAdapter(MexcSpotAdapter):
         except Exception:
             return 'unknown'
 
-    async def get_leverage_with_fallback(self, symbol: str, default_leverage: int = 1) -> int:
-        """
-        Get leverage with fallback to default if circuit breaker is open or API fails.
-
-        This is a graceful degradation pattern - returns cached or default value
-        when API is unavailable instead of raising exception.
-
-        Args:
-            symbol: Trading symbol
-            default_leverage: Default leverage to return on failure (default: 1)
-
-        Returns:
-            Leverage value (from API, cache, or default)
-
-        Example:
-            >>> leverage = await adapter.get_leverage_with_fallback("BTC_USDT", default_leverage=3)
-            >>> # Always returns a value, never throws exception
-        """
-        symbol_upper = symbol.upper()
-
-        # First try cache
-        if symbol_upper in self._leverage_cache:
-            self.logger.debug("mexc_futures_adapter.leverage_from_cache", {
-                "symbol": symbol,
-                "leverage": self._leverage_cache[symbol_upper]
-            })
-            return self._leverage_cache[symbol_upper]
-
-        # Try API if circuit breaker is healthy
-        if self.is_circuit_breaker_healthy():
-            try:
-                return await self.get_leverage(symbol)
-            except Exception as e:
-                self.logger.warning("mexc_futures_adapter.leverage_fallback_to_default", {
-                    "symbol": symbol,
-                    "error": str(e),
-                    "default_leverage": default_leverage
-                })
-        else:
-            self.logger.warning("mexc_futures_adapter.leverage_circuit_breaker_open", {
-                "symbol": symbol,
-                "default_leverage": default_leverage,
-                "circuit_breaker_state": self.get_circuit_breaker_state()
-            })
-
-        # Fallback to default
-        return default_leverage
-
-    async def get_funding_rate_with_fallback(self, symbol: str) -> Dict[str, Any]:
-        """
-        Get funding rate with fallback to zero if circuit breaker is open or API fails.
-
-        Non-critical operation - funding rate is informational and can be approximated.
-
-        Args:
-            symbol: Trading symbol
-
-        Returns:
-            Funding rate info (real or fallback)
-
-        Example:
-            >>> funding = await adapter.get_funding_rate_with_fallback("BTC_USDT")
-            >>> # Always returns data, even if API is down
-        """
-        if not self.is_circuit_breaker_healthy():
-            self.logger.warning("mexc_futures_adapter.funding_rate_circuit_breaker_open", {
-                "symbol": symbol,
-                "circuit_breaker_state": self.get_circuit_breaker_state()
-            })
-            return {
-                "symbol": symbol,
-                "funding_rate": 0.0,
-                "funding_time": None,
-                "mark_price": 0.0,
-                "source": "fallback_circuit_breaker_open"
-            }
-
-        try:
-            return await self.get_funding_rate(symbol)
-        except Exception as e:
-            self.logger.warning("mexc_futures_adapter.funding_rate_fallback", {
-                "symbol": symbol,
-                "error": str(e)
-            })
-            return {
-                "symbol": symbol,
-                "funding_rate": 0.0,
-                "funding_time": None,
-                "mark_price": 0.0,
-                "source": "fallback_exception"
-            }
-
     def log_circuit_breaker_status(self):
         """
         Log current circuit breaker status for debugging/monitoring.
@@ -692,3 +810,21 @@ class MexcFuturesAdapter(MexcSpotAdapter):
             self.logger.error("mexc_futures_adapter.circuit_breaker_status_error", {
                 "error": str(e)
             })
+
+    # ============================================================================
+    # DEPRECATED METHOD - PREVENT SPOT API USAGE
+    # ============================================================================
+
+    async def place_order(self, *args, **kwargs):
+        """
+        DEPRECATED: Use place_futures_order() instead.
+
+        This method is for SPOT trading only and won't work for SHORT positions.
+        """
+        self.logger.warning("mexc_futures_adapter.deprecated_method", {
+            "message": "place_order() is for SPOT trading. Use place_futures_order() for futures/SHORT."
+        })
+        raise NotImplementedError(
+            "For futures trading, use place_futures_order() instead of place_order(). "
+            "Futures API requires positionSide parameter which SPOT API doesn't support."
+        )
