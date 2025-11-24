@@ -892,9 +892,10 @@ class Container:
             try:
                 self.logger.debug("container.wallet_service_initialization_started")
 
-                # Create adapter asynchronously with timeout
+                # Create Futures adapter asynchronously with timeout
+                # ✅ FUTURES ONLY - using create_mexc_futures_adapter()
                 adapter = await asyncio.wait_for(
-                    self.create_mexc_adapter(),
+                    self.create_mexc_futures_adapter(),
                     timeout=10.0  # 10 seconds for adapter initialization
                 )
 

@@ -892,8 +892,8 @@ def check_telemetry_system() -> Dict[str, Any]:
 def check_external_services() -> Dict[str, Any]:
     """Check external service availability (MEXC API, etc.)"""
     try:
-        # ❌ SPOT API FORBIDDEN - MexcSpotAdapter (renamed from MexcRealAdapter) is deprecated
-        from ..infrastructure.adapters.mexc_adapter import MexcSpotAdapter
+        # ✅ FUTURES ONLY - using MexcFuturesAdapter
+        from ..infrastructure.adapters.mexc_futures_adapter import MexcFuturesAdapter
         from ..infrastructure.adapters.mexc_paper_adapter import MexcPaperAdapter
         from ..infrastructure.config.settings import AppSettings
         from ..core.logger import StructuredLogger
@@ -920,10 +920,8 @@ def check_external_services() -> Dict[str, Any]:
             }
 
         try:
-            # ❌ This will raise RuntimeError - MexcSpotAdapter is deprecated (Spot API forbidden)
-            # This is INTENTIONAL for Phase 1 - proves deprecation works
-            # Phase 4 will replace this with MexcFuturesAdapter
-            adapter = MexcSpotAdapter(api_key=api_key, api_secret=api_secret, logger=logger)
+            # ✅ FUTURES ONLY - using MexcFuturesAdapter
+            adapter = MexcFuturesAdapter(api_key=api_key, api_secret=api_secret, logger=logger)
         except Exception as exc:
             return {
                 "status": HealthStatus.UNHEALTHY.value,
@@ -935,7 +933,7 @@ def check_external_services() -> Dict[str, Any]:
             import asyncio
 
             async def _probe():
-                return await adapter._make_request("GET", "/api/v3/time", signed=False)  # type: ignore[attr-defined]
+                return await adapter._make_request("GET", "/fapi/v1/time", signed=False)  # type: ignore[attr-defined]
 
             result = asyncio.run(_probe())
             if result is not None:
