@@ -28,7 +28,9 @@ from enum import Enum
 from decimal import Decimal
 
 from ...core.event_bus import EventBus
-from ...infrastructure.adapters.mexc_adapter import MexcRealAdapter
+# ❌ SPOT API FORBIDDEN - MexcSpotAdapter (renamed from MexcRealAdapter) is deprecated
+# Phase 1: Import updated to show deprecation (will be replaced with MexcFuturesAdapter in Phase 3)
+from ...infrastructure.adapters.mexc_adapter import MexcSpotAdapter
 from ...core.circuit_breaker import CircuitBreakerOpenException
 from ..models.trading import Position
 
@@ -84,7 +86,7 @@ class LiveOrderManager:
     def __init__(
         self,
         event_bus: EventBus,
-        mexc_adapter: MexcRealAdapter,
+        mexc_adapter: MexcSpotAdapter,  # ❌ Phase 1: Type hint updated (will change to MexcFuturesAdapter in Phase 3)
         risk_manager,  # RiskManager (avoid circular import)
         max_orders: int = 1000,
         order_timeout_seconds: int = 60  # FIX (Agent 4 - Task 3): Order timeout
