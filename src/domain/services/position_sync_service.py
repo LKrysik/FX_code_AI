@@ -26,9 +26,7 @@ from typing import Dict, Optional, List, Any
 from dataclasses import dataclass
 
 from ...core.event_bus import EventBus
-# ❌ SPOT API FORBIDDEN - MexcSpotAdapter (renamed from MexcRealAdapter) is deprecated
-# Phase 1: Import updated to show deprecation (will be replaced with MexcFuturesAdapter in Phase 3)
-from ...infrastructure.adapters.mexc_adapter import MexcSpotAdapter, PositionResponse
+# ✅ FUTURES ONLY - Using MexcFuturesAdapter (compatibility methods added)
 from ...core.circuit_breaker import CircuitBreakerOpenException
 
 logger = logging.getLogger(__name__)
@@ -70,7 +68,7 @@ class PositionSyncService:
     def __init__(
         self,
         event_bus: EventBus,
-        mexc_adapter: MexcSpotAdapter,  # ❌ Phase 1: Type hint updated (will change to MexcFuturesAdapter in Phase 3)
+        mexc_adapter,  # MexcFuturesAdapter or MexcPaperAdapter (Any to avoid circular import)
         risk_manager,  # RiskManager for margin ratio checking
         max_positions: int = 100
     ):
@@ -296,7 +294,7 @@ class PositionSyncService:
 
                 # Fetch from MEXC (circuit breaker integrated in adapter)
                 try:
-                    exchange_positions: List[PositionResponse] = await self.mexc_adapter.get_positions()
+                    exchange_positions: List[Dict[str, Any]] = await self.mexc_adapter.get_positions()
                 except CircuitBreakerOpenException:
                     logger.warning("Skipping position sync: circuit breaker open")
                     continue
@@ -304,8 +302,8 @@ class PositionSyncService:
                     logger.error(f"Failed to fetch positions from MEXC: {e}")
                     continue
 
-                # Build symbol → exchange position map
-                exchange_map = {p.symbol: p for p in exchange_positions}
+                # Build symbol → exchange position map (positions are now dicts, not PositionResponse objects)
+                exchange_map = {p["symbol"]: p for p in exchange_positions}
 
                 # Protect positions dict access with lock
                 async with self._positions_lock:
@@ -354,12 +352,12 @@ class PositionSyncService:
                             # Position exists, update details
                             exchange_pos = exchange_map[symbol]
 
-                            local_pos.current_price = exchange_pos.current_price
-                            local_pos.liquidation_price = exchange_pos.liquidation_price
-                            local_pos.unrealized_pnl = exchange_pos.unrealized_pnl
-                            local_pos.margin = exchange_pos.margin
-                            local_pos.leverage = exchange_pos.leverage
-                            local_pos.margin_ratio = exchange_pos.margin_ratio
+                            local_pos.current_price = exchange_pos["current_price"]
+                            local_pos.liquidation_price = exchange_pos["liquidation_price"]
+                            local_pos.unrealized_pnl = exchange_pos["unrealized_pnl"]
+                            local_pos.margin = exchange_pos["margin"]
+                            local_pos.leverage = exchange_pos["leverage"]
+                            local_pos.margin_ratio = exchange_pos["margin_ratio"]
                             local_pos.updated_at = time.time()
 
                             # Emit position updated event
@@ -397,15 +395,15 @@ class PositionSyncService:
                             # Add to local tracking
                             position = LocalPosition(
                                 symbol=symbol,
-                                side=exchange_pos.side,
-                                quantity=exchange_pos.quantity,
-                                entry_price=exchange_pos.entry_price,
-                                current_price=exchange_pos.current_price,
-                                liquidation_price=exchange_pos.liquidation_price,
-                                unrealized_pnl=exchange_pos.unrealized_pnl,
-                                margin=exchange_pos.margin,
-                                leverage=exchange_pos.leverage,
-                                margin_ratio=exchange_pos.margin_ratio,
+                                side=exchange_pos["side"],
+                                quantity=exchange_pos["quantity"],
+                                entry_price=exchange_pos["entry_price"],
+                                current_price=exchange_pos["current_price"],
+                                liquidation_price=exchange_pos["liquidation_price"],
+                                unrealized_pnl=exchange_pos["unrealized_pnl"],
+                                margin=exchange_pos["margin"],
+                                leverage=exchange_pos["leverage"],
+                                margin_ratio=exchange_pos["margin_ratio"],
                                 opened_at=time.time(),
                                 updated_at=time.time()
                             )
