@@ -245,7 +245,10 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
         self._background_tasks: set = set()
 
         # State tracking
-        self._cursors: Dict[str, int] = {}  # symbol -> current offset
+        # ✅ FIX (2025-11-30): Changed from numeric offset to timestamp-based cursor
+        # QuestDB doesn't support OFFSET clause, so we track last timestamp instead
+        self._cursors: Dict[str, Optional[int]] = {}  # symbol -> last timestamp (microseconds) or None
+        self._rows_processed: Dict[str, int] = {}  # symbol -> count of rows processed (for progress)
         self._total_rows: Dict[str, int] = {}  # symbol -> total row count
         self._is_streaming = False
         self._exhausted_symbols: set = set()
@@ -268,7 +271,8 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
                 )
 
                 self._total_rows[symbol] = count
-                self._cursors[symbol] = 0
+                self._cursors[symbol] = None  # None means start from beginning
+                self._rows_processed[symbol] = 0
 
                 if self.logger:
                     self.logger.info("questdb_historical.stream_started", {
@@ -426,29 +430,31 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
             if len(batch) >= self.batch_size:
                 break
             
-            offset = self._cursors.get(symbol, 0)
-            
+            # ✅ FIX (2025-11-30): Use timestamp-based cursor instead of offset
+            # QuestDB doesn't support OFFSET, so we use after_timestamp
+            last_timestamp = self._cursors.get(symbol)  # None for first batch
+
             try:
-                # Query next batch for this symbol
+                # Query next batch for this symbol using timestamp-based cursor
                 rows = await self.db_provider.get_tick_prices(
                     session_id=self.session_id,
                     symbol=symbol,
                     limit=self.batch_size - len(batch),
-                    offset=offset
+                    after_timestamp=last_timestamp
                 )
-                
+
                 if not rows:
                     # Symbol exhausted
                     self._exhausted_symbols.add(symbol)
-                    
+
                     if self.logger:
                         self.logger.info("questdb_historical.symbol_exhausted", {
                             "session_id": self.session_id,
                             "symbol": symbol,
-                            "rows_processed": offset
+                            "rows_processed": self._rows_processed.get(symbol, 0)
                         })
                     continue
-                
+
                 # Convert to market data format
                 for row in rows:
                     market_data = {
@@ -461,20 +467,30 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
                         "metadata": {
                             "session_id": self.session_id,
                             "acceleration_factor": self.acceleration_factor,
-                            "batch_offset": offset
+                            "rows_processed": self._rows_processed.get(symbol, 0)
                         }
                     }
                     batch.append(market_data)
-                
-                # Update cursor
-                self._cursors[symbol] = offset + len(rows)
+
+                # ✅ FIX (2025-11-30): Update cursor to last timestamp in batch
+                # Store as microseconds (QuestDB timestamp format)
+                if rows:
+                    last_row_ts = rows[-1].get('timestamp')
+                    if last_row_ts is not None:
+                        # Handle both datetime and int timestamp formats
+                        if hasattr(last_row_ts, 'timestamp'):
+                            self._cursors[symbol] = int(last_row_ts.timestamp() * 1_000_000)
+                        else:
+                            self._cursors[symbol] = int(last_row_ts)
+                    self._rows_processed[symbol] = self._rows_processed.get(symbol, 0) + len(rows)
                 
             except Exception as e:
                 if self.logger:
                     self.logger.error("questdb_historical.batch_read_failed", {
                         "session_id": self.session_id,
                         "symbol": symbol,
-                        "offset": offset,
+                        "last_timestamp": last_timestamp,
+                        "rows_processed": self._rows_processed.get(symbol, 0),
                         "error": str(e),
                         "error_type": type(e).__name__
                     })
@@ -506,7 +522,8 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
         self._replay_task = None
 
         if self.logger:
-            total_processed = sum(self._cursors.values())
+            # ✅ FIX (2025-11-30): Use _rows_processed for counting, not _cursors (which now stores timestamps)
+            total_processed = sum(self._rows_processed.values())
             total_available = sum(self._total_rows.values())
 
             self.logger.info("questdb_historical.stream_stopped", {
@@ -519,16 +536,17 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
     def get_progress(self) -> Optional[float]:
         """
         Calculate backtest progress percentage.
-        
+
         Returns:
             Progress as percentage (0.0 - 100.0) or None
         """
         total_available = sum(self._total_rows.values())
-        
+
         if total_available == 0:
             return 0.0
-        
-        total_processed = sum(self._cursors.values())
-        
+
+        # ✅ FIX (2025-11-30): Use _rows_processed for counting, not _cursors (which now stores timestamps)
+        total_processed = sum(self._rows_processed.values())
+
         progress = (total_processed / total_available) * 100.0
         return min(100.0, progress)

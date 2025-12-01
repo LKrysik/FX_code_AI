@@ -393,21 +393,26 @@ class MexcPaperAdapter:
 
         return None  # No active position
 
-    async def get_positions(self) -> List['PositionResponse']:
+    async def get_positions(self) -> List[Dict[str, Any]]:
         """
         Get all open positions (paper trading simulation).
 
+        ✅ FUTURES ONLY - Returns position dictionaries (NOT PositionResponse objects)
+
+        This matches the interface change made in Phase 4 where MexcFuturesAdapter
+        and PositionSyncService were updated to use Dict instead of PositionResponse.
+
         Returns:
-            List of PositionResponse objects for positions with non-zero quantity
+            List of position dictionaries for positions with non-zero quantity
 
         Note:
-            This method transforms internal position tracking dict into
-            PositionResponse list for compatibility with PositionSyncService.
             Paper trading doesn't have network errors, so no exceptions are raised.
-        """
-        # Import here to avoid circular dependency
-        from .mexc_adapter import PositionResponse
 
+        Architecture Decision (Phase 5):
+            Removed import of PositionResponse from deprecated mexc_adapter.py (MexcSpotAdapter)
+            which had RuntimeError in class definition. Using Dict for consistency with
+            MexcFuturesAdapter.get_positions().
+        """
         positions = []
 
         for position_key, position in self._positions.items():
@@ -435,20 +440,21 @@ class MexcPaperAdapter:
             # In paper trading, we assume healthy margin ratios
             margin_ratio = 100.0 + (unrealized_pnl / margin * 100) if margin > 0 else 100.0
 
-            position_response = PositionResponse(
-                symbol=symbol,
-                side=position_side,
-                quantity=amount,
-                entry_price=entry_price,
-                current_price=current_price,
-                unrealized_pnl=unrealized_pnl,
-                margin_ratio=margin_ratio,
-                liquidation_price=position.get("liquidation_price", 0.0),
-                leverage=leverage,
-                margin=margin
-            )
+            # Return dictionary instead of PositionResponse object
+            position_dict = {
+                "symbol": symbol,
+                "side": position_side,
+                "quantity": amount,
+                "entry_price": entry_price,
+                "current_price": current_price,
+                "unrealized_pnl": unrealized_pnl,
+                "margin_ratio": margin_ratio,
+                "liquidation_price": position.get("liquidation_price", 0.0),
+                "leverage": leverage,
+                "margin": margin
+            }
 
-            positions.append(position_response)
+            positions.append(position_dict)
 
         self._logger.debug("mexc_paper_adapter.get_positions", {
             "count": len(positions),

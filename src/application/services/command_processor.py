@@ -734,12 +734,17 @@ class AsyncCommandProcessor:
             logger=self.logger
         )
 
-        # Start execution
+        # ✅ FIX (2025-11-30): Extract pre_start_callback from parameters
+        # This callback is used to activate strategies and register indicators BEFORE data replay
+        pre_start_callback = parameters.pop("_pre_start_callback", None)
+
+        # Start execution with pre_start_callback to ensure indicators are registered before data replay
         execution_session_id = await self.execution_controller.start_execution(
             mode=ExecutionMode.BACKTEST,
             symbols=symbols,
             data_source=data_source,
-            parameters=parameters
+            parameters=parameters,
+            pre_start_callback=pre_start_callback
         )
 
         command_execution.session_id = execution_session_id

@@ -24,7 +24,10 @@ from enum import Enum
 
 from ..models.trading import Position, Order, OrderSide
 from ...core.event_bus import EventBus
-from ...infrastructure.config.settings import AppSettings
+# ✅ ARCHITECTURE FIX (2025-11-30):
+# Removed AppSettings import - Domain should not depend on Infrastructure.
+# RiskManager now accepts risk_config directly (duck-typed object with required attributes).
+# See Container.create_risk_manager() for how config is passed.
 
 logger = logging.getLogger(__name__)
 
@@ -73,18 +76,30 @@ class RiskManager:
     - Daily P&L tracking with automatic reset at midnight
     """
 
-    def __init__(self, event_bus: EventBus, settings: AppSettings, initial_capital: Decimal = Decimal('10000')):
+    def __init__(self, event_bus: EventBus, risk_config: Any, initial_capital: Decimal = Decimal('10000')):
         """
         Initialize RiskManager.
 
+        ✅ ARCHITECTURE FIX (2025-11-30):
+        Changed from `settings: AppSettings` to `risk_config: Any` to remove
+        Domain → Infrastructure dependency. Container passes settings.risk_management.risk_manager.
+
+        DECISION: Domain layer should not import from Infrastructure.
+        Changes in this area require business owner approval.
+
         Args:
             event_bus: EventBus instance for publishing risk alerts
-            settings: Application settings
+            risk_config: Risk configuration object with attributes:
+                - max_position_size_percent: Decimal
+                - max_concurrent_positions: int
+                - max_symbol_concentration_percent: Decimal
+                - daily_loss_limit_percent: Decimal
+                - max_drawdown_percent: Decimal
+                - margin_utilization_warning_percent: Decimal
             initial_capital: Initial capital in USDT
         """
         self.event_bus = event_bus
-        self.settings = settings
-        self.risk_config = settings.risk_management.risk_manager
+        self.risk_config = risk_config
 
         # Capital tracking
         self.initial_capital = initial_capital

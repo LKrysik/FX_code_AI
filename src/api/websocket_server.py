@@ -2527,20 +2527,12 @@ class WebSocketAPIServer:
                         except Exception:
                             pass
 
-                        # Decide symbol count preference order
-                        if config_symbols:
-                            count = len(config_symbols)
-                        elif status_symbols:
-                            count = len(status_symbols)
-                        elif num_symbols:
-                            count = num_symbols
-                        else:
-                            count = 0
-
-                        # Overwrite to ensure consistency with per-symbol views
-                        results["metrics"]["signals_detected"] = 2 * count
-                        results["metrics"]["orders_placed"] = 1 * count
-                        results["metrics"]["orders_filled"] = results["metrics"].get("orders_filled", count) or count
+                        # ✅ FIX (2025-11-30): Removed mock value overwrites
+                        # Previously this code was overwriting actual metrics with fake values:
+                        #   signals_detected = 2 * count
+                        #   orders_placed = 1 * count
+                        # Now we pass through the actual metrics from ExecutionController
+                        pass
                 except Exception:
                     pass
 

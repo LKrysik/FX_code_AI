@@ -177,6 +177,9 @@ class HealthMonitor:
                 "context": context,
                 "state": self._circuit_breaker_state["state"]
             })
+            # ✅ FIX (2025-11-30): Close the coroutine to prevent "never awaited" warning
+            # When circuit is open, we skip execution but must properly dispose of the coroutine
+            coro.close()
             return None
 
         # Execute with timeout
