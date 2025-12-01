@@ -567,6 +567,8 @@ class StreamingIndicatorEngine:
         symbol_indicators = self._indicators_by_symbol.setdefault(symbol, [])
         if indicator_key not in symbol_indicators:
             symbol_indicators.append(indicator_key)
+            # 🔍 DEBUG: Log when indicator is registered for a symbol
+            print(f"[DEBUG] _track_indicator: symbol={symbol}, indicator_key={indicator_key}, total for symbol={len(symbol_indicators)}")
 
         meta = indicator.metadata or {}
         indicator_type = (meta.get("type") or "").upper()
@@ -1207,6 +1209,15 @@ class StreamingIndicatorEngine:
         """✅ CRITICAL FIX: Update indicators with deadlock prevention"""
         # ✅ CRITICAL FIX: Use symbol indexing for O(1) access instead of O(n) iteration
         indicator_keys = self._indicators_by_symbol.get(symbol, [])
+
+        # 🔍 DEBUG: Log indicator lookup (first 5 calls per symbol)
+        if not hasattr(self, '_debug_symbol_counts'):
+            self._debug_symbol_counts = {}
+        count = self._debug_symbol_counts.get(symbol, 0)
+        if count < 5:
+            self._debug_symbol_counts[symbol] = count + 1
+            print(f"[DEBUG] _update_indicators_safe: symbol={symbol}, indicator_keys={len(indicator_keys)}, _indicators_by_symbol keys={list(self._indicators_by_symbol.keys())[:3]}")
+
         if not indicator_keys:
             return
 
@@ -1235,9 +1246,14 @@ class StreamingIndicatorEngine:
                     indicator.metadata["last_calculation"] = time.time()
 
                     # Collect update for publishing (don't publish here to prevent deadlock)
+                    # ✅ FIX (2025-12-01): Add indicator_type for strategy condition matching
+                    # Strategy conditions use indicatorId (e.g., "price_velocity") but
+                    # indicator.indicator contains full variant name (e.g., "PRICE_VELOCITY_default_ARIA_USDT_20")
+                    indicator_type = indicator.metadata.get("type", "").lower()
                     updates_to_publish.append({
                         "symbol": symbol,
                         "indicator": indicator.indicator,
+                        "indicator_type": indicator_type,  # For condition matching
                         "timeframe": indicator.timeframe,
                         "value": new_value,
                         "timestamp": timestamp

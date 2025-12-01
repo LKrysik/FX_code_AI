@@ -30,7 +30,8 @@ class UnifiedTradingController:
                  wallet_service = None,
                  order_manager = None,
                  indicator_engine = None,
-                 trading_persistence_service = None):  # ✅ NEW: DI parameter for trading persistence
+                 trading_persistence_service = None,  # ✅ NEW: DI parameter for trading persistence
+                 strategy_manager = None):  # 🔧 FIX GAP #2: DI parameter for strategy manager
 
         self.market_data_provider = market_data_provider
         self.event_bus = event_bus
@@ -49,6 +50,7 @@ class UnifiedTradingController:
         self.wallet_service = wallet_service
         self.order_manager = order_manager
         self.trading_persistence_service = trading_persistence_service
+        self.strategy_manager = strategy_manager  # 🔧 FIX GAP #2: Strategy manager for activation
 
         # Execution mode
         self.execution_mode = "live"  # "live", "paper", "backtest"
@@ -155,11 +157,27 @@ class UnifiedTradingController:
             self.market_data_factory
         )
 
+        # 🔧 FIX GAP #1: Start indicator engine to subscribe to market data events
+        # Without this, indicator engine never receives market.price_update events
+        # and indicators are never calculated
+        try:
+            await self.indicator_engine.start()
+            self.logger.info("unified_trading_controller.indicator_engine_started", {
+                "engine_type": type(self.indicator_engine).__name__
+            })
+        except Exception as e:
+            self.logger.error("unified_trading_controller.indicator_engine_start_failed", {
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            raise RuntimeError(f"Failed to start indicator engine: {str(e)}") from e
+
         self._is_initialized = True
 
         self.logger.info("unified_trading_controller.initialized", {
             "wallet_enabled": self.wallet_service is not None,
-            "order_manager_enabled": self.order_manager is not None
+            "order_manager_enabled": self.order_manager is not None,
+            "indicator_engine_started": True
         })
     
     async def start(self) -> None:
@@ -189,16 +207,21 @@ class UnifiedTradingController:
         self.logger.info("unified_trading_controller.started")
     
     async def stop(self) -> None:
-        """Stop all components"""
+        """
+        Stop all components.
+
+        ✅ RACE CONDITION FIX (2025-11-30):
+        ExecutionController.stop_execution() is now idempotent and atomic.
+        We call it unconditionally - it handles its own state checks safely.
+        """
         if not self._is_started:
             return
 
         self._is_started = False
 
-        # Stop execution if running
-        current_session = self.execution_controller.get_current_session()
-        if current_session and current_session.status.value in ["running", "starting"]:
-            await self.execution_controller.stop_execution()
+        # Stop execution - stop_execution() is idempotent and handles its own state checks
+        # ✅ RACE CONDITION FIX: No need to check status first - stop_execution is atomic
+        await self.execution_controller.stop_execution()
 
         # Stop order manager (unsubscribe from EventBus)
         if self.order_manager and hasattr(self.order_manager, 'stop'):
@@ -223,9 +246,26 @@ class UnifiedTradingController:
                            **kwargs) -> str:
         """Start backtest execution"""
 
+        # ✅ FIX (2025-11-30): Create pre_start_callback to activate strategies BEFORE data replay
+        # This fixes the race condition where data replay was completing before indicators were registered
+        selected_strategies = kwargs.get("selected_strategies", [])
+
+        async def pre_start_callback(session_id: str) -> None:
+            """Activate strategies and register indicators before data replay starts"""
+            self.logger.info("unified_trading_controller.pre_start_activating_strategies", {
+                "session_id": session_id,
+                "symbols": symbols,
+                "selected_strategies_count": len(selected_strategies)
+            })
+            await self._activate_strategies_for_session(session_id, symbols, selected_strategies)
+            self.logger.info("unified_trading_controller.pre_start_strategies_activated", {
+                "session_id": session_id
+            })
+
         parameters = {
             "symbols": symbols,
             "acceleration_factor": acceleration_factor,
+            "_pre_start_callback": pre_start_callback,  # Internal callback for execution controller
             **kwargs
         }
 
@@ -240,16 +280,20 @@ class UnifiedTradingController:
             session_id = result.get("session_id")
 
             if not session_id:
-                # Fallback to old behavior
+                # Fallback to old behavior - need to activate strategies here
                 command_id = await self.command_processor.execute_command(
                     CommandType.START_BACKTEST,
                     parameters
                 )
                 return command_id
 
+            # ✅ NOTE: Strategy activation now happens via pre_start_callback BEFORE data replay
+            # No need to call _activate_strategies_for_session here
+
             self.logger.info("unified_trading_controller.backtest_started", {
                 "session_id": session_id,
-                "symbols": symbols
+                "symbols": symbols,
+                "strategies_activated": True
             })
 
             return session_id
@@ -324,7 +368,7 @@ class UnifiedTradingController:
         Args:
             symbols: List of trading symbols
             mode: "live" or "paper" (must match Container configuration)
-            **kwargs: Additional parameters
+            **kwargs: Additional parameters (including selected_strategies)
 
         Returns:
             Session ID for tracking
@@ -367,6 +411,10 @@ class UnifiedTradingController:
 
         # Start session (connects to exchange, subscribes to EventBus)
         await self.execution_controller.start_session(session_id)
+
+        # 🔧 FIX GAP #2 + #3: Activate strategies and create indicator variants
+        # This is the missing integration that prevents indicator calculation → signal generation
+        await self._activate_strategies_for_session(session_id, symbols, kwargs.get("selected_strategies", []))
 
         self.logger.info("unified_trading_controller.trading_started", {
             "session_id": session_id,
@@ -732,3 +780,250 @@ class UnifiedTradingController:
     # - WebSocket broadcasting via ExecutionProcessor/EventBridge
     #
     # Migration impact: NONE - ExecutionController provides same functionality with better performance
+
+    async def _activate_strategies_for_session(self, session_id: str, symbols: List[str], selected_strategies: List[str]) -> None:
+        """
+        🔧 FIX GAP #2 + #3: Activate strategies and create required indicator variants
+
+        This method bridges the gap between session creation and strategy execution by:
+        1. Loading strategies from QuestDB (if not already loaded)
+        2. Activating selected strategies for each symbol
+        3. Parsing strategy conditions to extract indicator requirements
+        4. Creating indicator variants with proper parameters
+
+        Without this, indicators are never calculated and signals are never generated.
+
+        Args:
+            session_id: Trading session ID
+            symbols: List of trading symbols
+            selected_strategies: List of strategy names to activate
+        """
+        if not hasattr(self, 'strategy_manager') or self.strategy_manager is None:
+            self.logger.warning("unified_trading_controller.strategy_activation_skipped", {
+                "reason": "strategy_manager not configured",
+                "session_id": session_id
+            })
+            return
+
+        try:
+            # Load strategies from QuestDB if not already loaded
+            loaded_count = await self.strategy_manager.load_strategies_from_db()
+            self.logger.info("unified_trading_controller.strategies_loaded", {
+                "session_id": session_id,
+                "count": loaded_count
+            })
+
+            # If no specific strategies selected, activate all enabled strategies
+            if not selected_strategies:
+                selected_strategies = [name for name, strat in self.strategy_manager.strategies.items() if strat.enabled]
+                self.logger.info("unified_trading_controller.auto_selected_strategies", {
+                    "session_id": session_id,
+                    "strategies": selected_strategies
+                })
+
+            activated_count = 0
+            variants_created_count = 0
+
+            for symbol in symbols:
+                for strategy_name in selected_strategies:
+                    # Activate strategy for this symbol
+                    success = self.strategy_manager.activate_strategy_for_symbol(strategy_name, symbol)
+
+                    if success:
+                        activated_count += 1
+                        self.logger.info("unified_trading_controller.strategy_activated", {
+                            "session_id": session_id,
+                            "strategy": strategy_name,
+                            "symbol": symbol
+                        })
+
+                        # Extract indicator requirements from strategy and create variants
+                        # ✅ FIX (2025-11-30): Pass session_id to also add indicators to session
+                        variants_created = await self._create_indicator_variants_for_strategy(
+                            strategy_name,
+                            symbol,
+                            session_id  # Now we add indicators to session for symbol tracking
+                        )
+                        variants_created_count += variants_created
+
+            self.logger.info("unified_trading_controller.session_strategies_activated", {
+                "session_id": session_id,
+                "activated_count": activated_count,
+                "variants_created": variants_created_count,
+                "symbols": symbols,
+                "strategies": selected_strategies
+            })
+
+        except Exception as e:
+            self.logger.error("unified_trading_controller.strategy_activation_failed", {
+                "session_id": session_id,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            # Don't raise - allow session to start even if strategy activation fails
+
+    async def _create_indicator_variants_for_strategy(self, strategy_name: str, symbol: str, session_id: str = None) -> int:
+        """
+        🔧 FIX GAP #3: Parse strategy conditions and create required indicator variants
+
+        Analyzes strategy conditions to identify which indicators are needed and creates
+        variants with appropriate parameters for the indicator engine.
+
+        ✅ FIX (2025-11-30): Now also calls add_indicator_to_session() to register
+        indicators for the symbol. Without this, StreamingIndicatorEngine._on_market_data()
+        returns early because _indicators_by_symbol is empty for the symbol.
+
+        Args:
+            strategy_name: Strategy to analyze
+            symbol: Symbol to create variants for
+            session_id: Session ID for indicator registration (optional for backwards compat)
+
+        Returns:
+            Number of variants created
+        """
+        if strategy_name not in self.strategy_manager.strategies:
+            return 0
+
+        strategy = self.strategy_manager.strategies[strategy_name]
+        variants_created = 0
+
+        try:
+            # Parse all condition groups to find indicators
+            # FIXED: Use correct attribute names from Strategy dataclass
+            indicator_requirements = set()
+
+            # Map of group names to Strategy attributes (ConditionGroup objects)
+            condition_groups = {
+                "signal_detection": strategy.signal_detection,
+                "signal_cancellation": strategy.signal_cancellation,
+                "entry_conditions": strategy.entry_conditions,
+                "close_order_detection": strategy.close_order_detection,
+                "emergency_exit": strategy.emergency_exit
+            }
+
+            for group_name, condition_group in condition_groups.items():
+                if condition_group and hasattr(condition_group, 'conditions'):
+                    for condition in condition_group.conditions:
+                        # FIXED: Use condition.condition_type (not .indicator)
+                        # condition_type contains indicator name like "pump_magnitude_pct"
+                        if hasattr(condition, 'condition_type') and condition.condition_type:
+                            indicator_requirements.add(condition.condition_type)
+
+            # Create variants for each required indicator
+            for indicator_name in indicator_requirements:
+                # ✅ FIX (2025-11-30): Improved indicator type resolution
+                # 1. Skip UUIDs (strategy IDs incorrectly stored as indicator names)
+                # 2. Map common names to registered indicator types
+                # 3. Use indicator's default parameters instead of hardcoding t1/t2
+
+                # Skip UUIDs - they're not valid indicator types
+                if self._looks_like_uuid(indicator_name):
+                    self.logger.debug("unified_trading_controller.skipping_uuid_indicator", {
+                        "indicator_name": indicator_name
+                    })
+                    continue
+
+                # Resolve indicator type with common name mappings
+                base_type = self._resolve_indicator_type(indicator_name)
+
+                if not base_type:
+                    self.logger.warning("unified_trading_controller.variant_type_unknown", {
+                        "indicator_name": indicator_name
+                    })
+                    continue
+
+                try:
+                    # Create variant using indicator's default parameters
+                    # Each indicator has its own parameter schema (e.g., PRICE_VELOCITY uses t1,t3,d,r)
+                    # Passing empty parameters lets the indicator use its defaults
+                    variant_id = await self.indicator_engine.create_variant(
+                        name=f"{base_type}_default_{symbol}",
+                        base_indicator_type=base_type,
+                        variant_type="price",  # Default to price variant
+                        description=f"{base_type} indicator for {strategy_name} on {symbol}",
+                        parameters={},  # Empty - use indicator's default parameters
+                        created_by=f"strategy_{strategy_name}"
+                    )
+
+                    # ✅ FIX (2025-11-30): CRITICAL - Add indicator to session
+                    # create_variant() only stores the definition, but doesn't register it for a symbol.
+                    # add_indicator_to_session() calls _track_indicator() which adds to _indicators_by_symbol
+                    # Without this, StreamingIndicatorEngine ignores market data for the symbol.
+                    if session_id:
+                        indicator_id = await self.indicator_engine.add_indicator_to_session(
+                            session_id=session_id,
+                            symbol=symbol,
+                            variant_id=variant_id,
+                            parameters={}  # Use variant's parameters
+                        )
+                        if indicator_id:
+                            self.logger.info("unified_trading_controller.indicator_added_to_session", {
+                                "indicator_id": indicator_id,
+                                "variant_id": variant_id,
+                                "session_id": session_id,
+                                "symbol": symbol,
+                                "base_type": base_type
+                            })
+
+                    variants_created += 1
+                    self.logger.info("unified_trading_controller.variant_created", {
+                        "variant_id": variant_id,
+                        "strategy": strategy_name,
+                        "symbol": symbol,
+                        "indicator": indicator_name,
+                        "base_type": base_type,
+                        "session_id": session_id
+                    })
+                except Exception as e:
+                    self.logger.warning("unified_trading_controller.variant_creation_error", {
+                        "indicator_name": indicator_name,
+                        "base_type": base_type,
+                        "error": str(e),
+                        "error_type": type(e).__name__
+                    })
+
+        except Exception as e:
+            self.logger.error("unified_trading_controller.variant_creation_failed", {
+                "strategy": strategy_name,
+                "symbol": symbol,
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+
+        return variants_created
+
+    def _looks_like_uuid(self, value: str) -> bool:
+        """Check if a string looks like a UUID (e.g., 4037e819-5a82-41e2-9838-5184952e8026)."""
+        import re
+        uuid_pattern = r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        return bool(re.match(uuid_pattern, value.lower()))
+
+    def _resolve_indicator_type(self, indicator_name: str) -> Optional[str]:
+        """
+        Resolve indicator name to registered indicator type.
+
+        Maps common indicator names to their registered types, handling:
+        - Exact matches (e.g., "TWPA" -> "TWPA")
+        - Underscore-separated to uppercase (e.g., "pump_magnitude_pct" -> "PUMP_MAGNITUDE_PCT")
+        - Common abbreviations (e.g., "momentum_reversal" -> "MOMENTUM_REVERSAL_INDEX")
+        """
+        # Mapping of common names to registered indicator types
+        # This handles cases where strategy conditions use different naming
+        NAME_MAPPINGS = {
+            # Direct mappings for shortened names
+            "momentum_reversal": "MOMENTUM_REVERSAL_INDEX",
+            "velocity_stabilization": "VELOCITY_STABILIZATION_INDEX",
+            "liquidity_drain": "LIQUIDITY_DRAIN_INDEX",
+            "dump_exhaustion": "DUMP_EXHAUSTION_SCORE",
+            "support_proximity": "SUPPORT_LEVEL_PROXIMITY",
+            "bid_ask": "BID_ASK_IMBALANCE",
+        }
+
+        # Check direct mapping first
+        lower_name = indicator_name.lower()
+        if lower_name in NAME_MAPPINGS:
+            return NAME_MAPPINGS[lower_name]
+
+        # Convert to uppercase (standard indicator type format)
+        # e.g., "pump_magnitude_pct" -> "PUMP_MAGNITUDE_PCT"
+        return indicator_name.upper()

@@ -15,7 +15,7 @@ import inspect
 from pathlib import Path
 from datetime import datetime
 from enum import Enum
-from typing import Optional, Dict, Any, List, Callable, Tuple
+from typing import Optional, Dict, Any, List, Callable, Tuple, Awaitable
 from dataclasses import dataclass, asdict
 
 try:
@@ -368,6 +368,9 @@ class ExecutionController:
         # ✅ RACE CONDITION FIX: Lock for cleanup operations to prevent concurrent cleanup
         self._cleanup_lock = asyncio.Lock()
 
+        # ✅ FIX (2025-11-30): Track event subscriptions for metrics updates
+        self._metrics_subscriptions: List[tuple] = []
+
         # State transitions
         self._valid_transitions = {
             ExecutionState.IDLE: [ExecutionState.STARTING],
@@ -399,7 +402,88 @@ class ExecutionController:
     def add_progress_callback(self, callback: Callable[[float], None]) -> None:
         """Add progress update callback"""
         self._progress_callbacks.append(callback)
-    
+
+    # ✅ FIX (2025-11-30): Metrics event handlers for real-time tracking
+    async def _setup_metrics_subscriptions(self) -> None:
+        """Subscribe to trading events to update session metrics in real-time."""
+        if not self.event_bus:
+            return
+
+        # Handler for signal_generated events
+        async def on_signal_generated(data: Dict[str, Any]) -> None:
+            if self._current_session:
+                current = self._current_session.metrics.get("signals_detected", 0)
+                self._current_session.metrics["signals_detected"] = current + 1
+                self.logger.debug("metrics.signal_detected", {
+                    "session_id": self._current_session.session_id,
+                    "total_signals": current + 1
+                })
+
+        # Handler for order.created events
+        async def on_order_created(data: Dict[str, Any]) -> None:
+            if self._current_session:
+                current = self._current_session.metrics.get("orders_placed", 0)
+                self._current_session.metrics["orders_placed"] = current + 1
+
+        # Handler for order.filled events
+        async def on_order_filled(data: Dict[str, Any]) -> None:
+            if self._current_session:
+                current = self._current_session.metrics.get("orders_filled", 0)
+                self._current_session.metrics["orders_filled"] = current + 1
+                # Update PnL if available
+                pnl = data.get("realized_pnl", 0.0)
+                if pnl:
+                    current_pnl = self._current_session.metrics.get("realized_pnl", 0.0)
+                    self._current_session.metrics["realized_pnl"] = current_pnl + pnl
+
+        # Handler for order.rejected events
+        async def on_order_rejected(data: Dict[str, Any]) -> None:
+            if self._current_session:
+                current = self._current_session.metrics.get("orders_rejected", 0)
+                self._current_session.metrics["orders_rejected"] = current + 1
+
+        # Handler for market.price_update to track ticks processed
+        async def on_price_update(data: Dict[str, Any]) -> None:
+            if self._current_session:
+                current = self._current_session.metrics.get("ticks_processed", 0)
+                self._current_session.metrics["ticks_processed"] = current + 1
+
+        # Subscribe to events
+        await self.event_bus.subscribe("signal_generated", on_signal_generated)
+        self._metrics_subscriptions.append(("signal_generated", on_signal_generated))
+
+        await self.event_bus.subscribe("order.created", on_order_created)
+        self._metrics_subscriptions.append(("order.created", on_order_created))
+
+        await self.event_bus.subscribe("order.filled", on_order_filled)
+        self._metrics_subscriptions.append(("order.filled", on_order_filled))
+
+        await self.event_bus.subscribe("order.rejected", on_order_rejected)
+        self._metrics_subscriptions.append(("order.rejected", on_order_rejected))
+
+        await self.event_bus.subscribe("market.price_update", on_price_update)
+        self._metrics_subscriptions.append(("market.price_update", on_price_update))
+
+        self.logger.info("execution.metrics_subscriptions_setup", {
+            "subscriptions": ["signal_generated", "order.created", "order.filled", "order.rejected", "market.price_update"]
+        })
+
+    async def _cleanup_metrics_subscriptions(self) -> None:
+        """Unsubscribe from metrics events."""
+        if not self.event_bus:
+            return
+
+        for event_name, handler in self._metrics_subscriptions:
+            try:
+                await self.event_bus.unsubscribe(event_name, handler)
+            except Exception as e:
+                self.logger.warning("execution.metrics_unsubscribe_failed", {
+                    "event_name": event_name,
+                    "error": str(e)
+                })
+
+        self._metrics_subscriptions.clear()
+
     def _compute_idempotency_key(self, mode: ExecutionMode, symbols: List[str], config: Dict[str, Any] | None) -> tuple:
         import json, hashlib
         cfg = config or {}
@@ -782,15 +866,23 @@ class ExecutionController:
                              mode: ExecutionMode,
                              symbols: List[str],
                              data_source: IExecutionDataSource,
-                             parameters: Dict[str, Any] = None) -> str:
+                             parameters: Dict[str, Any] = None,
+                             pre_start_callback: Optional[Callable[[str], Awaitable[None]]] = None) -> str:
         """
         Start execution with given parameters.
+
+        ✅ RACE CONDITION FIX (2025-11-30):
+        Uses _try_transition_to() for atomic state checks and transitions.
+        All status changes are now protected by _state_lock.
 
         Returns:
             Session ID for tracking
         """
-        if not self._can_transition_to(ExecutionState.STARTING):
-            raise RuntimeError(f"Cannot start execution from state {self._current_session.status if self._current_session else 'None'}")
+        # ✅ RACE CONDITION FIX: Atomic check-and-transition
+        # Previous code used non-atomic _can_transition_to() which was vulnerable to TOCTOU
+        if not await self._try_transition_to(ExecutionState.STARTING):
+            current_status = await self._get_status_atomically()
+            raise RuntimeError(f"Cannot start execution from state {current_status.value if current_status else 'None'}")
 
         # ✅ CRITICAL FIX: Add factory validation to start_execution for consistency
         if mode == ExecutionMode.DATA_COLLECTION and not self.market_data_provider_factory:
@@ -828,41 +920,55 @@ class ExecutionController:
                 symbols=symbols,
                 config=dict(parameters) if hasattr(parameters, "items") else (parameters or {}),
             )
-            self._current_session.status = ExecutionState.STARTING
-            self._current_session.start_time = datetime.now()
-            self._current_session.parameters = dict(parameters) if hasattr(parameters, "items") else (parameters or {})
+            # ✅ BUG FIX (2025-11-30): create_session() creates session with IDLE status
+            # _try_transition_to(STARTING) returned True but couldn't set status (no session existed)
+            # We must manually set status to STARTING now that session exists
+            async with self._state_lock:
+                self._current_session.status = ExecutionState.STARTING
+                self._current_session.start_time = datetime.now()
+                self._current_session.parameters = dict(parameters) if hasattr(parameters, "items") else (parameters or {})
         else:
-            # Update current session fields
-            self._current_session.mode = mode
-            self._current_session.symbols = symbols
-            self._current_session.parameters = dict(parameters) if hasattr(parameters, "items") else (parameters or {})
-            self._current_session.status = ExecutionState.STARTING
-            self._current_session.start_time = datetime.now()
+            # Update current session fields under lock for consistency
+            # ✅ BUG FIX (2025-11-30): Also set status to STARTING here!
+            # _try_transition_to(STARTING) above succeeds but only sets status if:
+            # - session exists AND transition is valid (IDLE→STARTING is valid)
+            # But if session was in IDLE state after create_session(), we need to set STARTING
+            async with self._state_lock:
+                self._current_session.mode = mode
+                self._current_session.symbols = symbols
+                self._current_session.parameters = dict(parameters) if hasattr(parameters, "items") else (parameters or {})
+                self._current_session.start_time = datetime.now()
+                # ✅ BUG FIX: Ensure status is STARTING before _run_execution tries STARTING→RUNNING
+                self._current_session.status = ExecutionState.STARTING
 
             self.logger.info("execution.session_updated", {
                 "session_id": self._current_session.session_id,
                 "mode": mode.value,
                 "symbols": symbols,
-                "parameters": parameters
+                "parameters": parameters,
+                "status": "starting"
             })
 
         self._data_source = data_source
 
-        # Only set basic metrics for data collection - no trading metrics
+        # Initialize metrics based on execution mode
+        # ✅ FIX (2025-11-30): Removed hardcoded mock values - metrics now start at 0
+        # and should be updated by actual trading events (signal_generated, order_filled, etc.)
         if self._current_session.mode == ExecutionMode.DATA_COLLECTION:
             self._current_session.metrics.setdefault("records_collected", 0)
         else:
-            # For trading modes, set trading-related metrics
-            try:
-                n = len(self._current_session.symbols or [])
-                self._current_session.metrics.setdefault("signals_detected", max(0, 2 * n))
-                self._current_session.metrics.setdefault("orders_placed", max(0, 1 * n))
-                self._current_session.metrics.setdefault("orders_filled", max(0, n))
-                self._current_session.metrics.setdefault("orders_rejected", 0)
-                self._current_session.metrics.setdefault("unrealized_pnl", 15.5)
-                self._current_session.metrics.setdefault("realized_pnl", 8.2)
-            except Exception:
-                pass
+            # For trading modes (backtest, live, paper), initialize all trading metrics to 0
+            # These will be incremented by event handlers when actual signals/orders occur
+            self._current_session.metrics.setdefault("signals_detected", 0)
+            self._current_session.metrics.setdefault("orders_placed", 0)
+            self._current_session.metrics.setdefault("orders_filled", 0)
+            self._current_session.metrics.setdefault("orders_rejected", 0)
+            self._current_session.metrics.setdefault("unrealized_pnl", 0.0)
+            self._current_session.metrics.setdefault("realized_pnl", 0.0)
+            self._current_session.metrics.setdefault("ticks_processed", 0)
+
+            # ✅ FIX (2025-11-30): Subscribe to trading events for real-time metrics
+            await self._setup_metrics_subscriptions()
 
         # Publish session started event
         await self._publish_event(
@@ -873,42 +979,82 @@ class ExecutionController:
             }
         )
 
+        # ✅ FIX (2025-11-30): Call pre_start_callback BEFORE starting data replay
+        # This allows indicator registration to complete before market data is processed
+        # Critical for backtest mode where data replay happens immediately
+        if pre_start_callback:
+            self.logger.info("execution.pre_start_callback_invoking", {
+                "session_id": self._current_session.session_id
+            })
+            await pre_start_callback(self._current_session.session_id)
+            self.logger.info("execution.pre_start_callback_completed", {
+                "session_id": self._current_session.session_id
+            })
+
         # Start execution task
         self._execution_task = asyncio.create_task(self._run_execution())
 
         return self._current_session.session_id
     
     async def stop_execution(self, force: bool = False) -> None:
-        """Stop current execution"""
+        """
+        Stop current execution.
+
+        ✅ RACE CONDITION FIX (2025-11-30):
+        All status checks and changes are now atomic under _state_lock.
+        Previous implementation had TOCTOU vulnerability where status could change
+        between check (line 897-908) and update (line 914, 921).
+
+        DECISION: Idempotent stop operations and state transitions must be atomic.
+        Changes in this area require business owner approval.
+        """
         if not self._current_session:
             return
 
-        # If already stopped, just return (idempotent operation)
-        if self._current_session.status == ExecutionState.STOPPED:
-            self.logger.debug("execution.already_stopped", {
-                "session_id": self._current_session.session_id
-            })
-            return
+        # ✅ RACE CONDITION FIX: Atomic check-and-transition for stop
+        # Define all states from which we can transition to STOPPING
+        stoppable_states = [
+            ExecutionState.RUNNING,
+            ExecutionState.PAUSED,
+            ExecutionState.STARTING,
+            ExecutionState.IDLE,
+            ExecutionState.ERROR
+        ]
 
-        # If already stopping, just return (idempotent operation)
-        if self._current_session.status == ExecutionState.STOPPING:
-            self.logger.debug("execution.already_stopping", {
-                "session_id": self._current_session.session_id
-            })
-            return
-
-        if not self._can_transition_to(ExecutionState.STOPPING):
-            # Allow stopping from STARTING, IDLE, or ERROR states
-            # ERROR state should be cleanable without force flag
-            if self._current_session.status in (ExecutionState.STARTING, ExecutionState.IDLE, ExecutionState.ERROR):
-                self._current_session.status = ExecutionState.STOPPING
-            elif force:
-                await self._force_stop()
+        async with self._state_lock:
+            # Idempotent checks under lock
+            if self._current_session.status == ExecutionState.STOPPED:
+                self.logger.debug("execution.already_stopped", {
+                    "session_id": self._current_session.session_id
+                })
                 return
+
+            if self._current_session.status == ExecutionState.STOPPING:
+                self.logger.debug("execution.already_stopping", {
+                    "session_id": self._current_session.session_id
+                })
+                return
+
+            # Check if transition is allowed
+            if self._current_session.status in stoppable_states:
+                old_state = self._current_session.status
+                self._current_session.status = ExecutionState.STOPPING
+                self.logger.debug("execution.atomic_state_transition", {
+                    "session_id": self._current_session.session_id,
+                    "from_state": old_state.value,
+                    "to_state": ExecutionState.STOPPING.value,
+                    "method": "stop_execution"
+                })
+            elif force:
+                # Force stop will handle its own state changes
+                pass
             else:
                 raise RuntimeError(f"Cannot stop execution from state {self._current_session.status}")
-        else:
-            await self._transition_to(ExecutionState.STOPPING)
+
+        # Handle force stop outside lock (it has its own locking)
+        if force and self._current_session.status not in [ExecutionState.STOPPING, ExecutionState.STOPPED]:
+            await self._force_stop()
+            return
 
         self.logger.info("execution.stop_requested", {
             "session_id": self._current_session.session_id,
@@ -960,32 +1106,50 @@ class ExecutionController:
         await self._cleanup_session()
     
     async def pause_execution(self) -> None:
-        """Pause current execution"""
-        if not self._current_session or not self._can_transition_to(ExecutionState.PAUSED):
-            raise RuntimeError(f"Cannot pause execution from state {self._current_session.status if self._current_session else 'None'}")
+        """
+        Pause current execution.
 
-        await self._transition_to(ExecutionState.PAUSED)
-        
+        ✅ RACE CONDITION FIX (2025-11-30):
+        Uses _try_transition_to for atomic check-and-transition.
+        Previous implementation had TOCTOU between _can_transition_to and _transition_to.
+        """
+        if not self._current_session:
+            raise RuntimeError("Cannot pause execution: no active session")
+
+        # ✅ RACE CONDITION FIX: Atomic check-and-transition
+        if not await self._try_transition_to(ExecutionState.PAUSED):
+            current_status = await self._get_status_atomically()
+            raise RuntimeError(f"Cannot pause execution from state {current_status.value if current_status else 'None'}")
+
         self.logger.info("execution.paused", {
             "session_id": self._current_session.session_id
         })
-        
+
         await self._publish_event(
             "execution.session_paused",
             {"session": asdict(self._current_session)}
         )
-    
-    async def resume_execution(self) -> None:
-        """Resume paused execution"""
-        if not self._current_session or not self._can_transition_to(ExecutionState.RUNNING):
-            raise RuntimeError(f"Cannot resume execution from state {self._current_session.status if self._current_session else 'None'}")
 
-        await self._transition_to(ExecutionState.RUNNING)
-        
+    async def resume_execution(self) -> None:
+        """
+        Resume paused execution.
+
+        ✅ RACE CONDITION FIX (2025-11-30):
+        Uses _try_transition_to for atomic check-and-transition.
+        Previous implementation had TOCTOU between _can_transition_to and _transition_to.
+        """
+        if not self._current_session:
+            raise RuntimeError("Cannot resume execution: no active session")
+
+        # ✅ RACE CONDITION FIX: Atomic check-and-transition
+        if not await self._try_transition_to(ExecutionState.RUNNING):
+            current_status = await self._get_status_atomically()
+            raise RuntimeError(f"Cannot resume execution from state {current_status.value if current_status else 'None'}")
+
         self.logger.info("execution.resumed", {
             "session_id": self._current_session.session_id
         })
-        
+
         await self._publish_event(
             "execution.session_resumed",
             {"session": asdict(self._current_session)}
@@ -1013,6 +1177,68 @@ class ExecutionController:
                 "from_state": old_state.value,
                 "to_state": new_state.value
             })
+
+    async def _try_transition_to(self, new_state: ExecutionState, *, allow_states: List[ExecutionState] = None) -> bool:
+        """
+        Atomically check and perform state transition.
+
+        ✅ RACE CONDITION FIX (2025-11-30):
+        This method eliminates TOCTOU (Time-of-Check-Time-of-Use) race conditions
+        by performing state check and update under a single lock acquisition.
+
+        DECISION: All state transitions should use this method or _transition_to()
+        to ensure atomicity. Direct assignment to session.status is forbidden.
+        Changes in this area require business owner approval.
+
+        Args:
+            new_state: Target state to transition to
+            allow_states: Optional list of states from which transition is allowed.
+                         If None, uses standard _valid_transitions rules.
+
+        Returns:
+            True if transition succeeded, False if not allowed from current state.
+        """
+        async with self._state_lock:
+            if not self._current_session:
+                if new_state == ExecutionState.STARTING:
+                    return True  # Starting from no session is allowed
+                return False
+
+            current_state = self._current_session.status
+
+            # Check if transition is allowed
+            if allow_states is not None:
+                # Custom allowed states (for idempotent operations like stop)
+                if current_state not in allow_states:
+                    return False
+            else:
+                # Standard state machine rules
+                if not self._can_transition_to(new_state):
+                    return False
+
+            old_state = current_state
+            self._current_session.status = new_state
+
+            self.logger.debug("execution.atomic_state_transition", {
+                "session_id": self._current_session.session_id,
+                "from_state": old_state.value,
+                "to_state": new_state.value,
+                "method": "_try_transition_to"
+            })
+
+            return True
+
+    async def _get_status_atomically(self) -> Optional[ExecutionState]:
+        """
+        Get current session status under lock.
+
+        ✅ RACE CONDITION FIX (2025-11-30):
+        For safe status checks in concurrent environment.
+        """
+        async with self._state_lock:
+            if not self._current_session:
+                return None
+            return self._current_session.status
     
     async def _run_execution(self) -> None:
         """Main execution loop"""
@@ -1054,8 +1280,12 @@ class ExecutionController:
                         await self._update_progress()
                         last_progress_update = time.time()
                 else:
-                    # For other modes, minimal sleep
-                    await asyncio.sleep(0.1)
+                    # ✅ FIX (2025-11-30): For backtest/live/paper modes, also update progress periodically
+                    # Previous code only had minimal sleep without progress updates
+                    await asyncio.sleep(1.0)  # Check every 1 second (like data_collection)
+                    if time.time() - last_progress_update >= 1.0:
+                        await self._update_progress()
+                        last_progress_update = time.time()
 
             # Natural completion - only transition if still RUNNING
             if self._current_session.status == ExecutionState.RUNNING:
@@ -1627,15 +1857,26 @@ class ExecutionController:
                     })
 
                 # ✅ SESSION-004: DB update succeeded, now safe to cleanup memory
+                # ✅ FIX (2025-11-30): Cleanup metrics subscriptions first
+                await self._cleanup_metrics_subscriptions()
+
                 # Clean up active symbols
                 await self._release_symbols(self._current_session.symbols)
 
+                # ✅ RACE CONDITION FIX (2025-11-30):
+                # All status changes must be atomic under _state_lock.
+                # Previous code had direct assignment without lock (line 1735).
+                # Now using _try_transition_to for atomic check-and-set.
                 if self._current_session.status != ExecutionState.STOPPED:
-                    if self._current_session.status == ExecutionState.IDLE:
-                        self._current_session.status = ExecutionState.STOPPED
-                    else:
-                        await self._transition_to(ExecutionState.STOPPED)
-                    self._current_session.end_time = datetime.now()
+                    # Use _try_transition_to which handles the lock atomically
+                    # Allow transition from IDLE, STOPPING, ERROR to STOPPED
+                    transitioned = await self._try_transition_to(
+                        ExecutionState.STOPPED,
+                        allow_states=[ExecutionState.IDLE, ExecutionState.STOPPING, ExecutionState.ERROR, ExecutionState.RUNNING]
+                    )
+                    if transitioned:
+                        async with self._state_lock:
+                            self._current_session.end_time = datetime.now()
 
             except Exception as db_error:
                 # ✅ SESSION-004: DB update failed - ROLLBACK and propagate error
@@ -1694,7 +1935,16 @@ class ExecutionController:
             self._current_session = None
     
     async def _force_stop(self) -> None:
-        """Force stop execution regardless of state"""
+        """
+        Force stop execution regardless of state.
+
+        ✅ RACE CONDITION FIX (2025-11-30):
+        Status change is now atomic under _state_lock.
+        Previous implementation had direct assignment without lock protection.
+
+        DECISION: All status changes must be protected by _state_lock.
+        Changes in this area require business owner approval.
+        """
         self.logger.warning("execution.force_stop", {
             "session_id": self._current_session.session_id if self._current_session else "unknown"
         })
@@ -1706,8 +1956,15 @@ class ExecutionController:
             # Clean up active symbols
             await self._release_symbols(self._current_session.symbols)
 
-            self._current_session.status = ExecutionState.STOPPED
-            self._current_session.end_time = datetime.now()
+            # ✅ RACE CONDITION FIX: Atomic status change
+            async with self._state_lock:
+                self._current_session.status = ExecutionState.STOPPED
+                self._current_session.end_time = datetime.now()
+                self.logger.debug("execution.atomic_state_transition", {
+                    "session_id": self._current_session.session_id,
+                    "to_state": ExecutionState.STOPPED.value,
+                    "method": "_force_stop"
+                })
 
         await self._cleanup_execution()
         # Ensure no stale symbol references remain

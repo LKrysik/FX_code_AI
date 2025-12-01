@@ -1,9 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(pkill:*)",
-      "Bash(git commit -m \"$(cat <<''EOF''\nfix: resolve 6 critical P0 bugs - API errors, auth, imports, validation\n\nFixed 6 CRITICAL bugs blocking system functionality:\n\nP0-1: MEXCRestFallback import case-sensitivity bug (unified_server.py:1817,1821)\n- Changed MEXCRestFallback → MexcRestFallback to match actual class name\n- Fixes /api/exchange/symbols 500 error\n\nP0-2: Removed authentication requirement from /api/strategies (unified_server.py:886)\n- Strategies are configuration data, not secrets\n- Fixes 401 Unauthorized preventing strategy selection\n- Consistent with /api/exchange/symbols (also public)\n\nP0-3: Added missing datetime import (indicators_routes.py:14)\n- Fixes NameError at lines 1082, 2619, 2674\n- Fixes /api/indicators/current 500 error\n\nP0-5: Fixed HTML validation error in SessionConfigDialog (SessionConfigDialog.tsx:971-980)\n- Changed nested <h5> inside <h2> to variant=\"inherit\" + component=\"span\"\n- Fixes hydration warnings and improves accessibility\n\nP0-4 Solution A: Enhanced session stop error logging (page.tsx:420-440)\n- Added structured console.error with sessionId, errorType, timestamp\n- Improves debugging for 404 \"session_not_found\" errors\n\nDocumentation:\n- Added AUTONOMOUS_FIX_PLAN.md (complete fix roadmap)\n- Added SESSION_LIFECYCLE_404_ANALYSIS.md (root cause analysis)\n- Added P0_FIXES_SUMMARY.md (implementation summary)\n\nImpact:\n- API endpoints: 3 fixed (symbols, strategies, indicators)\n- Frontend: Validation errors resolved, logging enhanced\n- Testing: Backend restart required for verification\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
-      "Bash(tasklist:*)"
+      "*"
     ],
     "deny": [],
     "ask": []

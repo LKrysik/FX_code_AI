@@ -1148,6 +1148,7 @@ class StrategyManager:
                     SELECT strategy_name, direction, enabled, strategy_json
                     FROM strategies
                     WHERE enabled = true
+                    AND (is_deleted = false OR is_deleted IS NULL)
                     ORDER BY created_at DESC
                     """
                 )
@@ -1352,10 +1353,25 @@ class StrategyManager:
         """Handle indicator update events with enhanced circuit breaker"""
         symbol = data.get("symbol")
         indicator_name = data.get("indicator")
+        # ✅ FIX (2025-12-01): Use indicator_type for condition matching
+        # Strategy conditions use indicatorId (e.g., "price_velocity") but
+        # indicator.indicator contains full variant name (e.g., "PRICE_VELOCITY_default_ARIA_USDT_20")
+        # We use indicator_type (lowercase base type) for storage so Condition.evaluate() can find it
+        indicator_type = data.get("indicator_type", "").lower()
         value = data.get("value")
 
         if not symbol or not indicator_name:
             return
+
+        # 🔍 DEBUG: Log indicator update receipt (using INFO for visibility)
+        self.logger.info("strategy_manager.indicator_update_received", {
+            "symbol": symbol,
+            "indicator_name": indicator_name,
+            "indicator_type": indicator_type,
+            "value": value,
+            "active_strategies_for_symbol": symbol in self.active_strategies,
+            "active_count": len(self.active_strategies.get(symbol, []))
+        })
 
         # Enhanced rate limiting with exponential backoff
         now = datetime.now()
@@ -1382,10 +1398,13 @@ class StrategyManager:
             return  # Skip self-generated events to prevent loops
 
         # ✅ RACE CONDITION FIX: Update indicator cache atomically
+        # ✅ FIX (2025-12-01): Store under indicator_type (lowercase) for condition matching
+        # If indicator_type is empty, fall back to indicator_name for backward compatibility
+        storage_key = indicator_type if indicator_type else indicator_name.lower()
         async with self._indicator_values_lock:
             if symbol not in self.indicator_values:
                 self.indicator_values[symbol] = {}
-            self.indicator_values[symbol][indicator_name] = value
+            self.indicator_values[symbol][storage_key] = value
 
         # Async evaluation with enhanced error handling
         try:
@@ -1439,6 +1458,15 @@ class StrategyManager:
     async def _evaluate_strategy(self, strategy: Strategy, indicator_values: Dict[str, Any]) -> None:
         """Evaluate a single strategy against current conditions - 5-section workflow per user_feedback.md"""
         try:
+            # 🔍 DEBUG: Log strategy evaluation
+            self.logger.debug("strategy_manager.evaluating_strategy", {
+                "strategy_name": strategy.strategy_name,
+                "current_state": strategy.current_state.value,
+                "symbol": strategy.symbol,
+                "indicator_values_keys": list(indicator_values.keys()),
+                "signal_detection_conditions_count": len(strategy.signal_detection.conditions) if strategy.signal_detection else 0
+            })
+
             # Check cooldown first - strategy cannot operate while in cooldown
             if strategy.is_in_cooldown():
                 cooldown_status = strategy.get_cooldown_status()
@@ -1451,6 +1479,16 @@ class StrategyManager:
             if strategy.current_state == StrategyState.MONITORING:
                 # S1: Check signal detection
                 signal_result = strategy.evaluate_signal_detection(indicator_values)
+
+                # 🔍 DEBUG: Log signal detection result
+                self.logger.debug("strategy_manager.signal_detection_result", {
+                    "strategy_name": strategy.strategy_name,
+                    "signal_result": signal_result.value if signal_result else "None",
+                    "condition_type_needed": strategy.signal_detection.conditions[0].condition_type if strategy.signal_detection and strategy.signal_detection.conditions else "N/A",
+                    "condition_value_needed": strategy.signal_detection.conditions[0].value if strategy.signal_detection and strategy.signal_detection.conditions else "N/A",
+                    "indicator_value": indicator_values.get(strategy.signal_detection.conditions[0].condition_type if strategy.signal_detection and strategy.signal_detection.conditions else "", "NOT_FOUND")
+                })
+
                 if signal_result == ConditionResult.TRUE:
                     # ✅ RACE CONDITION FIX: Atomic acquire slot (check merged into acquire)
                     if not await self.acquire_signal_slot(strategy.strategy_name):

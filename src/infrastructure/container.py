@@ -40,10 +40,10 @@ from ..infrastructure.config.symbol_config import SymbolConfigurationManager
 from ..application.orchestrators.trading_orchestrator import TradingOrchestrator
 from ..application.services.position_management_service import PositionManagementService
 from ..application.controllers.unified_trading_controller import UnifiedTradingController
-# ❌ SPOT API FORBIDDEN - MexcSpotAdapter raises RuntimeError (renamed from MexcRealAdapter)
-from ..infrastructure.adapters.mexc_adapter import MexcSpotAdapter
+# ✅ DEAD CODE REMOVAL (2025-11-30):
+# Removed MexcSpotAdapter import - Spot API is forbidden.
+# Only MexcFuturesAdapter and MexcPaperAdapter are supported.
 from ..infrastructure.adapters.mexc_paper_adapter import MexcPaperAdapter
-# ✅ FUTURES ONLY - Use this adapter
 from ..infrastructure.adapters.mexc_futures_adapter import MexcFuturesAdapter
 from ..api.broadcast_provider import BroadcastProvider
 from ..api.event_bridge import EventBridge
@@ -515,10 +515,11 @@ class Container:
             try:
                 from decimal import Decimal
 
-                # ✅ AGENT 2 INTEGRATION: Full constructor with EventBus + Settings
+                # ✅ ARCHITECTURE FIX (2025-11-30): Pass risk_config directly
+                # instead of full AppSettings to maintain Domain independence.
                 return RiskManager(
                     event_bus=self.event_bus,
-                    settings=self.settings,
+                    risk_config=self.settings.risk_management.risk_manager,
                     initial_capital=Decimal(str(initial_capital))
                 )
             except Exception as e:
@@ -1052,7 +1053,9 @@ class Container:
                     data_path=data_path,
                     wallet_service=wallet_service,
                     order_manager=order_manager,
-                    indicator_engine=None  # Will be set during async initialization
+                    indicator_engine=None,  # Will be set during async initialization
+                    trading_persistence_service=None,  # Will be set during async initialization
+                    strategy_manager=None  # 🔧 FIX GAP #2: Will be set during async initialization
                 )
 
                 return controller
@@ -1085,12 +1088,16 @@ class Container:
                 # ✅ AGENT 4: Create trading persistence service for signals/orders/positions
                 trading_persistence_service = await self.create_trading_persistence_service()
 
+                # 🔧 FIX GAP #2: Create strategy manager for activation
+                strategy_manager = await self.create_strategy_manager()
+
                 # Set dependencies on controller
                 controller.wallet_service = wallet_service
                 controller.order_manager = order_manager
                 controller.market_data_provider = market_data_provider
                 controller.indicator_engine = indicator_engine  # ✅ NEW: Inject complete engine
                 controller.trading_persistence_service = trading_persistence_service  # ✅ AGENT 4: Inject persistence
+                controller.strategy_manager = strategy_manager  # 🔧 FIX GAP #2: Inject strategy manager
 
                 # Initialize the controller asynchronously
                 await controller.initialize()

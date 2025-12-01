@@ -28,9 +28,9 @@ from enum import Enum
 from decimal import Decimal
 
 from ...core.event_bus import EventBus
-# ❌ SPOT API FORBIDDEN - MexcSpotAdapter (renamed from MexcRealAdapter) is deprecated
-# Phase 1: Import updated to show deprecation (will be replaced with MexcFuturesAdapter in Phase 3)
-from ...infrastructure.adapters.mexc_adapter import MexcSpotAdapter
+# ✅ DEAD CODE REMOVAL (2025-11-30):
+# Removed deprecated MexcSpotAdapter import - Spot API is forbidden.
+# LiveOrderManager uses MexcFuturesAdapter or MexcPaperAdapter injected via constructor.
 from ...core.circuit_breaker import CircuitBreakerOpenException
 from ..models.trading import Position
 

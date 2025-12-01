@@ -202,7 +202,7 @@ class QuestDBDataProvider:
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
         limit: Optional[int] = None,
-        offset: int = 0
+        after_timestamp: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
         Get tick prices for symbol in session.
@@ -213,7 +213,8 @@ class QuestDBDataProvider:
             start_time: Filter by start timestamp
             end_time: Filter by end timestamp
             limit: Maximum number of records
-            offset: Skip first N records (for pagination)
+            after_timestamp: Return records AFTER this timestamp (microseconds) for cursor pagination
+                            QuestDB doesn't support OFFSET, so we use timestamp-based cursors
 
         Returns:
             List of price tick dictionaries
@@ -225,22 +226,35 @@ class QuestDBDataProvider:
 
             # Build time filter with parameterized placeholders
             time_filters = []
-            if start_time:
-                # Convert to epoch microseconds (QuestDB timestamp format)
-                start_us = int(start_time.timestamp() * 1_000_000)
+
+            # ✅ FIX (2025-11-30): Use timestamp-based cursor instead of OFFSET
+            # QuestDB doesn't support OFFSET clause, so we use timestamp > last_timestamp for pagination
+            if after_timestamp is not None:
+                time_filters.append(f"timestamp > ${param_idx}")
+                # ✅ FIX (2025-11-30): asyncpg requires datetime object for TIMESTAMP columns
+                # Convert microseconds to datetime
+                # ✅ FIX (2025-11-30): Use offset-naive UTC datetime to match QuestDB storage format
+                # QuestDB stores timestamps as offset-naive, so we must use utcfromtimestamp
+                after_dt = datetime.utcfromtimestamp(after_timestamp / 1_000_000)
+                params.append(after_dt)
+                param_idx += 1
+            elif start_time:
+                # ✅ FIX (2025-11-30): asyncpg requires datetime object, not microseconds
+                # start_time is already a datetime, pass directly
                 time_filters.append(f"timestamp >= ${param_idx}")
-                params.append(start_us)
+                params.append(start_time)
                 param_idx += 1
 
             if end_time:
-                end_us = int(end_time.timestamp() * 1_000_000)
+                # ✅ FIX (2025-11-30): asyncpg requires datetime object, not microseconds
+                # end_time is already a datetime, pass directly
                 time_filters.append(f"timestamp <= ${param_idx}")
-                params.append(end_us)
+                params.append(end_time)
                 param_idx += 1
 
             time_clause = f"AND {' AND '.join(time_filters)}" if time_filters else ""
 
-            # Build limit/offset clauses with parameterized placeholders
+            # Build limit clause with parameterized placeholders
             if limit:
                 limit_clause = f"LIMIT ${param_idx}"
                 params.append(limit)
@@ -248,12 +262,7 @@ class QuestDBDataProvider:
             else:
                 limit_clause = ""
 
-            if offset > 0:
-                offset_clause = f"OFFSET ${param_idx}"
-                params.append(offset)
-            else:
-                offset_clause = ""
-
+            # ✅ FIX (2025-11-30): Removed OFFSET clause - QuestDB doesn't support it
             query = f"""
             SELECT timestamp, price, volume, quote_volume
             FROM tick_prices
@@ -261,14 +270,13 @@ class QuestDBDataProvider:
             {time_clause}
             ORDER BY timestamp ASC
             {limit_clause}
-            {offset_clause}
             """
 
             self.logger.debug("questdb_data_provider.get_tick_prices", {
                 "session_id": session_id,
                 "symbol": symbol,
                 "limit": limit,
-                "offset": offset
+                "after_timestamp": after_timestamp
             })
 
             results = await self.db.execute_query(query, params)
@@ -290,7 +298,7 @@ class QuestDBDataProvider:
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
         limit: Optional[int] = None,
-        offset: int = 0
+        after_timestamp: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
         Get orderbook snapshots for symbol in session.
@@ -301,7 +309,8 @@ class QuestDBDataProvider:
             start_time: Filter by start timestamp
             end_time: Filter by end timestamp
             limit: Maximum number of records
-            offset: Skip first N records (for pagination)
+            after_timestamp: Return records AFTER this timestamp (microseconds) for cursor pagination
+                            QuestDB doesn't support OFFSET, so we use timestamp-based cursors
 
         Returns:
             List of orderbook snapshot dictionaries
@@ -313,21 +322,33 @@ class QuestDBDataProvider:
 
             # Build time filter with parameterized placeholders
             time_filters = []
-            if start_time:
-                start_us = int(start_time.timestamp() * 1_000_000)
+
+            # ✅ FIX (2025-11-30): Use timestamp-based cursor instead of OFFSET
+            # QuestDB doesn't support OFFSET clause, so we use timestamp > last_timestamp for pagination
+            if after_timestamp is not None:
+                time_filters.append(f"timestamp > ${param_idx}")
+                # ✅ FIX (2025-11-30): asyncpg requires datetime object for TIMESTAMP columns
+                # Convert microseconds to datetime
+                # ✅ FIX (2025-11-30): Use offset-naive UTC datetime to match QuestDB storage format
+                # QuestDB stores timestamps as offset-naive, so we must use utcfromtimestamp
+                after_dt = datetime.utcfromtimestamp(after_timestamp / 1_000_000)
+                params.append(after_dt)
+                param_idx += 1
+            elif start_time:
+                # start_time is already a datetime, pass directly
                 time_filters.append(f"timestamp >= ${param_idx}")
-                params.append(start_us)
+                params.append(start_time)
                 param_idx += 1
 
             if end_time:
-                end_us = int(end_time.timestamp() * 1_000_000)
+                # end_time is already a datetime, pass directly
                 time_filters.append(f"timestamp <= ${param_idx}")
-                params.append(end_us)
+                params.append(end_time)
                 param_idx += 1
 
             time_clause = f"AND {' AND '.join(time_filters)}" if time_filters else ""
 
-            # Build limit/offset clauses with parameterized placeholders
+            # Build limit clause with parameterized placeholders
             if limit:
                 limit_clause = f"LIMIT ${param_idx}"
                 params.append(limit)
@@ -335,12 +356,7 @@ class QuestDBDataProvider:
             else:
                 limit_clause = ""
 
-            if offset > 0:
-                offset_clause = f"OFFSET ${param_idx}"
-                params.append(offset)
-            else:
-                offset_clause = ""
-
+            # ✅ FIX (2025-11-30): Removed OFFSET clause - QuestDB doesn't support it
             query = f"""
             SELECT timestamp,
                    bid_price_1, bid_qty_1, bid_price_2, bid_qty_2, bid_price_3, bid_qty_3,
@@ -350,14 +366,13 @@ class QuestDBDataProvider:
             {time_clause}
             ORDER BY timestamp ASC
             {limit_clause}
-            {offset_clause}
             """
 
             self.logger.debug("questdb_data_provider.get_tick_orderbook", {
                 "session_id": session_id,
                 "symbol": symbol,
                 "limit": limit,
-                "offset": offset
+                "after_timestamp": after_timestamp
             })
 
             results = await self.db.execute_query(query, params)
