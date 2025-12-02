@@ -882,6 +882,26 @@ def create_unified_app():
         except Exception as e:
             return _json_error("creation_failed", f"Failed to create strategy: {str(e)}")
 
+    @app.get("/api/strategies/active")
+    async def list_active_strategies(request: Request):
+        """List all enabled (active) strategies - for traders to see what's running"""
+        try:
+            strategy_storage = getattr(app.state, 'strategy_storage', None)
+            if not strategy_storage:
+                return _json_ok({"strategies": [], "message": "Strategy storage not initialized"})
+
+            # Use get_enabled_strategies() which filters by enabled=true AND is_deleted=false
+            active_strategies = await strategy_storage.get_enabled_strategies()
+
+            return _json_ok({"strategies": active_strategies, "count": len(active_strategies)})
+
+        except StrategyStorageError as e:
+            logger.warning("strategy.list_active_failed", {"error": str(e)})
+            return _json_ok({"strategies": [], "error": str(e)})
+        except Exception as e:
+            logger.warning("strategy.list_active_exception", {"error": str(e)})
+            return _json_ok({"strategies": [], "error": str(e)})
+
     @app.get("/api/strategies")
     async def list_strategies(request: Request):
         """List all 4-section strategies (public endpoint for configuration)"""

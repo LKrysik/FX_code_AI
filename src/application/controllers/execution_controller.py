@@ -444,9 +444,20 @@ class ExecutionController:
 
         # Handler for market.price_update to track ticks processed
         async def on_price_update(data: Dict[str, Any]) -> None:
+            # ✅ DEBUG (2025-12-02): Log first few ticks to verify handler is being called
             if self._current_session:
                 current = self._current_session.metrics.get("ticks_processed", 0)
                 self._current_session.metrics["ticks_processed"] = current + 1
+                if current < 3:
+                    print(f"[DEBUG] ExecutionController.on_price_update: tick #{current + 1}, price={data.get('price')}")
+                    self.logger.debug("metrics.tick_received", {
+                        "session_id": self._current_session.session_id,
+                        "tick_count": current + 1,
+                        "price": data.get("price")
+                    })
+            else:
+                # Log if session is None
+                print("[DEBUG] ExecutionController.on_price_update: _current_session is None!")
 
         # Subscribe to events
         await self.event_bus.subscribe("signal_generated", on_signal_generated)

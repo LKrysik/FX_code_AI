@@ -169,10 +169,6 @@ class Strategy:
         """Evaluate signal detection conditions"""
         return self.signal_detection.evaluate(indicator_values)
 
-    def evaluate_risk_assessment(self, indicator_values: Dict[str, Any]) -> ConditionResult:
-        """Evaluate risk assessment conditions"""
-        return self.risk_assessment.evaluate(indicator_values)
-
     def evaluate_entry_conditions(self, indicator_values: Dict[str, Any]) -> ConditionResult:
         """Evaluate entry conditions"""
         return self.entry_conditions.evaluate(indicator_values)
@@ -1598,8 +1594,8 @@ class StrategyManager:
                             sharpe_ratio=sharpe_ratio
                         )
 
-                        # Check if position can be opened
-                        risk_check = self.risk_manager.can_open_position(
+                        # Check if position can be opened (synchronous check)
+                        risk_check = self.risk_manager.can_open_position_sync(
                             strategy_name=strategy.strategy_name,
                             symbol=strategy.symbol,
                             position_size_usdt=position_size_usdt,
