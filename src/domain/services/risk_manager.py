@@ -564,6 +564,140 @@ class RiskManager:
         else:
             logger.info(f"RISK ALERT [INFO]: {message}", extra=details)
 
+    # === Public Risk Assessment ===
+
+    def assess_position_risk(
+        self,
+        symbol: str,
+        position_size: float,
+        current_price: float,
+        volatility: float = 0.02,
+        max_drawdown: float = 0.05,
+        sharpe_ratio: float = 1.5
+    ) -> Dict[str, Any]:
+        """
+        Assess risk metrics for a potential position.
+
+        Called by StrategyManager before opening positions.
+
+        Args:
+            symbol: Trading symbol (e.g., 'BTCUSDT')
+            position_size: Position size as percentage of capital
+            current_price: Current market price
+            volatility: Estimated volatility (default: 2%)
+            max_drawdown: Max acceptable drawdown (default: 5%)
+            sharpe_ratio: Expected Sharpe ratio (default: 1.5)
+
+        Returns:
+            Dict with risk assessment metrics:
+            - risk_score: Overall risk score (0.0-1.0, higher = riskier)
+            - position_ok: Whether position is within limits
+            - warnings: List of risk warnings
+            - recommended_size: Suggested position size if current exceeds limits
+        """
+        warnings = []
+        risk_score = 0.0
+
+        # Check position size against max allowed
+        max_position_pct = float(self.risk_config.max_position_size_percent) / 100.0
+        position_size_decimal = position_size if position_size < 1 else position_size / 100.0
+
+        if position_size_decimal > max_position_pct:
+            warnings.append(f"Position size {position_size_decimal*100:.1f}% exceeds max {max_position_pct*100:.1f}%")
+            risk_score += 0.3
+
+        # Adjust for volatility - higher volatility = higher risk
+        volatility_risk = min(volatility / 0.05, 1.0)  # Normalize: 5% vol = max risk
+        risk_score += volatility_risk * 0.2
+
+        # Adjust for drawdown expectation
+        drawdown_risk = min(max_drawdown / 0.10, 1.0)  # Normalize: 10% drawdown = max risk
+        risk_score += drawdown_risk * 0.2
+
+        # Consider current drawdown
+        current_drawdown = self._calculate_drawdown_percent() / 100.0
+        if current_drawdown > 0.05:
+            warnings.append(f"Portfolio drawdown {current_drawdown*100:.1f}% - consider reducing exposure")
+            risk_score += 0.2
+
+        # Check daily loss limit proximity
+        daily_loss_limit = float(self.risk_config.daily_loss_limit_percent) / 100.0
+        daily_pnl_pct = float(self.daily_pnl / self.initial_capital) if self.initial_capital > 0 else 0.0
+        if daily_pnl_pct < -daily_loss_limit * 0.7:
+            warnings.append("Approaching daily loss limit")
+            risk_score += 0.1
+
+        # Calculate recommended size
+        recommended_size = min(position_size_decimal, max_position_pct)
+        if volatility > 0.03:
+            recommended_size *= 0.8  # Reduce size in high volatility
+
+        return {
+            "risk_score": min(risk_score, 1.0),
+            "position_ok": risk_score < 0.7,
+            "warnings": warnings,
+            "recommended_size": recommended_size,
+            "volatility_adjusted": volatility > 0.03,
+            "symbol": symbol,
+            "current_price": current_price
+        }
+
+    def can_open_position_sync(
+        self,
+        strategy_name: str,
+        symbol: str,
+        position_size_usdt: float,
+        risk_metrics: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Synchronous check if position can be opened (for StrategyManager).
+
+        This is a simplified check used by StrategyManager before opening positions.
+        For full async checks with position tracking, use can_open_position().
+
+        Args:
+            strategy_name: Name of the strategy requesting position
+            symbol: Trading symbol
+            position_size_usdt: Position size in USDT
+            risk_metrics: Risk metrics from assess_position_risk()
+
+        Returns:
+            Dict with:
+            - approved: bool - whether position is approved
+            - warnings: List[str] - risk warnings
+            - reasons: List[str] - rejection reasons if not approved
+        """
+        warnings = risk_metrics.get("warnings", [])
+        reasons = []
+
+        # Check if position_ok from risk assessment
+        if not risk_metrics.get("position_ok", True):
+            reasons.append("Risk score too high")
+
+        # Check position size against limits
+        max_position_usdt = float(self.current_capital) * float(self.risk_config.max_position_size_percent) / 100.0
+        if position_size_usdt > max_position_usdt:
+            reasons.append(f"Position size ${position_size_usdt:.2f} exceeds max ${max_position_usdt:.2f}")
+
+        # Check current drawdown
+        current_drawdown = self._calculate_drawdown_percent()
+        if current_drawdown > float(self.risk_config.max_drawdown_percent):
+            reasons.append(f"Max drawdown exceeded: {current_drawdown:.1f}%")
+
+        # Check daily loss limit
+        daily_pnl_pct = float(self.daily_pnl / self.initial_capital) * 100 if self.initial_capital > 0 else 0.0
+        if daily_pnl_pct < -float(self.risk_config.daily_loss_limit_percent):
+            reasons.append(f"Daily loss limit exceeded: {daily_pnl_pct:.1f}%")
+
+        return {
+            "approved": len(reasons) == 0,
+            "warnings": warnings,
+            "reasons": reasons,
+            "strategy_name": strategy_name,
+            "symbol": symbol,
+            "position_size_usdt": position_size_usdt
+        }
+
     # === Public Getters ===
 
     def get_risk_summary(self) -> Dict[str, Any]:

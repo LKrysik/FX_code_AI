@@ -567,8 +567,6 @@ class StreamingIndicatorEngine:
         symbol_indicators = self._indicators_by_symbol.setdefault(symbol, [])
         if indicator_key not in symbol_indicators:
             symbol_indicators.append(indicator_key)
-            # 🔍 DEBUG: Log when indicator is registered for a symbol
-            print(f"[DEBUG] _track_indicator: symbol={symbol}, indicator_key={indicator_key}, total for symbol={len(symbol_indicators)}")
 
         meta = indicator.metadata or {}
         indicator_type = (meta.get("type") or "").upper()
@@ -1210,14 +1208,6 @@ class StreamingIndicatorEngine:
         # ✅ CRITICAL FIX: Use symbol indexing for O(1) access instead of O(n) iteration
         indicator_keys = self._indicators_by_symbol.get(symbol, [])
 
-        # 🔍 DEBUG: Log indicator lookup (first 5 calls per symbol)
-        if not hasattr(self, '_debug_symbol_counts'):
-            self._debug_symbol_counts = {}
-        count = self._debug_symbol_counts.get(symbol, 0)
-        if count < 5:
-            self._debug_symbol_counts[symbol] = count + 1
-            print(f"[DEBUG] _update_indicators_safe: symbol={symbol}, indicator_keys={len(indicator_keys)}, _indicators_by_symbol keys={list(self._indicators_by_symbol.keys())[:3]}")
-
         if not indicator_keys:
             return
 
@@ -1242,7 +1232,7 @@ class StreamingIndicatorEngine:
                         timestamp=time.time(),
                         value=new_value
                     ))
-                    indicator.metadata["data_points"] += 1
+                    indicator.metadata["data_points"] = indicator.metadata.get("data_points", 0) + 1
                     indicator.metadata["last_calculation"] = time.time()
 
                     # Collect update for publishing (don't publish here to prevent deadlock)
@@ -1250,6 +1240,25 @@ class StreamingIndicatorEngine:
                     # Strategy conditions use indicatorId (e.g., "price_velocity") but
                     # indicator.indicator contains full variant name (e.g., "PRICE_VELOCITY_default_ARIA_USDT_20")
                     indicator_type = indicator.metadata.get("type", "").lower()
+
+                    # ✅ FIX (2025-12-02): Fallback to variant lookup when metadata type is empty
+                    # Old indicators from previous sessions may not have type in metadata
+                    if not indicator_type:
+                        variant_id = indicator.metadata.get("variant_id")
+                        if variant_id:
+                            if variant_id in self._variants:
+                                variant = self._variants[variant_id]
+                                indicator_type = (variant.base_indicator_type or "").lower()
+                                # Cache the type in metadata for future lookups
+                                indicator.metadata["type"] = indicator_type.upper()
+                            else:
+                                # Debug: Log when variant is not found
+                                self.logger.debug("streaming_indicator_engine.variant_not_in_cache", {
+                                    "variant_id": variant_id,
+                                    "indicator_key": indicator_key,
+                                    "variants_count": len(self._variants)
+                                })
+
                     updates_to_publish.append({
                         "symbol": symbol,
                         "indicator": indicator.indicator,
@@ -1290,6 +1299,15 @@ class StreamingIndicatorEngine:
         indicator_type = indicator.metadata.get("type")
         period = indicator.metadata.get("period", 20)
 
+        # ✅ FIX (2025-12-02): Fallback to variant lookup when metadata type is empty
+        if not indicator_type:
+            variant_id = indicator.metadata.get("variant_id")
+            if variant_id and variant_id in self._variants:
+                variant = self._variants[variant_id]
+                indicator_type = (variant.base_indicator_type or "").upper()
+                # Cache the type in metadata for future lookups
+                indicator.metadata["type"] = indicator_type
+
         # Basic market data indicators (require minimal data)
         if indicator_type in ["PRICE", "VOLUME", "BEST_BID", "BEST_ASK", "BID_QTY", "ASK_QTY"]:
             return self._calculate_basic_market_data(indicator, price, timestamp)
@@ -1314,15 +1332,49 @@ class StreamingIndicatorEngine:
 
         # ✅ GOAL_03: Use algorithm registry for calculation functions
         algorithm = self._algorithm_registry.get_algorithm(indicator_type)
-        if algorithm and algorithm.calculation_function:
-            # Use registered calculation function
-            calculation_params = {
-                'period': period,
-                'price': price,
-                'timestamp': timestamp,
-                'prices': prices
-            }
-            return algorithm.calculation_function(indicator, calculation_params)
+        if algorithm:
+            # ✅ FIX (2025-12-02): Use calculate_from_windows() method instead of non-existent calculation_function
+            # The base algorithm class provides calculate_from_windows() which is the proper interface
+            if hasattr(algorithm, 'calculate_from_windows'):
+                from ..indicators.base_algorithm import IndicatorParameters, DataWindow
+                # Prepare data windows for the algorithm
+                params = IndicatorParameters(indicator.metadata.get("parameters", {}))
+                window_specs = algorithm.get_window_specs(params)
+
+                # Build data windows from price_data
+                data_windows = []
+                for spec in window_specs:
+                    # Get time range for this window
+                    end_ts = timestamp
+                    start_ts = end_ts - spec.t1
+                    window_end_ts = end_ts - spec.t2
+
+                    # Filter price_data to this window
+                    window_data = [
+                        (p["timestamp"], p["price"])
+                        for p in price_data
+                        if start_ts <= p["timestamp"] <= window_end_ts
+                    ]
+
+                    data_windows.append(DataWindow(
+                        data=tuple(window_data),
+                        start_ts=start_ts,
+                        end_ts=window_end_ts
+                    ))
+
+                # Calculate using the algorithm's pure function
+                result = algorithm.calculate_from_windows(data_windows, params)
+                return result
+
+            # Legacy fallback: check for calculation_function attribute
+            elif hasattr(algorithm, 'calculation_function') and algorithm.calculation_function:
+                calculation_params = {
+                    'period': period,
+                    'price': price,
+                    'timestamp': timestamp,
+                    'prices': prices
+                }
+                return algorithm.calculation_function(indicator, calculation_params)
 
         # ✅ GOAL_03: Log warning for unregistered indicators instead of fallback
         self.logger.warning("streaming_indicator_engine.unregistered_indicator", {
