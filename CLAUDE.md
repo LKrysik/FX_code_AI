@@ -39,6 +39,7 @@ frontend/                   # Next.js 14
 
 docs/
 ├── PRODUCT.md              # Opis produktu i funkcjonalności
+├── DEFINITION_OF_DONE.md   # Kryteria gotowości (DoD)
 ├── IDEAS.md                # Backlog pomysłów na rozwój
 ├── HOW_TO_TEST.md          # Jak testować
 ├── KNOWN_ISSUES.md         # Znane problemy
@@ -109,3 +110,22 @@ Backlog: [docs/IDEAS.md](docs/IDEAS.md)
 3. **Nie twórz backward compatibility hacków** - napraw źródło problemu
 4. **Testuj przed i po** - `python run_tests.py`
 5. **Dokumentuj tylko to co potrzebne** - nie twórz nadmiaru plików MD
+
+## Definition of Done
+
+Przed uznaniem zadania za zakończone, sprawdź odpowiedni poziom DoD:
+
+| Poziom | Typ | Wymagania |
+|--------|-----|-----------|
+| L1 | Hotfix | `python run_tests.py --unit` |
+| L2 | Bug fix | + test regresji + `--integration` |
+| L3 | Feature | + pełne testy + manual test |
+| L4 | Critical (trading) | + E2E + paper trading |
+| L5 | Architecture | + performance + rollback |
+
+**Quick check (zawsze):**
+```bash
+python run_tests.py --unit && ruff check src/ && curl localhost:8080/health
+```
+
+Szczegóły: [docs/DEFINITION_OF_DONE.md](docs/DEFINITION_OF_DONE.md)
