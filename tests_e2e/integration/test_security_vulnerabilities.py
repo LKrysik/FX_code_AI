@@ -19,7 +19,16 @@ import asyncio
 import bcrypt
 import secrets
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import Mock, patch, AsyncMock
+
+
+def create_test_log_config():
+    """Create a test logging config object with required attributes.
+
+    StructuredLogger expects an object with .level attribute, not a dict.
+    """
+    return SimpleNamespace(level="INFO")
 
 # Import components being tested
 from src.api.auth_handler import AuthHandler, UserSession, PermissionLevel, AuthResult
@@ -33,7 +42,7 @@ class TestPasswordSecurity:
     @pytest.mark.asyncio
     async def test_password_hashing_bcrypt(self):
         """Test that passwords are hashed using bcrypt with 12 rounds"""
-        logger = StructuredLogger("test", {"level": "INFO"})
+        logger = StructuredLogger("test", create_test_log_config())
         auth_handler = AuthHandler(
             jwt_secret="test_secret_at_least_32_chars_long_12345",
             logger=logger
@@ -57,7 +66,7 @@ class TestPasswordSecurity:
     @pytest.mark.asyncio
     async def test_password_verification_bcrypt(self):
         """Test that password verification works with bcrypt hashes"""
-        logger = StructuredLogger("test", {"level": "INFO"})
+        logger = StructuredLogger("test", create_test_log_config())
         auth_handler = AuthHandler(
             jwt_secret="test_secret_at_least_32_chars_long_12345",
             logger=logger
@@ -98,7 +107,7 @@ class TestPasswordSecurity:
     @pytest.mark.asyncio
     async def test_credentials_validation_fails_with_defaults(self):
         """Test that system rejects CHANGE_ME default credentials"""
-        logger = StructuredLogger("test", {"level": "INFO"})
+        logger = StructuredLogger("test", create_test_log_config())
         auth_handler = AuthHandler(
             jwt_secret="test_secret_at_least_32_chars_long_12345",
             logger=logger
@@ -128,7 +137,7 @@ class TestPasswordSecurity:
     @pytest.mark.asyncio
     async def test_credentials_validation_fails_with_missing_env(self):
         """Test that system rejects missing environment variables"""
-        logger = StructuredLogger("test", {"level": "INFO"})
+        logger = StructuredLogger("test", create_test_log_config())
         auth_handler = AuthHandler(
             jwt_secret="test_secret_at_least_32_chars_long_12345",
             logger=logger
@@ -155,7 +164,7 @@ class TestJWTSecurity:
 
     def test_jwt_secret_minimum_length_enforcement(self):
         """Test that weak JWT secrets are rejected"""
-        logger = StructuredLogger("test", {"level": "INFO"})
+        logger = StructuredLogger("test", create_test_log_config())
 
         # Test: Secret too short
         with pytest.raises(RuntimeError, match="minimum 32 characters"):
@@ -173,7 +182,7 @@ class TestJWTSecurity:
 
     def test_jwt_secret_weak_values_rejected(self):
         """Test that common/weak JWT secrets are rejected"""
-        logger = StructuredLogger("test", {"level": "INFO"})
+        logger = StructuredLogger("test", create_test_log_config())
 
         weak_secrets = [
             "dev_jwt_secret_key_extended_to_32chars",
@@ -191,7 +200,7 @@ class TestJWTSecurity:
 
     def test_jwt_secret_strong_value_accepted(self):
         """Test that strong JWT secrets are accepted"""
-        logger = StructuredLogger("test", {"level": "INFO"})
+        logger = StructuredLogger("test", create_test_log_config())
 
         # Generate a strong secret
         strong_secret = secrets.token_urlsafe(32)
@@ -440,7 +449,7 @@ class TestSecurityIntegration:
 @pytest.fixture
 def auth_handler():
     """Fixture to create AuthHandler for testing"""
-    logger = StructuredLogger("test", {"level": "INFO"})
+    logger = StructuredLogger("test", create_test_log_config())
     handler = AuthHandler(
         jwt_secret="test_secret_at_least_32_chars_long_12345",
         logger=logger
@@ -451,7 +460,7 @@ def auth_handler():
 @pytest.fixture
 async def started_auth_handler():
     """Fixture to create and start AuthHandler"""
-    logger = StructuredLogger("test", {"level": "INFO"})
+    logger = StructuredLogger("test", create_test_log_config())
     handler = AuthHandler(
         jwt_secret="test_secret_at_least_32_chars_long_12345",
         logger=logger

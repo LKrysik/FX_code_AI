@@ -1483,11 +1483,19 @@ class ExecutionController:
 
         if time_threshold_met or significant_change:
             # Publish progress event
+            # ✅ FIX (2025-12-03): Use consistent progress structure (dict) for all execution types
+            # execution_processor expects progress to be a dict, not a float
             await self._publish_event(
                 "execution.progress_update",
                 {
                     "session_id": self._current_session.session_id,
-                    "progress": progress,
+                    "command_type": self._current_session.mode.value if self._current_session.mode else "unknown",
+                    "progress": {
+                        "percentage": progress,
+                        "current_step": int(progress),  # For backtest, progress is the current step %
+                        "eta_seconds": None  # TODO: Calculate ETA if needed
+                    },
+                    "status": self._current_session.status.value if self._current_session.status else "unknown",
                     "timestamp": datetime.now().isoformat()
                 }
             )

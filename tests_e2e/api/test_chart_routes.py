@@ -18,9 +18,9 @@ from fastapi.testclient import TestClient
 class TestChartOHLCVEndpoint:
     """Tests for GET /api/chart/ohlcv endpoint."""
 
-    def test_get_ohlcv_success(self, client: TestClient, test_session_id: str):
+    def test_get_ohlcv_success(self, api_client: TestClient, test_session_id: str):
         """Test successful retrieval of OHLCV data."""
-        response = client.get(
+        response = api_client.get(
             f"/api/chart/ohlcv?session_id={test_session_id}&symbol=BTC_USDT&interval=1m&limit=100"
         )
 
@@ -33,9 +33,9 @@ class TestChartOHLCVEndpoint:
         assert data["symbol"] == "BTC_USDT"
         assert data["interval"] == "1m"
 
-    def test_get_ohlcv_candle_structure(self, client: TestClient, test_session_id: str):
+    def test_get_ohlcv_candle_structure(self, api_client: TestClient, test_session_id: str):
         """Test that candles have correct structure."""
-        response = client.get(
+        response = api_client.get(
             f"/api/chart/ohlcv?session_id={test_session_id}&symbol=BTC_USDT&interval=1m&limit=10"
         )
 
@@ -57,12 +57,12 @@ class TestChartOHLCVEndpoint:
             assert candle["low"] <= candle["open"]
             assert candle["low"] <= candle["close"]
 
-    def test_get_ohlcv_different_intervals(self, client: TestClient, test_session_id: str):
+    def test_get_ohlcv_different_intervals(self, api_client: TestClient, test_session_id: str):
         """Test OHLCV data with different intervals."""
         intervals = ["1m", "5m", "15m", "1h", "1d"]
 
         for interval in intervals:
-            response = client.get(
+            response = api_client.get(
                 f"/api/chart/ohlcv?session_id={test_session_id}&symbol=BTC_USDT&interval={interval}&limit=10"
             )
 
@@ -70,18 +70,18 @@ class TestChartOHLCVEndpoint:
             data = response.json().get("data", response.json())
             assert data["interval"] == interval
 
-    def test_get_ohlcv_invalid_interval(self, client: TestClient, test_session_id: str):
+    def test_get_ohlcv_invalid_interval(self, api_client: TestClient, test_session_id: str):
         """Test error with invalid interval."""
-        response = client.get(
+        response = api_client.get(
             f"/api/chart/ohlcv?session_id={test_session_id}&symbol=BTC_USDT&interval=invalid&limit=10"
         )
 
         assert response.status_code == 400  # Bad request
 
-    def test_get_ohlcv_limit_respected(self, client: TestClient, test_session_id: str):
+    def test_get_ohlcv_limit_respected(self, api_client: TestClient, test_session_id: str):
         """Test that limit parameter is respected."""
         limit = 50
-        response = client.get(
+        response = api_client.get(
             f"/api/chart/ohlcv?session_id={test_session_id}&symbol=BTC_USDT&interval=1m&limit={limit}"
         )
 
@@ -90,23 +90,23 @@ class TestChartOHLCVEndpoint:
 
         assert len(data["candles"]) <= limit
 
-    def test_get_ohlcv_missing_required_params(self, client: TestClient):
+    def test_get_ohlcv_missing_required_params(self, api_client: TestClient):
         """Test error when required parameters are missing."""
         # Missing session_id
-        response = client.get("/api/chart/ohlcv?symbol=BTC_USDT")
+        response = api_client.get("/api/chart/ohlcv?symbol=BTC_USDT")
         assert response.status_code == 422
 
         # Missing symbol
-        response = client.get(f"/api/chart/ohlcv?session_id=test")
+        response = api_client.get(f"/api/chart/ohlcv?session_id=test")
         assert response.status_code == 422
 
 
 class TestChartSignalsEndpoint:
     """Tests for GET /api/chart/signals endpoint."""
 
-    def test_get_chart_signals_success(self, client: TestClient, test_session_id: str):
+    def test_get_chart_signals_success(self, api_client: TestClient, test_session_id: str):
         """Test successful retrieval of chart signal markers."""
-        response = client.get(
+        response = api_client.get(
             f"/api/chart/signals?session_id={test_session_id}&symbol=BTC_USDT"
         )
 
@@ -118,9 +118,9 @@ class TestChartSignalsEndpoint:
         assert data["session_id"] == test_session_id
         assert data["symbol"] == "BTC_USDT"
 
-    def test_get_chart_signals_marker_structure(self, client: TestClient, test_session_id: str):
+    def test_get_chart_signals_marker_structure(self, api_client: TestClient, test_session_id: str):
         """Test that signal markers have correct structure."""
-        response = client.get(
+        response = api_client.get(
             f"/api/chart/signals?session_id={test_session_id}&symbol=BTC_USDT"
         )
 
@@ -142,9 +142,9 @@ class TestChartSignalsEndpoint:
             # Validate shape values
             assert marker["shape"] in ("arrowUp", "arrowDown", "circle", "square")
 
-    def test_get_chart_signals_color_coding(self, client: TestClient, test_session_id: str):
+    def test_get_chart_signals_color_coding(self, api_client: TestClient, test_session_id: str):
         """Test that signal types have correct color coding."""
-        response = client.get(
+        response = api_client.get(
             f"/api/chart/signals?session_id={test_session_id}&symbol=BTC_USDT"
         )
 
@@ -166,14 +166,14 @@ class TestChartSignalsEndpoint:
             elif marker["signal_type"] == "EMERGENCY":
                 assert marker["color"] == "#FF5722"  # Deep Orange
 
-    def test_get_chart_signals_missing_required_params(self, client: TestClient):
+    def test_get_chart_signals_missing_required_params(self, api_client: TestClient):
         """Test error when required parameters are missing."""
         # Missing session_id
-        response = client.get("/api/chart/signals?symbol=BTC_USDT")
+        response = api_client.get("/api/chart/signals?symbol=BTC_USDT")
         assert response.status_code == 422
 
         # Missing symbol
-        response = client.get(f"/api/chart/signals?session_id=test")
+        response = api_client.get(f"/api/chart/signals?session_id=test")
         assert response.status_code == 422
 
 

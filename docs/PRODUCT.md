@@ -1,125 +1,207 @@
 # FXcrypto - Pump & Dump Detection Platform
 
-## Cel Biznesowy
+**Wersja:** 2.0 | **Data:** 2025-12-02
 
-Dostarczyć traderom kryptowalut narzędzie do:
-- **Wykrywania pump & dump** zanim inni uczestnicy rynku
-- **Automatyzacji decyzji tradingowych** na podstawie zdefiniowanych strategii
-- **Backtestowania strategii** na danych historycznych przed użyciem na żywo
+---
 
-## Kluczowe Funkcjonalności
+## CEL BIZNESOWY
+
+Dostarczyć traderowi narzędzie do:
+
+```
+STWORZYĆ strategię → PRZETESTOWAĆ na historii → URUCHOMIĆ na żywo → ZOPTYMALIZOWAĆ
+```
+
+**Kluczowa zasada:** Buduję NARZĘDZIE, nie strategię. Trader sam optymalizuje parametry.
+
+---
+
+## GŁÓWNE FUNKCJONALNOŚCI
 
 ### 1. Strategy Builder (Kreator Strategii)
 
 **Co to jest:** Wizualny kreator strategii tradingowych bez kodowania.
 
-**Jak działa:**
-- Użytkownik definiuje 5 sekcji warunków:
-  - **S1 (Signal Detection)** - kiedy szukać okazji (np. "velocity > 0.001")
-  - **O1 (Signal Cancellation)** - kiedy anulować sygnał (np. "velocity < -0.002")
-  - **Z1 (Entry Conditions)** - kiedy wejść w pozycję (np. "velocity > 0")
-  - **ZE1 (Close Order)** - kiedy zamknąć pozycję z zyskiem
-  - **E1 (Emergency Exit)** - kiedy uciekać (stop-loss)
-- Warunki używają wskaźników technicznych (price_velocity, volume_surge, itp.)
-- Strategia może być LONG (zakład na wzrost) lub SHORT (zakład na spadek)
+**5 sekcji warunków:**
 
-**Stan aktualny:**
-- Backend: działa, generuje sygnały podczas backtestów
-- Frontend: formularz tworzenia strategii działa
-- Testowane: scripts/test_strategy_builder_e2e.py (PASS)
+| Sekcja | Nazwa | Cel | Przykład |
+|--------|-------|-----|----------|
+| **S1** | Signal Detection | Kiedy szukać okazji | `velocity > 0.001` |
+| **O1** | Signal Cancellation | Kiedy anulować sygnał | `velocity < -0.002` |
+| **Z1** | Entry Conditions | Kiedy wejść w pozycję | `velocity > 0` |
+| **ZE1** | Close Order | Kiedy zamknąć z zyskiem | `profit > 2%` |
+| **E1** | Emergency Exit | Stop-loss | `loss > 1%` |
+
+**Typ strategii:** LONG (zakład na wzrost) lub SHORT (zakład na spadek)
+
+---
 
 ### 2. Backtesting (Testowanie Historyczne)
 
 **Co to jest:** Symulacja strategii na danych historycznych.
 
 **Jak działa:**
-- Użytkownik wybiera sesję z zebranymi danymi historycznymi
-- System "odtwarza" dane z zadaną prędkością (np. 10x szybciej)
-- Wskaźniki liczą się w czasie rzeczywistym
-- Strategia generuje sygnały jak na żywo
-- Wyniki pokazują: ile sygnałów, ile zyskownych, drawdown, itp.
+1. Użytkownik wybiera sesję z danymi historycznymi
+2. System odtwarza dane (np. 10x szybciej)
+3. Wskaźniki liczą się w czasie rzeczywistym
+4. Strategia generuje sygnały
+5. Wyniki: P&L, win rate, drawdown
 
-**Stan aktualny:**
-- Backend: działa, przetwarza ticki, liczy wskaźniki, generuje sygnały
-- Frontend: panel backtestingu działa, pokazuje wyniki
-- Problem: czasem brak sygnałów gdy progi są za wysokie
+**Kluczowe metryki backtestingu:**
+- Equity curve (zmiana kapitału w czasie)
+- Max drawdown (największy spadek)
+- Sharpe ratio (ryzyko vs zysk)
+- Win rate (% zyskownych)
+
+---
 
 ### 3. Data Collection (Zbieranie Danych)
 
-**Co to jest:** Nagrywanie danych rynkowych do późniejszego backtestingu.
+**Co to jest:** Nagrywanie danych rynkowych do backtestingu.
 
 **Jak działa:**
-- Użytkownik startuje sesję zbierania danych dla wybranych symboli
-- System łączy się z MEXC (giełda) przez WebSocket
-- Zapisuje ticki (cena, wolumen, timestamp) do bazy QuestDB
-- Sesja może trwać minuty, godziny lub dni
+1. Start sesji dla wybranych symboli
+2. WebSocket do MEXC (giełda)
+3. Zapis ticków (cena, wolumen, timestamp) do QuestDB
+4. Sesja może trwać minuty → dni
 
-**Stan aktualny:**
-- Backend: działa, zapisuje do QuestDB
-- Frontend: panel session management działa
+---
 
-### 4. Live Trading (Trading na Żywo)
+### 4. Live/Paper Trading
 
-**Co to jest:** Automatyczne wykonywanie transakcji na giełdzie.
+**Paper Trading:** Symulacja z wirtualnymi pieniędzmi
+- Testowanie strategii bez ryzyka
+- Real-time sygnały
 
-**Jak działa:**
+**Live Trading:** Prawdziwe transakcje
 - Połączenie z MEXC Futures API
-- Strategia generuje sygnał → system sprawdza ryzyko → składa zlecenie
-- Monitorowanie otwartych pozycji
+- Sygnał → Risk check → Zlecenie
+- Monitorowanie pozycji
 
-**Stan aktualny:**
-- Paper trading (symulowany): działa
-- Real trading: adapter gotowy, wymaga kluczy API
+---
 
 ### 5. Wskaźniki Techniczne
 
-**Zaimplementowane:**
-- **PRICE_VELOCITY** - szybkość zmiany ceny (najważniejszy dla pump detection)
-- **TWPA** - Time-Weighted Price Average
-- **VWAP** - Volume-Weighted Average Price
-- **VOLUME_SURGE** - anomalie wolumenu
-- I inne (12 algorytmów w sumie)
+**Zaimplementowane (17):**
 
-**Jak używać:**
-- Każdy wskaźnik ma parametry (np. t1=300, t3=30 sekundy)
-- Strategia porównuje wartość wskaźnika z progiem (np. velocity > 0.001)
+| Wskaźnik | Opis | Użycie |
+|----------|------|--------|
+| PRICE_VELOCITY | Szybkość zmiany ceny | Wykrywanie pump |
+| VOLUME_SURGE | Anomalie wolumenu | Potwierdzenie pump |
+| TWPA | Time-Weighted Price Average | Trend |
+| TWPA_RATIO | Stosunek ceny do TWPA | Odchylenie |
+| PUMP_MAGNITUDE_PCT | Wielkość pump w % | Siła ruchu |
+| VELOCITY_CASCADE | Kaskadowy wzrost velocity | Momentum |
+| BID_ASK_IMBALANCE | Nierównowaga bid/ask | Presja kupna/sprzedaży |
+| EMA, SMA, VWAP, RSI | Klasyczne wskaźniki | Analiza techniczna |
+| Bollinger Bands | Wstęgi zmienności | Breakout |
 
-## Architektura (uproszczona)
+**Parametry czasowe:**
+- `t1` = okno główne (np. 300s = 5 min)
+- `t2` = okno porównawcze (np. 0 = teraz)
+
+---
+
+## ARCHITEKTURA
 
 ```
-Frontend (Next.js)  ←WebSocket/REST→  Backend (FastAPI)
-                                            ↓
-                                    StreamingIndicatorEngine
-                                            ↓
-                                    StrategyManager
-                                            ↓
-                                    RiskManager → OrderManager
-                                            ↓
-                                    QuestDB (baza danych)
+┌─────────────────┐     ┌──────────────────────────────────────┐
+│   Frontend      │     │            Backend (FastAPI)         │
+│   (Next.js)     │◄───►│                                      │
+│   Port: 3000    │ WS  │  ┌─────────────────────────────────┐ │
+└─────────────────┘ REST│  │  StreamingIndicatorEngine       │ │
+                        │  │  (oblicza wskaźniki real-time)  │ │
+                        │  └─────────────┬───────────────────┘ │
+                        │                │                     │
+                        │  ┌─────────────▼───────────────────┐ │
+                        │  │  StrategyManager                │ │
+                        │  │  (ewaluuje warunki S1/Z1/etc)   │ │
+                        │  └─────────────┬───────────────────┘ │
+                        │                │                     │
+                        │  ┌─────────────▼───────────────────┐ │
+                        │  │  RiskManager → OrderManager     │ │
+                        │  │  (sprawdza ryzyko, składa zlec.)│ │
+                        │  └─────────────┬───────────────────┘ │
+                        │                │         Port: 8080  │
+                        └────────────────┼─────────────────────┘
+                                         │
+                        ┌────────────────▼─────────────────────┐
+                        │           QuestDB                    │
+                        │   (baza danych time-series)          │
+                        │   Ports: 9000 (UI), 8812 (SQL)       │
+                        └──────────────────────────────────────┘
 ```
 
-## Jak Uruchomić
+---
+
+## JAK URUCHOMIĆ
+
+### Wszystko naraz:
+```powershell
+.\start_all.ps1
+```
+
+### Ręcznie:
 
 ```powershell
-# Wszystko naraz:
-.\start_all.ps1
+# 1. Aktywuj środowisko Python
+& C:\Users\lukasz.krysik\Desktop\FXcrypto\FX_code_AI_v2\.venv\Scripts\Activate.ps1
 
-# Lub ręcznie:
-# Terminal 1 - Backend:
-python -m uvicorn src.api.unified_server:create_unified_app --factory --host 0.0.0.0 --port 8080
+# 2. Backend (Terminal 1)
+python -m uvicorn src.api.unified_server:app --host 0.0.0.0 --port 8080
 
-# Terminal 2 - Frontend:
+# 3. Frontend (Terminal 2)
 cd frontend && npm run dev
 
-# QuestDB powinien być uruchomiony
+# QuestDB musi być uruchomiony osobno
 ```
 
-**URL:**
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:8080
-- Backend Health: http://localhost:8080/health
-- QuestDB UI: http://localhost:9000
+### URLs:
 
-## Jak Testować
+| Usługa | URL | Opis |
+|--------|-----|------|
+| Frontend | http://localhost:3000 | UI dla tradera |
+| Backend API | http://localhost:8080 | REST + WebSocket |
+| Backend Health | http://localhost:8080/health | Status backendu |
+| QuestDB UI | http://localhost:9000 | Podgląd bazy danych |
 
-Zobacz: [HOW_TO_TEST.md](HOW_TO_TEST.md)
+---
+
+## STRUKTURA PROJEKTU
+
+```
+src/
+├── api/                    # REST + WebSocket (FastAPI)
+├── application/controllers # Orchestracja
+├── domain/services/        # Logika biznesowa
+│   ├── strategy_manager.py
+│   ├── risk_manager.py
+│   └── streaming_indicator_engine/
+├── infrastructure/         # Adaptery, baza danych
+│   ├── adapters/mexc_*
+│   └── container.py
+└── core/                   # EventBus, Logger, Config
+
+frontend/                   # Next.js 14
+
+docs/
+├── DEFINITION_OF_DONE.md   # Cele i metryki sukcesu
+├── PRODUCT.md              # Ten dokument
+├── KNOWN_ISSUES.md         # Znane problemy
+└── HOW_TO_TEST.md          # Jak testować
+```
+
+---
+
+## POWIĄZANE DOKUMENTY
+
+| Dokument | Zawartość |
+|----------|-----------|
+| [DEFINITION_OF_DONE.md](DEFINITION_OF_DONE.md) | Cele, metryki, "Trader Journey" |
+| [../WORKFLOW.md](../WORKFLOW.md) | Proces pracy agenta AI |
+| [KNOWN_ISSUES.md](KNOWN_ISSUES.md) | Znane problemy i workaroundy |
+| [HOW_TO_TEST.md](HOW_TO_TEST.md) | Jak testować system |
+
+---
+
+*Ten dokument opisuje CO to jest. Jak mierzyć sukces: [DEFINITION_OF_DONE.md](DEFINITION_OF_DONE.md)*

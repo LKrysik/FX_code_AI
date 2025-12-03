@@ -8,6 +8,7 @@
 **Workaround:** Użyj niższych progów (np. velocity_threshold = 0.00001)
 **Status:** Wymaga lepszej dokumentacji domyślnych progów
 
+
 ### KI2: WebSocket reconnection nie zawsze działa
 **Objawy:** Frontend traci połączenie i nie odzyskuje automatycznie
 **Przyczyna:** Brak pełnej implementacji reconnection logic
@@ -19,6 +20,21 @@
 **Przyczyna:** Niektóre struktury danych nie są czyszczone
 **Workaround:** Restartuj backend co 24h
 **Status:** Wymaga audytu memory management
+
+### [NAPRAWIONE 2025-12-02] KI4: Brakująca metoda RiskManager.use_budget()
+**Objawy:** `AttributeError: 'RiskManager' object has no attribute 'use_budget'` przy próbie otwarcia pozycji
+**Lokalizacja:** `strategy_manager.py:1624` wywołuje `risk_manager.use_budget()` która nie istnieje w `risk_manager.py`
+**Przyczyna:** Metoda została zaplanowana ale nigdy zaimplementowana
+
+**Fix:** Dodano kompletną implementację zarządzania budżetem w `risk_manager.py`:
+- `use_budget(strategy_name, amount)` - rezerwuje budżet dla strategii
+- `release_budget(strategy_name, amount)` - zwalnia budżet gdy pozycja jest zamknięta
+- `get_allocated_budget(strategy_name)` - pobiera alokowany budżet
+- `get_available_capital()` - dostępny kapitał
+
+Dodano również zwolnienie budżetu w `strategy_manager.py` przy zamykaniu pozycji (ZE1 i E1).
+
+**Impact:** Odblokowuje otwieranie pozycji w live/paper trading.
 
 ---
 
@@ -36,6 +52,50 @@ Restart backendu resetuje stan strategii (np. czy jest w trakcie oczekiwania na 
 ---
 
 ## Naprawione Problemy (Historia)
+
+### [NAPRAWIONE 2025-12-02] KI6: Case sensitivity w condition mapping
+**Objawy:** Condition z uppercase condition_type (np. "PRICE_VELOCITY") nie matchuje lowercase indicator_type ("price_velocity")
+**Przyczyna:** Brak normalizacji case przy porównywaniu
+**Fix:** Dodano case-insensitive matching w `Condition.evaluate()` - porównuje lowercase obu stron
+**Impact:** Warunki strategii działają niezależnie od wielkości liter w condition_type
+
+### [NAPRAWIONE 2025-12-02] KI5: Brak wskaźnika signal_age_seconds
+**Objawy:** Strategia używa `signal_age_seconds` w O1 (Signal Cancellation), ale wskaźnik nie istnieje
+**Przyczyna:** Wskaźnik nie zaimplementowany
+**Fix:**
+1. Dodano `SIGNAL_AGE_SECONDS` do IndicatorType enum
+2. Dodano `signal_detection_time` do Strategy dataclass
+3. StrategyManager oblicza signal_age_seconds przed ewaluacją O1
+**Impact:** O1 (Signal Cancellation) działa poprawnie - może anulować sygnały na podstawie czasu
+
+### [NAPRAWIONE 2025-12-02] OfflineIndicatorEngine nie ładował danych z session_id
+**Objawy:** `add_indicator()` zwracał 0 data points mimo że dane były w QuestDB
+**Przyczyna:** Metoda `add_indicator()` nie przekazywała `session_id` do `_load_symbol_data()`; dodatkowo `_load_symbol_data()` używała niepoprawnego `asyncio.get_event_loop()` w Python 3.13
+**Fix:**
+1. Dodano parametr `session_id` do `add_indicator()`
+2. Naprawiono `_load_symbol_data()` - użycie `asyncio.run()` zamiast deprecjonowanego `get_event_loop()`
+**Impact:** Wskaźniki są teraz poprawnie obliczane na danych historycznych
+
+### [NAPRAWIONE 2025-12-02] Błędy testów E2E - niezgodność z architekturą RiskManager
+**Objawy:** ~13 testów failowało z błędami:
+- `AttributeError: 'RiskManager' object has no attribute 'settings'`
+- `AttributeError: 'dict' object has no attribute 'level'`
+- `AttributeError: 'AppSettings' object has no attribute 'max_position_size_percent'`
+
+**Przyczyna:** Testy nie zostały zaktualizowane po zmianie architekturalnej 2025-11-30 (RiskManager: settings → risk_config)
+
+**Fix:** Zaktualizowano 3 pliki testowe:
+- [test_container_multi_agent_integration.py](tests_e2e/e2e/test_container_multi_agent_integration.py) - zmiana `risk_manager.settings` → `risk_manager.risk_config`
+- [test_security_vulnerabilities.py](tests_e2e/integration/test_security_vulnerabilities.py) - dodanie `SimpleNamespace` helper dla StructuredLogger
+- [test_risk_manager.py](tests_e2e/unit/test_risk_manager.py) - zmiana fixture `settings` → `risk_config`
+
+**Impact:** +41 testów przeszło (317 → 358), -40 błędów (124 → 84). Pass rate: 59% → 66.8%
+
+### [NAPRAWIONE 2025-12-02] Bloker: Endpoint /api/strategies/active nie działał
+**Objawy:** Endpoint `/api/strategies/active` zwracał błąd "Strategy active not found or deleted"
+**Przyczyna:** Brak dedykowanego endpointa - "active" było traktowane jako `{strategy_id}` w parametrze ścieżki
+**Fix:** Dodano nowy endpoint `GET /api/strategies/active` w [unified_server.py:885-903](src/api/unified_server.py#L885-L903) przed endpointem `/{strategy_id}`. Zwraca listę enabled strategii.
+**Impact:** Trader może teraz widzieć które strategie są aktywne.
 
 ### [NAPRAWIONE 2025-12] Bug G1: Dead code w evaluate_risk_assessment
 Metoda `evaluate_risk_assessment()` odwoływała się do nieistniejącego `self.risk_assessment`.

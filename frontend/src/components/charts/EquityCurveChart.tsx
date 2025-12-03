@@ -24,6 +24,7 @@ import {
   Legend,
   ResponsiveContainer,
   ReferenceLine,
+  ReferenceDot,
 } from 'recharts';
 import { Box, Typography, Paper } from '@mui/material';
 import { TrendingUp as TrendingUpIcon } from '@mui/icons-material';
@@ -35,12 +36,22 @@ interface PerformanceSnapshot {
   total_return_pct: number;
 }
 
+interface TradeMarker {
+  timestamp: string;
+  side: 'BUY' | 'SELL';
+  symbol: string;
+  price: number;
+  quantity: number;
+  pnl?: number;
+}
+
 interface EquityCurveChartProps {
   data: PerformanceSnapshot[];
   initialBalance: number;
+  trades?: TradeMarker[];
 }
 
-export default function EquityCurveChart({ data, initialBalance }: EquityCurveChartProps) {
+export default function EquityCurveChart({ data, initialBalance, trades = [] }: EquityCurveChartProps) {
   if (!data || data.length === 0) {
     return (
       <Paper sx={{ p: 3, textAlign: 'center' }}>
@@ -96,6 +107,22 @@ export default function EquityCurveChart({ data, initialBalance }: EquityCurveCh
   const finalBalance = chartData[chartData.length - 1]?.balance || initialBalance;
   const lineColor = finalBalance >= initialBalance ? '#4caf50' : '#f44336';
 
+  // Map trades to chart data points - find closest balance for each trade timestamp
+  const tradeMarkers = trades.map((trade) => {
+    const tradeTime = new Date(trade.timestamp).toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    // Find the closest data point to this trade
+    const matchingPoint = chartData.find((d) => d.timestamp === tradeTime);
+    const balance = matchingPoint?.balance || initialBalance;
+    return {
+      ...trade,
+      formattedTime: tradeTime,
+      balance,
+    };
+  });
+
   return (
     <Paper sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
@@ -146,6 +173,26 @@ export default function EquityCurveChart({ data, initialBalance }: EquityCurveCh
             activeDot={{ r: 5 }}
             name="Account Balance"
           />
+
+          {/* Trade markers - BUY (green triangle up) and SELL (red triangle down) */}
+          {tradeMarkers.map((trade, index) => (
+            <ReferenceDot
+              key={`trade-${index}`}
+              x={trade.formattedTime}
+              y={trade.balance}
+              r={8}
+              fill={trade.side === 'BUY' ? '#4caf50' : '#f44336'}
+              stroke="#fff"
+              strokeWidth={2}
+              label={{
+                value: trade.side === 'BUY' ? '▲' : '▼',
+                position: 'top',
+                fill: trade.side === 'BUY' ? '#4caf50' : '#f44336',
+                fontSize: 14,
+                fontWeight: 'bold',
+              }}
+            />
+          ))}
         </LineChart>
       </ResponsiveContainer>
 

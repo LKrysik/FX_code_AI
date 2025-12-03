@@ -418,11 +418,24 @@ class StreamingIndicatorEngine:
         indicator.metadata["last_calculation"] = now
 
         try:
+            # ✅ FIX (2025-12-03): Add indicator_type for strategy condition matching
+            # Without this, StrategyManager cannot match indicator values to conditions
+            indicator_type = (indicator.metadata.get("type") or "").lower()
+
+            # Fallback to variant lookup if metadata type is empty
+            if not indicator_type:
+                variant_id = indicator.metadata.get("variant_id")
+                if variant_id and variant_id in self._variants:
+                    variant = self._variants[variant_id]
+                    indicator_type = (variant.base_indicator_type or "").lower()
+                    indicator.metadata["type"] = indicator_type.upper()
+
             await self.event_bus.publish(
                 "indicator.updated",
                 {
                     "symbol": indicator.symbol,
                     "indicator": indicator.indicator,
+                    "indicator_type": indicator_type,  # Required for condition matching
                     "timeframe": indicator.timeframe,
                     "value": value,
                     "timestamp": now,
@@ -993,6 +1006,13 @@ class StreamingIndicatorEngine:
             has_indicators = symbol in self._indicators_by_symbol and len(self._indicators_by_symbol[symbol]) > 0
 
         if not has_indicators:
+            # ✅ DIAGNOSTIC LOG: Track symbols being skipped due to no indicators
+            # This helps identify when indicators aren't registered for a symbol during backtest
+            self.logger.info("streaming_indicator_engine.symbol_skipped_no_indicators", {
+                "symbol": symbol,
+                "all_registered_symbols": list(self._indicators_by_symbol.keys())[:10],
+                "total_symbols_with_indicators": len(self._indicators_by_symbol)
+            })
             return  # Skip data storage and processing if no indicators are using this symbol
 
         # ✅ CRITICAL FIX: Create data checkpoint for rollback capability
@@ -1275,6 +1295,14 @@ class StreamingIndicatorEngine:
                     "error": str(e)
                 })
 
+        # ✅ DIAGNOSTIC: Log how many indicator updates were collected
+        if updates_to_publish:
+            self.logger.info("streaming_indicator_engine.updates_collected", {
+                "symbol": symbol,
+                "updates_count": len(updates_to_publish),
+                "indicator_types": [u.get("indicator_type") for u in updates_to_publish[:5]]
+            })
+
         # ✅ CRITICAL FIX: Publish all updates outside the calculation loop to prevent deadlock
         for update in updates_to_publish:
             try:
@@ -1343,6 +1371,15 @@ class StreamingIndicatorEngine:
 
                 # Build data windows from price_data
                 data_windows = []
+
+                # Diagnostic: Log price_data range
+                if price_data:
+                    price_ts_min = min(p["timestamp"] for p in price_data)
+                    price_ts_max = max(p["timestamp"] for p in price_data)
+                    price_data_span = price_ts_max - price_ts_min
+                else:
+                    price_ts_min = price_ts_max = price_data_span = 0
+
                 for spec in window_specs:
                     # Get time range for this window
                     end_ts = timestamp
@@ -1355,6 +1392,79 @@ class StreamingIndicatorEngine:
                         for p in price_data
                         if start_ts <= p["timestamp"] <= window_end_ts
                     ]
+
+                    # ✅ FIX (2025-12-03): Adaptive window sizing for backtest warm-up period
+                    # Problem: At the start of backtest, we don't have data from 30-60 seconds ago
+                    # Solution: If ideal window is empty but we have data, use available data
+                    #           with adjusted timestamps to represent the "best available" window
+                    if len(window_data) == 0 and len(price_data) > 0:
+                        # Check if this is a "historical" window (looking backwards in time)
+                        # These windows look for data before the current timestamp
+                        is_historical_window = spec.t1 > 0 and spec.t2 > 0  # Both offsets are positive
+
+                        if is_historical_window:
+                            # For baseline windows (e.g., 30-60s ago), use oldest available data
+                            # This provides "best effort" baseline when history is limited
+                            oldest_point_ts = price_ts_min
+                            oldest_data_age = timestamp - oldest_point_ts
+
+                            # Only use fallback if we have at least some history (>2 seconds)
+                            if oldest_data_age >= 2.0:
+                                # Use oldest portion of available data as baseline proxy
+                                fallback_end_ts = oldest_point_ts + min(spec.t1 - spec.t2, oldest_data_age / 2)
+                                window_data = [
+                                    (p["timestamp"], p["price"])
+                                    for p in price_data
+                                    if oldest_point_ts <= p["timestamp"] <= fallback_end_ts
+                                ]
+                                if window_data:
+                                    self.logger.debug("streaming_indicator_engine.window_fallback_used", {
+                                        "indicator_type": indicator_type,
+                                        "symbol": indicator.symbol,
+                                        "original_window": f"{spec.t1}s to {spec.t2}s ago",
+                                        "fallback_window": f"oldest {len(window_data)} points",
+                                        "data_age_seconds": oldest_data_age,
+                                    })
+                                    # Update window timestamps to match fallback range
+                                    start_ts = oldest_point_ts
+                                    window_end_ts = fallback_end_ts
+                        else:
+                            # For current windows (0-10s ago), use most recent data available
+                            # If start_ts is before our data begins, adjust to use available data
+                            if start_ts < price_ts_min:
+                                # Use all data from oldest point to current window end
+                                window_data = [
+                                    (p["timestamp"], p["price"])
+                                    for p in price_data
+                                    if price_ts_min <= p["timestamp"] <= window_end_ts
+                                ]
+                                if window_data:
+                                    self.logger.debug("streaming_indicator_engine.current_window_fallback", {
+                                        "indicator_type": indicator_type,
+                                        "symbol": indicator.symbol,
+                                        "requested_start_ts": start_ts,
+                                        "actual_start_ts": price_ts_min,
+                                        "window_end_ts": window_end_ts,
+                                        "points_used": len(window_data),
+                                    })
+                                    start_ts = price_ts_min
+
+                        # Log warning if still no data after fallback attempt
+                        if len(window_data) == 0:
+                            self.logger.debug("streaming_indicator_engine.window_data_empty", {
+                                "indicator_type": indicator_type,
+                                "symbol": indicator.symbol,
+                                "window_spec_t1": spec.t1,
+                                "window_spec_t2": spec.t2,
+                                "current_timestamp": timestamp,
+                                "window_start_ts": start_ts,
+                                "window_end_ts": window_end_ts,
+                                "price_data_count": len(price_data),
+                                "price_data_ts_min": price_ts_min,
+                                "price_data_ts_max": price_ts_max,
+                                "price_data_span_seconds": price_data_span,
+                                "required_lookback_seconds": spec.t1,
+                            })
 
                     data_windows.append(DataWindow(
                         data=tuple(window_data),
@@ -3796,6 +3906,22 @@ class StreamingIndicatorEngine:
                 # Add to engine indicators
                 self._indicators[indicator_id] = indicator
                 self._track_indicator(indicator_id, indicator)
+
+                # ✅ FIX (2025-12-03): Register time-driven indicators for session indicators
+                # This was missing! Without this, PRICE_VELOCITY and other time-driven indicators
+                # were not being calculated/published during backtest sessions.
+                should_register = self._should_register_for_time_driven_scheduling(indicator_type, indicator)
+                self.logger.info("streaming_indicator_engine.time_driven_check_for_session", {
+                    "indicator_id": indicator_id,
+                    "indicator_type": indicator_type,
+                    "should_register": should_register
+                })
+                if should_register:
+                    self._register_time_driven_indicator(indicator_id, indicator)
+                    self.logger.info("streaming_indicator_engine.time_driven_registered_for_session", {
+                        "indicator_id": indicator_id,
+                        "indicator_type": indicator_type
+                    })
 
                 # Track in session
                 if session_id not in self._session_indicators:

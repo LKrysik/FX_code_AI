@@ -400,3 +400,97 @@ async def _get_recent_signals(questdb: QuestDBProvider, session_id: str, limit: 
             "error": str(e)
         })
         return []
+
+
+@router.get("/equity-curve")
+async def get_equity_curve(
+    session_id: str = Query(..., description="Session ID"),
+    limit: int = Query(100, description="Max data points to return")
+) -> JSONResponse:
+    """
+    Get equity curve data for EquityCurveChart component.
+
+    Reads from paper_trading_performance table (time-series of balance snapshots).
+
+    Returns data in format expected by EquityCurveChart:
+    - timestamp
+    - current_balance
+    - total_pnl
+    - total_return_pct
+
+    Performance Target: <100ms
+    """
+    import time
+    start_time = time.time()
+
+    questdb, _ = _ensure_dependencies()
+
+    try:
+        # Get performance snapshots from paper_trading_performance
+        query = """
+            SELECT
+                timestamp,
+                current_balance,
+                total_pnl,
+                total_return_pct,
+                max_drawdown,
+                current_drawdown
+            FROM paper_trading_performance
+            WHERE session_id = $1
+            ORDER BY timestamp ASC
+            LIMIT $2
+        """
+
+        async with questdb.pg_pool.acquire() as conn:
+            rows = await conn.fetch(query, session_id, limit)
+
+        # Get initial balance from session
+        session_query = """
+            SELECT initial_balance
+            FROM paper_trading_sessions
+            WHERE session_id = $1
+            LIMIT 1
+        """
+
+        async with questdb.pg_pool.acquire() as conn:
+            session_row = await conn.fetchrow(session_query, session_id)
+
+        initial_balance = 10000.0  # Default
+        if session_row and session_row['initial_balance']:
+            initial_balance = float(session_row['initial_balance'])
+
+        # Build equity curve data
+        equity_curve = []
+        for row in rows:
+            equity_curve.append({
+                "timestamp": row['timestamp'].isoformat() if row['timestamp'] else None,
+                "current_balance": float(row['current_balance']) if row['current_balance'] else initial_balance,
+                "total_pnl": float(row['total_pnl']) if row['total_pnl'] else 0.0,
+                "total_return_pct": float(row['total_return_pct']) if row['total_return_pct'] else 0.0,
+                "max_drawdown": float(row['max_drawdown']) if row['max_drawdown'] else 0.0,
+                "current_drawdown": float(row['current_drawdown']) if row['current_drawdown'] else 0.0
+            })
+
+        elapsed_ms = (time.time() - start_time) * 1000
+
+        logger.info("dashboard_routes.equity_curve_success", {
+            "session_id": session_id,
+            "data_points": len(equity_curve),
+            "elapsed_ms": elapsed_ms
+        })
+
+        response = {
+            "session_id": session_id,
+            "initial_balance": initial_balance,
+            "equity_curve": equity_curve,
+            "last_updated": datetime.now(timezone.utc).isoformat()
+        }
+
+        return JSONResponse(content=ensure_envelope(response))
+
+    except Exception as e:
+        logger.error("dashboard_routes.equity_curve_failed", {
+            "session_id": session_id,
+            "error": str(e)
+        })
+        raise HTTPException(status_code=500, detail=f"Failed to get equity curve: {str(e)}")

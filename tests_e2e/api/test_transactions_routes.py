@@ -18,9 +18,9 @@ from fastapi.testclient import TestClient
 class TestTransactionsHistoryEndpoint:
     """Tests for GET /api/transactions/history endpoint."""
 
-    def test_get_transaction_history_success(self, client: TestClient, test_session_id: str):
+    def test_get_transaction_history_success(self, api_client: TestClient, test_session_id: str):
         """Test successful retrieval of transaction history."""
-        response = client.get(f"/api/transactions/history?session_id={test_session_id}&limit=10")
+        response = api_client.get(f"/api/transactions/history?session_id={test_session_id}&limit=10")
 
         assert response.status_code == 200
         data = response.json().get("data", response.json())
@@ -31,9 +31,9 @@ class TestTransactionsHistoryEndpoint:
         assert isinstance(data["transactions"], list)
         assert data["session_id"] == test_session_id
 
-    def test_get_transaction_history_with_status_filter(self, client: TestClient, test_session_id: str):
+    def test_get_transaction_history_with_status_filter(self, api_client: TestClient, test_session_id: str):
         """Test transaction history filtered by status."""
-        response = client.get(
+        response = api_client.get(
             f"/api/transactions/history?session_id={test_session_id}&status=FILLED&limit=10"
         )
 
@@ -44,9 +44,9 @@ class TestTransactionsHistoryEndpoint:
         for tx in data["transactions"]:
             assert tx["status"] == "FILLED"
 
-    def test_get_transaction_history_with_side_filter(self, client: TestClient, test_session_id: str):
+    def test_get_transaction_history_with_side_filter(self, api_client: TestClient, test_session_id: str):
         """Test transaction history filtered by side."""
-        response = client.get(
+        response = api_client.get(
             f"/api/transactions/history?session_id={test_session_id}&side=BUY&limit=10"
         )
 
@@ -57,9 +57,9 @@ class TestTransactionsHistoryEndpoint:
         for tx in data["transactions"]:
             assert tx["side"] == "BUY"
 
-    def test_get_transaction_history_failed_filter(self, client: TestClient, test_session_id: str):
+    def test_get_transaction_history_failed_filter(self, api_client: TestClient, test_session_id: str):
         """Test filtering failed transactions."""
-        response = client.get(
+        response = api_client.get(
             f"/api/transactions/history?session_id={test_session_id}&status=FAILED&limit=10"
         )
 
@@ -69,9 +69,9 @@ class TestTransactionsHistoryEndpoint:
         for tx in data["transactions"]:
             assert tx["status"] in ("FAILED", "REJECTED")
 
-    def test_get_transaction_history_summary_statistics(self, client: TestClient, test_session_id: str):
+    def test_get_transaction_history_summary_statistics(self, api_client: TestClient, test_session_id: str):
         """Test that summary statistics are calculated correctly."""
-        response = client.get(f"/api/transactions/history?session_id={test_session_id}&limit=100")
+        response = api_client.get(f"/api/transactions/history?session_id={test_session_id}&limit=100")
 
         assert response.status_code == 200
         data = response.json().get("data", response.json())
@@ -87,9 +87,9 @@ class TestTransactionsHistoryEndpoint:
         total_counted = summary["total_filled"] + summary["total_cancelled"] + summary["total_failed"]
         assert total_counted <= total_transactions
 
-    def test_get_transaction_history_includes_slippage(self, client: TestClient, test_session_id: str):
+    def test_get_transaction_history_includes_slippage(self, api_client: TestClient, test_session_id: str):
         """Test that transaction includes slippage calculation."""
-        response = client.get(f"/api/transactions/history?session_id={test_session_id}&limit=10")
+        response = api_client.get(f"/api/transactions/history?session_id={test_session_id}&limit=10")
 
         assert response.status_code == 200
         data = response.json().get("data", response.json())
@@ -101,19 +101,19 @@ class TestTransactionsHistoryEndpoint:
                 if tx["slippage"] is not None:
                     assert abs(tx["slippage"] - expected_slippage) < 0.01
 
-    def test_get_transaction_history_limit_respected(self, client: TestClient, test_session_id: str):
+    def test_get_transaction_history_limit_respected(self, api_client: TestClient, test_session_id: str):
         """Test that limit parameter is respected."""
         limit = 5
-        response = client.get(f"/api/transactions/history?session_id={test_session_id}&limit={limit}")
+        response = api_client.get(f"/api/transactions/history?session_id={test_session_id}&limit={limit}")
 
         assert response.status_code == 200
         data = response.json().get("data", response.json())
 
         assert len(data["transactions"]) <= limit
 
-    def test_get_transaction_history_missing_session_id(self, client: TestClient):
+    def test_get_transaction_history_missing_session_id(self, api_client: TestClient):
         """Test error when session_id is missing."""
-        response = client.get("/api/transactions/history")
+        response = api_client.get("/api/transactions/history")
 
         assert response.status_code == 422  # Validation error
 

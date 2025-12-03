@@ -110,6 +110,9 @@ class RiskManager:
         self.daily_pnl = Decimal('0')
         self.daily_reset_date = datetime.now(timezone.utc).date()
 
+        # Budget allocation per strategy (strategy_name -> reserved_amount)
+        self._allocated_budgets: Dict[str, Decimal] = {}
+
         # Thread safety
         self._lock = asyncio.Lock()
 
@@ -721,5 +724,134 @@ class RiskManager:
                 "daily_loss_limit_percent": float(self.risk_config.daily_loss_limit_percent),
                 "max_drawdown_percent": float(self.risk_config.max_drawdown_percent),
                 "max_margin_utilization_percent": float(self.risk_config.max_margin_utilization_percent)
-            }
+            },
+            "allocated_budgets": {k: float(v) for k, v in self._allocated_budgets.items()},
+            "total_allocated": float(sum(self._allocated_budgets.values())),
+            "available_capital": float(self.current_capital - sum(self._allocated_budgets.values()))
         }
+
+    # === Budget Allocation Methods ===
+
+    def use_budget(self, strategy_name: str, amount: float) -> bool:
+        """
+        Reserve budget for a strategy position.
+
+        This is a synchronous method for use in strategy evaluation flow.
+        Checks if enough unallocated capital is available and reserves it.
+
+        Args:
+            strategy_name: Name of the strategy requesting budget
+            amount: Amount in USDT to reserve
+
+        Returns:
+            True if budget was successfully reserved, False if insufficient funds
+        """
+        amount_decimal = Decimal(str(amount))
+
+        # Calculate available capital (total - already allocated)
+        total_allocated = sum(self._allocated_budgets.values())
+        available = self.current_capital - total_allocated
+
+        if amount_decimal > available:
+            logger.warning(
+                "Budget allocation failed - insufficient funds",
+                extra={
+                    "strategy_name": strategy_name,
+                    "requested": float(amount_decimal),
+                    "available": float(available),
+                    "total_allocated": float(total_allocated),
+                    "current_capital": float(self.current_capital)
+                }
+            )
+            return False
+
+        # Reserve the budget
+        if strategy_name in self._allocated_budgets:
+            self._allocated_budgets[strategy_name] += amount_decimal
+        else:
+            self._allocated_budgets[strategy_name] = amount_decimal
+
+        logger.info(
+            "Budget allocated for strategy",
+            extra={
+                "strategy_name": strategy_name,
+                "amount": float(amount_decimal),
+                "total_for_strategy": float(self._allocated_budgets[strategy_name]),
+                "remaining_available": float(available - amount_decimal)
+            }
+        )
+        return True
+
+    def release_budget(self, strategy_name: str, amount: Optional[float] = None) -> bool:
+        """
+        Release previously allocated budget for a strategy.
+
+        Called when a position is closed or cancelled.
+
+        Args:
+            strategy_name: Name of the strategy releasing budget
+            amount: Specific amount to release (None = release all for strategy)
+
+        Returns:
+            True if budget was released, False if strategy had no allocation
+        """
+        if strategy_name not in self._allocated_budgets:
+            logger.warning(
+                "Cannot release budget - no allocation found",
+                extra={"strategy_name": strategy_name}
+            )
+            return False
+
+        if amount is None:
+            # Release all budget for this strategy
+            released = self._allocated_budgets.pop(strategy_name)
+            logger.info(
+                "All budget released for strategy",
+                extra={
+                    "strategy_name": strategy_name,
+                    "released": float(released)
+                }
+            )
+        else:
+            amount_decimal = Decimal(str(amount))
+            current = self._allocated_budgets[strategy_name]
+
+            if amount_decimal >= current:
+                # Release all
+                released = self._allocated_budgets.pop(strategy_name)
+            else:
+                # Partial release
+                self._allocated_budgets[strategy_name] -= amount_decimal
+                released = amount_decimal
+
+            logger.info(
+                "Budget partially released for strategy",
+                extra={
+                    "strategy_name": strategy_name,
+                    "released": float(released),
+                    "remaining": float(self._allocated_budgets.get(strategy_name, Decimal('0')))
+                }
+            )
+        return True
+
+    def get_allocated_budget(self, strategy_name: str) -> float:
+        """
+        Get currently allocated budget for a strategy.
+
+        Args:
+            strategy_name: Name of the strategy
+
+        Returns:
+            Allocated amount in USDT (0.0 if no allocation)
+        """
+        return float(self._allocated_budgets.get(strategy_name, Decimal('0')))
+
+    def get_available_capital(self) -> float:
+        """
+        Get available capital for new positions.
+
+        Returns:
+            Available capital (current_capital - total_allocated)
+        """
+        total_allocated = sum(self._allocated_budgets.values())
+        return float(self.current_capital - total_allocated)

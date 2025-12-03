@@ -806,6 +806,10 @@ class UnifiedTradingController:
             return
 
         try:
+            # ✅ FIX (2025-12-03): Reset session state before starting new session
+            # This clears signal slots, symbol locks, and strategy states from previous session
+            await self.strategy_manager.reset_session_state()
+
             # Load strategies from QuestDB if not already loaded
             loaded_count = await self.strategy_manager.load_strategies_from_db()
             self.logger.info("unified_trading_controller.strategies_loaded", {
@@ -846,12 +850,19 @@ class UnifiedTradingController:
                         )
                         variants_created_count += variants_created
 
+            # ✅ DIAGNOSTIC: Verify indicators were registered for symbols
+            registered_symbols = []
+            if hasattr(self, 'indicator_engine') and self.indicator_engine:
+                registered_symbols = list(self.indicator_engine._indicators_by_symbol.keys())
+
             self.logger.info("unified_trading_controller.session_strategies_activated", {
                 "session_id": session_id,
                 "activated_count": activated_count,
                 "variants_created": variants_created_count,
                 "symbols": symbols,
-                "strategies": selected_strategies
+                "strategies": selected_strategies,
+                "indicators_registered_for_symbols": registered_symbols,
+                "engine_id": id(self.indicator_engine) if self.indicator_engine else None
             })
 
         except Exception as e:

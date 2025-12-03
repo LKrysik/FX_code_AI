@@ -3,7 +3,10 @@
     "allow": [
       "*",
       "Bash(netstat:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(powershell:*)",
+      "Bash(taskkill /F /PID 86032)",
+      "Bash(tasklist:*)"
     ],
     "deny": [],
     "ask": []

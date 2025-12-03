@@ -16,9 +16,9 @@ from fastapi.testclient import TestClient
 class TestSignalsHistoryEndpoint:
     """Tests for GET /api/signals/history endpoint."""
 
-    def test_get_signal_history_success(self, client: TestClient, test_session_id: str):
+    def test_get_signal_history_success(self, api_client: TestClient, test_session_id: str):
         """Test successful retrieval of signal history."""
-        response = client.get(f"/api/signals/history?session_id={test_session_id}&limit=10")
+        response = api_client.get(f"/api/signals/history?session_id={test_session_id}&limit=10")
 
         assert response.status_code == 200
         data = response.json().get("data", response.json())
@@ -28,9 +28,9 @@ class TestSignalsHistoryEndpoint:
         assert isinstance(data["signals"], list)
         assert data["session_id"] == test_session_id
 
-    def test_get_signal_history_with_symbol_filter(self, client: TestClient, test_session_id: str):
+    def test_get_signal_history_with_symbol_filter(self, api_client: TestClient, test_session_id: str):
         """Test signal history filtered by symbol."""
-        response = client.get(
+        response = api_client.get(
             f"/api/signals/history?session_id={test_session_id}&symbol=BTC_USDT&limit=10"
         )
 
@@ -41,9 +41,9 @@ class TestSignalsHistoryEndpoint:
         for signal in data["signals"]:
             assert signal["symbol"] == "BTC_USDT"
 
-    def test_get_signal_history_with_signal_type_filter(self, client: TestClient, test_session_id: str):
+    def test_get_signal_history_with_signal_type_filter(self, api_client: TestClient, test_session_id: str):
         """Test signal history filtered by signal type."""
-        response = client.get(
+        response = api_client.get(
             f"/api/signals/history?session_id={test_session_id}&signal_type=S1&limit=10"
         )
 
@@ -54,9 +54,9 @@ class TestSignalsHistoryEndpoint:
         for signal in data["signals"]:
             assert signal["signal_type"] == "S1"
 
-    def test_get_signal_history_with_triggered_filter(self, client: TestClient, test_session_id: str):
+    def test_get_signal_history_with_triggered_filter(self, api_client: TestClient, test_session_id: str):
         """Test signal history filtered by triggered status."""
-        response = client.get(
+        response = api_client.get(
             f"/api/signals/history?session_id={test_session_id}&triggered=true&limit=10"
         )
 
@@ -67,19 +67,19 @@ class TestSignalsHistoryEndpoint:
         for signal in data["signals"]:
             assert signal["triggered"] is True
 
-    def test_get_signal_history_limit_respected(self, client: TestClient, test_session_id: str):
+    def test_get_signal_history_limit_respected(self, api_client: TestClient, test_session_id: str):
         """Test that limit parameter is respected."""
         limit = 5
-        response = client.get(f"/api/signals/history?session_id={test_session_id}&limit={limit}")
+        response = api_client.get(f"/api/signals/history?session_id={test_session_id}&limit={limit}")
 
         assert response.status_code == 200
         data = response.json().get("data", response.json())
 
         assert len(data["signals"]) <= limit
 
-    def test_get_signal_history_missing_session_id(self, client: TestClient):
+    def test_get_signal_history_missing_session_id(self, api_client: TestClient):
         """Test error when session_id is missing."""
-        response = client.get("/api/signals/history")
+        response = api_client.get("/api/signals/history")
 
         assert response.status_code == 422  # Validation error
 
@@ -87,9 +87,9 @@ class TestSignalsHistoryEndpoint:
 class TestSignalDetailEndpoint:
     """Tests for GET /api/signals/{signal_id} endpoint."""
 
-    def test_get_signal_detail_success(self, client: TestClient, test_signal_id: str):
+    def test_get_signal_detail_success(self, api_client: TestClient, test_signal_id: str):
         """Test successful retrieval of signal detail."""
-        response = client.get(f"/api/signals/{test_signal_id}")
+        response = api_client.get(f"/api/signals/{test_signal_id}")
 
         assert response.status_code == 200
         data = response.json().get("data", response.json())
@@ -99,9 +99,9 @@ class TestSignalDetailEndpoint:
         assert "indicator_values" in data["signal"]
         assert "conditions_met" in data["signal"]
 
-    def test_get_signal_detail_with_linked_order(self, client: TestClient, test_signal_with_order_id: str):
+    def test_get_signal_detail_with_linked_order(self, api_client: TestClient, test_signal_with_order_id: str):
         """Test signal detail includes linked order when available."""
-        response = client.get(f"/api/signals/{test_signal_with_order_id}")
+        response = api_client.get(f"/api/signals/{test_signal_with_order_id}")
 
         assert response.status_code == 200
         data = response.json().get("data", response.json())
@@ -111,9 +111,9 @@ class TestSignalDetailEndpoint:
             assert "order_id" in data["order"]
             assert "status" in data["order"]
 
-    def test_get_signal_detail_not_found(self, client: TestClient):
+    def test_get_signal_detail_not_found(self, api_client: TestClient):
         """Test error when signal does not exist."""
-        response = client.get("/api/signals/nonexistent_signal_id")
+        response = api_client.get("/api/signals/nonexistent_signal_id")
 
         assert response.status_code == 404
 

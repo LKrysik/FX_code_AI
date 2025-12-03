@@ -401,7 +401,7 @@ Frontend Unit Tests (Jest):
     print_header("Test Run Summary")
 
     if exit_code == 0:
-        print_success("All tests passed! ✓")
+        print_success("All tests passed! [OK]")
     else:
         print_error(f"Tests failed with exit code {exit_code}")
         if not args.verbose and not args.detailed:
@@ -415,13 +415,13 @@ Frontend Unit Tests (Jest):
         if os.path.exists(file_path):
             if file_type == 'summary_report':
                 print_success(f"Readable Summary: {file_path}")
-                print_info("  → Human-readable test results with full test paths and statuses")
+                print_info("  -> Human-readable test results with full test paths and statuses")
             elif file_type == 'detailed_log':
                 print_success(f"Detailed Log: {file_path}")
-                print_info("  → Full tracebacks, local variables, DEBUG logs")
+                print_info("  -> Full tracebacks, local variables, DEBUG logs")
             elif file_type == 'junit_xml':
                 print_info(f"JUnit XML: {file_path}")
-                print_info("  → Machine-readable format for CI/CD")
+                print_info("  -> Machine-readable format for CI/CD")
             elif file_type == 'html_report':
                 print_info(f"HTML Report: {file_path}")
             elif file_type == 'coverage_html':

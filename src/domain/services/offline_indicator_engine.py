@@ -104,14 +104,28 @@ class OfflineIndicatorEngine(IIndicatorEngine):
                      timeframe: str = "1m",
                      period: int = 20,
                      scope: Optional[str] = None,
+                     session_id: Optional[str] = None,
                      **kwargs) -> str:
-        """Add an indicator and calculate its values from historical data."""
+        """Add an indicator and calculate its values from historical data.
+
+        Args:
+            symbol: Trading symbol
+            indicator_type: Type of indicator to calculate
+            timeframe: Timeframe for indicator
+            period: Period parameter for indicator
+            scope: Optional scope
+            session_id: Optional session ID to load data from specific session
+            **kwargs: Additional indicator parameters
+
+        Returns:
+            Indicator key string
+        """
         with self._lock:
             # Create unique key
             key = IndicatorCalculator.create_indicator_key(
                 symbol, indicator_type, period, timeframe, **kwargs
             )
-            
+
             # Store indicator configuration
             self._indicators[key] = {
                 "key": key,
@@ -120,13 +134,14 @@ class OfflineIndicatorEngine(IIndicatorEngine):
                 "timeframe": timeframe,
                 "period": period,
                 "scope": scope,
+                "session_id": session_id,
                 "params": kwargs,
                 "data_points": 0
             }
-            
+
             # Load data and calculate values
             try:
-                data_points = self._load_symbol_data(symbol)
+                data_points = self._load_symbol_data(symbol, session_id=session_id)
                 if data_points:
                     series = self._calculate_indicator_series(
                         symbol=symbol,
@@ -339,7 +354,7 @@ class OfflineIndicatorEngine(IIndicatorEngine):
         """
         Synchronous wrapper for _load_symbol_data_async.
 
-        🔄 MIGRATED: Now uses QuestDB via async method.
+        FIXED (2025-12-02): Use new event loop for sync context.
 
         Args:
             symbol: Trading symbol
@@ -349,24 +364,34 @@ class OfflineIndicatorEngine(IIndicatorEngine):
             List of MarketDataPoint objects
         """
         try:
-            # Run async method in event loop
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If loop is already running, create a task
-                future = asyncio.ensure_future(
-                    self._load_symbol_data_async(symbol, session_id)
-                )
-                # Note: This might not complete immediately
-                return []
-            else:
-                # Run in new event loop
-                return loop.run_until_complete(
-                    self._load_symbol_data_async(symbol, session_id)
-                )
+            # Check if there's already a running loop
+            try:
+                loop = asyncio.get_running_loop()
+                # If we're in async context, can't run sync wrapper
+                self.logger.warning("offline_indicator_engine.async_context_detected", {
+                    "symbol": symbol,
+                    "session_id": session_id,
+                    "suggestion": "Use add_indicator_async instead"
+                })
+                # Create new loop in thread
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(
+                        asyncio.run,
+                        self._load_symbol_data_async(symbol, session_id)
+                    )
+                    return future.result(timeout=30)
+            except RuntimeError:
+                # No running loop - safe to use asyncio.run()
+                return asyncio.run(self._load_symbol_data_async(symbol, session_id))
+
         except Exception as e:
+            import traceback
             self.logger.error("offline_indicator_engine.sync_wrapper_failed", {
                 "symbol": symbol,
-                "error": str(e)
+                "session_id": session_id,
+                "error": str(e),
+                "traceback": traceback.format_exc()
             })
             return []
 

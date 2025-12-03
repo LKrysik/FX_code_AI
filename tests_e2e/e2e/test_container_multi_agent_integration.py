@@ -67,7 +67,9 @@ async def test_create_risk_manager(container):
 
     assert risk_manager is not None
     assert risk_manager.event_bus is container.event_bus
-    assert risk_manager.settings is container.settings
+    # ✅ FIX (2025-12-02): RiskManager uses risk_config (not settings) per Architecture Fix 2025-11-30
+    # Domain layer should not depend on Infrastructure (AppSettings)
+    assert risk_manager.risk_config is container.settings.risk_management.risk_manager
     assert risk_manager.initial_capital == Decimal('10000.0')
 
     # Test singleton pattern

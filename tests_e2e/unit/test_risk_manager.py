@@ -28,25 +28,30 @@ def event_bus():
 
 
 @pytest.fixture
-def settings():
-    """Create test settings with known values."""
+def risk_config():
+    """Create test risk config with known values.
+
+    Note: RiskManager now takes risk_config (not full settings) per Architecture Fix 2025-11-30.
+    This config must have the required attributes that RiskManager expects.
+    """
     settings = AppSettings()
-    # Ensure risk manager settings are set to known test values
-    settings.risk_management.risk_manager.max_position_size_percent = Decimal('10.0')
-    settings.risk_management.risk_manager.max_concurrent_positions = 3
-    settings.risk_management.risk_manager.max_symbol_concentration_percent = Decimal('30.0')
-    settings.risk_management.risk_manager.daily_loss_limit_percent = Decimal('5.0')
-    settings.risk_management.risk_manager.max_drawdown_percent = Decimal('15.0')
-    settings.risk_management.risk_manager.max_margin_utilization_percent = Decimal('80.0')
-    return settings
+    # Configure risk manager settings with known test values
+    risk_cfg = settings.risk_management.risk_manager
+    risk_cfg.max_position_size_percent = Decimal('10.0')
+    risk_cfg.max_concurrent_positions = 3
+    risk_cfg.max_symbol_concentration_percent = Decimal('30.0')
+    risk_cfg.daily_loss_limit_percent = Decimal('5.0')
+    risk_cfg.max_drawdown_percent = Decimal('15.0')
+    risk_cfg.max_margin_utilization_percent = Decimal('80.0')
+    return risk_cfg
 
 
 @pytest.fixture
-def risk_manager(event_bus, settings):
+def risk_manager(event_bus, risk_config):
     """Create RiskManager instance with 10,000 USDT capital."""
     return RiskManager(
         event_bus=event_bus,
-        settings=settings,
+        risk_config=risk_config,
         initial_capital=Decimal('10000')
     )
 
@@ -397,7 +402,7 @@ async def test_check6_margin_exceeds_limit(risk_manager):
 # === Test EventBus Integration ===
 
 @pytest.mark.asyncio
-async def test_risk_alert_emitted_on_rejection(event_bus, settings):
+async def test_risk_alert_emitted_on_rejection(event_bus, risk_config):
     """Test that risk_alert event is emitted when order is rejected."""
     # Track emitted events
     events_received = []
@@ -407,7 +412,7 @@ async def test_risk_alert_emitted_on_rejection(event_bus, settings):
 
     await event_bus.subscribe("risk_alert", capture_event)
 
-    risk_manager = RiskManager(event_bus, settings, Decimal('10000'))
+    risk_manager = RiskManager(event_bus, risk_config, Decimal('10000'))
 
     # Trigger rejection (position size exceeds limit)
     await risk_manager.can_open_position(
@@ -501,7 +506,7 @@ async def test_daily_pnl_reset(risk_manager):
 # === Test Margin Ratio Alerts ===
 
 @pytest.mark.asyncio
-async def test_margin_ratio_critical_alert(event_bus, settings):
+async def test_margin_ratio_critical_alert(event_bus, risk_config):
     """Test that CRITICAL alert is emitted when margin ratio < 15%."""
     events_received = []
 
@@ -510,7 +515,7 @@ async def test_margin_ratio_critical_alert(event_bus, settings):
 
     await event_bus.subscribe("risk_alert", capture_event)
 
-    risk_manager = RiskManager(event_bus, settings, Decimal('10000'))
+    risk_manager = RiskManager(event_bus, risk_config, Decimal('10000'))
 
     # Trigger critical margin ratio
     await risk_manager.check_margin_ratio(Decimal('12.0'))
@@ -524,7 +529,7 @@ async def test_margin_ratio_critical_alert(event_bus, settings):
 
 
 @pytest.mark.asyncio
-async def test_margin_ratio_warning_alert(event_bus, settings):
+async def test_margin_ratio_warning_alert(event_bus, risk_config):
     """Test that WARNING alert is emitted when margin ratio < 25%."""
     events_received = []
 
@@ -533,7 +538,7 @@ async def test_margin_ratio_warning_alert(event_bus, settings):
 
     await event_bus.subscribe("risk_alert", capture_event)
 
-    risk_manager = RiskManager(event_bus, settings, Decimal('10000'))
+    risk_manager = RiskManager(event_bus, risk_config, Decimal('10000'))
 
     # Trigger warning margin ratio
     await risk_manager.check_margin_ratio(Decimal('20.0'))
@@ -547,8 +552,8 @@ async def test_margin_ratio_warning_alert(event_bus, settings):
 
 # === Test Configuration ===
 
-def test_configuration_loading(risk_manager, settings):
-    """Test that configuration is loaded correctly from settings."""
+def test_configuration_loading(risk_manager, risk_config):
+    """Test that configuration is loaded correctly from risk_config."""
     assert risk_manager.risk_config.max_position_size_percent == Decimal('10.0')
     assert risk_manager.risk_config.max_concurrent_positions == 3
     assert risk_manager.risk_config.max_symbol_concentration_percent == Decimal('30.0')

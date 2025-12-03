@@ -46,6 +46,9 @@ class IndicatorType(Enum):
     BASELINE_PRICE = "BASELINE_PRICE"
     PUMP_PROBABILITY = "PUMP_PROBABILITY"
 
+    # Signal Timing Indicators
+    SIGNAL_AGE_SECONDS = "SIGNAL_AGE_SECONDS"  # Time since signal was detected (for O1 cancellation)
+
     # Risk Assessment Metrics
     CONFIDENCE_SCORE = "CONFIDENCE_SCORE"
     RISK_LEVEL = "RISK_LEVEL"

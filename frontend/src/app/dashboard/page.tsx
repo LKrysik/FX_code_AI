@@ -71,6 +71,8 @@ import { SignalDetailPanel, type SignalDetail } from '@/components/dashboard/Sig
 import { SignalHistoryPanel } from '@/components/dashboard/SignalHistoryPanel';
 import { TransactionHistoryPanel } from '@/components/dashboard/TransactionHistoryPanel';
 import { SessionConfigDialog, type SessionConfig } from '@/components/dashboard/SessionConfigDialog';
+import EquityCurveChart from '@/components/charts/EquityCurveChart';
+import DrawdownChart from '@/components/charts/DrawdownChart';
 
 // ============================================================================
 // Types
@@ -104,6 +106,22 @@ interface RiskMetrics {
   avg_margin_ratio: number;
   max_drawdown_pct: number;
   active_alerts: string[];
+}
+
+interface EquityCurveDataPoint {
+  timestamp: string;
+  current_balance: number;
+  total_pnl: number;
+  total_return_pct: number;
+  max_drawdown?: number;
+  current_drawdown?: number;
+}
+
+interface EquityCurveResponse {
+  session_id: string;
+  initial_balance: number;
+  equity_curve: EquityCurveDataPoint[];
+  last_updated: string;
 }
 
 // ============================================================================
@@ -154,6 +172,21 @@ function DashboardContent() {
 
   // Session configuration dialog
   const [configDialogOpen, setConfigDialogOpen] = useState(false);
+
+  // Equity Curve data for performance visualization
+  const [equityCurveData, setEquityCurveData] = useState<EquityCurveDataPoint[]>([]);
+  const [initialBalance, setInitialBalance] = useState<number>(10000);
+
+  // Trade markers for equity chart
+  interface TradeMarker {
+    timestamp: string;
+    side: 'BUY' | 'SELL';
+    symbol: string;
+    price: number;
+    quantity: number;
+    pnl?: number;
+  }
+  const [tradeMarkers, setTradeMarkers] = useState<TradeMarker[]>([]);
 
   const [snackbar, setSnackbar] = useState<{
     open: boolean;
@@ -266,6 +299,71 @@ function DashboardContent() {
   }, [mode, backtestSessionId]);
 
   /**
+   * Load equity curve data for EquityCurveChart component.
+   * Fetches balance history from paper_trading_performance table.
+   */
+  const loadEquityCurveData = useCallback(async (signal?: AbortSignal) => {
+    if (!sessionId) return;
+
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/dashboard/equity-curve?session_id=${sessionId}`,
+        { signal }
+      );
+
+      if (!response.ok) return;
+
+      const result = await response.json();
+      const data = result.data || result;
+
+      if (data.equity_curve) {
+        setEquityCurveData(data.equity_curve);
+      }
+      if (data.initial_balance) {
+        setInitialBalance(data.initial_balance);
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') return;
+      console.error('Failed to load equity curve:', error);
+    }
+  }, [sessionId]);
+
+  /**
+   * Load trade markers for EquityCurveChart.
+   * Fetches transaction history to show BUY/SELL markers on chart.
+   */
+  const loadTradeMarkers = useCallback(async (signal?: AbortSignal) => {
+    if (!sessionId) return;
+
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/transactions/history?session_id=${sessionId}&status=FILLED&limit=50`,
+        { signal }
+      );
+
+      if (!response.ok) return;
+
+      const result = await response.json();
+      const data = result.data || result;
+
+      if (data.transactions) {
+        const markers: TradeMarker[] = data.transactions.map((tx: any) => ({
+          timestamp: tx.timestamp,
+          side: tx.side as 'BUY' | 'SELL',
+          symbol: tx.symbol,
+          price: tx.filled_price || tx.price,
+          quantity: tx.filled_quantity || tx.quantity,
+          pnl: tx.realized_pnl,
+        }));
+        setTradeMarkers(markers);
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') return;
+      console.error('Failed to load trade markers:', error);
+    }
+  }, [sessionId]);
+
+  /**
    * Check current execution status.
    * Used to detect running sessions on mount.
    */
@@ -325,13 +423,15 @@ function DashboardContent() {
     const abortController = new AbortController();
 
     loadDashboardData(abortController.signal);
+    loadEquityCurveData(abortController.signal);
+    loadTradeMarkers(abortController.signal);
 
     // Cleanup: abort fetch on unmount or when sessionId changes
     return () => {
       console.log('[DEBUG] useEffect CLEANUP - aborting');
       abortController.abort();
     };
-  }, [sessionId, loadDashboardData]);
+  }, [sessionId, loadDashboardData, loadEquityCurveData, loadTradeMarkers]);
 
   // Auto-refresh every 2 seconds when session is running
   // FIX ERROR 37: Track abort controller for interval fetches to prevent memory leak
@@ -690,6 +790,26 @@ function DashboardContent() {
                 </Card>
               </Grid>
             </Grid>
+          </Grid>
+
+          {/* Equity Curve - Performance Visualization */}
+          <Grid item xs={12} md={6}>
+            <EquityCurveChart
+              data={equityCurveData}
+              initialBalance={initialBalance}
+              trades={tradeMarkers}
+            />
+          </Grid>
+
+          {/* Drawdown Analysis Chart */}
+          <Grid item xs={12} md={6}>
+            <DrawdownChart
+              data={equityCurveData.map(d => ({
+                timestamp: d.timestamp,
+                current_drawdown: d.current_drawdown || 0,
+                max_drawdown: d.max_drawdown || 0,
+              }))}
+            />
           </Grid>
 
           {/* Conditional Rendering: Single View vs Grid View */}

@@ -60,30 +60,46 @@ class Condition:
     description: str = ""
 
     def evaluate(self, indicator_values: Dict[str, Any]) -> ConditionResult:
-        """Evaluate this condition against current indicator values"""
+        """Evaluate this condition against current indicator values.
+
+        Supports case-insensitive matching for condition_type to indicator keys.
+        E.g., condition_type="price_velocity" will match "PRICE_VELOCITY" or "price_velocity".
+        """
         if not self.enabled:
             return ConditionResult.PENDING
 
-        if self.condition_type not in indicator_values:
+        # Case-insensitive key lookup
+        condition_key = self.condition_type.lower()
+        actual_value = None
+        found = False
+
+        for key, value in indicator_values.items():
+            if key.lower() == condition_key:
+                actual_value = value
+                found = True
+                break
+
+        if not found:
             return ConditionResult.PENDING
 
-        actual_value = indicator_values[self.condition_type]
-
         try:
-            if self.operator == "gte":
+            # Normalize operator to handle both symbolic (>, <, >=, <=, ==) and word (gt, lt, gte, lte, eq) formats
+            op = self.operator.lower().strip() if isinstance(self.operator, str) else self.operator
+
+            if op in ("gte", ">="):
                 return ConditionResult.TRUE if actual_value >= self.value else ConditionResult.FALSE
-            elif self.operator == "lte":
+            elif op in ("lte", "<="):
                 return ConditionResult.TRUE if actual_value <= self.value else ConditionResult.FALSE
-            elif self.operator == "gt":
+            elif op in ("gt", ">"):
                 return ConditionResult.TRUE if actual_value > self.value else ConditionResult.FALSE
-            elif self.operator == "lt":
+            elif op in ("lt", "<"):
                 return ConditionResult.TRUE if actual_value < self.value else ConditionResult.FALSE
-            elif self.operator == "eq":
+            elif op in ("eq", "==", "="):
                 return ConditionResult.TRUE if actual_value == self.value else ConditionResult.FALSE
-            elif self.operator == "between":
+            elif op == "between":
                 min_val, max_val = self.value
                 return ConditionResult.TRUE if min_val <= actual_value <= max_val else ConditionResult.FALSE
-            elif self.operator == "allowed":
+            elif op == "allowed":
                 return ConditionResult.TRUE if actual_value in self.value else ConditionResult.FALSE
             else:
                 return ConditionResult.ERROR
@@ -142,6 +158,7 @@ class Strategy:
     position_active: bool = False
     entry_time: Optional[datetime] = None
     exit_time: Optional[datetime] = None
+    signal_detection_time: Optional[datetime] = None  # When S1 signal was detected
 
     # Cooldown tracking (per user_feedback.md)
     cooldown_until: Optional[datetime] = None  # When cooldown expires
@@ -389,6 +406,11 @@ class StrategyManager:
         self._signal_slots_lock = asyncio.Lock()         # Protects self._global_signal_slots dict
         self._symbol_locks_lock = asyncio.Lock()         # Protects self._symbol_locks dict
 
+        # ✅ FIX (2025-12-03): Per-strategy locks to prevent concurrent evaluation race condition
+        # Multiple indicator events can trigger concurrent evaluations of the same strategy,
+        # leading to multiple slot acquisitions before state change to SIGNAL_DETECTED
+        self._strategy_evaluation_locks: Dict[str, asyncio.Lock] = {}
+
         # Strategy loading will be done asynchronously after initialization
         # See: initialize_strategies() method
 
@@ -403,6 +425,63 @@ class StrategyManager:
     async def start(self) -> None:
         """Start the strategy manager by subscribing to indicator events."""
         await self.event_bus.subscribe("indicator.updated", self._on_indicator_update)
+
+    async def reset_session_state(self) -> None:
+        """Reset all session state for a new trading/backtest session.
+
+        This method clears:
+        - Signal slots (allows new signals to be generated)
+        - Symbol locks (allows symbols to be traded again)
+        - Strategy states (reset to MONITORING)
+        - Indicator values cache (fresh start)
+
+        Should be called when starting a new session (live, paper, backtest).
+        """
+        # DEBUG PRINT (bypass logger issues)
+        print(f"[RESET_SESSION_STATE] Called! Slots before: {dict(self._global_signal_slots)}, Locks before: {dict(self._symbol_locks)}")
+
+        self.logger.info("strategy_manager.reset_session_state_started", {
+            "slots_before": dict(self._global_signal_slots),
+            "locks_before": dict(self._symbol_locks),
+            "active_strategies": len(self.active_strategies)
+        })
+
+        # Reset signal slots
+        async with self._signal_slots_lock:
+            self._global_signal_slots.clear()
+
+        # Reset symbol locks
+        async with self._symbol_locks_lock:
+            self._symbol_locks.clear()
+
+        # Reset all strategy states
+        async with self._strategies_lock:
+            for strategy in self.strategies.values():
+                strategy.current_state = StrategyState.MONITORING
+                strategy.signal_detection_time = None
+                strategy.entry_time = None
+                strategy.exit_time = None
+                strategy.cooldown_until = None
+
+        # Clear cached indicator values
+        async with self._indicator_values_lock:
+            self.indicator_values.clear()
+
+        self.logger.info("strategy_manager.reset_session_state_completed", {
+            "slots_after": dict(self._global_signal_slots),
+            "locks_after": dict(self._symbol_locks)
+        })
+
+    def _get_strategy_evaluation_lock(self, strategy_name: str) -> asyncio.Lock:
+        """✅ FIX (2025-12-03): Get or create a lock for per-strategy evaluation.
+
+        This ensures that only one coroutine can evaluate a strategy at a time,
+        preventing the race condition where multiple concurrent evaluations
+        all acquire slots before any can change the strategy state.
+        """
+        if strategy_name not in self._strategy_evaluation_locks:
+            self._strategy_evaluation_locks[strategy_name] = asyncio.Lock()
+        return self._strategy_evaluation_locks[strategy_name]
 
     async def shutdown(self) -> None:
         """✅ RACE CONDITION FIX: Graceful shutdown with background task cleanup
@@ -442,26 +521,35 @@ class StrategyManager:
         race condition where multiple strategies check availability simultaneously
         before any can acquire, leading to over-allocation.
 
+        ✅ FIX (2025-12-03): Each strategy can only have ONE active signal slot.
+        This prevents race condition where parallel evaluations all acquire slots
+        for the same strategy before any changes state to SIGNAL_DETECTED.
+
         Args:
             strategy_name: Name of strategy requesting slot
 
         Returns:
-            True if slot acquired successfully, False if at capacity
+            True if slot acquired successfully, False if at capacity or strategy already has slot
         """
         async with self._signal_slots_lock:
             current_slots = self._global_signal_slots.get(strategy_name, 0)
             total_active_signals = sum(self._global_signal_slots.values())
 
+            # ✅ FIX: Strategy already has a slot - cannot acquire more
+            # This is the key fix for race condition
+            if current_slots > 0:
+                self.logger.debug("strategy_manager.slot_already_held", {
+                    "strategy_name": strategy_name,
+                    "current_slots": current_slots
+                })
+                return False
+
             # Check global limit
             if total_active_signals >= self._max_concurrent_signals:
                 return False
 
-            # Check per-strategy limit
-            if current_slots >= self._max_concurrent_signals:
-                return False
-
-            # Atomically acquire slot
-            self._global_signal_slots[strategy_name] = current_slots + 1
+            # Atomically acquire slot (always 1 since we rejected if > 0)
+            self._global_signal_slots[strategy_name] = 1
             return True
 
     async def release_signal_slot(self, strategy_name: str) -> None:
@@ -1402,21 +1490,17 @@ class StrategyManager:
                 self.indicator_values[symbol] = {}
             self.indicator_values[symbol][storage_key] = value
 
-        # Async evaluation with enhanced error handling
+        # Async evaluation - NO TIMEOUT to debug signal generation flow
+        # ✅ FIX (2025-12-03): Removed timeout completely to diagnose blocking issue
+        # The timeout was causing evaluation to be cancelled before signal_generated could be published.
+        # We need to understand what's blocking AFTER slot_acquire_result before re-adding timeout.
         try:
             self._evaluation_in_progress.add(symbol)
-            await asyncio.wait_for(
-                self._evaluate_strategies_for_symbol(symbol),
-                timeout=0.8  # Reduced timeout to prevent blocking
-            )
-        except asyncio.TimeoutError:
-            self.logger.warning("strategy_manager.evaluation_timeout", {
-                "symbol": symbol,
-                "indicator": indicator_name
-            })
+            await self._evaluate_strategies_for_symbol(symbol)
         except Exception as e:
             self.logger.error("strategy_manager.evaluation_error", {
                 "symbol": symbol,
+                "indicator": indicator_name,
                 "error": str(e)
             })
         finally:
@@ -1434,16 +1518,11 @@ class StrategyManager:
 
         for strategy in strategies_to_evaluate:
             try:
-                # ✅ CRITICAL FIX: Timeout for individual strategy evaluation
-                await asyncio.wait_for(
-                    self._evaluate_strategy(strategy, indicator_values),
-                    timeout=0.5  # 500ms timeout per strategy
-                )
-            except asyncio.TimeoutError:
-                self.logger.warning("strategy_manager.strategy_evaluation_timeout", {
-                    "strategy_name": strategy.strategy_name,
-                    "symbol": symbol
-                })
+                # ✅ FIX (2025-12-03): REMOVED per-strategy timeout
+                # The outer timeout (2.0s) is sufficient. Inner timeout was causing
+                # signal generation to be cut off after slot was acquired,
+                # leaving the slot locked without publishing signal_generated.
+                await self._evaluate_strategy(strategy, indicator_values)
             except Exception as e:
                 self.logger.error("strategy_manager.strategy_evaluation_error", {
                     "strategy_name": strategy.strategy_name,
@@ -1453,7 +1532,26 @@ class StrategyManager:
 
     async def _evaluate_strategy(self, strategy: Strategy, indicator_values: Dict[str, Any]) -> None:
         """Evaluate a single strategy against current conditions - 5-section workflow per user_feedback.md"""
+        # ✅ FIX (2025-12-03): Use per-strategy lock to prevent concurrent evaluation race condition
+        # Without this lock, multiple indicator.updated events can trigger parallel evaluations,
+        # all seeing current_state=MONITORING, all acquiring slots before any changes state
+        async with self._get_strategy_evaluation_lock(strategy.strategy_name):
+            await self._evaluate_strategy_locked(strategy, indicator_values)
+
+    async def _evaluate_strategy_locked(self, strategy: Strategy, indicator_values: Dict[str, Any]) -> None:
+        """Internal locked evaluation - called only from _evaluate_strategy with lock held"""
         try:
+            # ✅ FIX (2025-12-03): Early exit if strategy already has a signal slot
+            # This prevents race condition where multiple parallel evaluations
+            # all acquire slots before any changes state to SIGNAL_DETECTED
+            if strategy.strategy_name in self._global_signal_slots:
+                self.logger.debug("strategy_manager.skipping_evaluation_has_slot", {
+                    "strategy_name": strategy.strategy_name,
+                    "current_state": strategy.current_state.value,
+                    "existing_slots": self._global_signal_slots.get(strategy.strategy_name, 0)
+                })
+                return  # Strategy already has active signal(s), skip S1 evaluation
+
             # 🔍 DEBUG: Log strategy evaluation
             self.logger.debug("strategy_manager.evaluating_strategy", {
                 "strategy_name": strategy.strategy_name,
@@ -1476,23 +1574,47 @@ class StrategyManager:
                 # S1: Check signal detection
                 signal_result = strategy.evaluate_signal_detection(indicator_values)
 
-                # 🔍 DEBUG: Log signal detection result
-                self.logger.debug("strategy_manager.signal_detection_result", {
+                # 🔍 DEBUG: Log signal detection result - temporarily INFO for debugging
+                condition_type = strategy.signal_detection.conditions[0].condition_type if strategy.signal_detection and strategy.signal_detection.conditions else ""
+                self.logger.info("strategy_manager.signal_detection_result", {
                     "strategy_name": strategy.strategy_name,
                     "signal_result": signal_result.value if signal_result else "None",
-                    "condition_type_needed": strategy.signal_detection.conditions[0].condition_type if strategy.signal_detection and strategy.signal_detection.conditions else "N/A",
+                    "condition_type_needed": condition_type,
                     "condition_value_needed": strategy.signal_detection.conditions[0].value if strategy.signal_detection and strategy.signal_detection.conditions else "N/A",
-                    "indicator_value": indicator_values.get(strategy.signal_detection.conditions[0].condition_type if strategy.signal_detection and strategy.signal_detection.conditions else "", "NOT_FOUND")
+                    "indicator_value": indicator_values.get(condition_type, "NOT_FOUND"),
+                    "indicator_value_lowercase": indicator_values.get(condition_type.lower(), "NOT_FOUND_LOWERCASE"),
+                    "indicator_keys": list(indicator_values.keys())[:10],  # First 10 keys
+                    "indicator_keys_count": len(indicator_values)
                 })
 
                 if signal_result == ConditionResult.TRUE:
+                    # 🔍 DEBUG: Log that we're attempting to acquire slot
+                    self.logger.info("strategy_manager.signal_true_attempting_slot", {
+                        "strategy_name": strategy.strategy_name,
+                        "symbol": strategy.symbol,
+                        "current_state": strategy.current_state.value if strategy.current_state else "None"
+                    })
+
                     # ✅ RACE CONDITION FIX: Atomic acquire slot (check merged into acquire)
-                    if not await self.acquire_signal_slot(strategy.strategy_name):
+                    slot_acquired = await self.acquire_signal_slot(strategy.strategy_name)
+                    self.logger.info("strategy_manager.slot_acquire_result", {
+                        "strategy_name": strategy.strategy_name,
+                        "slot_acquired": slot_acquired,
+                        "slot_status": self.get_slot_status()
+                    })
+
+                    if not slot_acquired:
                         await self._publish_strategy_event(strategy, "signal_slot_unavailable", {
                             **indicator_values,
                             "slot_status": self.get_slot_status()
                         })
                         return
+
+                    # 🔍 DEBUG: Log before lock_symbol call
+                    self.logger.info("strategy_manager.before_lock_symbol", {
+                        "strategy_name": strategy.strategy_name,
+                        "symbol": strategy.symbol
+                    })
 
                     # ✅ RACE CONDITION FIX: Atomic lock symbol (check merged into lock)
                     if not await self.lock_symbol(strategy.symbol, strategy.strategy_name):
@@ -1504,9 +1626,22 @@ class StrategyManager:
                         })
                         return
 
+                    # 🔍 DEBUG: Log after lock_symbol succeeded
+                    self.logger.info("strategy_manager.after_lock_symbol", {
+                        "strategy_name": strategy.strategy_name,
+                        "symbol": strategy.symbol
+                    })
+
                     # Record indicator values at signal detection
                     signal_indicators = strategy._record_decision_indicators(indicator_values, "S1_signal_detection")
                     strategy.current_state = StrategyState.SIGNAL_DETECTED
+                    strategy.signal_detection_time = datetime.now()  # Track when signal was detected
+
+                    # 🔍 DEBUG: Log before _publish_signal_generated
+                    self.logger.info("strategy_manager.before_publish_signal", {
+                        "strategy_name": strategy.strategy_name,
+                        "symbol": strategy.symbol
+                    })
 
                     # Publish signal_generated event for OrderManager
                     await self._publish_signal_generated(
@@ -1526,7 +1661,13 @@ class StrategyManager:
 
             elif strategy.current_state == StrategyState.SIGNAL_DETECTED:
                 # O1: Check signal cancellation (optional)
-                cancellation_result = strategy.evaluate_signal_cancellation(indicator_values)
+                # Add signal_age_seconds to indicator_values for O1 evaluation
+                extended_values = dict(indicator_values)
+                if strategy.signal_detection_time:
+                    signal_age = (datetime.now() - strategy.signal_detection_time).total_seconds()
+                    extended_values["signal_age_seconds"] = signal_age
+
+                cancellation_result = strategy.evaluate_signal_cancellation(extended_values)
                 if cancellation_result == ConditionResult.TRUE:
                     # ✅ RACE CONDITION FIX: Release slot and symbol lock atomically
                     await self.release_signal_slot(strategy.strategy_name)
@@ -1762,6 +1903,10 @@ class StrategyManager:
                             await self.release_signal_slot(strategy.strategy_name)
                             await self.unlock_symbol(strategy.symbol, strategy.strategy_name)
 
+                            # ✅ BUDGET FIX (2025-12-02): Release allocated budget when position closes
+                            if self.risk_manager:
+                                self.risk_manager.release_budget(strategy.strategy_name)
+
                             await self._publish_strategy_event(strategy, "position_closed_ze1", {
                                 **indicator_values,
                                 "exit_price": adjusted_close_price,
@@ -1808,10 +1953,15 @@ class StrategyManager:
                await self.release_signal_slot(strategy.strategy_name)
                await self.unlock_symbol(strategy.symbol, strategy.strategy_name)
 
+               # ✅ BUDGET FIX (2025-12-02): Release allocated budget on emergency exit
+               if self.risk_manager:
+                   self.risk_manager.release_budget(strategy.strategy_name)
+
                await self._publish_strategy_event(strategy, "emergency_exit_executed", {
                    **indicator_values,
                    "slot_released": True,
-                   "symbol_unlocked": True
+                   "symbol_unlocked": True,
+                   "budget_released": True
                })
 
         except Exception as e:

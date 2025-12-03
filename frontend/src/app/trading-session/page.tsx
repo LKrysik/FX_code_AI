@@ -1,30 +1,18 @@
 'use client';
 
 /**
- * ⚠️ MOCKUP: Complete Trading Session Configuration Page
- * =======================================================
- *
- * FULL INTERFACE for configuring and starting trading sessions.
+ * Trading Session Configuration Page
+ * ===================================
+ * Complete interface for configuring and starting trading sessions.
  * Works for: Live Trading, Paper Trading, Backtesting
  *
- * TODO LIST FOR PRODUCTION:
- * ========================
- * 1. Replace MOCK_STRATEGIES with GET /api/strategies
- * 2. Replace MOCK_SYMBOLS with GET /api/exchange/symbols
- * 3. Replace MOCK_DATA_SESSIONS with GET /api/data-collection/sessions
- * 4. Implement real POST /api/sessions/start
- * 5. Add form validation (min 1 strategy, min 1 symbol)
- * 6. Add loading states during API calls
- * 7. Add error handling and user feedback
- * 8. Remove all "MOCKUP" warnings
- * 9. Connect to TradingStore for session state
- * 10. Add redirect to dashboard after successful start
- *
- * Created: 2025-11-18
- * Purpose: Complete interface for session configuration with real controls
+ * Uses real API calls to backend:
+ * - GET /api/strategies - fetch available strategies
+ * - GET /api/data-collection/sessions - fetch data sessions for backtest
+ * - POST /sessions/start - start trading session
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Container,
@@ -59,6 +47,8 @@ import {
   TableCell,
   TableHead,
   TableRow,
+  CircularProgress,
+  Skeleton,
 } from '@mui/material';
 import {
   PlayArrow as PlayArrowIcon,
@@ -71,155 +61,154 @@ import {
   CheckCircle as CheckCircleIcon,
   Warning as WarningIcon,
   Delete as DeleteIcon,
+  Refresh as RefreshIcon,
+  Error as ErrorIcon,
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
+import { apiService } from '@/services/api';
 
 // ============================================================================
-// ⚠️ MOCKUP DATA - Replace with real API calls
+// Types
 // ============================================================================
 
-// TODO: Replace with GET /api/strategies
-const MOCK_STRATEGIES = [
-  {
-    id: 'pump_v2',
-    name: 'Pump Detection v2',
-    description: 'Detects rapid price increases using TWPA velocity',
-    winRate: 68.5,
-    avgProfit: 2.3,
-    enabled: true,
-    category: 'momentum'
-  },
-  {
-    id: 'dump_v2',
-    name: 'Dump Detection v2',
-    description: 'Identifies sharp price drops for short positions',
-    winRate: 72.1,
-    avgProfit: 1.8,
-    enabled: true,
-    category: 'momentum'
-  },
-  {
-    id: 'volume_surge',
-    name: 'Volume Surge Strategy',
-    description: 'Trades on abnormal volume spikes',
-    winRate: 55.2,
-    avgProfit: 3.1,
-    enabled: false,
-    category: 'volume'
-  },
-  {
-    id: 'mean_reversion',
-    name: 'Mean Reversion',
-    description: 'Statistical mean reversion with Bollinger Bands',
-    winRate: 61.3,
-    avgProfit: 1.5,
-    enabled: false,
-    category: 'statistical'
-  },
-  {
-    id: 'trend_following',
-    name: 'Trend Following',
-    description: 'Medium-term trend detection with EMA crossover',
-    winRate: 59.7,
-    avgProfit: 2.8,
-    enabled: false,
-    category: 'trend'
-  },
-  {
-    id: 'arbitrage_simple',
-    name: 'Simple Arbitrage',
-    description: 'Cross-exchange price difference exploitation',
-    winRate: 82.4,
-    avgProfit: 0.8,
-    enabled: false,
-    category: 'arbitrage'
-  },
-];
+interface StrategyData {
+  strategy_name: string;
+  enabled: boolean;
+  description?: string;
+  signal_detection?: any;
+  entry_conditions?: any;
+}
 
-// TODO: Replace with GET /api/exchange/symbols
-const MOCK_SYMBOLS = [
-  { symbol: 'BTC_USDT', name: 'Bitcoin', price: 50250, volume24h: 1250000000, change24h: 2.5 },
-  { symbol: 'ETH_USDT', name: 'Ethereum', price: 3150, volume24h: 850000000, change24h: 3.2 },
-  { symbol: 'BNB_USDT', name: 'Binance Coin', price: 425, volume24h: 320000000, change24h: -1.2 },
-  { symbol: 'SOL_USDT', name: 'Solana', price: 125, volume24h: 280000000, change24h: 5.8 },
-  { symbol: 'XRP_USDT', name: 'Ripple', price: 0.85, volume24h: 450000000, change24h: 1.5 },
-  { symbol: 'ADA_USDT', name: 'Cardano', price: 0.52, volume24h: 180000000, change24h: -0.8 },
-  { symbol: 'DOGE_USDT', name: 'Dogecoin', price: 0.12, volume24h: 320000000, change24h: 4.2 },
-  { symbol: 'MATIC_USDT', name: 'Polygon', price: 1.15, volume24h: 150000000, change24h: 2.1 },
-  { symbol: 'DOT_USDT', name: 'Polkadot', price: 8.50, volume24h: 120000000, change24h: -2.5 },
-  { symbol: 'AVAX_USDT', name: 'Avalanche', price: 42, volume24h: 180000000, change24h: 3.8 },
-];
+interface DataSession {
+  session_id: string;
+  status: string;
+  symbols: string[];
+  prices_count: number;
+  duration_seconds: number;
+  created_at: number;
+  exchange: string;
+}
 
-// TODO: Replace with GET /api/data-collection/sessions
-const MOCK_DATA_SESSIONS = [
-  {
-    id: 'session_20251118_120530',
-    date: '2025-11-18 12:05:30',
-    symbols: ['BTC_USDT', 'ETH_USDT'],
-    duration: '2h 15m',
-    records: 15420,
-    status: 'completed'
-  },
-  {
-    id: 'session_20251117_093245',
-    date: '2025-11-17 09:32:45',
-    symbols: ['BTC_USDT'],
-    duration: '1h 30m',
-    records: 8932,
-    status: 'completed'
-  },
-  {
-    id: 'session_20251116_184512',
-    date: '2025-11-16 18:45:12',
-    symbols: ['ETH_USDT', 'BNB_USDT', 'SOL_USDT'],
-    duration: '3h 45m',
-    records: 22103,
-    status: 'completed'
-  },
-  {
-    id: 'session_20251115_143022',
-    date: '2025-11-15 14:30:22',
-    symbols: ['BTC_USDT', 'ETH_USDT', 'ADA_USDT', 'XRP_USDT'],
-    duration: '4h 20m',
-    records: 31245,
-    status: 'completed'
-  },
-];
+type TradingMode = 'live' | 'paper' | 'backtest';
 
 // ============================================================================
 // Main Component
 // ============================================================================
 
-type TradingMode = 'live' | 'paper' | 'backtest';
-
 export default function TradingSessionPage() {
   const router = useRouter();
 
-  // ⚠️ MOCKUP STATE - Real app would use Zustand stores
+  // Data from API
+  const [strategies, setStrategies] = useState<StrategyData[]>([]);
+  const [dataSessions, setDataSessions] = useState<DataSession[]>([]);
+  const [availableSymbols, setAvailableSymbols] = useState<string[]>([]);
+
+  // Loading states
+  const [loadingStrategies, setLoadingStrategies] = useState(true);
+  const [loadingSessions, setLoadingSessions] = useState(true);
+  const [startingSession, setStartingSession] = useState(false);
+
+  // Error states
+  const [strategiesError, setStrategiesError] = useState<string | null>(null);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [startError, setStartError] = useState<string | null>(null);
+
+  // Form state
   const [mode, setMode] = useState<TradingMode>('paper');
-  const [selectedStrategies, setSelectedStrategies] = useState<string[]>(['pump_v2', 'dump_v2']);
-  const [selectedSymbols, setSelectedSymbols] = useState<string[]>(['BTC_USDT', 'ETH_USDT']);
+  const [selectedStrategies, setSelectedStrategies] = useState<string[]>([]);
+  const [selectedSymbols, setSelectedSymbols] = useState<string[]>([]);
   const [globalBudget, setGlobalBudget] = useState(1000);
   const [maxPositionSize, setMaxPositionSize] = useState(100);
   const [stopLoss, setStopLoss] = useState(5);
   const [takeProfit, setTakeProfit] = useState(10);
-  const [backtestSessionId, setBacktestSessionId] = useState('session_20251118_120530');
+  const [backtestSessionId, setBacktestSessionId] = useState('');
   const [accelerationFactor, setAccelerationFactor] = useState(10);
-  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Session status
   const [isSessionRunning, setIsSessionRunning] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
 
   // ========================================
+  // Data Fetching
+  // ========================================
+
+  const fetchStrategies = useCallback(async () => {
+    setLoadingStrategies(true);
+    setStrategiesError(null);
+    try {
+      const data = await apiService.get4SectionStrategies();
+      setStrategies(data || []);
+      // Auto-select first enabled strategy if none selected
+      if (selectedStrategies.length === 0 && data?.length > 0) {
+        const enabledStrategy = data.find((s: StrategyData) => s.enabled);
+        if (enabledStrategy) {
+          setSelectedStrategies([enabledStrategy.strategy_name]);
+        }
+      }
+    } catch (error: any) {
+      console.error('Failed to fetch strategies:', error);
+      setStrategiesError(error.message || 'Failed to load strategies');
+    } finally {
+      setLoadingStrategies(false);
+    }
+  }, [selectedStrategies.length]);
+
+  const fetchDataSessions = useCallback(async () => {
+    setLoadingSessions(true);
+    setSessionsError(null);
+    try {
+      const response = await apiService.getDataCollectionSessions(50, false);
+      const sessions = response.sessions || [];
+      // Filter to only completed sessions with data
+      const validSessions = sessions.filter(
+        (s: DataSession) => s.prices_count > 0 || s.status === 'completed'
+      );
+      setDataSessions(validSessions);
+
+      // Build unique symbols list from all sessions
+      const symbolSet = new Set<string>();
+      validSessions.forEach((s: DataSession) => {
+        s.symbols?.forEach((sym: string) => symbolSet.add(sym));
+      });
+      setAvailableSymbols(Array.from(symbolSet).sort());
+
+      // Auto-select first session if none selected and in backtest mode
+      if (!backtestSessionId && validSessions.length > 0) {
+        setBacktestSessionId(validSessions[0].session_id);
+      }
+    } catch (error: any) {
+      console.error('Failed to fetch data sessions:', error);
+      setSessionsError(error.message || 'Failed to load data sessions');
+    } finally {
+      setLoadingSessions(false);
+    }
+  }, [backtestSessionId]);
+
+  useEffect(() => {
+    fetchStrategies();
+    fetchDataSessions();
+  }, []);
+
+  // Update available symbols when backtest session changes
+  useEffect(() => {
+    if (mode === 'backtest' && backtestSessionId) {
+      const session = dataSessions.find(s => s.session_id === backtestSessionId);
+      if (session?.symbols) {
+        // Auto-select all symbols from the selected session
+        setSelectedSymbols(session.symbols);
+      }
+    }
+  }, [backtestSessionId, mode, dataSessions]);
+
+  // ========================================
   // Event Handlers
   // ========================================
 
-  const handleStrategyToggle = (strategyId: string) => {
+  const handleStrategyToggle = (strategyName: string) => {
     setSelectedStrategies(prev =>
-      prev.includes(strategyId)
-        ? prev.filter(id => id !== strategyId)
-        : [...prev, strategyId]
+      prev.includes(strategyName)
+        ? prev.filter(name => name !== strategyName)
+        : [...prev, strategyName]
     );
   };
 
@@ -231,46 +220,64 @@ export default function TradingSessionPage() {
     );
   };
 
-  const handleStartSession = () => {
-    // ⚠️ MOCKUP: Only logs to console - TODO: Implement real POST /api/sessions/start
-    const sessionConfig = {
-      mode,
-      strategies: selectedStrategies,
-      symbols: selectedSymbols,
-      config: {
-        global_budget: globalBudget,
-        max_position_size: maxPositionSize,
-        stop_loss_percent: stopLoss,
-        take_profit_percent: takeProfit,
-        ...(mode === 'backtest' && {
-          session_id: backtestSessionId,
-          acceleration_factor: accelerationFactor,
-        }),
-      },
-    };
+  const handleStartSession = async () => {
+    setStartingSession(true);
+    setStartError(null);
 
-    console.log('⚠️ MOCKUP: Would start session with config:', sessionConfig);
+    try {
+      // Build strategy_config: map each strategy to selected symbols
+      const strategyConfig: Record<string, string[]> = {};
+      selectedStrategies.forEach(stratName => {
+        strategyConfig[stratName] = selectedSymbols;
+      });
 
-    // Simulate session start
-    setIsSessionRunning(true);
-    setCurrentSessionId(`exec_${Date.now()}_mockup`);
+      const sessionData = {
+        session_type: mode,
+        name: `${mode}_${Date.now()}`,
+        symbols: selectedSymbols,
+        strategy_config: strategyConfig,
+        config: {
+          global_budget: globalBudget,
+          max_position_size: maxPositionSize,
+          stop_loss_percent: stopLoss,
+          take_profit_percent: takeProfit,
+          ...(mode === 'backtest' && {
+            session_id: backtestSessionId,
+            replay_speed: accelerationFactor,
+          }),
+        },
+      };
 
-    alert(`⚠️ MOCKUP MODE\n\nSession would start with:\n- Mode: ${mode}\n- Strategies: ${selectedStrategies.length}\n- Symbols: ${selectedSymbols.length}\n\nCheck console for full config.`);
+      console.log('Starting session with config:', sessionData);
 
-    // TODO: Replace with:
-    // const response = await apiService.startSession(sessionConfig);
-    // router.push('/dashboard');
+      const response = await apiService.startSession(sessionData);
+      const newSessionId = response?.data?.session_id || response?.session_id;
+
+      if (newSessionId) {
+        setIsSessionRunning(true);
+        setCurrentSessionId(newSessionId);
+        // Redirect to dashboard after successful start
+        router.push('/dashboard');
+      } else {
+        throw new Error('No session_id returned from API');
+      }
+    } catch (error: any) {
+      console.error('Failed to start session:', error);
+      setStartError(error.message || 'Failed to start session');
+    } finally {
+      setStartingSession(false);
+    }
   };
 
-  const handleStopSession = () => {
-    // ⚠️ MOCKUP: Only stops local state - TODO: Implement real POST /api/sessions/stop
-    console.log('⚠️ MOCKUP: Would stop session:', currentSessionId);
-
-    setIsSessionRunning(false);
-    setCurrentSessionId(null);
-
-    // TODO: Replace with:
-    // await apiService.stopSession(currentSessionId);
+  const handleStopSession = async () => {
+    try {
+      await apiService.stopSession(currentSessionId || undefined);
+      setIsSessionRunning(false);
+      setCurrentSessionId(null);
+    } catch (error: any) {
+      console.error('Failed to stop session:', error);
+      setStartError(error.message || 'Failed to stop session');
+    }
   };
 
   // Validation
@@ -278,19 +285,20 @@ export default function TradingSessionPage() {
                    selectedSymbols.length > 0 &&
                    (mode !== 'backtest' || backtestSessionId !== '');
 
+  // Helper to format session for display
+  const formatSessionOption = (session: DataSession) => {
+    const date = new Date(session.created_at * 1000).toLocaleString();
+    const symbols = session.symbols?.join(', ') || 'No symbols';
+    const records = session.prices_count?.toLocaleString() || '0';
+    return `${date} - ${symbols} (${records} records)`;
+  };
+
   // ========================================
   // Render
   // ========================================
 
   return (
     <Container maxWidth="xl" sx={{ py: 4 }}>
-      {/* ⚠️ MOCKUP WARNING BANNER */}
-      <Alert severity="warning" sx={{ mb: 3 }}>
-        <AlertTitle><strong>⚠️ MOCKUP INTERFACE - All Data is Artificial</strong></AlertTitle>
-        This is a complete functional interface with MOCKUP data. All controls work, but selections
-        are not sent to backend. See code comments (TODO) for implementation requirements.
-      </Alert>
-
       {/* Header */}
       <Box sx={{ mb: 4 }}>
         <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold' }}>
@@ -300,6 +308,14 @@ export default function TradingSessionPage() {
           Complete configuration interface for Live Trading, Paper Trading, and Backtesting
         </Typography>
       </Box>
+
+      {/* Error alerts */}
+      {startError && (
+        <Alert severity="error" sx={{ mb: 3 }} onClose={() => setStartError(null)}>
+          <AlertTitle>Session Start Failed</AlertTitle>
+          {startError}
+        </Alert>
+      )}
 
       <Grid container spacing={3}>
         {/* LEFT COLUMN: Configuration */}
@@ -319,15 +335,15 @@ export default function TradingSessionPage() {
                 disabled={isSessionRunning}
               >
                 <ToggleButton value="live" color="error">
-                  🔴 Live Trading<br/>
+                  Live Trading<br/>
                   <Typography variant="caption">(Real Money)</Typography>
                 </ToggleButton>
                 <ToggleButton value="paper" color="primary">
-                  📝 Paper Trading<br/>
+                  Paper Trading<br/>
                   <Typography variant="caption">(Simulated)</Typography>
                 </ToggleButton>
                 <ToggleButton value="backtest">
-                  ⏪ Backtest<br/>
+                  Backtest<br/>
                   <Typography variant="caption">(Historical)</Typography>
                 </ToggleButton>
               </ToggleButtonGroup>
@@ -358,45 +374,72 @@ export default function TradingSessionPage() {
             <Card sx={{ mb: 3 }}>
               <CardHeader
                 title="Historical Data Session"
-                subheader="⚠️ MOCKUP DATA - TODO: Replace with GET /api/data-collection/sessions"
                 avatar={<StorageIcon color="primary" />}
+                action={
+                  <Button
+                    size="small"
+                    startIcon={<RefreshIcon />}
+                    onClick={fetchDataSessions}
+                    disabled={loadingSessions}
+                  >
+                    Refresh
+                  </Button>
+                }
               />
               <CardContent>
-                <FormControl fullWidth sx={{ mb: 2 }}>
-                  <InputLabel>Data Collection Session</InputLabel>
-                  <Select
-                    value={backtestSessionId}
-                    label="Data Collection Session"
-                    onChange={(e) => setBacktestSessionId(e.target.value)}
-                    disabled={isSessionRunning}
-                  >
-                    {MOCK_DATA_SESSIONS.map(session => (
-                      <MenuItem key={session.id} value={session.id}>
-                        {session.date} - {session.symbols.join(', ')} ({session.records.toLocaleString()} records)
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
+                {loadingSessions ? (
+                  <Skeleton variant="rectangular" height={56} />
+                ) : sessionsError ? (
+                  <Alert severity="error" action={
+                    <Button color="inherit" size="small" onClick={fetchDataSessions}>
+                      Retry
+                    </Button>
+                  }>
+                    {sessionsError}
+                  </Alert>
+                ) : dataSessions.length === 0 ? (
+                  <Alert severity="warning">
+                    No data collection sessions found. Please collect some data first.
+                  </Alert>
+                ) : (
+                  <>
+                    <FormControl fullWidth sx={{ mb: 2 }}>
+                      <InputLabel>Data Collection Session</InputLabel>
+                      <Select
+                        value={backtestSessionId}
+                        label="Data Collection Session"
+                        onChange={(e) => setBacktestSessionId(e.target.value)}
+                        disabled={isSessionRunning}
+                      >
+                        {dataSessions.map(session => (
+                          <MenuItem key={session.session_id} value={session.session_id}>
+                            {formatSessionOption(session)}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
 
-                <Typography variant="body2" gutterBottom>
-                  Acceleration Factor: {accelerationFactor}x
-                </Typography>
-                <Slider
-                  value={accelerationFactor}
-                  onChange={(_, val) => setAccelerationFactor(val as number)}
-                  min={1}
-                  max={100}
-                  marks={[
-                    { value: 1, label: '1x' },
-                    { value: 10, label: '10x' },
-                    { value: 50, label: '50x' },
-                    { value: 100, label: '100x' },
-                  ]}
-                  disabled={isSessionRunning}
-                />
-                <Typography variant="caption" color="text.secondary">
-                  Higher acceleration = faster backtest, but may consume more resources
-                </Typography>
+                    <Typography variant="body2" gutterBottom>
+                      Acceleration Factor: {accelerationFactor}x
+                    </Typography>
+                    <Slider
+                      value={accelerationFactor}
+                      onChange={(_, val) => setAccelerationFactor(val as number)}
+                      min={1}
+                      max={100}
+                      marks={[
+                        { value: 1, label: '1x' },
+                        { value: 10, label: '10x' },
+                        { value: 50, label: '50x' },
+                        { value: 100, label: '100x' },
+                      ]}
+                      disabled={isSessionRunning}
+                    />
+                    <Typography variant="caption" color="text.secondary">
+                      Higher acceleration = faster backtest, but may consume more resources
+                    </Typography>
+                  </>
+                )}
               </CardContent>
             </Card>
           )}
@@ -405,53 +448,84 @@ export default function TradingSessionPage() {
           <Card sx={{ mb: 3 }}>
             <CardHeader
               title={`2. Select Strategies (${selectedStrategies.length} selected)`}
-              subheader="⚠️ MOCKUP DATA - TODO: Replace with GET /api/strategies"
               avatar={<TrendingUpIcon color="primary" />}
+              action={
+                <Button
+                  size="small"
+                  startIcon={<RefreshIcon />}
+                  onClick={fetchStrategies}
+                  disabled={loadingStrategies}
+                >
+                  Refresh
+                </Button>
+              }
             />
             <CardContent>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell padding="checkbox"></TableCell>
-                    <TableCell>Strategy</TableCell>
-                    <TableCell>Win Rate</TableCell>
-                    <TableCell>Avg Profit</TableCell>
-                    <TableCell>Status</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {MOCK_STRATEGIES.map(strategy => (
-                    <TableRow
-                      key={strategy.id}
-                      sx={{
-                        backgroundColor: selectedStrategies.includes(strategy.id) ? 'action.selected' : 'inherit',
-                        cursor: 'pointer',
-                      }}
-                      onClick={() => !isSessionRunning && handleStrategyToggle(strategy.id)}
-                    >
-                      <TableCell padding="checkbox">
-                        <Checkbox
-                          checked={selectedStrategies.includes(strategy.id)}
-                          disabled={isSessionRunning}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2" fontWeight="bold">{strategy.name}</Typography>
-                        <Typography variant="caption" color="text.secondary">{strategy.description}</Typography>
-                      </TableCell>
-                      <TableCell>{strategy.winRate.toFixed(1)}%</TableCell>
-                      <TableCell>+{strategy.avgProfit}%</TableCell>
-                      <TableCell>
-                        {strategy.enabled ? (
-                          <Chip label="Active" size="small" color="success" />
-                        ) : (
-                          <Chip label="Inactive" size="small" />
-                        )}
-                      </TableCell>
-                    </TableRow>
+              {loadingStrategies ? (
+                <Box>
+                  {[1, 2, 3].map(i => (
+                    <Skeleton key={i} variant="rectangular" height={60} sx={{ mb: 1 }} />
                   ))}
-                </TableBody>
-              </Table>
+                </Box>
+              ) : strategiesError ? (
+                <Alert severity="error" action={
+                  <Button color="inherit" size="small" onClick={fetchStrategies}>
+                    Retry
+                  </Button>
+                }>
+                  {strategiesError}
+                </Alert>
+              ) : strategies.length === 0 ? (
+                <Alert severity="warning">
+                  No strategies found. Please create a strategy first.
+                </Alert>
+              ) : (
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell padding="checkbox"></TableCell>
+                      <TableCell>Strategy</TableCell>
+                      <TableCell>Status</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {strategies.map(strategy => (
+                      <TableRow
+                        key={strategy.strategy_name}
+                        sx={{
+                          backgroundColor: selectedStrategies.includes(strategy.strategy_name) ? 'action.selected' : 'inherit',
+                          cursor: 'pointer',
+                        }}
+                        onClick={() => !isSessionRunning && handleStrategyToggle(strategy.strategy_name)}
+                      >
+                        <TableCell padding="checkbox">
+                          <Checkbox
+                            checked={selectedStrategies.includes(strategy.strategy_name)}
+                            disabled={isSessionRunning}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2" fontWeight="bold">
+                            {strategy.strategy_name}
+                          </Typography>
+                          {strategy.description && (
+                            <Typography variant="caption" color="text.secondary">
+                              {strategy.description}
+                            </Typography>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {strategy.enabled ? (
+                            <Chip label="Enabled" size="small" color="success" />
+                          ) : (
+                            <Chip label="Disabled" size="small" />
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
 
@@ -459,42 +533,74 @@ export default function TradingSessionPage() {
           <Card sx={{ mb: 3 }}>
             <CardHeader
               title={`3. Select Symbols (${selectedSymbols.length} selected)`}
-              subheader="⚠️ MOCKUP DATA - TODO: Replace with GET /api/exchange/symbols"
               avatar={<AttachMoneyIcon color="primary" />}
             />
             <CardContent>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-                {MOCK_SYMBOLS.map(item => (
-                  <Chip
-                    key={item.symbol}
-                    label={`${item.symbol} ($${item.price.toLocaleString()})`}
-                    color={selectedSymbols.includes(item.symbol) ? 'primary' : 'default'}
-                    onClick={() => !isSessionRunning && handleSymbolToggle(item.symbol)}
-                    onDelete={selectedSymbols.includes(item.symbol) ? () => handleSymbolToggle(item.symbol) : undefined}
-                    deleteIcon={<DeleteIcon />}
-                    disabled={isSessionRunning}
-                  />
-                ))}
-              </Box>
+              {mode === 'backtest' && backtestSessionId ? (
+                // For backtest, show symbols from selected data session
+                <Box>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Symbols available in selected data session:
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+                    {dataSessions.find(s => s.session_id === backtestSessionId)?.symbols?.map(symbol => (
+                      <Chip
+                        key={symbol}
+                        label={symbol}
+                        color={selectedSymbols.includes(symbol) ? 'primary' : 'default'}
+                        onClick={() => !isSessionRunning && handleSymbolToggle(symbol)}
+                        onDelete={selectedSymbols.includes(symbol) ? () => handleSymbolToggle(symbol) : undefined}
+                        deleteIcon={<DeleteIcon />}
+                        disabled={isSessionRunning}
+                      />
+                    )) || (
+                      <Typography color="text.secondary">No symbols in this session</Typography>
+                    )}
+                  </Box>
+                </Box>
+              ) : (
+                // For live/paper, show all available symbols
+                <Box>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+                    {availableSymbols.length > 0 ? (
+                      availableSymbols.map(symbol => (
+                        <Chip
+                          key={symbol}
+                          label={symbol}
+                          color={selectedSymbols.includes(symbol) ? 'primary' : 'default'}
+                          onClick={() => !isSessionRunning && handleSymbolToggle(symbol)}
+                          onDelete={selectedSymbols.includes(symbol) ? () => handleSymbolToggle(symbol) : undefined}
+                          deleteIcon={<DeleteIcon />}
+                          disabled={isSessionRunning}
+                        />
+                      ))
+                    ) : (
+                      <Alert severity="info" sx={{ width: '100%' }}>
+                        No symbols available. Run data collection first or enter symbols manually.
+                      </Alert>
+                    )}
+                  </Box>
 
-              <Stack direction="row" spacing={1}>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => setSelectedSymbols(MOCK_SYMBOLS.slice(0, 3).map(s => s.symbol))}
-                  disabled={isSessionRunning}
-                >
-                  Top 3
-                </Button>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => setSelectedSymbols([])}
-                  disabled={isSessionRunning}
-                >
-                  Clear All
-                </Button>
-              </Stack>
+                  <Stack direction="row" spacing={1}>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => setSelectedSymbols(availableSymbols.slice(0, 3))}
+                      disabled={isSessionRunning || availableSymbols.length === 0}
+                    >
+                      Top 3
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => setSelectedSymbols([])}
+                      disabled={isSessionRunning}
+                    >
+                      Clear All
+                    </Button>
+                  </Stack>
+                </Box>
+              )}
             </CardContent>
           </Card>
 
@@ -502,7 +608,6 @@ export default function TradingSessionPage() {
           <Card sx={{ mb: 3 }}>
             <CardHeader
               title="4. Budget & Risk Management"
-              subheader="⚠️ MOCKUP - Values not validated"
               avatar={<AttachMoneyIcon color="primary" />}
             />
             <CardContent>
@@ -574,13 +679,17 @@ export default function TradingSessionPage() {
                 <ListItem>
                   <ListItemText
                     primary="Strategies"
-                    secondary={`${selectedStrategies.length} selected`}
+                    secondary={selectedStrategies.length > 0
+                      ? selectedStrategies.join(', ')
+                      : 'None selected'}
                   />
                 </ListItem>
                 <ListItem>
                   <ListItemText
                     primary="Symbols"
-                    secondary={`${selectedSymbols.length} selected`}
+                    secondary={selectedSymbols.length > 0
+                      ? selectedSymbols.join(', ')
+                      : 'None selected'}
                   />
                 </ListItem>
                 <ListItem>
@@ -601,6 +710,14 @@ export default function TradingSessionPage() {
                     secondary={`SL: ${stopLoss}% / TP: ${takeProfit}%`}
                   />
                 </ListItem>
+                {mode === 'backtest' && backtestSessionId && (
+                  <ListItem>
+                    <ListItemText
+                      primary="Data Session"
+                      secondary={backtestSessionId}
+                    />
+                  </ListItem>
+                )}
               </List>
 
               <Divider sx={{ my: 2 }} />
@@ -608,9 +725,9 @@ export default function TradingSessionPage() {
               {/* Validation Messages */}
               {!canStart && (
                 <Alert severity="warning" sx={{ mb: 2 }}>
-                  {selectedStrategies.length === 0 && 'Select at least 1 strategy\n'}
-                  {selectedSymbols.length === 0 && 'Select at least 1 symbol\n'}
-                  {mode === 'backtest' && !backtestSessionId && 'Select data session\n'}
+                  {selectedStrategies.length === 0 && <div>Select at least 1 strategy</div>}
+                  {selectedSymbols.length === 0 && <div>Select at least 1 symbol</div>}
+                  {mode === 'backtest' && !backtestSessionId && <div>Select data session</div>}
                 </Alert>
               )}
 
@@ -622,11 +739,11 @@ export default function TradingSessionPage() {
                     color="primary"
                     size="large"
                     fullWidth
-                    startIcon={<PlayArrowIcon />}
+                    startIcon={startingSession ? <CircularProgress size={20} color="inherit" /> : <PlayArrowIcon />}
                     onClick={handleStartSession}
-                    disabled={!canStart}
+                    disabled={!canStart || startingSession}
                   >
-                    Start {mode.toUpperCase()} Session
+                    {startingSession ? 'Starting...' : `Start ${mode.toUpperCase()} Session`}
                   </Button>
                 ) : (
                   <Button
@@ -651,7 +768,7 @@ export default function TradingSessionPage() {
                 </Button>
               </Stack>
 
-              {isSessionRunning && (
+              {isSessionRunning && currentSessionId && (
                 <Alert severity="success" sx={{ mt: 2 }}>
                   <Typography variant="body2" fontWeight="bold">
                     Session Running
@@ -661,13 +778,6 @@ export default function TradingSessionPage() {
                   </Typography>
                 </Alert>
               )}
-
-              <Alert severity="warning" sx={{ mt: 2 }}>
-                <Typography variant="caption">
-                  ⚠️ MOCKUP: Button only logs to console and shows alert.
-                  TODO: Implement POST /api/sessions/start
-                </Typography>
-              </Alert>
             </CardContent>
           </Card>
         </Grid>

@@ -655,11 +655,41 @@ async def get_performance(
         # Profit factor
         profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else float('inf')
 
-        # Max drawdown (simplified: would need equity curve for accurate calculation)
-        max_drawdown = 0.0  # Placeholder (requires equity curve)
+        # Fetch equity curve data for max_drawdown and sharpe_ratio calculations
+        equity_query = """
+            SELECT current_balance, max_drawdown, timestamp
+            FROM paper_trading_performance
+            WHERE session_id = $1
+            ORDER BY timestamp ASC
+        """
+        equity_data = await provider.fetch(equity_query, session_id)
 
-        # Sharpe ratio (placeholder: requires return series)
+        # Max drawdown from equity curve
+        if equity_data and len(equity_data) > 0:
+            max_drawdown = max([row.get("max_drawdown", 0.0) for row in equity_data])
+        else:
+            max_drawdown = 0.0
+
+        # Sharpe ratio calculation from balance series
         sharpe_ratio = None
+        if equity_data and len(equity_data) >= 2:
+            balances = [row.get("current_balance", 0.0) for row in equity_data]
+            # Calculate period returns (percentage change between snapshots)
+            returns = []
+            for i in range(1, len(balances)):
+                if balances[i-1] > 0:
+                    period_return = (balances[i] - balances[i-1]) / balances[i-1]
+                    returns.append(period_return)
+
+            if len(returns) >= 2:
+                import statistics
+                mean_return = statistics.mean(returns)
+                std_return = statistics.stdev(returns)
+                if std_return > 0:
+                    # Annualized Sharpe ratio (assuming ~252 trading days)
+                    # For intraday: use sqrt of periods per year
+                    risk_free_rate = 0.0  # Simplified: 0% risk-free rate
+                    sharpe_ratio = (mean_return - risk_free_rate) / std_return * (252 ** 0.5)
 
         # Session timing
         start_time = None
@@ -674,8 +704,18 @@ async def get_performance(
         if start_time and end_time:
             duration_seconds = int((end_time - start_time).total_seconds())
 
-        # Total P&L percentage (assuming initial balance, would need from session config)
-        initial_balance = 10000.0  # Placeholder (should fetch from session config)
+        # Fetch initial balance from session config
+        session_query = """
+            SELECT initial_balance
+            FROM paper_trading_sessions
+            WHERE session_id = $1
+            LIMIT 1
+        """
+        session_data = await provider.fetch(session_query, session_id)
+        initial_balance = 10000.0  # Default fallback
+        if session_data and len(session_data) > 0:
+            initial_balance = session_data[0].get("initial_balance", 10000.0)
+
         total_pnl_pct = (total_pnl / initial_balance * 100) if initial_balance > 0 else 0.0
 
         logger.info("trading_api.performance_calculated", {

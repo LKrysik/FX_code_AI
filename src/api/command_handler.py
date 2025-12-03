@@ -605,12 +605,19 @@ class CommandHandler:
 
     async def _publish_execution_event(self, session: ExecutionSession, event_type: str):
         """Publish execution event to EventBus"""
+        # ✅ FIX (2025-12-03): Use consistent progress structure (dict) for all execution types
+        # execution_processor expects progress to be a dict, not a float
+        progress_value = session.progress if session.progress is not None else 0.0
         event_data = {
             "session_id": session.session_id,
             "client_id": session.client_id,
             "command_type": session.command_type,
             "status": session.status,
-            "progress": session.progress,
+            "progress": {
+                "percentage": progress_value,
+                "current_step": int(progress_value),
+                "eta_seconds": None
+            },
             "timestamp": datetime.now().isoformat(),
             "parameters": session.parameters,
             "results": session.results,

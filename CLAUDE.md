@@ -2,6 +2,35 @@
 
 Kontekst dla Claude Code pracującego nad tym projektem.
 
+## TRYB PRACY: AUTONOMICZNY
+
+Agent AI pracuje w **ciągłej pętli** bez udziału użytkownika:
+```
+ANALIZA → PLANOWANIE → IMPLEMENTACJA → WERYFIKACJA → ANALIZA...
+```
+
+## GŁÓWNE DOKUMENTY
+
+| Dokument | Co definiuje | Kiedy czytać |
+|----------|--------------|--------------|
+| **[docs/DEFINITION_OF_DONE.md](docs/DEFINITION_OF_DONE.md)** | CEL + METRYKI sukcesu | Na początku każdej iteracji |
+| **[WORKFLOW.md](WORKFLOW.md)** | PROCES pracy | Gdy nie wiesz jak działać |
+
+**ZASADA: Buduję NARZĘDZIE, nie strategię. Trader sam optymalizuje.**
+
+## SZYBKI START DLA AGENTA
+
+```powershell
+# 1. Aktywuj środowisko
+& C:\Users\lukasz.krysik\Desktop\FXcrypto\FX_code_AI_v2\.venv\Scripts\Activate.ps1
+
+# 2. Sprawdź stan
+python run_tests.py                    # Testy
+curl http://localhost:8080/health      # Backend
+
+# 3. Przeczytaj docs/DEFINITION_OF_DONE.md → wybierz zadanie → realizuj
+```
+
 ## Co To Jest
 
 **FXcrypto** - platforma do wykrywania pump-and-dump na kryptowalutach.
