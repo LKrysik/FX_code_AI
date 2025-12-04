@@ -1,6 +1,6 @@
 # System Agentów - FXcrypto
 
-**Wersja:** 9.0 | **Data:** 2025-12-04
+**Wersja:** 9.2 | **Data:** 2025-12-04
 
 ---
 
@@ -161,75 +161,331 @@ python run_tests.py                # → PASS
 
 ---
 
-### FAZA 0: ANALIZA (na początku sesji)
+### FAZA 0: ANALIZA STANU PROGRAMU (Obowiązkowa na początku każdej sesji)
 
 ```
 📋 REFERENCJA: Korzystam z AGENTS.md sekcja "FAZA 0: ANALIZA"
 
 📌 PLAN DALEJ:
-1. Uruchamiam testy: python run_tests.py
-2. Sprawdzam TODO: grep -rn "TODO|FIXME" src/
-3. Wypełniam GAP ANALYSIS
+1. Uruchamiam testy i środowisko
+2. Wypełniam Inwentaryzację Funkcjonalności
+3. Wypełniam Macierz Oceny
+4. Tworzę GAP Analysis
 ```
 
-#### GAP ANALYSIS
+#### 0.1 Inwentaryzacja Funkcjonalności
+
+Agent MUSI zidentyfikować i ocenić WSZYSTKIE istniejące komponenty:
+
+```markdown
+## INWENTARYZACJA - [data]
+
+Dla KAŻDEGO komponentu odpowiedz:
+1. Co robi? (faktyczna funkcja, nie intencja)
+2. Czy działa? (test + dowód)
+3. Czy jest potrzebny dla celu biznesowego?
+4. Jaki jest stan jakości? (skala 1-10)
+5. Jakie ma zależności?
+
+| Komponent | Co robi | Działa? (dowód) | Potrzebny? | Jakość | Zależności |
+|-----------|---------|-----------------|------------|--------|------------|
+| Strategy Builder | | test_x PASS/FAIL | TAK/NIE | /10 | |
+| Backtesting | | | | /10 | |
+| Paper Trading | | | | /10 | |
+| Live Trading | | | | /10 | |
+| Indicator Engine | | | | /10 | |
+| Risk Manager | | | | /10 | |
+| MEXC Adapter | | | | /10 | |
+| Dashboard UI | | | | /10 | |
+| Event Bus | | | | /10 | |
+| Database Layer | | | | /10 | |
+```
+
+#### 0.2 Macierz Oceny Programu
+
+Agent wypełnia macierz przy KAŻDEJ analizie:
+
+```markdown
+## MACIERZ OCENY - [data]
+
+| Obszar | Poprawność | Zgodność z celem | Użyteczność | Prostota użycia | Prostota utrzymania | Konfigurowalność | Wydajność | Observability | Ryzyko regresji |
+|--------|------------|------------------|-------------|-----------------|---------------------|------------------|-----------|---------------|-----------------|
+| Strategy Builder | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
+| Backtesting | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
+| Wskaźniki | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
+| Sygnały/Transakcje | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
+| Paper Trading | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
+| Live Trading | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
+| Risk Management | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
+| UI/Frontend | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
+| Backend API | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
+| Baza danych | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
+| Monitoring | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
+
+Interpretacja: 1-3 krytyczne, 4-5 słabe, 6-7 akceptowalne, 8-9 dobre, 10 doskonałe
+```
+
+#### 0.3 GAP Analysis
 
 ```markdown
 ## GAP ANALYSIS - [data]
 
-### Wynik testów
-python run_tests.py → X/Y PASS, Z FAIL
-Failing tests: [lista]
+### Brakujące funkcjonalności (czego nie ma, a powinno być)
+| ID | Funkcjonalność | Wpływ na cel biznesowy | Złożoność | Priorytet |
+|----|----------------|------------------------|-----------|-----------|
+| G1 | | Wysoki/Średni/Niski | Wysoka/Średnia/Niska | P0/P1/P2 |
 
-### Problem Hunting
-grep -rn "TODO|FIXME" src/ → [liczba] wyników
-Krytyczne: [lista plik:linia]
+### Niekompletne funkcjonalności (co jest, ale nie działa w pełni)
+| ID | Funkcjonalność | Co brakuje | Wpływ na tradera | Priorytet |
+|----|----------------|------------|------------------|-----------|
+| I1 | | | | P0/P1/P2 |
 
-### Co NIE DZIAŁA
-| Problem | Plik:linia | Priorytet | Dlaczego P0/P1/P2 |
-|---------|------------|-----------|-------------------|
+### Nadmiarowe elementy (co jest, ale nie powinno być)
+| ID | Element | Dlaczego zbędny | Ryzyko usunięcia | Rekomendacja |
+|----|---------|-----------------|------------------|--------------|
+| R1 | | | | Usuń/Zostaw/Refaktoruj |
+
+### Problemy architektoniczne
+| ID | Problem | Wpływ | Pilność | Proponowane rozwiązanie |
+|----|---------|-------|---------|-------------------------|
+| A1 | | | | |
+
+### Problem Hunting (OBOWIĄZKOWE)
+```bash
+grep -rn "TODO\|FIXME\|NotImplementedError" src/
+grep -rn "= 0.0\|= None\|placeholder" src/
+```
+Wyniki: [wklej lub "brak"]
 ```
 
 ---
 
-### FAZA 1: WYBÓR PRIORYTETU
+### FAZA 1: PLANOWANIE STRATEGICZNE
 
 ```
-ALGORYTM:
-1. E2E FAIL? → napraw
-2. Testy FAIL? → napraw
-3. TODO z "P0" w komentarzu? → napraw
-4. Trader Journey krok nie działa? → napraw
-5. Najniższa ocena w macierzy < 7? → popraw
-6. Nic z powyższych? → zapytaj trading-domain o ocenę
-```
-
----
-
-### FAZA 2: IMPLEMENTACJA
-
-```
-📋 REFERENCJA: Korzystam z AGENTS.md sekcja "FAZA 2: IMPLEMENTACJA"
+📋 REFERENCJA: Korzystam z AGENTS.md sekcja "FAZA 1: PLANOWANIE"
 
 📌 PLAN DALEJ:
-1. Piszę test który FAIL (RED)
-2. Piszę minimalny kod → test PASS (GREEN)
-3. Uruchamiam wszystkie testy
-4. Uruchamiam E2E test
+1. Stosuję matrycę priorytetyzacji
+2. Wypełniam uzasadnienie decyzji
+3. Aktualizuję roadmapę
+```
+
+#### 1.1 Priorytetyzacja oparta na wartości
+
+```
+WARTOŚĆ DLA TRADERA (wysoka) + ZŁOŻONOŚĆ (niska) = ZRÓB NAJPIERW
+WARTOŚĆ DLA TRADERA (wysoka) + ZŁOŻONOŚĆ (wysoka) = ZAPLANUJ STARANNIE
+WARTOŚĆ DLA TRADERA (niska) + ZŁOŻONOŚĆ (niska) = ZRÓB PRZY OKAZJI
+WARTOŚĆ DLA TRADERA (niska) + ZŁOŻONOŚĆ (wysoka) = ODRZUĆ
+```
+
+#### 1.2 Algorytm wyboru priorytetu
+
+```
+1. E2E FAIL? → P0, napraw
+2. Testy FAIL? → P0, napraw
+3. Ocena < 4 w macierzy? → P0, rozwiąż
+4. TODO z "P0" w komentarzu? → napraw
+5. Trader Journey krok nie działa? → napraw
+6. Najniższa ocena w macierzy < 7? → popraw
+7. Nic z powyższych? → zapytaj trading-domain
+```
+
+#### 1.3 Kryteria decyzji "Budować vs Nie budować"
+
+Przed rozpoczęciem JAKIEJKOLWIEK pracy, agent wypełnia:
+
+```markdown
+## UZASADNIENIE DECYZJI
+
+### Co chcę zrobić?
+[Konkretny opis zmiany/funkcjonalności]
+
+### Jak to służy traderowi?
+[Konkretny scenariusz użycia z perspektywy tradera]
+
+### Jakie jest ryzyko NIE zrobienia tego?
+[Co trader traci jeśli tego nie zrobię]
+
+### Jakie jest ryzyko ZROBIENIA tego?
+[Regresje, złożoność, czas]
+
+### Czy istnieje prostsze rozwiązanie?
+[Alternatywy i ich porównanie]
+
+### DECYZJA: [BUDUJ / POPRAW ISTNIEJĄCE / ODRZUĆ]
+### UZASADNIENIE: [...]
+```
+
+#### 1.4 Roadmapa Rozwoju
+
+Agent utrzymuje i aktualizuje:
+
+```markdown
+## ROADMAPA - [data]
+
+### ETAP 1: Fundament (musi działać)
+- [ ] Backend health → Status: [TODO/IN_PROGRESS/DONE/BLOCKED]
+- [ ] Frontend renderuje → Status:
+- [ ] Testy przechodzą → Status:
+
+### ETAP 2: Wartość podstawowa (trader może używać)
+- [ ] Strategy Builder → Status:
+- [ ] Backtest działa → Status:
+- [ ] Wskaźniki obliczają się → Status:
+
+### ETAP 3: Wartość rozszerzona (trader chce używać)
+- [ ] Paper Trading real-time → Status:
+- [ ] Live Trading → Status:
+
+### ODRZUCONE (z uzasadnieniem)
+- [Pomysł X] - Odrzucone bo: [...]
 ```
 
 ---
 
-### FAZA 3: WERYFIKACJA
+### FAZA 2: ANALIZA PRZED ZMIANĄ (Obowiązkowa)
 
-**Test PASS ≠ DONE. Wymagane E2E.**
+```
+📋 REFERENCJA: Korzystam z AGENTS.md sekcja "FAZA 2: ANALIZA PRZED ZMIANĄ"
+
+📌 PLAN DALEJ:
+1. Analizuję wpływ architekturalny
+2. Sprawdzam kontrolę jakości
+3. Weryfikuję backward compatibility
+```
+
+#### 2.1 Analiza wpływu architekturalnego
+
+```markdown
+## ANALIZA ZMIANY: [nazwa]
+
+### Dotknięte komponenty
+| Komponent | Typ zmiany | Ryzyko |
+|-----------|------------|--------|
+| | Modyfikacja/Dodanie/Usunięcie | Wysoki/Średni/Niski |
+
+### Zależności
+- Komponent X zależy od → [lista]
+- Od komponentu X zależy → [lista]
+
+### Potencjalne efekty uboczne
+1. [efekt + jak zweryfikować]
+
+### Sprawdzenie race conditions
+- [ ] Czy zmiana dotyczy współdzielonych zasobów?
+- [ ] Czy są operacje asynchroniczne?
+- [ ] Czy jest odpowiednia synchronizacja?
+- [ ] Czy może wystąpić deadlock?
+
+### Historia zmian w tym obszarze
+git log --oneline -10 [pliki]
+- Ostatnia zmiana: [data, cel]
+- Czy poprzednie zmiany sugerują problem?
+```
+
+#### 2.2 Kontrola jakości kodu
+
+```markdown
+## KONTROLA JAKOŚCI
+
+### Dead code w obszarze zmiany
+- [ ] Nieużywane funkcje: [lista lub "brak"]
+- [ ] Nieużywane importy: [lista lub "brak"]
+- [ ] Zakomentowany kod: [lista lub "brak"]
+
+### Duplikacja kodu
+- [ ] Czy podobna logika istnieje gdzie indziej? [tak/nie, gdzie]
+- [ ] Czy tworzę drugą wersję czegoś istniejącego? [tak/nie]
+
+### Backward compatibility
+- [ ] Czy zmiana wymaga migracji danych? [tak/nie]
+- [ ] Czy tworzę "stare" i "nowe" API? [tak/nie - jeśli tak, STOP]
+- [ ] Czy zmiana łamie istniejące kontrakty? [tak/nie]
+
+### Spójność z architekturą
+- [ ] Czy używam EventBus do komunikacji? [tak/nie]
+- [ ] Czy używam Constructor Injection? [tak/nie]
+- [ ] Czy nie wprowadzam niespójności? [tak/nie]
+```
+
+---
+
+### FAZA 3: IMPLEMENTACJA (Test-Driven)
+
+```
+📋 REFERENCJA: Korzystam z AGENTS.md sekcja "FAZA 3: IMPLEMENTACJA"
+
+📌 PLAN DALEJ:
+1. Piszę test (RED)
+2. Piszę kod (GREEN)
+3. Refaktoruję
+4. Uruchamiam wszystkie testy + E2E
+```
+
+#### 3.1 Cykl Red-Green-Refactor
+
+```
+1. NAPISZ TEST który definiuje oczekiwane zachowanie
+   - Test MUSI FAILOWAĆ (RED)
+   - Pokaż output testu jako DOWÓD
+
+2. NAPISZ MINIMALNY KOD który sprawia że test przechodzi
+   - Test MUSI PRZECHODZIĆ (GREEN)
+   - Pokaż output testu jako DOWÓD
+
+3. REFAKTORUJ jeśli potrzebne
+   - Testy MUSZĄ NADAL PRZECHODZIĆ
+   - Pokaż output jako DOWÓD
+
+4. URUCHOM WSZYSTKIE TESTY + E2E
+   - WSZYSTKIE muszą przechodzić
+   - Pokaż output jako DOWÓD
+```
+
+#### 3.2 Checklist implementacji
+
+```markdown
+### Jakość kodu
+- [ ] Brak dead code (usunięty jeśli był)
+- [ ] Brak duplikacji (wykorzystane istniejące rozwiązania)
+- [ ] Komentarze przy nieoczywistych decyzjach
+
+### Testy
+- [ ] Nowe testy dla nowej funkcjonalności
+- [ ] Testy edge cases (null, empty, max, min)
+- [ ] Testy error handling
+- [ ] Zaktualizowane testy dla zmienionej funkcjonalności
+
+### Dokumentacja zmian w testach
+| Plik testu | Zmiana | Uzasadnienie |
+|------------|--------|--------------|
+| test_x.py | Dodano test Y | Pokrywa nową funkcję Z |
+```
+
+#### 3.3 Komentarze decyzyjne w kodzie
+
+```python
+# DECISION [data]: Użyto algorytmu X zamiast Y
+# REASON: X jest 3x szybszy dla dużych zbiorów
+# OWNER_APPROVAL_REQUIRED: Tak - zmiana wpływa na dokładność
+# CONTEXT: Zobacz GAP ANALYSIS z dnia [data]
+```
+
+---
+
+### FAZA 4: WERYFIKACJA
+
+**Test PASS ≠ DONE. Wymagane E2E + GAP ANALYSIS.**
 
 ```bash
 # Sekwencja weryfikacji:
 python run_tests.py           # Unit + integration
-python tests/e2e/test_*.py    # E2E (jeśli istnieje)
+python tests/e2e/test_*.py    # E2E (lub fallback)
 curl localhost:8080/health    # Backend żyje
 curl localhost:3000           # Frontend żyje
+grep -rn "TODO|FIXME" [zmienione pliki]  # Brak nowych TODO
 ```
 
 ---
@@ -406,4 +662,4 @@ Jeśli konflikt nierozwiązany → ESKALACJA do użytkownika
 
 ---
 
-**Version:** 9.1 | **Last Updated:** 2025-12-04
+**Version:** 9.2 | **Last Updated:** 2025-12-04
