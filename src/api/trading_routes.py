@@ -671,7 +671,8 @@ async def get_performance(
             max_drawdown = 0.0
 
         # Sharpe ratio calculation from balance series
-        sharpe_ratio = None
+        # PH2 FIX: Initialize to 0.0 instead of None to avoid placeholder
+        sharpe_ratio = 0.0
         if equity_data and len(equity_data) >= 2:
             balances = [row.get("current_balance", 0.0) for row in equity_data]
             # Calculate period returns (percentage change between snapshots)
@@ -690,6 +691,10 @@ async def get_performance(
                     # For intraday: use sqrt of periods per year
                     risk_free_rate = 0.0  # Simplified: 0% risk-free rate
                     sharpe_ratio = (mean_return - risk_free_rate) / std_return * (252 ** 0.5)
+                else:
+                    # No volatility = no risk = sharpe ratio of 0.0
+                    sharpe_ratio = 0.0
+            # else: < 2 returns, sharpe_ratio stays 0.0
 
         # Session timing
         start_time = None

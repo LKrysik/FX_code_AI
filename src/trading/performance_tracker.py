@@ -37,9 +37,9 @@ class TradeRecord:
     symbol: str
     action: str
     entry_price: float
-    exit_price: Optional[float] = None
     quantity: float
     entry_time: datetime
+    exit_price: Optional[float] = None
     exit_time: Optional[datetime] = None
     commission: float = 0.0
     strategy_name: str = ""

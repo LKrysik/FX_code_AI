@@ -619,9 +619,11 @@ class OrderManager:
         # Track old quantity for position event detection
         old_quantity = position.quantity
 
+        # Store entry price for realized PnL calculation (if position closes)
+        entry_price_before_close = position.average_price
+
         if order.side == OrderType.BUY:
             # BUY: Open/increase LONG position
-            old_quantity = position.quantity
             new_quantity = old_quantity + order.quantity
 
             if old_quantity <= 0:
@@ -645,7 +647,6 @@ class OrderManager:
 
         elif order.side == OrderType.SELL:
             # SELL: Close/decrease LONG position
-            old_quantity = position.quantity
             new_quantity = old_quantity - order.quantity
 
             if old_quantity <= 0:
@@ -666,7 +667,6 @@ class OrderManager:
 
         elif order.side == OrderType.SHORT:
             # SHORT: Open/increase SHORT position (negative quantity)
-            old_quantity = position.quantity
             new_quantity = old_quantity - order.quantity  # Subtract to make more negative
 
             if old_quantity >= 0:
@@ -692,7 +692,6 @@ class OrderManager:
 
         elif order.side == OrderType.COVER:
             # COVER: Close/decrease SHORT position
-            old_quantity = position.quantity
             new_quantity = old_quantity + order.quantity  # Add to reduce negative
 
             if old_quantity >= 0:
@@ -743,14 +742,24 @@ class OrderManager:
                     "timestamp": time.time()
                 })
             elif old_quantity != 0 and position.quantity == 0:
-                # Position closed
-                # TODO: Implement realized PnL calculation from entry/exit prices (see GitHub issue)
-                # Requires: Position object to track entry price, entry quantity, and exit price
-                # Current implementation: placeholder 0.0 - update when position tracking is complete
+                # Position closed - calculate realized PnL
+                # Formula:
+                # - LONG: (exit_price - entry_price) * quantity
+                # - SHORT: (entry_price - exit_price) * abs(quantity)
+                # entry_price_before_close was stored before position reset
+                exit_price = order.price
+
+                if old_quantity > 0:
+                    # LONG position closed
+                    realized_pnl = (exit_price - entry_price_before_close) * old_quantity
+                else:
+                    # SHORT position closed
+                    realized_pnl = (entry_price_before_close - exit_price) * abs(old_quantity)
+
                 await self.event_bus.publish("position_closed", {
                     "position_id": f"{order.symbol}_{order.order_id}",
-                    "current_price": order.price,
-                    "realized_pnl": 0.0,
+                    "current_price": exit_price,
+                    "realized_pnl": realized_pnl,
                     "timestamp": time.time()
                 })
             elif old_quantity != 0 and position.quantity != 0:

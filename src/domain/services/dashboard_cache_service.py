@@ -354,13 +354,16 @@ class DashboardCacheService:
             """
             signals_row = await conn.fetchrow(signals_query, session_id)
 
+            # Calculate max_drawdown from equity curve
+            max_drawdown_pct = await self._calculate_max_drawdown(session_id)
+
             return {
                 'global_pnl': float(row['global_pnl']) if row['global_pnl'] else 0.0,
                 'total_positions': int(row['total_positions']) if row['total_positions'] else 0,
                 'total_signals': int(signals_row['total_signals']) if signals_row['total_signals'] else 0,
                 'budget_utilization_pct': 0.0,  # TODO: Calculate from risk manager
                 'avg_margin_ratio': float(row['avg_margin_ratio']) if row['avg_margin_ratio'] else 0.0,
-                'max_drawdown_pct': 0.0  # TODO: Calculate from equity curve
+                'max_drawdown_pct': max_drawdown_pct
             }
 
         except Exception as e:
@@ -376,6 +379,53 @@ class DashboardCacheService:
                 'avg_margin_ratio': 0.0,
                 'max_drawdown_pct': 0.0
             }
+
+    async def _calculate_max_drawdown(self, session_id: str) -> float:
+        """
+        Calculate maximum drawdown from equity curve.
+
+        Max drawdown = max((peak - current) / peak * 100) for all peaks.
+        Returns percentage as positive number (e.g., 5.0 for 5% drawdown).
+        """
+        try:
+            # Query equity curve from paper_trading_performance
+            query = """
+                SELECT current_balance, timestamp
+                FROM paper_trading_performance
+                WHERE session_id = $1
+                ORDER BY timestamp ASC
+            """
+
+            async with self.questdb.pg_pool.acquire() as conn:
+                rows = await conn.fetch(query, session_id)
+
+            if not rows or len(rows) < 2:
+                return 0.0
+
+            # Calculate max drawdown from equity curve
+            peak = 0.0
+            max_drawdown = 0.0
+
+            for row in rows:
+                balance = float(row['current_balance']) if row['current_balance'] else 0.0
+
+                # Update peak if new high
+                if balance > peak:
+                    peak = balance
+
+                # Calculate drawdown from peak
+                if peak > 0:
+                    drawdown = ((peak - balance) / peak) * 100.0
+                    max_drawdown = max(max_drawdown, drawdown)
+
+            return max_drawdown
+
+        except Exception as e:
+            logger.error("dashboard_cache_service.calculate_max_drawdown_failed", {
+                "session_id": session_id,
+                "error": str(e)
+            })
+            return 0.0
 
     async def _insert_watchlist_cache_batch(self, rows: List[Dict[str, Any]]):
         """Insert batch of rows to watchlist_cache using ILP."""

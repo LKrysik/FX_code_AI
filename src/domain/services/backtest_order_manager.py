@@ -465,6 +465,9 @@ class BacktestOrderManager:
                 })
                 return
 
+            # Store entry price BEFORE resetting position
+            entry_price_before_close = position.average_price
+
             position.quantity = new_quantity
             if new_quantity <= 0:
                 # Position closed or flipped to SHORT
@@ -509,6 +512,9 @@ class BacktestOrderManager:
                 })
                 return
 
+            # Store entry price BEFORE resetting position
+            entry_price_before_close = position.average_price
+
             position.quantity = new_quantity
             if new_quantity >= 0:
                 # Position closed or flipped to LONG
@@ -549,14 +555,24 @@ class BacktestOrderManager:
                     "timestamp": time.time()
                 })
             elif old_quantity != 0 and position.quantity == 0:
-                # Position closed
-                # TODO: Implement realized PnL calculation from entry/exit prices (see GitHub issue)
-                # Requires: Position object to track entry price, entry quantity, and exit price
-                # Current implementation: placeholder 0.0 - update when position tracking is complete
+                # Position closed - calculate realized PnL
+                # Formula:
+                # - LONG: (exit_price - entry_price) * quantity
+                # - SHORT: (entry_price - exit_price) * abs(quantity)
+                # entry_price_before_close was stored before position reset
+                exit_price = order.price
+
+                if old_quantity > 0:
+                    # LONG position closed
+                    realized_pnl = (exit_price - entry_price_before_close) * old_quantity
+                else:
+                    # SHORT position closed
+                    realized_pnl = (entry_price_before_close - exit_price) * abs(old_quantity)
+
                 await self.event_bus.publish("position_closed", {
                     "position_id": f"{order.symbol}_{order.order_id}",
-                    "current_price": order.price,
-                    "realized_pnl": 0.0,
+                    "current_price": exit_price,
+                    "realized_pnl": realized_pnl,
                     "timestamp": time.time()
                 })
             elif old_quantity != 0 and position.quantity != 0:

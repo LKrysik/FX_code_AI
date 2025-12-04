@@ -239,17 +239,17 @@ STWORZYĆ strategię → PRZETESTOWAĆ na historii → URUCHOMIĆ na żywo → Z
 
 ## ZNANE PROBLEMY (linkuj do KNOWN_ISSUES.md)
 
-*Aktualizacja: 2025-12-02*
+*Aktualizacja: 2025-12-04*
 
 | ID | Moduł | Problem | Priorytet | Status |
 |----|-------|---------|-----------|--------|
 | ~~KI4~~ | B3 | `RiskManager.use_budget()` nie istnieje | P0 | ✅ NAPRAWIONE |
-| KI2 | B5 | WebSocket reconnection nie działa | P1 | Do naprawy |
+| ~~KI2~~ | B5 | WebSocket reconnection nie działa | P1 | ✅ ZWERYFIKOWANE (12/12 tests) |
 | KI3 | B7 | Memory usage rośnie >24h | P2 | Do audytu |
-| PH1 | B7 | `max_drawdown = 0.0` - placeholder | P0 | Do naprawy |
-| PH2 | B7 | `sharpe_ratio = None` - placeholder | P1 | Do naprawy |
+| ~~PH1~~ | B7 | `max_drawdown = 0.0` - placeholder | P0 | ✅ NAPRAWIONE (8/8 tests) |
+| ~~PH2~~ | B7 | `sharpe_ratio = None` - placeholder | P1 | ✅ NAPRAWIONE (11/11 tests) |
 | TODO1 | B4 | Telemetry placeholders (active_strategies=0) | P2 | Do naprawy |
-| TODO2 | B6 | Realized PnL calculation placeholder | P1 | Do naprawy |
+| ~~TODO2~~ | B6 | Realized PnL calculation placeholder | P1 | ✅ NAPRAWIONE (11/11 tests) |
 
 Pełna lista: [KNOWN_ISSUES.md](KNOWN_ISSUES.md)
 
@@ -292,6 +292,10 @@ Pełna lista: [KNOWN_ISSUES.md](KNOWN_ISSUES.md)
 | 2025-12-02 | 1 | FRONTEND | - | 5.4/10 | Baseline |
 | 2025-12-02 | 1 | INFRA | - | 7.4/10 | Baseline |
 | 2025-12-02 | 1 | PRODUKT | - | 6.7/10 | Baseline |
+| 2025-12-04 | 2 | B7 Session | 5.8/10 | 7.0/10 | +1.2 (fix PH1, PH2) |
+| 2025-12-04 | 2 | B6 Order Manager | 6.7/10 | 7.1/10 | +0.4 (fix TODO2) |
+| 2025-12-04 | 2 | B5 MEXC Adapter | 6.8/10 | 7.4/10 | +0.6 (verify KI2) |
+| 2025-12-04 | 2 | BACKEND | 7.4/10 | 7.9/10 | +0.5 (4 issues fixed) |
 
 ---
 
