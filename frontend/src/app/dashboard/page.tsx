@@ -580,44 +580,79 @@ function DashboardContent() {
     loadDashboardData(abortController.signal);
   };
 
-  const handleSignalClick = (signal: Signal) => {
-    // Convert Signal to SignalDetail (add mock indicator details for now)
-    const signalDetail: SignalDetail = {
-      ...signal,
-      indicators: [
-        {
-          indicator_id: 'twpa_300_0',
-          indicator_name: 'TWPA(300,0)',
-          value: 50250,
-          threshold_min: 50000,
-          met: true,
-        },
-        {
-          indicator_id: 'velocity_60_0',
-          indicator_name: 'Velocity(60,0)',
-          value: 0.85,
-          threshold_min: 0.5,
-          met: true,
-        },
-        {
-          indicator_id: 'volume_surge',
-          indicator_name: 'Volume_Surge',
-          value: 2.3,
-          threshold_min: 2.0,
-          met: true,
-        },
-      ],
-      execution: {
-        status: signal.execution_status,
-        order_id: signal.signal_id,
-        entry_price: 50250,
-        size: 0.1,
-        risk_score: 3,
-      },
-    };
+  const handleSignalClick = async (signal: Signal) => {
+    // Fetch real signal details from API
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+      const response = await fetch(`${apiUrl}/api/signals/${signal.signal_id}`);
 
-    setSelectedSignal(signalDetail);
-    setSignalPanelOpen(true);
+      if (response.ok) {
+        const result = await response.json();
+        const signalData = result.data || result;
+
+        // Transform API response to SignalDetail format
+        const indicators = [];
+        if (signalData.signal?.indicator_values) {
+          // Convert indicator_values object to array format
+          for (const [key, value] of Object.entries(signalData.signal.indicator_values)) {
+            indicators.push({
+              indicator_id: key,
+              indicator_name: key,
+              value: typeof value === 'number' ? value : 0,
+              threshold_min: null,
+              met: true,
+            });
+          }
+        }
+
+        const signalDetail: SignalDetail = {
+          ...signal,
+          indicators,
+          execution: {
+            status: signalData.order?.status || signal.execution_status,
+            order_id: signalData.order?.order_id || signal.signal_id,
+            entry_price: signalData.order?.filled_price || signalData.order?.price || 0,
+            size: signalData.order?.quantity || 0,
+            risk_score: signalData.position?.risk_score || 0,
+          },
+        };
+
+        setSelectedSignal(signalDetail);
+        setSignalPanelOpen(true);
+      } else {
+        // Fallback: show signal with no indicator details
+        console.warn('Failed to fetch signal details, showing basic info');
+        const signalDetail: SignalDetail = {
+          ...signal,
+          indicators: [],
+          execution: {
+            status: signal.execution_status,
+            order_id: signal.signal_id,
+            entry_price: 0,
+            size: 0,
+            risk_score: 0,
+          },
+        };
+        setSelectedSignal(signalDetail);
+        setSignalPanelOpen(true);
+      }
+    } catch (error) {
+      console.error('Error fetching signal details:', error);
+      // Fallback: show signal with no indicator details
+      const signalDetail: SignalDetail = {
+        ...signal,
+        indicators: [],
+        execution: {
+          status: signal.execution_status,
+          order_id: signal.signal_id,
+          entry_price: 0,
+          size: 0,
+          risk_score: 0,
+        },
+      };
+      setSelectedSignal(signalDetail);
+      setSignalPanelOpen(true);
+    }
   };
 
   const handleViewModeToggle = () => {

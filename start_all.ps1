@@ -54,6 +54,16 @@ Start-Process python -ArgumentList "-m", "uvicorn", "src.api.unified_server:crea
 Write-Host "Waiting for backend to be ready..." -ForegroundColor Yellow
 Start-Sleep -Seconds 5
 
+# Kill any existing Node.js processes on port 3000
+Write-Host ""
+Write-Host "Checking for existing processes on port 3000..." -ForegroundColor Yellow
+$existingProcess = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -First 1
+if ($existingProcess) {
+    Write-Host "Killing existing process on port 3000 (PID: $existingProcess)..." -ForegroundColor Yellow
+    Stop-Process -Id $existingProcess -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+}
+
 # Start the frontend server in a new window
 Write-Host ""
 Write-Host "Starting frontend server on port 3000..." -ForegroundColor Green

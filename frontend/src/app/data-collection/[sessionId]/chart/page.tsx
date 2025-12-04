@@ -748,61 +748,6 @@ export default function ChartPage() {
         setBrushDomain(null);
   };
 
-  const generateMockIndicatorValue = (field: string, point: any, index: number): number => {
-    switch (field) {
-      // Price-based indicators (main chart)
-      case 'sma_20':
-        return point.price * (0.99 + Math.random() * 0.02);
-      case 'sma_50':
-        return point.price * (0.98 + Math.random() * 0.04);
-      case 'sma_200':
-        return point.price * (0.95 + Math.random() * 0.1);
-      case 'ema_12':
-        return point.price * (0.995 + Math.random() * 0.01);
-      case 'ema_26':
-        return point.price * (0.99 + Math.random() * 0.02);
-      case 'bollinger_upper':
-        return point.price * 1.025;
-      case 'bollinger_lower':
-        return point.price * 0.975;
-      case 'support':
-        return point.price * 0.98;
-      case 'resistance':
-        return point.price * 1.02;
-      
-      // Momentum indicators (secondary chart)
-      case 'rsi':
-        return 30 + Math.random() * 40; // RSI 30-70 range
-      case 'macd':
-        return (Math.random() - 0.5) * 2; // MACD around 0
-      case 'macd_signal':
-        return (Math.random() - 0.5) * 1.5; // MACD Signal
-      case 'stoch_k':
-        return Math.random() * 100; // Stochastic %K
-      case 'stoch_d':
-        return Math.random() * 100; // Stochastic %D
-      case 'williams_r':
-        return -Math.random() * 100; // Williams %R (-100 to 0)
-      
-      // Volume indicators (secondary chart)
-      case 'volume_sma':
-        return point.volume * (0.8 + Math.random() * 0.4);
-      case 'volume_rsi':
-        return 40 + Math.random() * 20; // Volume RSI
-      case 'on_balance_volume':
-        return index * 1000 + Math.random() * 10000; // OBV
-      
-      // Volatility indicators (secondary chart)
-      case 'atr':
-        return point.price * 0.01 * (0.5 + Math.random()); // ATR
-      case 'volatility':
-        return Math.random() * 0.05; // Volatility %
-      
-      default:
-        return point[field] || Math.random() * 100;
-    }
-  };
-
   // Helper function to find actual indicator IDs for a variant from given indicators object
   const findIndicatorIdsForVariant = (indicators: Record<string, any>, variantId: string): string[] => {
     return Object.keys(indicators).filter(indicatorId => {

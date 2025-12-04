@@ -23,7 +23,7 @@ export const getAppConfig = (): AppConfig => {
     appName: process.env.NEXT_PUBLIC_APP_NAME || 'Crypto Trading Platform',
     appVersion: process.env.NEXT_PUBLIC_APP_VERSION || '1.0.0',
     enableDebugMode: process.env.NEXT_PUBLIC_ENABLE_DEBUG_MODE === 'true',
-    enableMockData: process.env.NEXT_PUBLIC_ENABLE_MOCK_DATA !== 'false', // Default to true
+    enableMockData: process.env.NEXT_PUBLIC_ENABLE_MOCK_DATA === 'true', // Default to false - use real API data
   };
 };
 

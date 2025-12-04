@@ -2,11 +2,25 @@
 
 ## Aktywne Problemy
 
-### KI1: Backtest czasem nie generuje sygnałów
+### [NAPRAWIONE 2025-12-03] KI1: Backtest czasem nie generuje sygnałów
 **Objawy:** ticks_processed > 0, ale signals_detected = 0
-**Przyczyna:** Progi w strategii mogą być zbyt wysokie dla danego datasetu
-**Workaround:** Użyj niższych progów (np. velocity_threshold = 0.00001)
-**Status:** Wymaga lepszej dokumentacji domyślnych progów
+**Przyczyna:**
+1. Timeout 2.0s w `on_indicator_updated` powodował anulowanie generowania sygnałów przed ich opublikowaniem
+2. `add_indicator_to_session()` nie rejestrowała wskaźników time-driven dla symboli
+3. `MexcPaperAdapter` brakowało metody `create_market_order()` wymaganej przez `LiveOrderManager`
+
+**Fix (2025-12-03):**
+1. Usunięto timeout w `strategy_manager.py:on_indicator_updated` - sygnały mogą się teraz generować bez ograniczenia czasowego
+2. Dodano rejestrację time-driven indicators w `add_indicator_to_session()`
+3. Dodano metodę `create_market_order()` w `MexcPaperAdapter` jako wrapper na `place_futures_order()`
+
+**Status:** NAPRAWIONE - Backtest generuje sygnały i otwiera pozycje paper
+
+**Weryfikacja:** Logi pokazują pełny przepływ:
+- `strategy_manager.slot_acquire_result` → `slot_acquired: true`
+- `mexc_paper_adapter.create_market_order_wrapper`
+- `mexc_paper_adapter.order_filled`
+- `strategy_manager.signal_generated`
 
 
 ### KI2: WebSocket reconnection nie zawsze działa

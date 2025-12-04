@@ -121,43 +121,75 @@ export default function MarketScannerPage() {
   const loadScannerData = async () => {
     setLoading(true);
     try {
-      // Mock scanner data - in real app, this would come from WebSocket/API
-      const mockData: ScannerData[] = settings.symbols.map(symbol => {
-        const basePrice = symbol.includes('BTC') ? 45000 :
-                         symbol.includes('ETH') ? 2800 :
-                         symbol.includes('ADA') ? 0.45 :
-                         symbol.includes('SOL') ? 98 : 8;
+      // Fetch real market data from /api/exchange/symbols endpoint
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+      const response = await fetch(`${apiUrl}/api/exchange/symbols`);
 
-        const pumpMagnitude = Math.random() * 30;
-        const volumeSurge = Math.random() * 10;
-        const confidenceScore = Math.random() * 100;
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
 
-        return {
-          symbol,
-          price: basePrice * (1 + (Math.random() - 0.5) * 0.1),
-          priceChange24h: (Math.random() - 0.5) * 20,
-          volume24h: Math.random() * 1000000,
-          pumpMagnitude,
-          volumeSurge,
-          confidenceScore,
-          lastUpdate: new Date().toISOString(),
-          trend: pumpMagnitude > 10 ? 'bullish' : pumpMagnitude < -10 ? 'bearish' : 'neutral',
-          volatility: Math.random() * 15,
-          liquidity: Math.random() * 100,
-          signalStrength: pumpMagnitude > 20 ? 'extreme' :
-                         pumpMagnitude > 15 ? 'strong' :
-                         pumpMagnitude > 10 ? 'medium' : 'weak'
-        };
-      });
+      const result = await response.json();
+      const symbolsData = result.data?.symbols || result.symbols || [];
 
-      setScannerData(mockData);
+      // Filter by selected symbols and transform to ScannerData format
+      const scannerResults: ScannerData[] = symbolsData
+        .filter((s: any) => settings.symbols.includes(s.symbol))
+        .map((symbolInfo: any) => {
+          // Calculate derived scanner metrics based on real data
+          const price = symbolInfo.price || 0;
+          const volume24h = symbolInfo.volume24h || 0;
+          const priceChange24h = symbolInfo.change24h || 0;
+
+          // Derive pump magnitude from price change (real metric)
+          const pumpMagnitude = Math.abs(priceChange24h);
+
+          // Volume surge estimate (compare to average - simplified)
+          // In production, this would compare against historical average volume
+          const volumeSurge = volume24h > 0 ? Math.min(volume24h / 100000, 10) : 0;
+
+          // Confidence score based on volume and price movement correlation
+          const confidenceScore = Math.min(100, (pumpMagnitude * 5) + (volumeSurge * 10));
+
+          // Determine trend from price change
+          const trend = priceChange24h > 2 ? 'bullish' : priceChange24h < -2 ? 'bearish' : 'neutral';
+
+          // Volatility estimate from price change magnitude
+          const volatility = Math.abs(priceChange24h);
+
+          // Liquidity score from volume
+          const liquidity = Math.min(100, volume24h / 10000);
+
+          // Signal strength based on pump magnitude
+          const signalStrength = pumpMagnitude > 15 ? 'extreme' :
+                                pumpMagnitude > 10 ? 'strong' :
+                                pumpMagnitude > 5 ? 'medium' : 'weak';
+
+          return {
+            symbol: symbolInfo.symbol,
+            price,
+            priceChange24h,
+            volume24h,
+            pumpMagnitude,
+            volumeSurge,
+            confidenceScore,
+            lastUpdate: symbolInfo.timestamp || new Date().toISOString(),
+            trend,
+            volatility,
+            liquidity,
+            signalStrength
+          } as ScannerData;
+        });
+
+      setScannerData(scannerResults);
 
       // Check for alerts
-      checkForAlerts(mockData);
+      checkForAlerts(scannerResults);
     } catch (error) {
+      console.error('Failed to load scanner data:', error);
       setSnackbar({
         open: true,
-        message: 'Failed to load scanner data',
+        message: `Failed to load scanner data: ${error instanceof Error ? error.message : 'Unknown error'}`,
         severity: 'error'
       });
     } finally {

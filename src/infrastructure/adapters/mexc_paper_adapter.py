@@ -520,6 +520,49 @@ class MexcPaperAdapter:
 
         return -total_funding  # Negative = cost
 
+    async def create_market_order(self, symbol: str, side: str, quantity: float) -> str:
+        """
+        Create market order (compatibility wrapper for MexcFuturesAdapter interface).
+
+        Compatibility method - wraps place_futures_order() to match Spot adapter interface.
+        Automatically determines position_side based on side parameter.
+
+        Args:
+            symbol: Trading symbol (e.g., "BTC_USDT")
+            side: "BUY" or "SELL"
+            quantity: Order quantity
+
+        Returns:
+            Paper order ID (string)
+
+        Note:
+            This is a compatibility wrapper. For new code, use place_futures_order() directly
+            with explicit position_side parameter for better control over LONG/SHORT positions.
+        """
+        # Determine position_side: BUY -> LONG, SELL -> SHORT
+        position_side = "LONG" if side.upper() == "BUY" else "SHORT"
+
+        self._logger.info("mexc_paper_adapter.create_market_order_wrapper", {
+            "symbol": symbol,
+            "side": side,
+            "position_side": position_side,
+            "quantity": quantity,
+            "note": "Compatibility wrapper - use place_futures_order() for explicit control"
+        })
+
+        response = await self.place_futures_order(
+            symbol=symbol,
+            side=side.upper(),
+            position_side=position_side,
+            order_type="MARKET",
+            quantity=quantity
+        )
+
+        # Extract order ID from response
+        order_id = response.get("order_id", "")
+
+        return order_id
+
     async def close_position(self,
                             symbol: str,
                             position_side: Literal["LONG", "SHORT"],

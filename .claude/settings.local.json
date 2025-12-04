@@ -6,7 +6,8 @@
       "Bash(findstr:*)",
       "Bash(powershell:*)",
       "Bash(taskkill /F /PID 86032)",
-      "Bash(tasklist:*)"
+      "Bash(tasklist:*)",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": []

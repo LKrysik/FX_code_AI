@@ -867,6 +867,10 @@ def create_unified_app():
             # Use StrategyStorage to save to file
             strategy_id = await strategy_storage.create_strategy(strategy_data)
 
+            # ✅ PERF FIX (2025-12-04): Invalidate strategies list cache
+            app.state._strategies_list_cache = None
+            app.state._strategies_list_cache_ts = 0.0
+
             return _json_ok({
                 "strategy": {
                     "id": strategy_id,
@@ -904,15 +908,46 @@ def create_unified_app():
 
     @app.get("/api/strategies")
     async def list_strategies(request: Request):
-        """List all 4-section strategies (public endpoint for configuration)"""
+        """List all 4-section strategies (public endpoint for configuration)
+
+        ✅ PERF FIX (2025-12-04): Added 60s cache to avoid 30s+ DB timeout.
+        Cache is invalidated when strategies are created/deleted.
+        """
+        import time
+        now = time.time()
+        cache_ttl = 60.0  # 60 second cache
+
+        # Check cache first
+        cache_key = "_strategies_list_cache"
+        cache_ts_key = "_strategies_list_cache_ts"
+        cached_data = getattr(app.state, cache_key, None)
+        cached_ts = getattr(app.state, cache_ts_key, 0.0)
+
+        if cached_data is not None and (now - cached_ts) < cache_ttl:
+            return _json_ok({"strategies": cached_data, "cached": True})
+
         try:
             # Get strategy storage from app state
             strategy_storage = getattr(app.state, 'strategy_storage', None)
             if not strategy_storage:
                 return _json_error("storage_error", "Strategy storage not initialized")
 
-            # Use StrategyStorage to list strategies
-            strategy_list = await strategy_storage.list_strategies()
+            # Use StrategyStorage to list strategies (with 5s timeout fallback)
+            import asyncio
+            try:
+                strategy_list = await asyncio.wait_for(
+                    strategy_storage.list_strategies(),
+                    timeout=5.0  # Fail fast if DB is slow
+                )
+            except asyncio.TimeoutError:
+                # Return cached data if available, even if stale
+                if cached_data is not None:
+                    return _json_ok({"strategies": cached_data, "cached": True, "stale": True})
+                return _json_error("timeout", "Strategy list timeout - database may be slow")
+
+            # Update cache
+            app.state._strategies_list_cache = strategy_list
+            app.state._strategies_list_cache_ts = now
 
             return _json_ok({"strategies": strategy_list})
 
@@ -1168,6 +1203,9 @@ def create_unified_app():
     allow_origins = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()] or [
         "http://localhost:3000",
         "http://localhost:3001",
+        "http://localhost:3002",
+        "http://localhost:3003",
+        "http://localhost:3004",
     ]
 
     try:
@@ -1780,6 +1818,140 @@ def create_unified_app():
                     return _json_error("config_not_found", "Configuration file not found")
         except Exception as e:
             return _json_error("command_failed", f"Failed to get symbols: {str(e)}")
+
+    # =========================================================================
+    # Dashboard Endpoints (for Unified Trading Dashboard)
+    # =========================================================================
+
+    @app.get("/api/dashboard/summary")
+    async def get_dashboard_summary(request: Request, session_id: str = None):
+        """
+        Get dashboard summary data for a trading session.
+
+        Returns:
+            - session_id: Current session ID
+            - global_pnl: Total PnL
+            - total_positions: Number of open positions
+            - total_signals: Number of signals generated
+            - symbols: List of symbol data with prices
+            - recent_signals: Recent signal history
+            - risk_metrics: Risk utilization metrics
+            - last_updated: Timestamp
+        """
+        try:
+            # Get trading controller for session data
+            ws_controller = getattr(app.state, 'ws_controller', None)
+
+            # Initialize empty response with defaults
+            summary = {
+                "session_id": session_id or "",
+                "global_pnl": 0.0,
+                "total_positions": 0,
+                "total_signals": 0,
+                "symbols": [],
+                "recent_signals": [],
+                "risk_metrics": {
+                    "budget_utilization_pct": 0.0,
+                    "avg_margin_ratio": 0.0,
+                    "max_drawdown_pct": 0.0,
+                    "active_alerts": []
+                },
+                "last_updated": datetime.now().isoformat()
+            }
+
+            # Try to get real data from controller
+            if ws_controller and session_id:
+                try:
+                    # Get session status
+                    session_status = await ws_controller.get_session_status(session_id)
+                    if session_status:
+                        summary["total_signals"] = session_status.get("signals_generated", 0)
+                        summary["total_positions"] = session_status.get("positions_open", 0)
+                        summary["global_pnl"] = session_status.get("pnl", 0.0)
+
+                        # Get symbol data from session
+                        symbols_data = session_status.get("symbols", [])
+                        summary["symbols"] = [
+                            {
+                                "symbol": s,
+                                "price": 0.0,
+                                "change_24h": 0.0,
+                                "volume_24h": 0.0
+                            } for s in (symbols_data if isinstance(symbols_data, list) else [])
+                        ]
+                except Exception as e:
+                    logger.warning("dashboard.session_data_error", {
+                        "session_id": session_id,
+                        "error": str(e)
+                    })
+
+            return _json_ok(summary)
+
+        except Exception as e:
+            logger.error("dashboard.summary_error", {"error": str(e)})
+            return _json_error("dashboard_error", f"Failed to get dashboard summary: {str(e)}")
+
+    @app.get("/api/dashboard/equity-curve")
+    async def get_equity_curve(request: Request, session_id: str = None):
+        """
+        Get equity curve data for a trading session.
+
+        Returns:
+            - equity_curve: Array of {timestamp, current_balance} points
+            - initial_balance: Starting balance
+        """
+        try:
+            # Default empty response
+            response = {
+                "equity_curve": [],
+                "initial_balance": 1000.0  # Default base capital
+            }
+
+            if not session_id:
+                return _json_ok(response)
+
+            # Try to get equity data from QuestDB
+            try:
+                strategy_storage = getattr(app.state, 'strategy_storage', None)
+                if strategy_storage and hasattr(strategy_storage, '_pool') and strategy_storage._pool:
+                    conn = await strategy_storage._pool.acquire()
+                    try:
+                        # Query paper trading performance table
+                        query = """
+                            SELECT timestamp, current_balance
+                            FROM paper_trading_performance
+                            WHERE session_id = $1
+                            ORDER BY timestamp ASC
+                            LIMIT 1000
+                        """
+                        rows = await conn.fetch(query, session_id)
+
+                        equity_curve = []
+                        for row in rows:
+                            equity_curve.append({
+                                "timestamp": row['timestamp'].isoformat() if row['timestamp'] else None,
+                                "current_balance": float(row['current_balance']) if row['current_balance'] else 0.0
+                            })
+
+                        if equity_curve:
+                            response["equity_curve"] = equity_curve
+                            # Set initial balance from first data point
+                            response["initial_balance"] = equity_curve[0]["current_balance"] if equity_curve else 1000.0
+
+                    finally:
+                        await strategy_storage._pool.release(conn)
+            except Exception as db_error:
+                logger.debug("dashboard.equity_curve_db_error", {
+                    "session_id": session_id,
+                    "error": str(db_error)
+                })
+                # Return empty data on DB error - not critical
+
+            return _json_ok(response)
+
+        except Exception as e:
+            logger.error("dashboard.equity_curve_error", {"error": str(e)})
+            return _json_error("dashboard_error", f"Failed to get equity curve: {str(e)}")
 
     @app.get("/api/exchange/symbols")
     async def get_exchange_symbols():

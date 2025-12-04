@@ -82,8 +82,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
     try {
       // Load OHLCV data from backend
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
       const ohlcvResponse = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/chart/ohlcv?session_id=${sessionId}&symbol=${symbol}&interval=1m&limit=500`
+        `${apiUrl}/api/chart/ohlcv?session_id=${sessionId}&symbol=${symbol}&interval=1m&limit=500`
       );
 
       if (!ohlcvResponse.ok) {
@@ -93,20 +94,19 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       const ohlcvResult = await ohlcvResponse.json();
       const ohlcvData = ohlcvResult.data || ohlcvResult;
 
-      // Fallback to mock data if no real data available
+      // Validate real data - no fallback to mock
       if (!ohlcvData.candles || ohlcvData.candles.length === 0) {
-        console.warn('No OHLCV data available, using mock data');
-        const mockData = generateMockCandles(symbol, 100);
-        setCandleData(mockData);
+        console.warn('No OHLCV data available for', symbol);
+        setCandleData([]);
+        setError('No chart data available. Start data collection to see chart.');
       } else {
         setCandleData(ohlcvData.candles);
+        setError(null);
       }
     } catch (err) {
       console.error('Failed to load chart data:', err);
-      // Fallback to mock data on error
-      const mockData = generateMockCandles(symbol, 100);
-      setCandleData(mockData);
-      setError('Using mock data - real data unavailable');
+      setCandleData([]);
+      setError(`Failed to load chart data: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setLoading(false);
     }
@@ -200,39 +200,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 // ============================================================================
 // Helper Functions
 // ============================================================================
-
-/**
- * Generate mock candlestick data for demonstration.
- * TODO: Replace with real API call to backend.
- */
-function generateMockCandles(symbol: string, count: number): CandleData[] {
-  const candles: CandleData[] = [];
-  const now = Math.floor(Date.now() / 1000);
-  let basePrice = symbol.includes('BTC') ? 50000 : 3000;
-
-  for (let i = count; i > 0; i--) {
-    const time = now - i * 60; // 1-minute candles
-    const volatility = basePrice * 0.002; // 0.2% volatility
-
-    const open = basePrice + (Math.random() - 0.5) * volatility;
-    const close = open + (Math.random() - 0.5) * volatility;
-    const high = Math.max(open, close) + Math.random() * volatility * 0.5;
-    const low = Math.min(open, close) - Math.random() * volatility * 0.5;
-
-    candles.push({
-      time,
-      open,
-      high,
-      low,
-      close,
-      volume: Math.random() * 1000,
-    });
-
-    basePrice = close; // Next candle starts at previous close
-  }
-
-  return candles;
-}
 
 /**
  * Simple canvas-based chart rendering.

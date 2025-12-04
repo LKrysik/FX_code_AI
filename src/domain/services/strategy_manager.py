@@ -423,8 +423,12 @@ class StrategyManager:
         })
 
     async def start(self) -> None:
-        """Start the strategy manager by subscribing to indicator events."""
+        """Start the strategy manager by subscribing to indicator and price events."""
         await self.event_bus.subscribe("indicator.updated", self._on_indicator_update)
+        # ✅ FIX (2025-12-04): Subscribe to price updates to enable order creation
+        # Without price data, orders were being created with fallback price (100.0)
+        # which caused OrderManager to reject orders with invalid prices
+        await self.event_bus.subscribe("market.price_update", self._on_price_update)
 
     async def reset_session_state(self) -> None:
         """Reset all session state for a new trading/backtest session.
@@ -1432,6 +1436,33 @@ class StrategyManager:
             })
 
         return True
+
+    async def _on_price_update(self, data: Dict[str, Any]) -> None:
+        """Handle market price update events.
+
+        ✅ FIX (2025-12-04): Store price in indicator_values so OrderManager
+        can create orders with real prices instead of fallback 100.0
+
+        Args:
+            data: Price update with keys: symbol, price, volume, timestamp
+        """
+        symbol = data.get("symbol")
+        price = data.get("price")
+
+        if not symbol or price is None:
+            return
+
+        # Store price in indicator_values cache for strategy evaluation
+        async with self._indicator_values_lock:
+            if symbol not in self.indicator_values:
+                self.indicator_values[symbol] = {}
+            self.indicator_values[symbol]["price"] = float(price)
+            self.indicator_values[symbol]["last_price"] = float(price)
+
+        self.logger.debug("strategy_manager.price_update_cached", {
+            "symbol": symbol,
+            "price": price
+        })
 
     async def _on_indicator_update(self, data: Dict[str, Any]) -> None:
         """Handle indicator update events with enhanced circuit breaker"""
