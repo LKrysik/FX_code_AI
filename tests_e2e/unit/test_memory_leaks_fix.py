@@ -92,18 +92,17 @@ class TestSessionManagerDequeMemoryLeak:
 
     @pytest.mark.asyncio
     @pytest.mark.unit
-    async def test_rate_limit_check_no_manual_cleanup_needed(self):
+    async def test_rate_limit_check_no_manual_cleanup_needed(self, test_logger):
         """LEAK #1: Verify _check_global_rate_limit doesn't need manual cleanup"""
         # Arrange
         event_bus = EventBus()
-        logger = StructuredLogger("test")
         market_adapter = MagicMock()
         market_adapter.subscribe_to_symbol = AsyncMock(return_value=True)
         market_adapter.unsubscribe_from_symbol = AsyncMock(return_value=True)
 
         session_manager = SessionManager(
             event_bus=event_bus,
-            logger=logger,
+            logger=test_logger,
             market_adapter=market_adapter
         )
 
@@ -125,18 +124,17 @@ class TestPaperTradingEngineDequeMemoryLeak:
 
     @pytest.mark.asyncio
     @pytest.mark.unit
-    async def test_trade_history_uses_deque_with_maxlen(self):
+    async def test_trade_history_uses_deque_with_maxlen(self, test_logger):
         """LEAK #2: Verify trade_history is a deque with maxlen=10000"""
         # Arrange
         order_manager = MagicMock(spec=OrderManager)
         risk_manager = MagicMock(spec=RiskManager)
-        logger = StructuredLogger("test")
 
         # Act
         engine = PaperTradingEngine(
             order_manager=order_manager,
             risk_manager=risk_manager,
-            logger=logger
+            logger=test_logger
         )
 
         # Assert
@@ -147,17 +145,16 @@ class TestPaperTradingEngineDequeMemoryLeak:
 
     @pytest.mark.asyncio
     @pytest.mark.unit
-    async def test_trade_history_bounded_growth(self):
+    async def test_trade_history_bounded_growth(self, test_logger):
         """LEAK #2: Verify trade_history never exceeds maxlen (10000)"""
         # Arrange
         order_manager = MagicMock(spec=OrderManager)
         risk_manager = MagicMock(spec=RiskManager)
-        logger = StructuredLogger("test")
 
         engine = PaperTradingEngine(
             order_manager=order_manager,
             risk_manager=risk_manager,
-            logger=logger
+            logger=test_logger
         )
 
         # Act: Simulate 15000 trades (more than maxlen)
@@ -188,17 +185,16 @@ class TestStrategyManagerUnsubscribeMemoryLeak:
 
     @pytest.mark.asyncio
     @pytest.mark.unit
-    async def test_shutdown_unsubscribes_from_event_bus(self):
+    async def test_shutdown_unsubscribes_from_event_bus(self, test_logger):
         """LEAK #3: Verify shutdown() unsubscribes from event bus"""
         # Arrange
         event_bus = EventBus()
-        logger = StructuredLogger("test")
         order_manager = MagicMock(spec=OrderManager)
         risk_manager = MagicMock(spec=RiskManager)
 
         strategy_manager = StrategyManager(
             event_bus=event_bus,
-            logger=logger,
+            logger=test_logger,
             order_manager=order_manager,
             risk_manager=risk_manager
         )
@@ -229,17 +225,16 @@ class TestStrategyManagerUnsubscribeMemoryLeak:
 
     @pytest.mark.asyncio
     @pytest.mark.unit
-    async def test_shutdown_handles_unsubscribe_errors_gracefully(self):
+    async def test_shutdown_handles_unsubscribe_errors_gracefully(self, test_logger):
         """LEAK #3: Verify shutdown() handles unsubscribe errors gracefully"""
         # Arrange
         event_bus = EventBus()
-        logger = StructuredLogger("test")
         order_manager = MagicMock(spec=OrderManager)
         risk_manager = MagicMock(spec=RiskManager)
 
         strategy_manager = StrategyManager(
             event_bus=event_bus,
-            logger=logger,
+            logger=test_logger,
             order_manager=order_manager,
             risk_manager=risk_manager
         )
@@ -267,17 +262,16 @@ class TestStrategyManagerUnsubscribeMemoryLeak:
 
     @pytest.mark.asyncio
     @pytest.mark.unit
-    async def test_multiple_shutdown_calls_safe(self):
+    async def test_multiple_shutdown_calls_safe(self, test_logger):
         """LEAK #3: Verify multiple shutdown() calls are safe (idempotent)"""
         # Arrange
         event_bus = EventBus()
-        logger = StructuredLogger("test")
         order_manager = MagicMock(spec=OrderManager)
         risk_manager = MagicMock(spec=RiskManager)
 
         strategy_manager = StrategyManager(
             event_bus=event_bus,
-            logger=logger,
+            logger=test_logger,
             order_manager=order_manager,
             risk_manager=risk_manager
         )
@@ -302,11 +296,10 @@ class TestMemoryLeaksIntegration:
 
     @pytest.mark.asyncio
     @pytest.mark.unit
-    async def test_all_leaks_fixed_in_production_like_scenario(self):
+    async def test_all_leaks_fixed_in_production_like_scenario(self, test_logger):
         """Integration: Verify all 3 leaks are fixed in production-like scenario"""
         # Arrange
         event_bus = EventBus()
-        logger = StructuredLogger("test")
         market_adapter = MagicMock()
         market_adapter.subscribe_to_symbol = AsyncMock(return_value=True)
         market_adapter.unsubscribe_from_symbol = AsyncMock(return_value=True)
@@ -317,19 +310,19 @@ class TestMemoryLeaksIntegration:
         # Create all components
         session_manager = SessionManager(
             event_bus=event_bus,
-            logger=logger,
+            logger=test_logger,
             market_adapter=market_adapter
         )
 
         paper_trading_engine = PaperTradingEngine(
             order_manager=order_manager,
             risk_manager=risk_manager,
-            logger=logger
+            logger=test_logger
         )
 
         strategy_manager = StrategyManager(
             event_bus=event_bus,
-            logger=logger,
+            logger=test_logger,
             order_manager=order_manager,
             risk_manager=risk_manager
         )

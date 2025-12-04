@@ -245,7 +245,7 @@ STWORZYĆ strategię → PRZETESTOWAĆ na historii → URUCHOMIĆ na żywo → Z
 |----|-------|---------|-----------|--------|
 | ~~KI4~~ | B3 | `RiskManager.use_budget()` nie istnieje | P0 | ✅ NAPRAWIONE |
 | ~~KI2~~ | B5 | WebSocket reconnection nie działa | P1 | ✅ ZWERYFIKOWANE (12/12 tests) |
-| KI3 | B7 | Memory usage rośnie >24h | P2 | ✅ AUDYT DONE (11 leaks zidentyfikowanych: 3×P0, 5×P1, 3×P2) |
+| ~~KI3~~ | B7 | Memory usage rośnie >24h | P2 | ✅ NAPRAWIONE - 3×P0 leaks fixed (9/9 tests): deque for session_manager, paper_trading; unsubscribe in strategy_manager |
 | ~~PH1~~ | B7 | `max_drawdown = 0.0` - placeholder | P0 | ✅ NAPRAWIONE (8/8 tests) |
 | ~~PH2~~ | B7 | `sharpe_ratio = None` - placeholder | P1 | ✅ NAPRAWIONE (11/11 tests) |
 | ~~TODO1~~ | B4 | Telemetry placeholders (active_strategies=0) | P2 | ✅ NAPRAWIONE (12/12 tests) |
