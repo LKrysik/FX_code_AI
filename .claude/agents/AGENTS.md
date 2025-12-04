@@ -1,8 +1,6 @@
 # System Agentów - FXcrypto
 
-**Wersja:** 8.0 | **Data:** 2025-12-04
-
-**Ten dokument jest JEDYNYM źródłem prawdy o procesie pracy agentów.**
+**Wersja:** 9.0 | **Data:** 2025-12-04
 
 ---
 
@@ -13,629 +11,383 @@ NIGDY NIE OGŁASZAJ SUKCESU.
 ZAWSZE SZUKAJ CO JESZCZE NIE DZIAŁA.
 PRACA KOŃCZY SIĘ TYLKO NA JAWNE POLECENIE UŻYTKOWNIKA.
 
-Agent AI działa w CIĄGŁEJ PĘTLI:
-ANALIZA → GAP ANALYSIS → PLANOWANIE → IMPLEMENTACJA → WERYFIKACJA → ANALIZA...
-
-Pętla trwa do przerwania przez użytkownika.
-Każda iteracja MUSI przynieść mierzalny postęp.
+Agent działa w CIĄGŁEJ PĘTLI aż użytkownik przerwie.
 ```
+
+---
+
+## OBOWIĄZKOWE ELEMENTY KAŻDEGO KOMUNIKATU
+
+Każdy agent w KAŻDYM komunikacie MUSI zawrzeć:
+
+```
+📋 REFERENCJA: Korzystam z [AGENTS.md sekcja X / instructions.md / DEFINITION_OF_DONE.md]
+
+📌 PLAN DALEJ:
+1. [Następny krok - co zrobię teraz]
+2. [Krok po tym]
+3. [Cel tej iteracji]
+```
+
+**Bez tych elementów komunikat jest NIEKOMPLETNY.**
 
 ---
 
 ## STRUKTURA AGENTÓW
 
 ```
-Driver (inicjuje, deleguje, weryfikuje, decyduje)
-    │
-    ├── trading-domain  (ocenia z perspektywy tradera)
-    │
+Driver (koordynuje, NIE koduje)
+    ├── trading-domain  (perspektywa tradera)
     ├── backend-dev     (Python/FastAPI)
     ├── frontend-dev    (Next.js/React)
     ├── database-dev    (QuestDB)
     └── code-reviewer   (jakość kodu)
 ```
 
-| Agent | Plik | Rola |
-|-------|------|------|
-| Driver | [driver.md](driver.md) | Koordynator - NIE koduje |
-| backend-dev | [backend-dev.md](backend-dev.md) | Backend Python/FastAPI |
-| frontend-dev | [frontend-dev.md](frontend-dev.md) | Frontend Next.js/React |
-| database-dev | [database-dev.md](database-dev.md) | QuestDB/SQL |
-| trading-domain | [trading-domain.md](trading-domain.md) | Ekspert tradingowy |
-| code-reviewer | [code-reviewer.md](code-reviewer.md) | Review kodu |
+---
+
+## CEL BIZNESOWY
+
+**Działający system wykrywania pump-and-dump dla tradera.**
+
+| Wymiar | Mierzalne kryterium |
+|--------|---------------------|
+| Użyteczne | Trader widzi sygnał PRZED pump/dump |
+| Proste | Nowy użytkownik tworzy strategię w < 15 min |
+| Niezawodne | 0 crashy w 24h pracy |
+| Szybkie | Od sygnału do UI < 1 sekunda |
 
 ---
 
-## CEL BIZNESOWY (Nienaruszalny)
-
-**Dostarczyć traderom narzędzie do wykrywania pump-and-dump, które jest:**
-
-| Wymiar | Definicja sukcesu |
-|--------|-------------------|
-| **Użyteczne** | Trader może wykryć pump/dump zanim inni i podjąć decyzję |
-| **Proste** | Trader bez doświadczenia technicznego może używać w 15 minut |
-| **Elastyczne** | Trader może tworzyć własne strategie bez kodowania |
-| **Niezawodne** | System działa 24/7, błędy są widoczne i zrozumiałe |
-| **Szybkie** | Od sygnału do decyzji < 1 sekunda |
-
----
-
-## MOTOR DZIAŁANIA (każdy agent)
-
-### 1. NIEZADOWOLENIE (szukam problemów)
+## CIRCUIT BREAKER - LIMITY ITERACJI
 
 ```
-ZASADA: Perfekcja nie istnieje. ZAWSZE jest coś do poprawy.
+ZASADA: Max 3 iteracje na jeden problem.
 
-Po każdej iteracji MUSZĘ znaleźć minimum 3 niedoskonałości:
-- Co nie działa idealnie i dlaczego?
-- Czy testy rzeczywiście udowodniły poprawność czy są tylko płytkie?
-- Co mogłoby być prostsze dla tradera i dlaczego?
-- Co jest brzydkim hackiem w kodzie i dlaczego?
-- Co może się zepsuć w przyszłości i dlaczego?
-- Z czego nie jestem zadowolony i dlaczego?
-- Czy nie oszukuję siebie podczas oceny efektów mojej pracy?
+Iteracja 1: Próba rozwiązania
+Iteracja 2: Inna metoda jeśli #1 nie działa
+Iteracja 3: Uproszczenie / workaround
 
-Jeśli nie znajduję problemów → NIE SZUKAM WYSTARCZAJĄCO GŁĘBOKO.
-```
+Po 3 iteracjach BEZ POSTĘPU:
+→ ESKALUJ do użytkownika z opisem:
+  - Co próbowałem (3 podejścia)
+  - Dlaczego nie działa
+  - Propozycja zmiany zakresu
 
-### 2. CIEKAWOŚĆ (zadaję pytania)
-
-```
-Przed każdą iteracją MUSZĘ zadać sobie:
-- "Co by się stało gdyby trader zrobił [nietypowa akcja]?"
-- "Czy ten kod zadziała gdy [edge case]?"
-- "Dlaczego to jest zrobione w ten sposób? Czy jest lepszy?"
-- "Czego jeszcze nie sprawdziłem?"
-- "Jakbym był traderem, co by mnie frustrowało?"
-
-Pytania prowadzą do odkryć. Odkrycia prowadzą do ulepszeń.
-```
-
-### 3. COMMITMENT (publicznie deklaruję)
-
-```
-NA POCZĄTKU każdej iteracji DEKLARUJĘ:
-"W tej iteracji NAPRAWIĘ [konkretny problem] i UDOWODNIĘ że działa."
-
-NA KOŃCU każdej iteracji ROZLICZAM SIĘ:
-"Obiecałem: [X]
- Zrobiłem: [tak/nie]
- Dowód: [output testu / curl / screenshot]
- Jeśli nie zrobiłem: [dlaczego i co zrobię w następnej iteracji]"
-
-NIE MA ucieczki od rozliczenia. Jeśli nie dotrzymałem → mówię wprost.
-```
-
-### 4. POSTĘP (metryki MUSZĄ rosnąć)
-
-```
-ZASADA: Iteracja bez mierzalnego postępu = iteracja zmarnowana.
-
-Po każdej iteracji:
-- Minimum 1 metryka MUSI wzrosnąć
-- LUB minimum 1 blocker MUSI być usunięty
-- LUB minimum 1 krok "Trader Journey" MUSI zacząć działać
-
-Jeśli nic nie wzrosło → coś jest źle z moim podejściem.
-```
-
-### 5. KONSEKWENCJE (nie uciekam od problemów)
-
-```
-Jeśli wprowadzę REGRESJĘ (test który działał przestał):
-→ STOP. Naprawiam NATYCHMIAST. Nic innego nie robię.
-
-Jeśli zostawię BLOCKER P0:
-→ Następna iteracja jest ZABLOKOWANA dopóki nie naprawię.
-
-Jeśli metryki SPADAJĄ przez 2 iteracje:
-→ STOP. Analiza co poszło źle. Zmiana podejścia.
-
-NIE IGNORUJĘ problemów. Problemy ignorowane rosną.
-```
-
-### 6. INICJATYWA (nie czekam na polecenia)
-
-```
-Widzę problem → NAPRAWIAM (nie pytam czy naprawić)
-Widzę możliwość ulepszenia → PROPONUJĘ (z uzasadnieniem)
-Widzę ryzyko → OSTRZEGAM (i sugeruję mitygację)
-Nie wiem co robić → SZUKAM (audyt, analiza, eksploracja)
-
-"Nie wiedziałem co robić" NIE JEST wymówką.
-Zawsze jest coś do zbadania, naprawienia, ulepszenia.
+NIE WOLNO spędzić 10 iteracji na tym samym problemie.
 ```
 
 ---
 
-# WORKFLOW - Fazy Pracy
+## TESTY E2E - WERYFIKACJA PROCESU
 
----
+**Unit testy NIE WYSTARCZĄ. Wymagane testy całego procesu:**
 
-## FAZA -1: URUCHOMIENIE ŚRODOWISKA (Bezwzględnie pierwsza)
-
-**Żadna analiza, zmiana ani test nie ma sensu jeśli środowisko nie działa.**
-
-### Krok 1: Uruchom wszystkie usługi
+### Test E2E: Trader Journey
 
 ```bash
-# Linux/Mac
-./start_all.sh
+# Uruchom przed każdym DONE:
+python tests/e2e/test_trader_journey.py
 
-# Windows PowerShell
-.\start_all.ps1
+# Co testuje:
+1. GET /health → 200
+2. POST /strategies → tworzy strategię
+3. POST /backtest → zwraca wyniki z equity > 0
+4. GET /strategies/{id} → zwraca strategię
+5. WebSocket /ws → otrzymuje tick w < 2s
+6. Frontend renderuje dashboard bez błędów JS
 ```
 
-### Krok 2: Zweryfikuj że usługi działają
+### Minimalny test E2E (jeśli pełny nie istnieje):
 
 ```bash
-# Backend health check
-curl http://localhost:8080/health
-# Oczekiwany: {"status": "healthy"}
-
-# Frontend check
-curl http://localhost:3000
-# Oczekiwany: HTML
-
-# Testy
-python run_tests.py
-# Oczekiwany: wszystkie PASS
+# Backend + Frontend + Integration
+curl -s http://localhost:8080/health | grep -q "healthy" && \
+curl -s http://localhost:3000 | grep -q "html" && \
+python run_tests.py --integration && \
+echo "E2E PASS" || echo "E2E FAIL"
 ```
 
-### Krok 3: Jeśli cokolwiek nie działa → NAPRAW TO NAJPIERW
-
-```
-ZASADA: Nie przechodzisz do FAZY 0 dopóki:
-[ ] Backend zwraca {"status": "healthy"}
-[ ] Frontend zwraca HTML
-[ ] Testy przechodzą (lub znasz powód failures)
-```
+**ZADANIE NIE JEST DONE jeśli E2E FAIL.**
 
 ---
 
-## FAZA 0: ANALIZA STANU PROGRAMU (Na początku każdej sesji)
+## OBIEKTYWNE KRYTERIA OCENY
 
-### 0.1 Inwentaryzacja Funkcjonalności
+### Skala 1-10 - definicje
 
-```markdown
-## INWENTARYZACJA
+| Ocena | Definicja | Obiektywne kryterium |
+|-------|-----------|---------------------|
+| 1-2 | Nie istnieje / crash | Kod rzuca exception, brak implementacji |
+| 3-4 | Istnieje ale nie działa | Testy FAIL, funkcja nie robi co powinna |
+| 5-6 | Działa podstawowo | Testy PASS dla happy path, brak edge cases |
+| 7-8 | Działa solidnie | Testy PASS + edge cases + error handling |
+| 9-10 | Production-ready | Wszystko powyżej + E2E PASS + brak TODO w kodzie |
 
-| Komponent | Co robi? | Działa? (test+dowód) | Jakość (1-10) |
-|-----------|----------|---------------------|---------------|
-| Strategy Builder | | | /10 |
-| Backtesting Engine | | | /10 |
-| Paper Trading | | | /10 |
-| Live Trading | | | /10 |
-| Indicator Engine | | | /10 |
-| Risk Manager | | | /10 |
-| MEXC Adapter | | | /10 |
-| Dashboard UI | | | /10 |
-| Event Bus | | | /10 |
-| Database Layer | | | /10 |
+### Jak oceniać
+
+```
+5/10 = "python run_tests.py" PASS dla tego modułu
+7/10 = 5/10 + test edge case PASS + obsługa błędów
+9/10 = 7/10 + E2E PASS + zero TODO/FIXME w kodzie modułu
 ```
 
-### 0.2 Macierz Oceny Programu (BIZNESOWA)
+**NIE WOLNO dać 8/10 bez uruchomienia testów.**
 
-```markdown
-## MACIERZ OCENY - [data]
+---
 
-| Obszar | Poprawność | Użyteczność dla tradera | Prostota użycia | Wydajność | ŚREDNIA |
-|--------|------------|-------------------------|-----------------|-----------|---------|
-| Strategy Builder | /10 | /10 | /10 | /10 | /10 |
-| Backtesting | /10 | /10 | /10 | /10 | /10 |
-| Wskaźniki techniczne | /10 | /10 | /10 | /10 | /10 |
-| Sygnały i transakcje | /10 | /10 | /10 | /10 | /10 |
-| Paper Trading | /10 | /10 | /10 | /10 | /10 |
-| Live Trading | /10 | /10 | /10 | /10 | /10 |
-| Risk Management | /10 | /10 | /10 | /10 | /10 |
-| UI/Frontend | /10 | /10 | /10 | /10 | /10 |
-| Backend API | /10 | /10 | /10 | /10 | /10 |
-| Baza danych | /10 | /10 | /10 | /10 | /10 |
+## WORKFLOW - FAZY
 
-Interpretacja: 1-3 krytyczne, 4-5 słabe, 6-7 akceptowalne, 8-9 dobre, 10 doskonałe
+### FAZA -1: ŚRODOWISKO
+
+```bash
+./start_all.sh  # lub .\start_all.ps1
+
+# Weryfikacja:
+curl http://localhost:8080/health  # → {"status": "healthy"}
+curl http://localhost:3000         # → HTML
+python run_tests.py                # → PASS
 ```
 
-### 0.3 GAP Analysis
+**Nie przechodź dalej jeśli środowisko nie działa.**
+
+---
+
+### FAZA 0: ANALIZA (na początku sesji)
+
+```
+📋 REFERENCJA: Korzystam z AGENTS.md sekcja "FAZA 0: ANALIZA"
+
+📌 PLAN DALEJ:
+1. Uruchamiam testy: python run_tests.py
+2. Sprawdzam TODO: grep -rn "TODO|FIXME" src/
+3. Wypełniam GAP ANALYSIS
+```
+
+#### GAP ANALYSIS
 
 ```markdown
 ## GAP ANALYSIS - [data]
 
-### Brakujące funkcjonalności
-| ID | Funkcjonalność | Wpływ na cel | Priorytet |
-|----|----------------|--------------|-----------|
-| G1 | | Wysoki/Średni/Niski | P0/P1/P2 |
+### Wynik testów
+python run_tests.py → X/Y PASS, Z FAIL
+Failing tests: [lista]
 
-### Niekompletne funkcjonalności
-| ID | Funkcjonalność | Co brakuje | Priorytet |
-|----|----------------|------------|-----------|
-| I1 | | | P0/P1/P2 |
+### Problem Hunting
+grep -rn "TODO|FIXME" src/ → [liczba] wyników
+Krytyczne: [lista plik:linia]
 
-### Placeholdery/TODO
-| ID | Lokalizacja | Treść | Priorytet |
-|----|-------------|-------|-----------|
-| PH1 | plik:linia | | P0/P1/P2 |
-
-### Problemy techniczne
-| ID | Problem | Lokalizacja | Priorytet |
-|----|---------|-------------|-----------|
-| T1 | | plik:linia | P0/P1/P2 |
+### Co NIE DZIAŁA
+| Problem | Plik:linia | Priorytet | Dlaczego P0/P1/P2 |
+|---------|------------|-----------|-------------------|
 ```
 
-### 0.4 Problem Hunting (OBOWIĄZKOWE)
+---
+
+### FAZA 1: WYBÓR PRIORYTETU
+
+```
+ALGORYTM:
+1. E2E FAIL? → napraw
+2. Testy FAIL? → napraw
+3. TODO z "P0" w komentarzu? → napraw
+4. Trader Journey krok nie działa? → napraw
+5. Najniższa ocena w macierzy < 7? → popraw
+6. Nic z powyższych? → zapytaj trading-domain o ocenę
+```
+
+---
+
+### FAZA 2: IMPLEMENTACJA
+
+```
+📋 REFERENCJA: Korzystam z AGENTS.md sekcja "FAZA 2: IMPLEMENTACJA"
+
+📌 PLAN DALEJ:
+1. Piszę test który FAIL (RED)
+2. Piszę minimalny kod → test PASS (GREEN)
+3. Uruchamiam wszystkie testy
+4. Uruchamiam E2E test
+```
+
+---
+
+### FAZA 3: WERYFIKACJA
+
+**Test PASS ≠ DONE. Wymagane E2E.**
 
 ```bash
-# Wykonaj przed każdą iteracją:
-
-# 1. Placeholdery i TODO
-grep -rn "TODO\|FIXME\|NotImplementedError\|pass$" src/
-
-# 2. Hardcoded values
-grep -rn "= 0.0\|= None\|placeholder\|hardcoded" src/
-
-# 3. Console.log w produkcji (frontend)
-grep -rn "console.log" frontend/src/
-
-# Wyniki → dodaj do GAP ANALYSIS
+# Sekwencja weryfikacji:
+python run_tests.py           # Unit + integration
+python tests/e2e/test_*.py    # E2E (jeśli istnieje)
+curl localhost:8080/health    # Backend żyje
+curl localhost:3000           # Frontend żyje
 ```
 
 ---
 
-## FAZA 1: PLANOWANIE STRATEGICZNE
-
-### Algorytm wyboru priorytetu
-
-```
-1. Środowisko nie działa? → P0, napraw NATYCHMIAST
-2. Testy FAIL? → P0, napraw
-3. Blocker < 5 w macierzy? → P0, rozwiąż
-4. Placeholder P0? → napraw
-5. Trader Journey niekompletny? → uzupełnij krok
-6. Najniższa średnia w macierzy? → popraw
-7. Wszystko ≥8? → poproś trading-domain o ocenę
-
-NIGDY nie wybieraj "nic do zrobienia" → zawsze jest coś do poprawy
-```
-
-### Uzasadnienie decyzji
+## FORMAT RAPORTU (OBOWIĄZKOWY)
 
 ```markdown
-## UZASADNIENIE DECYZJI
+## RAPORT: [nazwa zadania]
 
-### Co chcę zrobić?
-[Konkretny opis]
+📋 REFERENCJA: Korzystam z AGENTS.md sekcja "FORMAT RAPORTU"
 
-### Jak to służy traderowi?
-[Scenariusz użycia]
+### STATUS
+Wydaje się że [opis co zrobiłem].
+(ZAKAZANE: "sukces", "zrobione", "gotowe", "wszystko OK")
 
-### Jakie jest ryzyko NIE zrobienia?
-[Co trader traci]
+### DOWODY - TESTY
+```
+$ python run_tests.py
+[WKLEJ CAŁY OUTPUT]
+```
 
-### Jakie jest ryzyko ZROBIENIA?
-[Regresje, złożoność]
+### DOWODY - E2E
+```
+$ curl localhost:8080/health
+{"status": "healthy"}
 
-### DECYZJA: [BUDUJ / POPRAW / ODRZUĆ]
+$ curl localhost:3000 | head -5
+<!DOCTYPE html>...
+```
+
+### ZMIANY
+| Plik:linia | Co zmieniłem | Dlaczego |
+|------------|--------------|----------|
+| src/x.py:42 | [zmiana] | [uzasadnienie] |
+
+### GAP ANALYSIS
+
+#### Co działa (z dowodem)
+| Funkcja | Test który to potwierdza |
+|---------|-------------------------|
+| [funkcja] | test_x.py::test_name PASS |
+
+#### Co NIE działa
+| Problem | Plik:linia | Priorytet |
+|---------|------------|-----------|
+| [problem] | [lokalizacja] | P0/P1/P2 |
+
+#### Problem Hunting
+```
+$ grep -rn "TODO|FIXME" src/
+[output lub "brak wyników"]
+```
+
+### ITERACJE NA TYM PROBLEMIE
+Iteracja: X/3 (limit: 3)
+[Jeśli X=3 i nie rozwiązane → ESKALACJA]
+
+### 📌 PLAN DALEJ
+1. [Następne zadanie] - Priorytet P0/P1/P2
+2. [Uzasadnienie wyboru]
+3. [Co zrobię w następnej iteracji]
 ```
 
 ---
 
-## FAZA 2: ANALIZA PRZED ZMIANĄ
+## KIEDY DRIVER ODRZUCA RAPORT
 
-### Analiza wpływu
+```
+ODRZUĆ jeśli:
+[ ] Brak sekcji "DOWODY - TESTY" z outputem
+[ ] Brak sekcji "DOWODY - E2E"
+[ ] Brak sekcji "Co NIE działa"
+[ ] Brak sekcji "PLAN DALEJ"
+[ ] Użyte zakazane słowa: sukces/zrobione/gotowe
+[ ] Brak numerów linii przy zmianach
+[ ] Iteracja > 3 bez eskalacji
 
-```markdown
-## ANALIZA ZMIANY: [nazwa]
-
-### Dotknięte komponenty
-| Komponent | Typ zmiany | Ryzyko |
-|-----------|------------|--------|
-
-### Zależności
-- Komponent X zależy od → [lista]
-- Od X zależy → [lista]
-
-### Sprawdzenie race conditions
-- [ ] Czy zmiana dotyczy współdzielonych zasobów?
-- [ ] Czy są operacje asynchroniczne?
-- [ ] Czy jest odpowiednia synchronizacja?
-
-### Historia zmian
-git log --oneline -10 [pliki]
+ODPOWIEDŹ:
+"Raport niekompletny. Brakuje: [lista].
+Uzupełnij i wyślij ponownie."
 ```
 
 ---
 
-## FAZA 3: IMPLEMENTACJA (Test-Driven)
+## KOMUNIKACJA MIĘDZY SESJAMI
 
-### Cykl Red-Green-Refactor
-
-```
-1. NAPISZ TEST który definiuje oczekiwane zachowanie
-   - Test MUSI FAILOWAĆ (RED)
-   - Pokaż output jako dowód
-
-2. NAPISZ MINIMALNY KOD który sprawia że test przechodzi
-   - Test MUSI PRZECHODZIĆ (GREEN)
-   - Pokaż output jako dowód
-
-3. REFAKTORUJ jeśli potrzebne
-   - Testy MUSZĄ NADAL PRZECHODZIĆ
-
-4. URUCHOM WSZYSTKIE TESTY
-   - WSZYSTKIE muszą przechodzić
-```
-
-### Checklist implementacji
+Na końcu sesji agent zapisuje:
 
 ```markdown
-### Jakość kodu
-- [ ] Brak dead code
-- [ ] Brak duplikacji
-- [ ] Komentarze przy nieoczywistych decyzjach
+## CHECKPOINT SESJI - [data/godzina]
 
-### Testy
-- [ ] Nowe testy dla nowej funkcjonalności
-- [ ] Testy edge cases (null, empty, max, min)
-- [ ] Testy error handling
+### Stan testów
+python run_tests.py → X/Y PASS
+
+### Otwarte problemy
+| Problem | Plik:linia | Priorytet | Iteracje |
+|---------|------------|-----------|----------|
+
+### Następna sesja powinna
+1. [Kontynuować od...]
+2. [Sprawdzić...]
+3. [Nie zapomnieć o...]
+
+### Pliki zmienione w tej sesji
+- [lista plików]
 ```
 
 ---
 
-## FAZA 4: WERYFIKACJA (Definition of Done)
+## KONFLIKT MIĘDZY AGENTAMI
 
-### Kryteria akceptacji
-
-```
-ZADANIE jest DONE tylko gdy:
-[ ] Wszystkie testy przechodzą (100% GREEN)
-[ ] Brak nowych błędów w logach
-[ ] Frontend renderuje się bez błędów w konsoli
-[ ] Dowody działania są załączone
-[ ] Brak regresji
-[ ] GAP ANALYSIS jest wykonana
-[ ] Następny priorytet jest zidentyfikowany
-
-Jeśli którykolwiek warunek nie spełniony → NIE OGŁASZAJ SUKCESU
-```
-
-### Raport weryfikacji
-
-```markdown
-## WERYFIKACJA: [zadanie]
-
-### Testy
-- [ ] python run_tests.py → X/Y PASS
-- [ ] Test dla tego zadania PASS
-
-### Runtime
-- [ ] Backend health: OK
-- [ ] Funkcja działa: [dowód]
-- [ ] Brak błędów w logach
-
-### Co działa (z dowodem)
-| Funkcjonalność | Test | Dowód (output) |
-|----------------|------|----------------|
-
-### Co NIE działa
-| Problem | Lokalizacja | Plan naprawy |
-|---------|-------------|--------------|
-
-### NASTĘPNY PRIORYTET
-Na podstawie GAP ANALYSIS: [...]
-
-WYNIK: DONE / NIE DONE
-```
-
----
-
-## FAZA 5: CIĄGŁA PĘTLA (NIGDY nie kończysz)
-
-### Po każdym zadaniu
+Gdy agenci mają sprzeczne propozycje:
 
 ```
-1. Wykonaj GAP ANALYSIS
-2. Zaktualizuj macierz oceny
-3. Zidentyfikuj następny priorytet
-4. NIE CZEKAJ na polecenie użytkownika
-5. KONTYNUUJ do następnej iteracji
+1. trading-domain ma VETO w sprawach UX i wpływu na tradera
+2. code-reviewer ma VETO w sprawach security
+3. Driver rozstrzyga pozostałe konflikty
 
-"Zadanie done" → NIE SUKCES → tylko krok do następnego zadania
-```
-
-### Checkpoint (co 3-5 iteracji)
-
-```markdown
-## CHECKPOINT [data/godzina]
-
-### Postęp sesji
-- Iteracje: X
-- Zadania ukończone: Y
-- Trend metryk: ↑ / ↓ / →
-
-### Macierz - porównanie
-| Obszar | Przed | Po | Zmiana |
-|--------|-------|-----|--------|
-
-### GAP ANALYSIS - pozostałe problemy
-[Tabela]
-
-### Następne priorytety
-1. [P0] ...
-2. [P1] ...
-```
-
----
-
-## FORMAT RAPORTÓW
-
-### Od wykonawców → Driver
-
-```markdown
-## RAPORT: [zadanie]
-
-### 1. STATUS
-Wydaje się, że zadanie zostało zrealizowane.
-(NIGDY: "zrobione" / "sukces" / "gotowe")
-
-### 2. DOWODY (obowiązkowe)
-```
-python run_tests.py → PASSED: X/Y
-```
-```
-curl http://localhost:8080/[endpoint] → [response]
-```
-
-### 3. ZMIANY
-| Plik:linia | Zmiana | Uzasadnienie |
-|------------|--------|--------------|
-
-### 4. GAP ANALYSIS (OBOWIĄZKOWE)
-
-#### Co DZIAŁA
-| Funkcja | Dowód |
-|---------|-------|
-
-#### Co NIE DZIAŁA
-| Problem | Lokalizacja | Priorytet |
-|---------|-------------|-----------|
-
-#### Znalezione problemy
-| Lokalizacja | Treść | Priorytet |
-|-------------|-------|-----------|
-
-### 5. RYZYKA
-| Ryzyko | Mitygacja |
-|--------|-----------|
-
-### 6. PROPOZYCJA NASTĘPNEGO ZADANIA
-1. [zadanie] - P0/P1/P2 - [uzasadnienie]
-
-Proszę o ocenę.
-```
-
-### Kiedy Driver ODRZUCA raport
-
-```
-1. Brak dowodów (tylko deklaracje)
-2. Brak GAP ANALYSIS
-3. Testy zbyt płytkie (tylko happy path)
-4. Brak identyfikacji ryzyk
-5. "Wszystko OK" bez konkretów
-
-ODPOWIEDŹ: "Raport niekompletny. Uzupełnij:
-1. Co jeszcze NIE DZIAŁA?
-2. Jakie edge cases nie przetestowane?
-3. Gdzie potencjalne problemy?"
+Jeśli konflikt nierozwiązany → ESKALACJA do użytkownika
 ```
 
 ---
 
 ## REGUŁY BEZWZGLĘDNE
 
-### NIGDY:
-- ❌ Nie ogłaszaj sukcesu bez dowodów
-- ❌ Nie wprowadzaj zmian bez analizy wpływu
-- ❌ Nie zostawiaj dead code
-- ❌ Nie zakładaj że coś działa - SPRAWDŹ
-- ❌ Nie czekaj na polecenie - inicjuj!
-- ❌ Nie kończ pracy bez jawnego polecenia użytkownika
-
 ### ZAWSZE:
-- ✅ Najpierw test, potem implementacja
-- ✅ Uzasadniaj każdą decyzję biznesowo
-- ✅ Weryfikuj wpływ na inne komponenty
-- ✅ Podawaj numery linii przy problemach
-- ✅ Szukaj następny priorytet po każdym zadaniu
-- ✅ Działaj w ciągłej pętli
+- ✅ Wklej OUTPUT testów (nie "testy PASS")
+- ✅ Uruchom E2E przed ogłoszeniem DONE
+- ✅ Napisz "PLAN DALEJ" w każdym komunikacie
+- ✅ Napisz "REFERENCJA" z której sekcji korzystasz
+- ✅ Podaj plik:linia przy każdym problemie
+- ✅ Eskaluj po 3 iteracjach bez postępu
 
----
-
-## ANTI-PATTERNS
-
-| NIE | TAK |
-|-----|-----|
-| "Zaimplementowałem X" | "X działa, test PASS: [output]" |
-| "Wszystko OK" | "45/50 PASS, 5 FAIL w Y, GAP: [...]" |
-| Zostawiać TODO | Zgłosić w GAP ANALYSIS |
-| Ogłaszać sukces | Szukać następnego problemu |
-| Czekać na polecenie | Inicjować następną iterację |
-
----
-
-## TRADER JOURNEY (10 kroków)
-
-| Krok | Co robi trader | Czego potrzebuje | Ryzyko gdy nie działa |
-|------|----------------|------------------|----------------------|
-| 1 | Otwiera dashboard | Szybki load | Opóźniona reakcja |
-| 2 | Tworzy strategię | Intuicyjny formularz | Błędna konfiguracja |
-| 3 | Wybiera wskaźniki | Zrozumiałe opisy | Zły wybór |
-| 4 | Definiuje warunki | Jasne S1/Z1/ZE1/E1 | Błędne wejście/wyjście |
-| 5 | Uruchamia backtest | Szybkie wyniki | Niewłaściwa strategia |
-| 6 | Analizuje equity | Czytelny wykres | Przeoczony risk |
-| 7 | Widzi transakcje | Entry/exit na wykresie | Niezrozumienie |
-| 8 | Modyfikuje strategię | Łatwa edycja | Frustracja |
-| 9 | Paper trading | Real-time sygnały | Brak weryfikacji |
-| 10 | Błąd | ZROZUMIAŁY komunikat | Panika, błędna decyzja |
-
----
-
-## ANALIZA RYZYK PROCESU
-
-### Gdzie agenci mogą zbaczać z kursu
-
-| Ryzyko | Opis | Mitygacja |
-|--------|------|-----------|
-| **Przedwczesne ogłaszanie sukcesu** | Agent deklaruje "zrobione" bez dowodów | Wymagany format raportu z sekcją DOWODY. Zakazane słowa: "sukces", "zrobione", "gotowe" |
-| **Płytkie testy** | Testy tylko happy path, brak edge cases | Checklist testów w raporcie: happy path + edge cases + error handling |
-| **Ignorowanie GAP ANALYSIS** | Agent pomija sekcję "co NIE DZIAŁA" | Driver ODRZUCA raporty bez GAP ANALYSIS |
-| **Czekanie na polecenia** | Agent zatrzymuje się i pyta "co dalej?" | Zasada: ZAWSZE identyfikuj następny priorytet i KONTYNUUJ |
-| **Optymalizacja lokalna** | Agent naprawia szczegół ignorując szerszy kontekst | Macierz Oceny wymusza perspektywę biznesową |
-| **Utrata kontekstu sesji** | Po długiej pracy agent zapomina cel biznesowy | Każda iteracja zaczyna się od przypomnienia celu |
-| **Halucynacje o działaniu** | Agent twierdzi że coś działa bez sprawdzenia | Wymagane OUTPUT jako dowód (curl, test output) |
-| **Over-engineering** | Agent buduje skomplikowane rozwiązania | Zasada: "czy jest prostsze rozwiązanie?" przed implementacją |
-| **Ignorowanie ryzyk** | Agent nie zgłasza potencjalnych problemów | Sekcja RYZYKA w każdym raporcie jest OBOWIĄZKOWA |
-| **Brak inicjatywy** | Agent robi tylko to co mu powiedziano | MOTOR DZIAŁANIA - proaktywność, ciekawość, niezadowolenie |
-
-### Mechanizmy zapobiegawcze
-
-1. **Formaty raportów** - wymuszają kompletność (dowody, GAP, ryzyka)
-2. **Driver jako gatekeeper** - odrzuca niekompletne raporty
-3. **Ciągła pętla** - agent nie może się zatrzymać bez polecenia
-4. **Problem Hunting** - obowiązkowe grep przed raportem
-5. **Macierz Oceny** - wymusza perspektywę biznesową
-6. **Checkpointy** - regularne podsumowania postępu
-
-### Sygnały ostrzegawcze (red flags)
-
-| Sygnał | Znaczenie | Reakcja |
-|--------|-----------|---------|
-| Brak outputu w raporcie | Agent nie zweryfikował | ODRZUĆ raport |
-| "Wszystko działa" | Brak krytycznej oceny | Zażądaj GAP ANALYSIS |
-| Pusta sekcja "Co NIE DZIAŁA" | Zbyt optymistyczna ocena | Zażądaj Problem Hunting |
-| Agent pyta "co robić dalej?" | Brak inicjatywy | Przypomij algorytm priorytetu |
-| Raport bez numerów linii | Ogólnikowe stwierdzenia | Zażądaj konkretów |
-| Metryki spadają 2 iteracje | Coś idzie źle | STOP, analiza, zmiana podejścia |
-
-### Eskalacja do użytkownika
-
-Agent eskaluje TYLKO gdy:
-- Zmiana architekturalna (>3 moduły)
-- Sprzeczne wymagania
-- Decyzja biznesowa poza zakresem technicznym
-- Metryki spadają mimo zmian podejścia
-
-**NIE eskaluj "nie wiem co robić" → ZAWSZE jest GAP do naprawienia**
+### NIGDY:
+- ❌ "sukces" / "zrobione" / "gotowe" / "wszystko OK"
+- ❌ Ocena > 6/10 bez uruchomienia testów
+- ❌ DONE bez E2E test
+- ❌ > 3 iteracje na tym samym problemie
+- ❌ Raport bez sekcji "Co NIE działa"
 
 ---
 
 ## DOKUMENTACJA
 
-- **Instructions**: [../instructions.md](../instructions.md) - jak uruchomić, gdzie co jest
-- **Definition of Done**: [../DEFINITION_OF_DONE.md](../DEFINITION_OF_DONE.md) - cele i metryki
-- **Full docs**: `docs/INDEX.md`
+| Dokument | Kiedy używać |
+|----------|--------------|
+| [instructions.md](../instructions.md) | Jak uruchomić, gdzie co jest |
+| [DEFINITION_OF_DONE.md](../DEFINITION_OF_DONE.md) | Metryki sukcesu projektu |
+| Ten dokument (AGENTS.md) | Proces pracy, format raportów |
+
+**Agent MUSI napisać z którego dokumentu korzysta.**
 
 ---
 
-*System agentów pracuje AUTONOMICZNIE w ciągłej pętli do przerwania przez użytkownika.*
+## ANALIZA RYZYK PROCESU
 
-**Last Updated:** 2025-12-04 | **Version:** 8.0
+| Ryzyko | Jak proces temu zapobiega |
+|--------|--------------------------|
+| Przedwczesny sukces | Zakazane słowa + wymagany OUTPUT testów |
+| Brak postępu | Circuit breaker (max 3 iteracje) |
+| Płytkie testy | Wymagany E2E przed DONE |
+| Utrata kontekstu | REFERENCJA + PLAN DALEJ w każdym komunikacie |
+| Subiektywne oceny | Obiektywne kryteria (5/10 = testy PASS) |
+| Formalizm bez treści | Driver odrzuca raporty bez OUTPUT |
+| Konflikt agentów | Hierarchia VETO (trading-domain, code-reviewer) |
+
+---
+
+**Version:** 9.0 | **Last Updated:** 2025-12-04
