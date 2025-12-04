@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from collections import deque
 
 from ..core.logger import StructuredLogger
 from ..domain.services.order_manager import OrderManager, OrderType
@@ -80,7 +81,8 @@ class PaperTradingEngine:
         self.active_positions: Dict[str, Dict[str, Any]] = {}
 
         # Trade history
-        self.trade_history: List[PaperTrade] = []
+        # FIX P0 LEAK #2: Changed from List to deque(maxlen=10000) to prevent unbounded growth
+        self.trade_history: deque = deque(maxlen=10000)
 
         # Performance tracking
         self.performance_metrics: Dict[str, Any] = {

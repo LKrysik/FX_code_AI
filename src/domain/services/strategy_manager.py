@@ -492,10 +492,20 @@ class StrategyManager:
 
         Cancels all tracked background tasks to prevent memory leaks and
         dangling task warnings during application shutdown.
+
+        ✅ FIX P0 LEAK #3: Added unsubscribe for event listeners to prevent memory leaks
         """
         self.logger.info("strategy_manager.shutdown_initiated", {
             "background_tasks_count": len(self._background_tasks)
         })
+
+        # FIX P0 LEAK #3: Unsubscribe from event bus to prevent memory leaks
+        try:
+            await self.event_bus.unsubscribe("indicator.updated", self._on_indicator_update)
+            await self.event_bus.unsubscribe("market.price_update", self._on_price_update)
+            self.logger.info("strategy_manager.event_listeners_unsubscribed")
+        except Exception as e:
+            self.logger.warning("strategy_manager.unsubscribe_error", {"error": str(e)})
 
         # Cancel all background tasks
         for task in self._background_tasks:

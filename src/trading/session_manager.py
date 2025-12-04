@@ -28,6 +28,7 @@ from typing import Dict, Any, Optional, Set, List, TYPE_CHECKING
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 from enum import Enum
+from collections import deque
 
 from ..core.event_bus import EventBus
 from ..core.logger import StructuredLogger
@@ -180,7 +181,8 @@ class SessionManager:
         }
 
         # Global rate limiting state
-        self._operation_timestamps: List[float] = []
+        # FIX P0 LEAK #1: Changed from List to deque(maxlen=1000) to prevent unbounded growth
+        self._operation_timestamps: deque = deque(maxlen=1000)
         self._rate_limit_lock = asyncio.Lock()
 
         # Global operation counters (persist across sessions)
@@ -497,12 +499,7 @@ class SessionManager:
         async with self._rate_limit_lock:
             current_time = time.time()
 
-            # Clean old timestamps (older than 1 minute)
-            cutoff_time = current_time - 60
-            self._operation_timestamps = [
-                ts for ts in self._operation_timestamps
-                if ts > cutoff_time
-            ]
+            # No need to clean old timestamps - deque automatically drops oldest when maxlen reached
 
             # Check per-second limit (sliding window)
             recent_ops = sum(1 for ts in self._operation_timestamps if ts > current_time - 1)
