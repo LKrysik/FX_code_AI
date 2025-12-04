@@ -217,11 +217,203 @@ def lightweight_app(lightweight_container):
             response = lightweight_api_client.get("/api/v1/indicators/BTC_USDT")
             assert response.status_code == 200
     """
-    from fastapi import FastAPI
+    from fastapi import FastAPI, Request
+    from unittest.mock import MagicMock, AsyncMock
+    from src.api.auth_handler import AuthHandler
+    import os
 
     # Create minimal app (no lifespan startup)
     app = FastAPI(title="Test App", version="1.0.0")
     app.state.container = lightweight_container
+
+    # Create mock AuthHandler for auth endpoints
+    jwt_secret = os.getenv("JWT_SECRET", "test_secret_key_for_testing")
+    mock_auth_handler = MagicMock(spec=AuthHandler)
+    mock_auth_handler.token_expiry_hours = 24
+    mock_auth_handler.refresh_token_expiry_days = 30
+
+    # Mock authenticate_credentials to return test user
+    async def mock_authenticate_credentials(username: str, password: str, client_ip: str):
+        from src.api.auth_handler import AuthResult, UserSession, PermissionLevel
+        from datetime import datetime, timedelta
+
+        # Accept any credentials for unit tests
+        if username and password:
+            user_session = UserSession(
+                user_id=f"test_user_{username}",
+                username=username,
+                permissions=["read_market_data"],
+                authenticated_at=datetime.now(),
+                expires_at=datetime.now() + timedelta(hours=24),
+                client_ip=client_ip,
+                user_agent="TestClient",
+                session_token="test_session_token",
+                refresh_token="test_refresh_token",
+                last_activity=datetime.now()
+            )
+            return AuthResult(
+                success=True,
+                user_session=user_session,
+                access_token="test_access_token",
+                refresh_token="test_refresh_token"
+            )
+        else:
+            from src.api.auth_handler import AuthResult
+            return AuthResult(
+                success=False,
+                error_code="invalid_credentials",
+                error_message="Invalid username or password"
+            )
+
+    mock_auth_handler.authenticate_credentials = mock_authenticate_credentials
+
+    # Mock refresh_session
+    async def mock_refresh_session(refresh_token: str, client_ip: str):
+        from src.api.auth_handler import AuthResult, UserSession
+        from datetime import datetime, timedelta
+
+        if refresh_token:
+            user_session = UserSession(
+                user_id="test_user_refreshed",
+                username="test_user",
+                permissions=["read_market_data"],
+                authenticated_at=datetime.now(),
+                expires_at=datetime.now() + timedelta(hours=24),
+                client_ip=client_ip,
+                user_agent="TestClient",
+                session_token="new_test_session_token",
+                refresh_token="new_test_refresh_token",
+                last_activity=datetime.now()
+            )
+            return AuthResult(
+                success=True,
+                user_session=user_session,
+                access_token="new_test_access_token",
+                refresh_token="new_test_refresh_token"
+            )
+        else:
+            from src.api.auth_handler import AuthResult
+            return AuthResult(
+                success=False,
+                error_code="invalid_refresh_token",
+                error_message="Invalid refresh token"
+            )
+
+    mock_auth_handler.refresh_session = mock_refresh_session
+
+    # Mock logout_session
+    mock_auth_handler.logout_session = AsyncMock()
+
+    # Create mock WebSocketAPIServer with auth_handler
+    mock_ws_server = MagicMock()
+    mock_ws_server.auth_handler = mock_auth_handler
+    app.state.websocket_api_server = mock_ws_server
+
+    # Register auth endpoints (inline from unified_server.py)
+    from fastapi import Depends
+    from fastapi.responses import JSONResponse
+
+    def _json_ok(payload: dict, request_id: str = None) -> JSONResponse:
+        """Helper to create success response"""
+        body = {"type": "response", "data": payload}
+        if request_id:
+            body["request_id"] = request_id
+        return JSONResponse(content=body)
+
+    def _json_error(code: str, message: str, status: int = 400, request_id: str = None) -> JSONResponse:
+        """Helper to create error response"""
+        body = {"type": "error", "error_code": code, "error_message": message}
+        if request_id:
+            body["request_id"] = request_id
+        return JSONResponse(content=body, status_code=status)
+
+    # Register auth endpoints
+    @app.post("/api/v1/auth/login")
+    async def login(request: Request):
+        """JWT login endpoint for testing"""
+        try:
+            body = await request.json()
+        except Exception:
+            return _json_error("validation_error", "Request body must be valid JSON", status=422)
+
+        try:
+            username = body.get("username")
+            password = body.get("password")
+
+            if not username or not password:
+                return _json_error("validation_error", "username and password are required", status=422)
+
+            client_ip = request.client.host if request.client else "127.0.0.1"
+            auth_handler = app.state.websocket_api_server.auth_handler
+            auth_result = await auth_handler.authenticate_credentials(username, password, client_ip)
+
+            if not auth_result.success:
+                return _json_error("authentication_failed", auth_result.error_message or "Invalid credentials", status=401)
+
+            user_session = auth_result.user_session
+            return _json_ok({
+                "access_token": auth_result.access_token,
+                "refresh_token": auth_result.refresh_token,
+                "token_type": "bearer",
+                "expires_in": 86400,
+                "user": {
+                    "user_id": user_session.user_id,
+                    "username": user_session.username,
+                    "permissions": user_session.permissions
+                }
+            })
+        except Exception as e:
+            return _json_error("login_error", f"Login failed: {str(e)}", status=500)
+
+    @app.post("/api/v1/auth/refresh")
+    async def refresh_token_endpoint(request: Request):
+        """Refresh token endpoint for testing"""
+        try:
+            body = await request.json()
+            refresh_token = body.get("refresh_token") or request.cookies.get("refresh_token")
+
+            if not refresh_token:
+                return _json_error("missing_refresh_token", "Refresh token not found", status=401)
+
+            client_ip = request.client.host if request.client else "127.0.0.1"
+            auth_handler = app.state.websocket_api_server.auth_handler
+            auth_result = await auth_handler.refresh_session(refresh_token, client_ip)
+
+            if not auth_result.success:
+                return _json_error("refresh_failed", auth_result.error_message or "Invalid refresh token", status=401)
+
+            user_session = auth_result.user_session
+            return _json_ok({
+                "access_token": auth_result.access_token,
+                "refresh_token": auth_result.refresh_token,
+                "token_type": "bearer",
+                "expires_in": 86400,
+                "user": {
+                    "user_id": user_session.user_id,
+                    "username": user_session.username,
+                    "permissions": user_session.permissions
+                }
+            })
+        except Exception as e:
+            return _json_error("refresh_error", f"Token refresh failed: {str(e)}", status=500)
+
+    @app.post("/api/v1/auth/logout")
+    async def logout(request: Request):
+        """Logout endpoint for testing"""
+        try:
+            auth_handler = app.state.websocket_api_server.auth_handler
+            await auth_handler.logout_session("test_session")
+            return _json_ok({"message": "Successfully logged out"})
+        except Exception as e:
+            return _json_error("logout_error", f"Logout failed: {str(e)}", status=500)
+
+    # Register CSRF token endpoint
+    @app.get("/csrf-token")
+    async def get_csrf_token():
+        """CSRF token endpoint for testing"""
+        import secrets
+        token = secrets.token_urlsafe(32)
+        return _json_ok({"token": token})
 
     # Register routes WITHOUT heavy initialization
     # Import and include routers

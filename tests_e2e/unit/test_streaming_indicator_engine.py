@@ -262,8 +262,10 @@ class TestStreamingIndicatorEngineCalculation:
         """Test TWPA calculation with 3 price points"""
         # Setup: Add price data for symbol
         symbol = "BTC_USDT"
+        timeframe = "1m"
         from collections import deque
-        engine._price_data[symbol] = deque(maxlen=1000)
+        price_key = f"{symbol}_{timeframe}"
+        engine._price_data[price_key] = deque(maxlen=1000)
 
         # Add 3 price points
         current_time = time.time()
@@ -274,17 +276,18 @@ class TestStreamingIndicatorEngineCalculation:
         ]
 
         for price_data in prices:
-            engine._price_data[symbol].append(price_data)
+            engine._price_data[price_key].append(price_data)
 
         # Create TWPA indicator
         from src.domain.services.streaming_indicator_engine.core.types import StreamingIndicator
         indicator = StreamingIndicator(
-            id="test_twpa",
             symbol=symbol,
-            indicator_type="TWPA",
-            timeframe="1m",
-            period=60,
-            parameters={"t1": 60, "t2": 0}
+            indicator="TWPA",
+            timeframe=timeframe,
+            current_value=0.0,
+            timestamp=current_time,
+            series=deque(),
+            metadata={"type": "TWPA", "t1": 60, "t2": 0, "period": 60}
         )
 
         # Calculate value
@@ -297,13 +300,15 @@ class TestStreamingIndicatorEngineCalculation:
     async def test_velocity_calculation(self, engine):
         """Test Velocity calculation (price change rate)"""
         symbol = "ETH_USDT"
+        timeframe = "1m"
         from collections import deque
-        engine._price_data[symbol] = deque(maxlen=1000)
+        price_key = f"{symbol}_{timeframe}"
+        engine._price_data[price_key] = deque(maxlen=1000)
 
         # Add price data with clear trend
         current_time = time.time()
         for i in range(5):
-            engine._price_data[symbol].append({
+            engine._price_data[price_key].append({
                 "timestamp": current_time - (4 - i),
                 "price": 1000.0 + (i * 10),  # Increasing by 10 each second
                 "volume": 1.0
@@ -311,12 +316,13 @@ class TestStreamingIndicatorEngineCalculation:
 
         from src.domain.services.streaming_indicator_engine.core.types import StreamingIndicator
         indicator = StreamingIndicator(
-            id="test_velocity",
             symbol=symbol,
-            indicator_type="VELOCITY",
-            timeframe="1m",
-            period=60,
-            parameters={"t1": 5, "t2": 0}
+            indicator="VELOCITY",
+            timeframe=timeframe,
+            current_value=0.0,
+            timestamp=current_time,
+            series=deque(),
+            metadata={"type": "VELOCITY", "t1": 5, "t2": 0, "period": 5}
         )
 
         result = await engine.calculate_indicator(indicator)
@@ -328,20 +334,22 @@ class TestStreamingIndicatorEngineCalculation:
     async def test_volume_surge_detection(self, engine):
         """Test Volume_Surge detection"""
         symbol = "BNB_USDT"
+        timeframe = "1m"
         from collections import deque
-        engine._price_data[symbol] = deque(maxlen=1000)
+        price_key = f"{symbol}_{timeframe}"
+        engine._price_data[price_key] = deque(maxlen=1000)
 
         # Add normal volume data
         current_time = time.time()
         for i in range(10):
-            engine._price_data[symbol].append({
+            engine._price_data[price_key].append({
                 "timestamp": current_time - (10 - i),
                 "price": 300.0,
                 "volume": 100.0  # Normal volume
             })
 
         # Add surge point
-        engine._price_data[symbol].append({
+        engine._price_data[price_key].append({
             "timestamp": current_time,
             "price": 305.0,
             "volume": 500.0  # 5x surge
@@ -349,12 +357,13 @@ class TestStreamingIndicatorEngineCalculation:
 
         from src.domain.services.streaming_indicator_engine.core.types import StreamingIndicator
         indicator = StreamingIndicator(
-            id="test_volume_surge",
             symbol=symbol,
-            indicator_type="VOLUME_SURGE",
-            timeframe="1m",
-            period=60,
-            parameters={"threshold": 2.0}
+            indicator="VOLUME_SURGE",
+            timeframe=timeframe,
+            current_value=0.0,
+            timestamp=current_time,
+            series=deque(),
+            metadata={"type": "VOLUME_SURGE", "threshold": 2.0, "period": 10}
         )
 
         result = await engine.calculate_indicator(indicator)
@@ -366,13 +375,15 @@ class TestStreamingIndicatorEngineCalculation:
     async def test_incremental_vs_batch_calculation_consistency(self, engine):
         """Test that incremental calculation matches batch calculation"""
         symbol = "ADA_USDT"
+        timeframe = "1m"
         from collections import deque
-        engine._price_data[symbol] = deque(maxlen=1000)
+        price_key = f"{symbol}_{timeframe}"
+        engine._price_data[price_key] = deque(maxlen=1000)
 
         # Add initial price data
         current_time = time.time()
         for i in range(10):
-            engine._price_data[symbol].append({
+            engine._price_data[price_key].append({
                 "timestamp": current_time - (10 - i),
                 "price": 50.0 + i,
                 "volume": 1.0
@@ -380,12 +391,13 @@ class TestStreamingIndicatorEngineCalculation:
 
         from src.domain.services.streaming_indicator_engine.core.types import StreamingIndicator
         indicator = StreamingIndicator(
-            id="test_consistency",
             symbol=symbol,
-            indicator_type="TWPA",
-            timeframe="1m",
-            period=10,
-            parameters={"t1": 10, "t2": 0}
+            indicator="TWPA",
+            timeframe=timeframe,
+            current_value=0.0,
+            timestamp=current_time,
+            series=deque(),
+            metadata={"type": "TWPA", "t1": 10, "t2": 0, "period": 10}
         )
 
         # Calculate twice (should be consistent)
@@ -411,13 +423,15 @@ class TestStreamingIndicatorEngineCalculation:
         })
 
         from src.domain.services.streaming_indicator_engine.core.types import StreamingIndicator
+        from collections import deque
         indicator = StreamingIndicator(
-            id="test_state",
             symbol=symbol,
-            indicator_type="TWPA",
+            indicator="TWPA",
             timeframe="1m",
-            period=60,
-            parameters={"t1": 60, "t2": 0}
+            current_value=0.0,
+            timestamp=current_time,
+            series=deque(),
+            metadata={"t1": 60, "t2": 0}
         )
 
         # First calculation
