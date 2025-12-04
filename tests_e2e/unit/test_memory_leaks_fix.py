@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, AsyncMock, patch
 
 from src.core.event_bus import EventBus
 from src.core.logger import StructuredLogger
+from src.infrastructure.config.settings import AppSettings
 from src.trading.session_manager import SessionManager
 from src.trading.paper_trading_engine import PaperTradingEngine, TradingSignal, TradingSignalType
 from src.domain.services.strategy_manager import StrategyManager
@@ -23,16 +24,27 @@ from src.domain.services.order_manager import OrderManager
 from src.domain.services.risk_manager import RiskManager
 
 
+@pytest.fixture
+def test_settings():
+    """Create test settings"""
+    return AppSettings()
+
+
+@pytest.fixture
+def test_logger(test_settings):
+    """Create test logger"""
+    return StructuredLogger("test_memory_leaks", test_settings.logging)
+
+
 class TestSessionManagerDequeMemoryLeak:
     """Test LEAK #1: session_manager._operation_timestamps bounded by deque"""
 
     @pytest.mark.asyncio
     @pytest.mark.unit
-    async def test_operation_timestamps_uses_deque_with_maxlen(self):
+    async def test_operation_timestamps_uses_deque_with_maxlen(self, test_logger):
         """LEAK #1: Verify _operation_timestamps is a deque with maxlen=1000"""
         # Arrange
         event_bus = EventBus()
-        logger = StructuredLogger("test")
         market_adapter = MagicMock()
         market_adapter.subscribe_to_symbol = AsyncMock(return_value=True)
         market_adapter.unsubscribe_from_symbol = AsyncMock(return_value=True)
@@ -40,7 +52,7 @@ class TestSessionManagerDequeMemoryLeak:
         # Act
         session_manager = SessionManager(
             event_bus=event_bus,
-            logger=logger,
+            logger=test_logger,
             market_adapter=market_adapter
         )
 
@@ -52,18 +64,17 @@ class TestSessionManagerDequeMemoryLeak:
 
     @pytest.mark.asyncio
     @pytest.mark.unit
-    async def test_operation_timestamps_bounded_growth(self):
+    async def test_operation_timestamps_bounded_growth(self, test_logger):
         """LEAK #1: Verify _operation_timestamps never exceeds maxlen (1000)"""
         # Arrange
         event_bus = EventBus()
-        logger = StructuredLogger("test")
         market_adapter = MagicMock()
         market_adapter.subscribe_to_symbol = AsyncMock(return_value=True)
         market_adapter.unsubscribe_from_symbol = AsyncMock(return_value=True)
 
         session_manager = SessionManager(
             event_bus=event_bus,
-            logger=logger,
+            logger=test_logger,
             market_adapter=market_adapter
         )
 
