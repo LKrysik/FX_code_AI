@@ -208,13 +208,37 @@ class MetricsCollector:
         return metrics
 
     def _get_business_metrics(self) -> Dict[str, Any]:
-        """Get business-level metrics"""
-        # This would include trading-specific metrics
+        """Get business-level metrics from gauges/counters set by other components"""
+        # Extract business metrics from gauges and counters
+        # Components (StrategyManager, PaperTradingEngine) set these via set_gauge/increment_counter
+
+        active_strategies = 0
+        total_trades = 0
+        total_pnl = 0.0
+        winning_trades = 0
+
+        # Extract from gauges (latest values)
+        for key, value in self.gauges.items():
+            if 'active_strategies' in key:
+                active_strategies = int(value)
+            elif 'total_pnl' in key:
+                total_pnl = float(value)
+
+        # Extract from counters (cumulative values)
+        for key, value in self.counters.items():
+            if 'total_trades' in key or 'trades_total' in key:
+                total_trades += value
+            elif 'winning_trades' in key or 'trades_won' in key:
+                winning_trades += value
+
+        # Calculate success rate
+        success_rate = (winning_trades / total_trades * 100.0) if total_trades > 0 else 0.0
+
         return {
-            'active_strategies': 0,  # TODO: Implement
-            'total_trades': 0,       # TODO: Implement
-            'success_rate': 0.0,     # TODO: Implement
-            'total_pnl': 0.0,        # TODO: Implement
+            'active_strategies': active_strategies,
+            'total_trades': total_trades,
+            'success_rate': success_rate,
+            'total_pnl': total_pnl,
         }
 
     def start_system_monitoring(self):

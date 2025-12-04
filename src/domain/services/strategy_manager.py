@@ -1401,6 +1401,9 @@ class StrategyManager:
             "symbol": symbol
         })
 
+        # Update telemetry with active strategies count
+        self._update_active_strategies_metric()
+
         return True
 
     def deactivate_strategy_for_symbol(self, strategy_name: str, symbol: str) -> bool:
@@ -1415,6 +1418,9 @@ class StrategyManager:
 
         if strategy_name in self.strategies:
             self.strategies[strategy_name].current_state = StrategyState.INACTIVE
+
+        # Update telemetry with active strategies count
+        self._update_active_strategies_metric()
 
         self.logger.info("strategy_manager.strategy_deactivated", {
             "strategy_name": strategy_name,
@@ -2167,6 +2173,22 @@ class StrategyManager:
             }
             for strategy in self.active_strategies[symbol]
         ]
+
+    def get_total_active_strategies_count(self) -> int:
+        """Get total count of active strategies across all symbols"""
+        total = sum(len(strategies) for strategies in self.active_strategies.values())
+        return total
+
+    def _update_active_strategies_metric(self) -> None:
+        """Update telemetry gauge with current active strategies count"""
+        try:
+            from src.core.telemetry import telemetry
+            count = self.get_total_active_strategies_count()
+            telemetry.set_gauge('business.active_strategies', float(count))
+        except Exception as e:
+            self.logger.warning("strategy_manager.telemetry_update_failed", {
+                "error": str(e)
+            })
 
     def get_all_strategies(self) -> List[Dict[str, Any]]:
         """Get all registered strategies"""

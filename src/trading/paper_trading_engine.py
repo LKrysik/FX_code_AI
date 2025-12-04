@@ -290,12 +290,38 @@ class PaperTradingEngine:
         self.performance_metrics['total_trades'] += 1
         self.performance_metrics['total_commission'] += commission
 
+        # Update telemetry with total trades
+        self._update_trade_metrics(trade)
+
         self.logger.debug("paper_trading_engine.trade_recorded", {
             "order_id": order_id,
             "symbol": signal.symbol,
             "pnl_impact": 0.0,  # Would calculate based on position changes
             "commission": commission
         })
+
+    def _update_trade_metrics(self, trade: PaperTrade) -> None:
+        """Update telemetry with trade metrics"""
+        try:
+            from src.core.telemetry import telemetry
+
+            # Increment total trades counter
+            telemetry.increment_counter('business.total_trades', 1)
+
+            # Update total PnL gauge (if we have realized pnl)
+            if hasattr(trade, 'realized_pnl') and trade.realized_pnl is not None:
+                total_pnl = self.performance_metrics.get('total_pnl', 0.0)
+                telemetry.set_gauge('business.total_pnl', float(total_pnl))
+
+                # Track winning/losing trades
+                if trade.realized_pnl > 0:
+                    telemetry.increment_counter('business.winning_trades', 1)
+                elif trade.realized_pnl < 0:
+                    telemetry.increment_counter('business.losing_trades', 1)
+        except Exception as e:
+            self.logger.warning("paper_trading_engine.telemetry_update_failed", {
+                "error": str(e)
+            })
 
     async def get_performance_summary(self) -> Dict[str, Any]:
         """Get current performance summary."""
