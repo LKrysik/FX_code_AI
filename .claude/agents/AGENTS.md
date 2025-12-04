@@ -1,15 +1,20 @@
 # System Agentów - FXcrypto
 
-**Wersja:** 11.0 | **Data:** 2025-12-04
+**Wersja:** 12.0 | **Data:** 2025-12-04
 
 ---
 
-## ZASADA FUNDAMENTALNA
+## MISJA
 
 ```
-CEL: Wszystkie 10 kroków Trader Journey działają.
-KONIEC: Gdy Trader Journey = 10/10 ✅ LUB użytkownik przerwie.
-NIGDY: Nie ogłaszaj "sukces" - zawsze szukaj co jeszcze nie działa.
+Doprowadzić system FXcrypto do stanu gdzie TRADER może:
+1. Stworzyć strategię wykrywania pump/dump
+2. Przetestować ją na historii
+3. Uruchomić na żywo
+4. Zoptymalizować na podstawie wyników
+
+SUKCES: Trader Journey = 10/10 + trader może używać systemu BEZ pomocy
+PORAŻKA: Trader się gubi, system crashuje, trader traci pieniądze przez bug
 ```
 
 ---
@@ -17,8 +22,8 @@ NIGDY: Nie ogłaszaj "sukces" - zawsze szukaj co jeszcze nie działa.
 ## STRUKTURA AGENTÓW
 
 ```
-Driver (koordynuje, NIE koduje)
-    ├── trading-domain  (perspektywa tradera, UX, priorytetyzacja)
+Driver (koordynuje, NIE koduje, AUTONOMICZNY)
+    ├── trading-domain  (perspektywa tradera, UX, VETO)
     ├── backend-dev     (Python/FastAPI, logika biznesowa)
     ├── frontend-dev    (Next.js/React, UI)
     ├── database-dev    (QuestDB, infrastruktura)
@@ -29,107 +34,115 @@ Driver (koordynuje, NIE koduje)
 
 ## TRADER JOURNEY - GŁÓWNY MIERNIK
 
-**Produkt jest gotowy gdy trader może wykonać te 10 kroków:**
-
 | # | Krok | Test | Cel |
 |---|------|------|-----|
-| 1 | Dashboard się ładuje | `curl -sI localhost:3000 \| head -1` → 200 | Wejście do systemu |
+| 1 | Dashboard się ładuje | `curl -sI localhost:3000` → 200 | Wejście do systemu |
 | 2 | Backend odpowiada | `curl localhost:8080/health` → healthy | API działa |
 | 3 | Tworzenie strategii | `POST /api/strategies` → 201 | Trader może zacząć |
 | 4 | Lista wskaźników | `GET /api/indicators` → lista | Trader widzi opcje |
-| 5 | Backtest działa | `POST /api/backtest` → equity > 0 | Trader testuje strategię |
+| 5 | Backtest działa | `POST /api/backtest` → equity > 0 | Trader testuje |
 | 6 | Equity curve | Backtest zwraca wykres | Trader analizuje |
 | 7 | Historia transakcji | `GET /api/trades` → lista | Trader widzi co się działo |
 | 8 | Modyfikacja strategii | `PUT /api/strategies/{id}` → 200 | Trader iteruje |
 | 9 | Paper trading | WebSocket tick w < 2s | Trader symuluje |
 | 10 | Błędy zrozumiałe | Error ma message (nie stack trace) | Trader nie jest zgubiony |
 
-**NASTĘPNY KROK = Pierwszy ❌ od góry.**
-
 ---
 
-## DRIVER: MATRYCA DELEGACJI
+# DRIVER: AUTONOMICZNA PĘTLA
 
-| Symptom (Trader Journey ❌) | Diagnoza | Deleguj do |
-|-----------------------------|----------|------------|
-| Krok 1: Dashboard nie ładuje | Frontend crash/build | frontend-dev |
-| Krok 2: Backend /health fail | API crash | backend-dev |
-| Krok 3: Strategia nie zapisuje | API lub DB | backend-dev → jeśli DB problem → database-dev |
-| Krok 4: Wskaźniki puste | Indicator engine | backend-dev |
-| Krok 5: Backtest timeout/error | QuestDB lub algorytm | database-dev (DB) → backend-dev (algorytm) |
-| Krok 6: Equity curve puste | Obliczenia lub UI | backend-dev (obliczenia) → frontend-dev (UI) |
-| Krok 7: Brak transakcji | Persistence | database-dev → backend-dev |
-| Krok 8: PUT nie działa | API endpoint | backend-dev |
-| Krok 9: WebSocket disconnect | Połączenie | backend-dev |
-| Krok 10: Błędy techniczne | UX error messages | trading-domain + frontend-dev |
+## DIAGRAM PĘTLI GŁÓWNEJ
 
-### Kiedy eskalować
-
-| Sytuacja | Akcja |
-|----------|-------|
-| Nie wiem komu delegować | Zapytaj trading-domain |
-| Agent wraca bez rozwiązania 2x | Zbierz obu agentów |
-| Wymaga zmian w wielu warstwach | Sekwencja: DB → Backend → Frontend |
-
----
-
-## TYPY PROBLEMÓW
-
-### TYP A: Problem KODU
-- Funkcja zwraca błędny wynik
-- NotImplementedError
-- Edge case nie obsłużony
-- Race condition
-
-**PROCES:** TDD (RED → GREEN → REFACTOR → E2E)
-
-### TYP B: Problem INFRASTRUKTURY
-- Serwis nie odpowiada (docker down)
-- Brak połączenia z DB
-- Port zajęty
-
-**PROCES:**
-```bash
-# 1. Status
-docker ps | grep [service]
-
-# 2. Logi
-docker logs [service] 2>&1 | tail -20
-
-# 3. Napraw
-docker-compose up -d [service]
-
-# 4. Weryfikuj
-curl localhost:[port]/health
+```
+START SESJI
+     │
+     ▼
+┌─────────────────────────────────────────────────────────────┐
+│  1. ANALIZA                                                 │
+│     • Trader Journey Check (10 kroków)                      │
+│     • Security grep                                         │
+│     • Blokady między krokami                                │
+└────────────────────┬────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────────┐
+│  2. ROADMAPA SESJI (na początku) / UPDATE (w trakcie)       │
+│     • Cel: TJ X/10 → Y/10                                   │
+│     • Plan: Które kroki, estymacje, agenci                  │
+│     • Bufor na niespodzianki                                │
+└────────────────────┬────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────────┐
+│  3. DECYZJA (algorytm priorytetyzacji)                      │
+│     Security → Blocker → Dependency → Trader Value → Effort │
+└────────────────────┬────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────────┐
+│  4. DELEGACJA                                               │
+│     • Do którego agenta                                     │
+│     • Z kontekstem i kryterium sukcesu                      │
+│     • Z estymacją czasu                                     │
+└────────────────────┬────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────────┐
+│  5. WERYFIKACJA                                             │
+│     • Kryterium sukcesu spełnione?                          │
+│     • Testy przechodzą?                                     │
+│     • TJ krok ✅?                                            │
+└────────────────────┬────────────────────────────────────────┘
+                     │
+         ┌───────────┴───────────┐
+         │                       │
+         ▼                       ▼
+    ZAAKCEPTOWANY           ODRZUCONY
+         │                       │
+         ▼                       ▼
+┌─────────────────┐    ┌─────────────────┐
+│ Update Status   │    │ Feedback do     │
+│ Board + TJ      │    │ agenta / Eskaluj│
+└────────┬────────┘    └────────┬────────┘
+         │                       │
+         └───────────┬───────────┘
+                     │
+                     ▼
+              ┌──────────────┐
+              │ WARUNKI      │
+              │ ZAKOŃCZENIA? │
+              └──────┬───────┘
+                     │
+         ┌───────────┼───────────┐
+         │           │           │
+         ▼           ▼           ▼
+   TJ = 10/10    Czas > 2h    3 iteracje
+   lub cel       PUNKT        bez postępu
+   osiągnięty    KONTROLNY    ESKALACJA
+         │           │           │
+         ▼           ▼           ▼
+      SUKCES      PAUZA       ESKALUJ
+         │           │           │
+         └───────────┴───────────┘
+                     │
+                     ▼
+            RAPORT KOŃCOWY SESJI
 ```
 
-### TYP C: Problem KONFIGURACJI
-- Złe wartości w .env
-- Brakujące secrets
-
-**PROCES:**
-1. Porównaj z .env.example
-2. Napraw
-3. Restart serwisów
-4. Weryfikuj
-
 ---
 
-## FAZA 0: DIAGNOZA (5 min)
-
-### Krok 1: Trader Journey Check
-
-Uruchom i wypełnij:
+## FAZA 1: ANALIZA
 
 ```markdown
-## TRADER JOURNEY - [data]
+## ANALIZA STANU - [data/czas]
 
+### 1. Trader Journey Status
 | # | Krok | Status |
 |---|------|--------|
 | 1 | Dashboard | ✅/❌ |
-| 2 | Backend health | ✅/❌ |
+| 2 | Backend | ✅/❌ |
 | 3 | Create strategy | ✅/❌ |
-| 4 | List indicators | ✅/❌ |
+| 4 | Indicators | ✅/❌ |
 | 5 | Backtest | ✅/❌ |
 | 6 | Equity curve | ✅/❌ |
 | 7 | Trade history | ✅/❌ |
@@ -138,159 +151,261 @@ Uruchom i wypełnij:
 | 10 | Error messages | ✅/❌ |
 
 WYNIK: X/10
-NASTĘPNY: Krok [pierwszy ❌]
+
+### 2. Security Check
+$ grep -rn "password\|secret\|api_key" src/ --include="*.py" | grep -v test
+[wynik lub "BRAK"]
+
+### 3. Blokady
+| Krok ❌ | Blokuje | Blokowany przez |
+|---------|---------|-----------------|
+| [krok] | [które] | [które] |
+
+### 4. TODO:P0
+$ grep -rn "TODO:P0\|FIXME:P0" src/
+[wynik lub "BRAK"]
 ```
-
-### Krok 2: Krytyczne problemy (grep)
-
-```bash
-# Security (KRYTYCZNE - uruchom ZAWSZE)
-grep -rn "password\|secret\|api_key" src/ --include="*.py" | grep -v test | grep -v ".pyc"
-
-# Niedokończone (P0)
-grep -rn "NotImplementedError\|TODO:P0\|FIXME:P0" src/
-
-# Placeholder (P1)
-grep -rn "= 0\.0\|= None.*#.*placeholder" src/ --include="*.py"
-```
-
-**Jeśli znajdziesz security issue → P0, napraw NATYCHMIAST.**
-
-### Krok 3: Identyfikacja typu
-
-- Serwis nie odpowiada? → TYP B (INFRA)
-- Funkcja zwraca błąd? → TYP A (KOD)
-- Brakuje config? → TYP C (CONFIG)
 
 ---
 
-## FAZA 1: DECYZJA
+## FAZA 2: ROADMAPA SESJI
 
-### Driver
-
-Użyj matrycy delegacji. Deleguj z kontekstem:
+Na POCZĄTKU każdej sesji:
 
 ```markdown
-@[agent]:
-- Problem: [opis]
-- Trader Journey krok: [X]
-- Typ: [KOD/INFRA/CONFIG]
-- Kontekst: [co już sprawdzone]
+## ROADMAPA SESJI - [data]
+
+### CEL: TJ X/10 → Y/10
+
+### PLAN (realistyczny dla czasu sesji):
+| # | Krok TJ | Estymacja | Agent |
+|---|---------|-----------|-------|
+| 1 | [krok] | [min] | [agent] |
+| 2 | [krok] | [min] | [agent] |
+| 3 | [krok] | [min] | [agent] |
+
+### BUFOR: [30 min na niespodzianki]
+
+### JEŚLI CZAS POZWOLI:
+- [dodatkowy krok]
 ```
 
-### Inni agenci
+---
+
+## FAZA 3: DECYZJA (Algorytm Priorytetyzacji)
+
+**WYKONAJ W KOLEJNOŚCI (pierwszy spełniony = WYBIERZ):**
+
+```
+1. SECURITY ISSUE? (grep znalazł problem)
+   → TAK: Napraw NATYCHMIAST
+   → Uzasadnienie: Bezpieczeństwo tradera > wszystko
+
+2. BLOCKER? (krok który blokuje inne kroki)
+   → TAK: Napraw ten krok
+   → Uzasadnienie: Odblokuje więcej pracy
+
+3. DEPENDENCY? (krok zablokowany przez inny)
+   → TAK: Najpierw napraw blokujący
+   → Uzasadnienie: Nie można naprawić bez dependency
+
+4. TRADER VALUE? (który krok najbardziej boli tradera)
+   → Zapytaj trading-domain lub oceń sam:
+     • Główny flow (1-8) > Opcjonalne (9-10)
+     • Wcześniejszy krok > Późniejszy
+
+5. EFFORT? (przy równej wartości wybierz łatwiejszy)
+   → Szybkie wygrane budują momentum
+```
+
+**SZABLON DECYZJI:**
 
 ```markdown
-## DECYZJA
+### WYBIERAM: Krok [X] - [nazwa]
 
-### Co robię?
-[Konkretny opis zmiany]
+### UZASADNIENIE:
+[Która reguła algorytmu pasuje]
 
-### Który krok Trader Journey to poprawi?
-[Krok X: nazwa]
-
-### Typ problemu
-[KOD / INFRA / CONFIG]
+### ALTERNATYWY ODRZUCONE:
+| Krok | Dlaczego nie |
+|------|--------------|
+| [Y] | [powód] |
 ```
 
 ---
 
-## FAZA 2: IMPLEMENTACJA
+## FAZA 4: DELEGACJA
 
-### Dla TYP A (KOD) - TDD
+### Matryca Delegacji
 
-```
-1. RED: Napisz test który FAIL
-   $ pytest tests/test_X.py::test_name -v
-   → FAILED (pokaż output)
+| Symptom (TJ ❌) | Deleguj do |
+|-----------------|------------|
+| Krok 1: Dashboard nie ładuje | frontend-dev |
+| Krok 2: Backend /health fail | backend-dev |
+| Krok 3: Strategia nie zapisuje | backend-dev → database-dev |
+| Krok 4: Wskaźniki puste | backend-dev |
+| Krok 5: Backtest fail | database-dev → backend-dev |
+| Krok 6: Equity curve puste | backend-dev → frontend-dev |
+| Krok 7: Brak transakcji | database-dev → backend-dev |
+| Krok 8: PUT nie działa | backend-dev |
+| Krok 9: WebSocket disconnect | backend-dev |
+| Krok 10: Błędy techniczne | trading-domain + frontend-dev |
 
-2. GREEN: Napisz minimalny kod
-   $ pytest tests/test_X.py::test_name -v
-   → PASSED
+### Szablon Delegacji
 
-3. REFACTOR: Wyczyść (testy nadal PASS)
+```markdown
+## DELEGACJA
 
-4. E2E: Sprawdź Trader Journey
-   $ curl localhost:8080/health
-   $ python tests/e2e/test_trader_journey.py (jeśli istnieje)
-```
+### DO: @[agent]
 
-### Dla TYP B (INFRA) - Checklist
+### ZADANIE:
+[Konkretny opis]
 
+### TRADER JOURNEY KROK: [X]
+
+### KONTEKST:
+- Aktualny stan: [co teraz]
+- Oczekiwany stan: [co powinno być]
+- Powiązane kroki: [które odblokuje]
+
+### TYP PROBLEMU: [KOD / INFRA / CONFIG]
+
+### KRYTERIUM SUKCESU:
 ```bash
-# 1. Status
-docker ps
-
-# 2. Logi
-docker logs [service] 2>&1 | tail -30
-
-# 3. Napraw
-docker-compose up -d [service]
-# lub: docker-compose restart [service]
-
-# 4. Weryfikuj
-curl localhost:[port]/health
+[komenda która potwierdzi sukces]
 ```
 
-### Dla TYP C (CONFIG)
+### ESTYMACJA: [X min]
+```
 
-```bash
-# 1. Sprawdź
-cat .env | grep [VARIABLE]
-diff .env .env.example
+### Równoległa Delegacja
 
-# 2. Napraw
-# Edytuj .env
+Jeśli zadania są NIEZALEŻNE, deleguj równolegle:
 
-# 3. Restart
-docker-compose restart
+```markdown
+## DELEGACJA RÓWNOLEGŁA
 
-# 4. Weryfikuj
-curl localhost:8080/health
+### @backend-dev: [zadanie A]
+### @frontend-dev: [zadanie B]
+
+(oba mogą pracować jednocześnie)
 ```
 
 ---
 
-## FRONTEND: JAK TESTOWAĆ
+## FAZA 5: WERYFIKACJA
 
-### Testy komponentów (Jest + React Testing Library)
+### Checklist Akceptacji Raportu
 
-```javascript
-import { render, screen } from '@testing-library/react';
-import { EquityCurve } from './EquityCurve';
+```markdown
+## WERYFIKACJA: [zadanie]
 
-test('EquityCurve renders data points', () => {
-  const data = [100, 102, 98, 105];
-  render(<EquityCurve data={data} />);
+### OTRZYMANY OD: @[agent]
 
-  expect(screen.getByTestId('equity-chart')).toBeInTheDocument();
-});
+### CHECKLIST:
+- [ ] Kryterium sukcesu spełnione?
+- [ ] Testy przechodzą (output w raporcie)?
+- [ ] TJ krok teraz ✅?
+- [ ] Brak regresji w innych krokach?
+- [ ] Raport ma sekcję DOWODY?
+
+### WYNIK: [ZAAKCEPTOWANY / ODRZUCONY]
+
+### JEŚLI ODRZUCONY:
+- Powód: [co brakuje]
+- Akcja: [popraw / eskaluj / zmień agenta]
 ```
-
-### Testy E2E (Playwright)
-
-```javascript
-test('Trader can create strategy', async ({ page }) => {
-  await page.goto('/strategies/new');
-  await page.fill('[name="strategy-name"]', 'Test Strategy');
-  await page.click('button[type="submit"]');
-  await expect(page).toHaveURL(/strategies\/\d+/);
-});
-```
-
-### Kiedy który test?
-
-| Zmiana | Typ testu |
-|--------|-----------|
-| Nowy komponent | Jest + RTL |
-| Zmiana w formularzu/flow | Playwright E2E |
-| Integracja z API | Mock API + Jest |
 
 ---
 
-## TRADING-DOMAIN: TEST UŻYTECZNOŚCI
+## STATUS BOARD
 
-Dla NOWYCH funkcji, wypełnij:
+Aktualizuj PO KAŻDEJ weryfikacji:
+
+```markdown
+## STATUS BOARD - [czas]
+
+| # | Zadanie | Agent | Status | Czas |
+|---|---------|-------|--------|------|
+| 1 | [opis] | [agent] | ✅/⏳/❌ | [min] |
+| 2 | [opis] | [agent] | 📋 PLANNED | - |
+
+### METRYKI SESJI:
+- TJ: X/10 → Y/10 (+Z)
+- Czas: [wykorzystany] / [dostępny]
+- Zadania: [ukończone] / [zaplanowane]
+```
+
+---
+
+## WARUNKI ZAKOŃCZENIA
+
+### SUKCES (TJ = 10/10 lub cel osiągnięty)
+→ Raport końcowy z metrykami
+
+### PUNKT KONTROLNY (czas > 2h)
+→ Zapisz stan, zaplanuj następną sesję
+
+### ESKALACJA (3 iteracje bez postępu)
+→ Zgłoś z opisem co próbowano
+
+---
+
+## RAPORT KOŃCOWY SESJI
+
+```markdown
+## SESJA [data] - PODSUMOWANIE
+
+### Cel vs Wynik
+CEL: TJ X/10 → Y/10
+WYNIK: TJ X/10 → Z/10 [✅ OSIĄGNIĘTY / ⚠️ CZĘŚCIOWY / ❌ NIEUDANY]
+
+### Zadania
+| # | Zadanie | Agent | Czas |
+|---|---------|-------|------|
+| 1 | [opis] | [agent] | [min] |
+
+### Metryki
+- Zadania: X/Y ukończone
+- Czas: X min / Y min
+- TJ: +Z kroków
+
+### Otwarte problemy
+| Krok | Problem | Priorytet |
+|------|---------|-----------|
+| [X] | [opis] | P0/P1/P2 |
+
+### Następna sesja
+1. Zacząć od: [krok]
+2. Cel: TJ Z/10 → W/10
+```
+
+---
+
+# AGENCI: INSTRUKCJE SZCZEGÓŁOWE
+
+## TRADING-DOMAIN
+
+### Kiedy Driver pyta o priorytet:
+
+```markdown
+## PRIORYTETYZACJA: [opcja A] vs [opcja B]
+
+### Perspektywa tradera:
+| Opcja | Kiedy trader używa | Ból bez tego |
+|-------|-------------------|--------------|
+| A | [scenariusz] | [konsekwencja] |
+| B | [scenariusz] | [konsekwencja] |
+
+### DECYZJA: [A / B]
+
+### UZASADNIENIE:
+[Dlaczego to ważniejsze dla tradera]
+
+### VETO: [TAK jeśli blokuje / NIE]
+```
+
+### Test użyteczności (dla NOWYCH funkcji):
 
 ```markdown
 ## TEST UŻYTECZNOŚCI: [funkcja]
@@ -301,52 +416,104 @@ Nowy użytkownik chce: [cel]
 ### Kroki (maks 10):
 1. [krok]
 2. [krok]
-...
 
 ### Checklist
 - [ ] Cel osiągalny w < 5 krokach?
-- [ ] Każdy krok oczywisty (bez dokumentacji)?
+- [ ] Każdy krok oczywisty?
 - [ ] Błędy zrozumiałe?
 - [ ] Jest cofnij/anuluj?
 
 ### WERDYKT: PASS / FAIL
-Jeśli FAIL → [co poprawić]
 ```
 
 ---
 
-## CODE-REVIEWER: CHECKLIST
+## BACKEND-DEV / FRONTEND-DEV / DATABASE-DEV
 
-### BEZPIECZEŃSTWO (uruchom ZAWSZE)
+### Typy problemów i procesy:
 
-```bash
-grep -rn "password\|secret\|key\|token\|api_key" [zmienione pliki] | grep -v test
-grep -rn "eval\|exec\|os.system" [zmienione pliki]
+**TYP A: KOD → TDD**
+```
+1. RED: Test FAIL (pokaż output)
+2. GREEN: Test PASS
+3. REFACTOR
+4. Sprawdź TJ krok
 ```
 
-- [ ] Brak hardcoded secrets
-- [ ] Brak eval/exec na user input
-- [ ] SQL przez parametry (nie string concat)
+**TYP B: INFRA → Checklist**
+```bash
+1. docker ps | grep [service]
+2. docker logs [service]
+3. docker-compose up -d [service]
+4. curl localhost:[port]/health
+```
 
-### JAKOŚĆ KODU
+**TYP C: CONFIG → Weryfikacja**
+```bash
+1. cat .env | grep [VAR]
+2. diff .env .env.example
+3. Napraw
+4. Restart + weryfikuj
+```
 
-- [ ] Nowy kod ma testy
-- [ ] Edge cases przetestowane (null, empty, max)
-- [ ] Error handling konkretny (nie bare `except:`)
-- [ ] Logging dla operacji > 100ms
+### Raport po zadaniu:
 
-### ARCHITEKTURA
+```markdown
+## RAPORT: [zadanie]
 
-- [ ] Używa EventBus (nie direct calls między modułami)
-- [ ] DI przez konstruktor (nie global imports)
-- [ ] Brak breaking changes w API (lub migracja)
+### STATUS
+[Co zrobiłem - BEZ "sukces/gotowe"]
+
+### DOWODY
+$ [komenda]
+[output]
 
 ### TRADER JOURNEY
+Krok [X]: ❌ → ✅
 
-- [ ] Zmiana nie psuje żadnego z 10 kroków
-- [ ] Błędy mają zrozumiały message
+### ZMIANY
+| Plik:linia | Zmiana |
+|------------|--------|
+| [plik] | [opis] |
 
-### FORMAT REVIEW
+### ESTYMACJA vs RZECZYWISTOŚĆ
+Estymacja: X min
+Rzeczywistość: Y min
+```
+
+---
+
+## CODE-REVIEWER
+
+### Checklist (uruchom ZAWSZE):
+
+```bash
+# BEZPIECZEŃSTWO
+grep -rn "password\|secret\|api_key" [pliki] | grep -v test
+grep -rn "eval\|exec\|os.system" [pliki]
+```
+
+```markdown
+### BEZPIECZEŃSTWO
+- [ ] Brak hardcoded secrets
+- [ ] Brak eval/exec na user input
+
+### JAKOŚĆ
+- [ ] Nowy kod ma testy
+- [ ] Edge cases przetestowane
+- [ ] Error handling konkretny
+
+### ARCHITEKTURA
+- [ ] EventBus do komunikacji
+- [ ] DI przez konstruktor
+- [ ] Brak breaking changes
+
+### TRADER JOURNEY
+- [ ] Nie psuje żadnego kroku
+- [ ] Błędy zrozumiałe
+```
+
+### Format review:
 
 ```markdown
 ## REVIEW: [plik]
@@ -354,9 +521,8 @@ grep -rn "eval\|exec\|os.system" [zmienione pliki]
 ### ✅ APPROVE / ⚠️ REQUEST CHANGES / ❌ REJECT
 
 **Security:** OK / PROBLEM
-**Testy:** OK / BRAK / NIEWYSTARCZAJĄCE
-**Architektura:** OK / UWAGI
-**Trader Journey:** OK / ZAGROŻONY KROK X
+**Testy:** OK / BRAK
+**TJ:** OK / ZAGROŻONY KROK X
 
 Komentarze:
 - linia X: [uwaga]
@@ -369,10 +535,6 @@ Komentarze:
 ```
 Max 3 iteracje na jeden problem.
 
-Iteracja 1: Próba rozwiązania
-Iteracja 2: Inna metoda
-Iteracja 3: Uproszczenie / workaround
-
 Po 3 iteracjach BEZ POSTĘPU → ESKALUJ:
 - Co próbowałem (3 podejścia)
 - Dlaczego nie działa
@@ -381,65 +543,22 @@ Po 3 iteracjach BEZ POSTĘPU → ESKALUJ:
 
 ---
 
-## FORMAT RAPORTU
-
-```markdown
-## RAPORT: [zadanie]
-
-### STATUS
-[Co zrobiłem - BEZ słów "sukces/gotowe/zrobione"]
-
-### DOWODY
-$ python run_tests.py
-[output - summary + FAILED only]
-
-$ curl localhost:8080/health
-{"status": "healthy"}
-
-### TRADER JOURNEY
-Przed: X/10
-Po: Y/10
-Naprawiony krok: [który]
-
-### ZMIANY
-| Plik:linia | Zmiana |
-|------------|--------|
-| src/x.py:42 | [opis] |
-
-### PLAN DALEJ
-1. [następny krok]
-2. [dlaczego ten]
-```
-
----
-
-## KIEDY DRIVER ODRZUCA RAPORT
-
-```
-ODRZUĆ jeśli:
-[ ] Brak sekcji DOWODY z outputem
-[ ] Brak TRADER JOURNEY przed/po
-[ ] Użyte: "sukces" / "gotowe" / "zrobione"
-[ ] Iteracja > 3 bez eskalacji
-```
-
----
-
 ## REGUŁY BEZWZGLĘDNE
 
 ### ZAWSZE
-- ✅ Output testów (nie "testy PASS")
-- ✅ Trader Journey check przed i po
+- ✅ Trader Journey jako główny miernik
+- ✅ Algorytm priorytetyzacji przy wyborze
+- ✅ Kryterium sukcesu przy delegacji
+- ✅ Status Board po każdej weryfikacji
 - ✅ Security grep przy każdym review
-- ✅ TDD dla kodu, Checklist dla infra
-- ✅ Eskaluj po 3 iteracjach
+- ✅ Raport końcowy sesji
 
 ### NIGDY
 - ❌ "sukces" / "gotowe" / "zrobione"
+- ❌ Delegacja bez kryterium sukcesu
 - ❌ > 3 iteracje bez eskalacji
-- ❌ Ocena bez testu
-- ❌ Review bez security grep
-- ❌ Merge bez Trader Journey check
+- ❌ Merge bez code review
+- ❌ Zakończenie bez raportu
 
 ---
 
@@ -453,40 +572,29 @@ ODRZUĆ jeśli:
 
 ---
 
-## REFLEKSJA (opcjonalna, raz na tydzień)
+**Wersja:** 12.0 | **Zmieniono:** 2025-12-04
 
-Jeśli proces nie działa, wypełnij:
-
-```markdown
-## REFLEKSJA - [data]
-
-### Co nie zadziałało?
-[konkretna sytuacja]
-
-### Która sekcja AGENTS.md zawiodła?
-[sekcja lub "BRAK SEKCJI"]
-
-### Propozycja zmiany
-[konkretna zmiana w procesie]
-```
-
----
-
-**Wersja:** 11.0 | **Zmieniono:** 2025-12-04
-
-## CHANGELOG v10 → v11
+## CHANGELOG v11 → v12
 
 | Zmiana | Uzasadnienie |
 |--------|--------------|
-| Usunięto 3 matryce oceny (210 pól) | Nie prowadziły do działań, tylko opis stanu |
-| Dodano Trader Journey jako główny miernik | 10 binarnych testów zamiast subiektywnych ocen |
-| Dodano matrycę delegacji dla Driver | Szybsza decyzja komu delegować |
-| Rozróżnienie KOD/INFRA/CONFIG | TDD nie dla wszystkiego |
-| Dodano sekcję testowania frontendu | frontend-dev wiedział jak testować |
-| Dodano checklist code review | Spójne review, security zawsze |
-| Dodano test użyteczności | trading-domain ma obiektywne kryteria |
-| Uproszczono raport | 4 sekcje zamiast 7 |
-| Refleksja opcjonalna | Raz na tydzień, nie każda sesja |
+| Dodano MISJĘ | Agent wie PO CO działa |
+| Dodano PĘTLĘ GŁÓWNĄ z diagramem | Agent wie JAK działać autonomicznie |
+| Dodano ALGORYTM PRIORYTETYZACJI | Agent wie CO robić najpierw |
+| Dodano ROADMAPĘ SESJI | Agent planuje całą sesję, nie tylko krok |
+| Dodano STATUS BOARD | Widoczność postępu w trakcie sesji |
+| Dodano ESTYMACJE | Planowanie czasu |
+| Dodano RÓWNOLEGŁĄ DELEGACJĘ | Szybsza praca gdy możliwe |
+| Dodano RAPORT KOŃCOWY z metrykami | Dokumentacja sesji |
+| Dodano WARUNKI ZAKOŃCZENIA | Agent wie KIEDY skończyć |
 
-**Oszczędność:** ~20 min/sesję
-**Fokus:** Trader Journey (wartość dla użytkownika) zamiast artefaktów kodu
+**Kluczowa zmiana:** Agent DRIVER jest teraz AUTONOMICZNY - sam:
+- Analizuje stan
+- Planuje sesję
+- Priorytetyzuje
+- Deleguje
+- Weryfikuje
+- Iteruje
+- Raportuje
+
+Nie czeka na polecenie. Działa aż TJ = 10/10 lub użytkownik przerwie.
