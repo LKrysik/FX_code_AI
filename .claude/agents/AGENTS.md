@@ -98,17 +98,25 @@ python tests/e2e/test_trader_journey.py
 6. Frontend renderuje dashboard bez błędów JS
 ```
 
-### Minimalny test E2E (jeśli pełny nie istnieje):
+### Fallback E2E (gdy tests/e2e/ nie istnieje):
 
 ```bash
-# Backend + Frontend + Integration
+# Sprawdź czy E2E istnieje:
+ls tests/e2e/test_*.py 2>/dev/null
+
+# Jeśli NIE istnieje - użyj minimalnego:
 curl -s http://localhost:8080/health | grep -q "healthy" && \
 curl -s http://localhost:3000 | grep -q "html" && \
-python run_tests.py --integration && \
-echo "E2E PASS" || echo "E2E FAIL"
+python run_tests.py && \
+echo "E2E-MINIMAL PASS" || echo "E2E-MINIMAL FAIL"
+
+# Jeśli ISTNIEJE - użyj pełnego:
+python tests/e2e/test_trader_journey.py
 ```
 
-**ZADANIE NIE JEST DONE jeśli E2E FAIL.**
+**Brak E2E testów = zgłoś w GAP ANALYSIS jako P1: "Brak tests/e2e/ - proponuję stworzyć"**
+
+**ZADANIE NIE JEST DONE jeśli E2E (lub E2E-MINIMAL) FAIL.**
 
 ---
 
@@ -240,7 +248,15 @@ Wydaje się że [opis co zrobiłem].
 ### DOWODY - TESTY
 ```
 $ python run_tests.py
-[WKLEJ CAŁY OUTPUT]
+[FORMAT: summary + tylko FAILED testy]
+
+Przykład:
+======================== 45 passed, 3 failed in 12.5s ========================
+FAILED tests/test_strategy.py::test_edge_case - AssertionError
+FAILED tests/test_risk.py::test_null_input - ValueError
+FAILED tests/test_api.py::test_timeout - TimeoutError
+
+[NIE wklejaj 200 linii PASSED - tylko summary + FAILED]
 ```
 
 ### DOWODY - E2E
@@ -390,4 +406,4 @@ Jeśli konflikt nierozwiązany → ESKALACJA do użytkownika
 
 ---
 
-**Version:** 9.0 | **Last Updated:** 2025-12-04
+**Version:** 9.1 | **Last Updated:** 2025-12-04
