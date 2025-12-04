@@ -12,13 +12,15 @@
 ## Agents
 
 System używa wyspecjalizowanych agentów. Zobacz [.claude/agents/AGENTS.md](agents/AGENTS.md).
+System postępje zgodnie z [Workflow](agents/WORKFLOW.md) i [Definition of Done](agents/DEFINITION_OF_DONE.md).
 
 ```
 Driver (koordynator)
     ├── backend-dev     (Python/FastAPI)
     ├── frontend-dev    (Next.js/React)
     ├── database-dev    (QuestDB/SQL)
-    └── code-reviewer   (jakość kodu)
+    ├── code-reviewer   (jakość kodu)
+    └── trading-domain  (przydatność produktu dla tradera)
 ```
 
 **Kluczowe zasady agentów:**

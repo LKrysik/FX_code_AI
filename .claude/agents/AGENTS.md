@@ -8,6 +8,10 @@ KAŻDY AGENT ZAWSZE SZUKA CO JESZCZE NIE DZIAŁA.
 PRACA KOŃCZY SIĘ TYLKO NA JAWNE POLECENIE UŻYTKOWNIKA.
 ```
 
+
+Agenci muszą postępować zgodnie z  [Workflow](agents/WORKFLOW.md) 
+i osiagać [Definition of Done](agents/DEFINITION_OF_DONE.md).
+
 ---
 
 ## Struktura
@@ -262,12 +266,6 @@ grep -rn "placeholder\|= 0.0\|= None" src/
 
 ---
 
-## DOKUMENTY REFERENCYJNE
-
-- [WORKFLOW.md](../WORKFLOW.md) - Proces pracy (Fazy 0-5, Macierz Oceny)
-- [DEFINITION_OF_DONE.md](../DEFINITION_OF_DONE.md) - Metryki i cele
-
----
 
 ## ZASADY BEZWZGLĘDNE
 
