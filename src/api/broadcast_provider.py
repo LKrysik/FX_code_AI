@@ -310,8 +310,7 @@ class BroadcastProvider:
             if self.event_bus:
                 await self.event_bus.publish(
                     "execution.progress_websocket_update",
-                    websocket_message,
-                    publisher_id=f"broadcast:{session_id}"
+                    websocket_message
                 )
             else:
                 if self.logger:
