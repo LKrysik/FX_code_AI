@@ -1,6 +1,6 @@
-# WORKFLOW - Autonomiczny Proces Pracy
+# WORKFLOW - Autonomiczny Proces Pracy Agenta AI
 
-**Wersja:** 6.0 | **Data:** 2025-12-04
+**Wersja:** 7.0 | **Data:** 2025-12-04
 
 **Cel dokumentu:** Definiuje JAK pracować autonomicznie. Cele i metryki są w [DEFINITION_OF_DONE.md](DEFINITION_OF_DONE.md).
 
@@ -19,6 +19,31 @@ ANALIZA → GAP ANALYSIS → PLANOWANIE → IMPLEMENTACJA → WERYFIKACJA → AN
 Pętla trwa do przerwania przez użytkownika.
 Każda iteracja MUSI przynieść mierzalny postęp.
 ```
+
+---
+
+## FILOZOFIA PRACY
+
+**Agent AI działa jako autonomiczny architekt produktu**, który:
+- Rozumie cel biznesowy i samodzielnie planuje drogę do jego osiągnięcia
+- Ocenia wartość każdej funkcjonalności dla końcowego użytkownika (tradera)
+- Podejmuje decyzje co budować, co poprawić, a co odrzucić
+- Mierzy postęp obiektywnymi wskaźnikami
+- Dostarcza działające rozwiązania, nie deklaracje
+
+---
+
+## CEL BIZNESOWY (Nienaruszalny)
+
+**Dostarczyć traderom narzędzie do wykrywania pump-and-dump, które jest:**
+
+| Wymiar | Definicja sukcesu |
+|--------|-------------------|
+| **Użyteczne** | Trader może wykryć pump/dump zanim inni i podjąć decyzję |
+| **Proste** | Trader bez doświadczenia technicznego może używać w 15 minut |
+| **Elastyczne** | Trader może tworzyć własne strategie bez kodowania |
+| **Niezawodne** | System działa 24/7, błędy są widoczne i zrozumiałe |
+| **Szybkie** | Od sygnału do decyzji < 1 sekunda |
 
 ---
 
@@ -52,7 +77,8 @@ Przed każdą iteracją MUSZĘ zadać sobie:
 - "Czego jeszcze nie sprawdziłem?"
 - "Jakie są możliwe konsekwencje tej zmiany?"
 - "Jakbym był traderem, co by mnie frustrowało?"
-- "Gdzie chciałbym wykazać swoje umiejętności?"
+- "Jakbym był traderem, co by poprawiło moją skuteczność?"
+- "Co wynika z moich metryk i jak to poprawić?"
 
 Pytania prowadzą do odkryć. Odkrycia prowadzą do ulepszeń.
 ```
@@ -116,65 +142,121 @@ Zawsze jest coś do zbadania, naprawienia, ulepszenia.
 
 ---
 
-## FAZA 0: ANALIZA STANU PROGRAMU (Obowiązkowa na początku każdej sesji)
+## FAZA -1: URUCHOMIENIE ŚRODOWISKA (Bezwzględnie pierwsza)
 
-### 0.1 Weryfikacja Środowiska
+**Żadna analiza, zmiana ani test nie ma sensu jeśli środowisko nie działa.**
+
+### Krok 1: Uruchom wszystkie usługi
 
 ```bash
-# KROK 1: Sprawdź czy usługi działają
-python run_tests.py
-# → X/Y PASS
+# Linux/Mac
+./start_all.sh
 
-curl http://localhost:8080/health
-# → {"status": "healthy"}
-
-curl http://localhost:3000
-# → HTML
-
-# KROK 2: Jeśli cokolwiek FAIL → NAPRAW najpierw (P0)
+# Windows PowerShell
+.\start_all.ps1
 ```
 
-### 0.2 Inwentaryzacja Funkcjonalności
+Uruchamia:
+- Backend (API)
+- Frontend (UI)
+- QuestDB (baza danych)
+
+### Krok 2: Zweryfikuj że usługi działają
+
+```bash
+# Backend health check
+curl http://localhost:8080/health
+# Oczekiwany wynik: {"status": "healthy"}
+
+# Frontend check
+curl http://localhost:3000
+# Oczekiwany wynik: HTML strony
+
+# Testy
+python run_tests.py
+# Oczekiwany wynik: wszystkie PASS (lub znane FAIL)
+```
+
+### Krok 3: Jeśli cokolwiek nie działa → NAPRAW TO NAJPIERW
+
+```
+ZASADA: Nie przechodzisz do FAZY 0 dopóki:
+[ ] Backend zwraca {"status": "healthy"}
+[ ] Frontend zwraca HTML
+[ ] Testy przechodzą (lub znasz powód failures)
+
+Jeśli usługa nie działa:
+1. Sprawdź logi
+2. Zidentyfikuj błąd
+3. Napraw
+4. Wróć do Kroku 2
+```
+
+### Raport stanu środowiska
+
+```markdown
+## STAN ŚRODOWISKA [data/godzina]
+
+| Usługa | Status | Dowód |
+|--------|--------|-------|
+| Backend | ✅/❌ | [output curl] |
+| Frontend | ✅/❌ | [output curl] |
+| QuestDB | ✅/❌ | [output] |
+| Testy | ✅/❌ PASS/FAIL | [output run_tests.py] |
+
+Problemy do naprawy przed kontynuacją:
+- [ ] ...
+```
+
+---
+
+## FAZA 0: ANALIZA STANU PROGRAMU (Obowiązkowa na początku każdej sesji)
+
+### 0.1 Inwentaryzacja Funkcjonalności
 
 Agent musi zidentyfikować i ocenić WSZYSTKIE istniejące komponenty:
 
 ```markdown
+## INWENTARYZACJA FUNKCJONALNOŚCI
+
 Dla każdego komponentu odpowiedz:
-1. Co robi? (faktyczna funkcja, nie intencja)
-2. Czy działa? (test + dowód)
-3. Czy jest potrzebny dla celu biznesowego?
-4. Jaki jest stan jakości? (skala 1-10)
-5. Jakie ma zależności?
+
+| Komponent | Co robi? (faktyczna funkcja) | Czy działa? (test + dowód) | Potrzebny dla celu? | Stan jakości (1-10) | Zależności |
+|-----------|------------------------------|---------------------------|---------------------|---------------------|------------|
+| Strategy Builder | | | TAK/NIE | /10 | |
+| Backtesting Engine | | | TAK/NIE | /10 | |
+| Paper Trading | | | TAK/NIE | /10 | |
+| Live Trading | | | TAK/NIE | /10 | |
+| Indicator Engine | | | TAK/NIE | /10 | |
+| Risk Manager | | | TAK/NIE | /10 | |
+| Order Manager | | | TAK/NIE | /10 | |
+| MEXC Adapter | | | TAK/NIE | /10 | |
+| Dashboard UI | | | TAK/NIE | /10 | |
+| Charts & Visualization | | | TAK/NIE | /10 | |
+| Event Bus | | | TAK/NIE | /10 | |
+| Database Layer | | | TAK/NIE | /10 | |
 ```
 
-### 0.3 Macierz Oceny Programu (OBOWIĄZKOWA)
+### 0.2 Macierz Oceny Programu (BIZNESOWA)
 
 Agent wypełnia macierz przy każdej analizie:
 
 ```markdown
 ## MACIERZ OCENY PROGRAMU - [data]
 
-| Obszar | Poprawność | Zgodność z celem | Użyteczność | Prostota użycia | Prostota utrzymania | Konfiguracja | Wydajność | Observability | Ryzyko regresji | ŚREDNIA |
-|--------|------------|------------------|-------------|-----------------|---------------------|--------------|-----------|---------------|-----------------|---------|
-| B1: API Server | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
-| B2: Strategy Manager | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
-| B3: Risk Manager | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
-| B4: Indicator Engine | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
-| B5: MEXC Adapter | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
-| B6: Order Manager | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
-| B7: Session Manager | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
-| B8: Event Bus | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
-| F1: Dashboard | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
-| F2: Strategy Builder | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
-| F3: Backtesting UI | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
-| F4: Live Trading UI | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
-| F5: Paper Trading UI | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
-| F6: Indicators UI | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
-| F7: Risk UI | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
-| F8: Charts | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
-| D1: QuestDB | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
-| D2: Data Collection | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
-| D3: Strategy Storage | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
+| Obszar | Poprawność (1-10) | Zgodność z celem (1-10) | Użyteczność dla tradera (1-10) | Prostota użycia (1-10) | Prostota utrzymania (1-10) | Łatwość konfiguracji (1-10) | Wydajność (1-10) | Observability (1-10) | Ryzyko regresji (1-10) | ŚREDNIA |
+|--------|-------------------|-------------------------|--------------------------------|------------------------|----------------------------|-----------------------------|--------------------|----------------------|------------------------|---------|
+| **Strategy Builder** | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
+| **Backtesting** | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
+| **Wskaźniki techniczne** | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
+| **Sygnały i transakcje** | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
+| **Paper Trading** | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
+| **Live Trading** | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
+| **Risk Management** | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
+| **UI/Frontend** | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
+| **Backend API** | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
+| **Baza danych** | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
+| **Logowanie/Monitoring** | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 | /10 |
 
 **Interpretacja:**
 - 1-3: Krytyczny problem, blokuje użycie
@@ -184,59 +266,69 @@ Agent wypełnia macierz przy każdej analizie:
 - 10: Doskonałe, nie wymaga zmian
 
 **Kolumny:**
-- Poprawność: Czy kod robi to co powinien?
-- Zgodność z celem: Czy służy celowi biznesowemu (trader)?
-- Użyteczność: Czy trader może efektywnie używać?
-- Prostota użycia: Czy jest intuicyjne?
-- Prostota utrzymania: Czy kod jest czytelny i łatwy do modyfikacji?
-- Konfiguracja: Czy można łatwo skonfigurować?
-- Wydajność: Czy jest szybkie?
-- Observability: Czy widać co się dzieje (logi, metryki)?
-- Ryzyko regresji: Niskie (10) = bezpieczne zmiany, Wysokie (1) = kruche
+- **Poprawność:** Czy kod robi to co powinien?
+- **Zgodność z celem:** Czy służy celowi biznesowemu (wykrywanie pump-and-dump)?
+- **Użyteczność dla tradera:** Czy trader może efektywnie używać do zarabiania?
+- **Prostota użycia:** Czy jest intuicyjne dla tradera bez IT?
+- **Prostota utrzymania:** Czy kod jest czytelny i łatwy do modyfikacji?
+- **Łatwość konfiguracji:** Czy można łatwo skonfigurować parametry?
+- **Wydajność:** Czy jest szybkie (< 1s od sygnału do decyzji)?
+- **Observability:** Czy widać co się dzieje (logi, metryki, błędy)?
+- **Ryzyko regresji:** Niskie (10) = bezpieczne zmiany, Wysokie (1) = kruche
 ```
 
-### 0.4 GAP ANALYSIS (OBOWIĄZKOWA)
+### 0.3 GAP Analysis
+
+Agent tworzy listę rozbieżności między stanem obecnym a celem:
 
 ```markdown
 ## GAP ANALYSIS - [data]
 
 ### Brakujące funkcjonalności (czego nie ma, a powinno być)
-| ID | Funkcjonalność | Wpływ na tradera | Złożoność | Priorytet |
-|----|----------------|------------------|-----------|-----------|
-| G1 | ... | Wysoki/Średni/Niski | Wysoka/Średnia/Niska | P0/P1/P2 |
+| ID | Funkcjonalność | Wpływ na cel biznesowy | Złożoność implementacji | Priorytet |
+|----|----------------|------------------------|-------------------------|-----------|
+| G1 | | Wysoki/Średni/Niski | Wysoka/Średnia/Niska | P0/P1/P2 |
+| G2 | | | | |
+| G3 | | | | |
 
 ### Niekompletne funkcjonalności (co jest, ale nie działa w pełni)
 | ID | Funkcjonalność | Co brakuje | Wpływ na tradera | Priorytet |
 |----|----------------|------------|------------------|-----------|
-| I1 | ... | ... | ... | P0/P1/P2 |
+| I1 | | | | P0/P1/P2 |
+| I2 | | | | |
+| I3 | | | | |
 
 ### Placeholdery/TODO (co jest zadeklarowane ale nie zaimplementowane)
 | ID | Lokalizacja | Treść | Wpływ | Priorytet |
 |----|-------------|-------|-------|-----------|
-| PH1 | plik:linia | TODO: ... | ... | P0/P1/P2 |
+| PH1 | plik:linia | | | P0/P1/P2 |
+| PH2 | | | | |
 
-### Problemy techniczne (co psuje działanie)
-| ID | Problem | Lokalizacja | Wpływ | Priorytet |
-|----|---------|-------------|-------|-----------|
-| T1 | ... | plik:linia | ... | P0/P1/P2 |
+### Nadmiarowe elementy (co jest, ale nie powinno być)
+| ID | Element | Dlaczego zbędny | Ryzyko usunięcia | Rekomendacja |
+|----|---------|-----------------|------------------|--------------|
+| R1 | | | | Usuń/Zostaw/Refaktoruj |
+| R2 | | | | |
 
 ### Problemy architektoniczne
 | ID | Problem | Wpływ | Pilność | Proponowane rozwiązanie |
 |----|---------|-------|---------|-------------------------|
-| A1 | ... | ... | ... | ... |
+| A1 | | | | |
+| A2 | | | | |
 
-### Nadmiarowe elementy (do usunięcia)
-| ID | Element | Dlaczego zbędny | Ryzyko usunięcia | Rekomendacja |
-|----|---------|-----------------|------------------|--------------|
-| R1 | ... | ... | ... | Usuń/Zostaw/Refaktoruj |
+### Problemy techniczne (błędy, bugs)
+| ID | Problem | Lokalizacja | Wpływ | Priorytet |
+|----|---------|-------------|-------|-----------|
+| T1 | | plik:linia | | P0/P1/P2 |
+| T2 | | | | |
 ```
 
-### 0.5 Problem Hunting (OBOWIĄZKOWE SKANOWANIE)
+### 0.4 Problem Hunting (OBOWIĄZKOWE SKANOWANIE)
 
 ```bash
 # Wykonaj przed każdą iteracją:
 
-# 1. Placeholdery
+# 1. Placeholdery i TODO
 grep -rn "TODO\|FIXME\|NotImplementedError\|pass$" src/
 
 # 2. Hardcoded values
@@ -255,7 +347,18 @@ grep -rn "console.log" frontend/src/
 
 ## FAZA 1: PLANOWANIE STRATEGICZNE
 
-### 1.1 Algorytm wyboru priorytetu
+### 1.1 Priorytetyzacja oparta na wartości
+
+Agent stosuje matrycę decyzyjną:
+
+```
+WARTOŚĆ DLA TRADERA (wysoka) + ZŁOŻONOŚĆ (niska) = ZRÓB NAJPIERW
+WARTOŚĆ DLA TRADERA (wysoka) + ZŁOŻONOŚĆ (wysoka) = ZAPLANUJ STARANNIE
+WARTOŚĆ DLA TRADERA (niska) + ZŁOŻONOŚĆ (niska) = ZRÓB PRZY OKAZJI
+WARTOŚĆ DLA TRADERA (niska) + ZŁOŻONOŚĆ (wysoka) = ODRZUĆ
+```
+
+### 1.2 Algorytm wyboru priorytetu
 
 ```
 1. Środowisko nie działa? → P0, napraw NATYCHMIAST
@@ -269,16 +372,9 @@ grep -rn "console.log" frontend/src/
 NIGDY nie wybieraj "nic do zrobienia" → zawsze jest coś do poprawy
 ```
 
-### 1.2 Priorytetyzacja oparta na wartości
+### 1.3 Kryteria decyzji "Budować vs Nie budować"
 
-```
-WARTOŚĆ DLA TRADERA (wysoka) + ZŁOŻONOŚĆ (niska) = ZRÓB NAJPIERW
-WARTOŚĆ DLA TRADERA (wysoka) + ZŁOŻONOŚĆ (wysoka) = ZAPLANUJ STARANNIE
-WARTOŚĆ DLA TRADERA (niska) + ZŁOŻONOŚĆ (niska) = ZRÓB PRZY OKAZJI
-WARTOŚĆ DLA TRADERA (niska) + ZŁOŻONOŚĆ (wysoka) = ODRZUĆ
-```
-
-### 1.3 Uzasadnienie decyzji (przed każdą zmianą)
+Przed rozpoczęciem jakiejkolwiek pracy, agent odpowiada:
 
 ```markdown
 ## UZASADNIENIE DECYZJI
@@ -287,26 +383,61 @@ WARTOŚĆ DLA TRADERA (niska) + ZŁOŻONOŚĆ (wysoka) = ODRZUĆ
 [Konkretny opis zmiany/funkcjonalności]
 
 ### Jak to służy traderowi?
-[Konkretny scenariusz użycia]
+[Konkretny scenariusz użycia z perspektywy tradera]
 
 ### Jakie jest ryzyko NIE zrobienia tego?
-[Co trader traci]
+[Co trader traci jeśli tego nie zrobię]
 
 ### Jakie jest ryzyko ZROBIENIA tego?
-[Regresje, złożoność]
+[Regresje, złożoność, czas]
 
 ### Czy istnieje prostsze rozwiązanie?
-[Alternatywy]
+[Alternatywy i ich porównanie]
 
 ### DECYZJA: [BUDUJ / POPRAW ISTNIEJĄCE / ODRZUĆ]
 ### UZASADNIENIE: [...]
+```
+
+### 1.4 Roadmapa Rozwoju
+
+Agent utrzymuje i aktualizuje roadmapę:
+
+```markdown
+## ROADMAPA PROJEKTU - [data]
+
+### ETAP 1: Fundament (musi działać żeby cokolwiek miało sens)
+- [ ] Backend startuje i zwraca health - Status: [TODO/IN_PROGRESS/DONE/BLOCKED]
+- [ ] Frontend renderuje się - Status: ...
+- [ ] QuestDB działa - Status: ...
+- [ ] Testy przechodzą - Status: ...
+
+### ETAP 2: Wartość podstawowa (trader może używać)
+- [ ] Strategy Builder tworzy strategie - Status: ...
+- [ ] Backtest uruchamia się i zwraca wyniki - Status: ...
+- [ ] Wskaźniki obliczają się poprawnie - Status: ...
+- [ ] Wykresy wyświetlają dane - Status: ...
+
+### ETAP 3: Wartość rozszerzona (trader chce używać)
+- [ ] Paper Trading działa real-time - Status: ...
+- [ ] Sygnały pojawiają się < 1s - Status: ...
+- [ ] Live Trading (z zabezpieczeniami) - Status: ...
+- [ ] Alerty i notyfikacje - Status: ...
+
+### ETAP 4: Doskonałość (trader poleca innym)
+- [ ] UX bez frustracji - Status: ...
+- [ ] Dokumentacja dla tradera - Status: ...
+- [ ] Optymalizacja wydajności - Status: ...
+
+### ODRZUCONE (z uzasadnieniem)
+- [Pomysł X] - Odrzucone bo: [uzasadnienie]
+- [Pomysł Y] - Odrzucone bo: [uzasadnienie]
 ```
 
 ---
 
 ## FAZA 2: ANALIZA PRZED ZMIANĄ (Obowiązkowa)
 
-### 2.1 Analiza wpływu
+### 2.1 Analiza wpływu architekturalnego
 
 ```markdown
 ## ANALIZA ZMIANY: [nazwa]
@@ -322,13 +453,26 @@ WARTOŚĆ DLA TRADERA (niska) + ZŁOŻONOŚĆ (wysoka) = ODRZUĆ
 
 ### Potencjalne efekty uboczne
 1. [efekt + jak zweryfikować]
+2. [efekt + jak zweryfikować]
+
+### Sprawdzenie race conditions
+- [ ] Czy zmiana dotyczy współdzielonych zasobów?
+- [ ] Czy są operacje asynchroniczne?
+- [ ] Czy jest odpowiednia synchronizacja?
+- [ ] Czy może wystąpić deadlock?
 
 ### Historia zmian w tym obszarze
+[Sprawdź git log dla zmienianych plików]
+```bash
 git log --oneline -10 [pliki]
+```
 - Ostatnia zmiana: [data, autor, cel]
+- Czy poprzednie zmiany sugerują że moja propozycja może być błędna?
 ```
 
-### 2.2 Kontrola jakości przed zmianą
+### 2.2 Kontrola jakości kodu
+
+Przed każdą zmianą agent sprawdza:
 
 ```markdown
 ## KONTROLA JAKOŚCI
@@ -336,12 +480,22 @@ git log --oneline -10 [pliki]
 ### Dead code w obszarze zmiany
 - [ ] Nieużywane funkcje: [lista lub "brak"]
 - [ ] Nieużywane importy: [lista lub "brak"]
+- [ ] Zakomentowany kod: [lista lub "brak"]
 
 ### Duplikacja kodu
 - [ ] Czy podobna logika istnieje gdzie indziej? [tak/nie, gdzie]
+- [ ] Czy tworzę drugą wersję czegoś istniejącego? [tak/nie]
+
+### Backward compatibility
+- [ ] Czy zmiana wymaga migracji danych? [tak/nie]
+- [ ] Czy tworzę "stare" i "nowe" API? [tak/nie - jeśli tak, STOP i przemyśl]
+- [ ] Czy zmiana łamie istniejące kontrakty? [tak/nie]
 
 ### Spójność z architekturą
 - [ ] Czy zmiana pasuje do istniejących wzorców? [tak/nie]
+- [ ] Czy nie wprowadzam niespójności? [tak/nie]
+- [ ] Czy używam EventBus do komunikacji między komponentami? [tak/nie]
+- [ ] Czy używam Constructor Injection (nie globalny Container)? [tak/nie]
 ```
 
 ---
@@ -361,13 +515,14 @@ git log --oneline -10 [pliki]
 
 3. REFAKTORUJ jeśli potrzebne
    - Testy MUSZĄ NADAL PRZECHODZIĆ
+   - Pokaż output jako dowód
 
 4. URUCHOM WSZYSTKIE TESTY
    - WSZYSTKIE muszą przechodzić
    - Pokaż output jako dowód
 ```
 
-### 3.2 Checklist implementacji
+### 3.2 Wymagania implementacyjne
 
 ```markdown
 ## CHECKLIST IMPLEMENTACJI
@@ -376,15 +531,31 @@ git log --oneline -10 [pliki]
 - [ ] Brak dead code (usunięty jeśli był)
 - [ ] Brak duplikacji (wykorzystane istniejące rozwiązania)
 - [ ] Komentarze przy nieoczywistych decyzjach
+- [ ] Oznaczenie miejsc wymagających akceptacji biznesowej
 
 ### Testy
-- [ ] Nowe testy dla nowej funkcjonalności (happy path + edge cases)
+- [ ] Nowe testy dla nowej funkcjonalności (happy path)
+- [ ] Testy edge cases (null, empty, max, min)
+- [ ] Testy error handling
 - [ ] Zaktualizowane testy dla zmienionej funkcjonalności
-- [ ] Testy integracyjne (nie tylko jednostkowe)
+- [ ] Usunięte testy dla usuniętej funkcjonalności
+- [ ] Uzasadnienie każdej zmiany w testach
 
-### Dokumentacja
-- [ ] Zmienione pliki udokumentowane w raporcie
-- [ ] Decyzje biznesowe oznaczone komentarzem
+### Dokumentacja zmian w testach
+| Plik testu | Zmiana | Uzasadnienie |
+|------------|--------|--------------|
+| test_x.py | Dodano test Y | Pokrywa nową funkcję Z |
+| test_a.py | Usunięto test B | Funkcja B została usunięta |
+| test_c.py | Zmodyfikowano test D | Zmiana w logice funkcji |
+```
+
+### 3.3 Komentarze decyzyjne w kodzie
+
+```python
+# DECISION [2025-12-04]: Użyto algorytmu X zamiast Y
+# REASON: X jest 3x szybszy dla dużych zbiorów danych
+# OWNER_APPROVAL_REQUIRED: Tak - zmiana wpływa na dokładność sygnałów
+# CONTEXT: Zobacz GAP ANALYSIS z dnia [data]
 ```
 
 ---
@@ -407,10 +578,13 @@ ZADANIE jest DONE tylko gdy:
 Jeśli którykolwiek warunek nie jest spełniony → NIE OGŁASZAJ SUKCESU
 ```
 
-### 4.2 Format raportu weryfikacji
+### 4.2 Obiektywny raport weryfikacji
 
 ```markdown
 ## WERYFIKACJA: [zadanie]
+
+### Co zostało zrobione
+[Konkretny opis zmian z numerami linii]
 
 ### Testy
 - [ ] python run_tests.py → X/Y PASS
@@ -431,17 +605,41 @@ Jeśli którykolwiek warunek nie jest spełniony → NIE OGŁASZAJ SUKCESU
 - [ ] Inne obszary nadal działają
 - [ ] Trader Journey nie pogorszony
 
-### GAP ANALYSIS po zmianie
-[Tabela GAP ANALYSIS]
+### Co działa (z dowodem)
+| Funkcjonalność | Test/Weryfikacja | Wynik | Dowód (output) |
+|----------------|------------------|-------|----------------|
+| | | | [wklej output] |
+
+### Co NIE działa (z opisem)
+| Problem | Lokalizacja (plik:linia) | Przyczyna | Plan naprawy |
+|---------|--------------------------|-----------|--------------|
+| | | | |
 
 ### Aktualizacja macierzy
-| Obszar | Przed | Po | Zmiana |
-|--------|-------|-----|--------|
+| Obszar | Przed | Po | Zmiana | Uzasadnienie |
+|--------|-------|-----|--------|--------------|
 
 ### NASTĘPNY PRIORYTET
 Na podstawie GAP ANALYSIS: [...]
 
 WYNIK: DONE / NIE DONE (co brakuje: ...)
+```
+
+### 4.3 Kryteria sukcesu
+
+**SUKCES można ogłosić TYLKO gdy:**
+
+```
+[ ] Wszystkie testy przechodzą (100% GREEN)
+[ ] Brak nowych błędów w logach backendu
+[ ] Frontend renderuje się bez błędów w konsoli
+[ ] Dowody działania są załączone (output, screenshot)
+[ ] Brak regresji w istniejącej funkcjonalności
+[ ] Zmiana jest udokumentowana
+[ ] Macierz oceny jest zaktualizowana
+[ ] GAP ANALYSIS wskazuje następny priorytet
+
+Jeśli którykolwiek warunek nie jest spełniony → NIE OGŁASZAJ SUKCESU
 ```
 
 ---
@@ -453,9 +651,10 @@ WYNIK: DONE / NIE DONE (co brakuje: ...)
 ```
 1. Wykonaj GAP ANALYSIS
 2. Zaktualizuj macierz oceny
-3. Zidentyfikuj następny priorytet
-4. NIE CZEKAJ na polecenie użytkownika
-5. KONTYNUUJ do następnej iteracji
+3. Zaktualizuj roadmapę
+4. Zidentyfikuj następny priorytet
+5. NIE CZEKAJ na polecenie użytkownika
+6. KONTYNUUJ do następnej iteracji
 
 "Zadanie done" → NIE SUKCES → tylko krok do następnego zadania
 ```
@@ -468,24 +667,36 @@ WYNIK: DONE / NIE DONE (co brakuje: ...)
 ### Postęp sesji
 - Iteracje: X
 - Zadania ukończone: Y
-- Metryki przed: [...]
-- Metryki po: [...]
+- Metryki przed: [tabela]
+- Metryki po: [tabela]
 - Trend: ↑ / ↓ / →
 
 ### Macierz oceny - porównanie
-| Warstwa | Przed | Po | Zmiana |
-|---------|-------|-----|--------|
-| Backend | X/10 | Y/10 | +/-Z |
-| Frontend | X/10 | Y/10 | +/-Z |
-| Database | X/10 | Y/10 | +/-Z |
+| Obszar | Przed | Po | Zmiana |
+|--------|-------|-----|--------|
+| Strategy Builder | X/10 | Y/10 | +/-Z |
+| Backtesting | X/10 | Y/10 | +/-Z |
+| ... | | | |
+
+### Roadmapa - aktualizacja
+- ETAP 1: X% ukończone
+- ETAP 2: Y% ukończone
+- Przesunięcia: [co i dlaczego]
 
 ### GAP ANALYSIS - pozostałe problemy
 [Tabela]
+
+### Decyzje podjęte
+| Decyzja | Uzasadnienie biznesowe | Uzasadnienie techniczne |
+|---------|------------------------|-------------------------|
 
 ### Następne priorytety
 1. [P0] ...
 2. [P1] ...
 3. [P2] ...
+
+### Czy workflow działa?
+- Jeśli NIE → opisz problem i zaproponuj zmianę
 ```
 
 ---
@@ -496,16 +707,57 @@ WYNIK: DONE / NIE DONE (co brakuje: ...)
 
 | Kategoria | Co szukać | Jak wykryć | Priorytet |
 |-----------|-----------|------------|-----------|
-| Brakujące implementacje | Wywołania nieistniejących metod | Analiza przepływu | P0 |
-| Martwy kod | Funkcje/zmienne nigdy nie używane | grep/analiza | P2 |
-| Placeholdery | TODO, FIXME, NotImplementedError, pass | grep | P0-P2 |
-| Niespójne interfejsy | Komponent A oczekuje X, B zwraca Y | Analiza typów | P1 |
-| Brakujące error handling | Kod bez try/catch | Analiza | P1 |
-| Hardcoded values | Wartości które powinny być konfigurowalne | grep | P1-P2 |
-| Race conditions | Współdzielone zasoby bez locków | Analiza async | P0 |
-| Memory leaks | Struktury które rosną bez czyszczenia | Analiza | P1 |
-| Brakujące testy | Krytyczny kod bez pokrycia | Coverage | P1 |
-| UX problems | Błędy niezrozumiałe dla tradera | Symulacja Journey | P1 |
+| **Brakujące implementacje** | Wywołania nieistniejących metod | Analiza przepływu między komponentami | P0 jeśli w głównym flow |
+| **Martwy kod** | Funkcje/zmienne nigdy nie używane | grep/analiza | P2 |
+| **Placeholdery** | TODO, FIXME, NotImplementedError, pass, = 0.0 | grep | P0-P2 zależnie od lokalizacji |
+| **Niespójne interfejsy** | Komponent A oczekuje X, B zwraca Y | Analiza typów i kontraktów | P1 |
+| **Brakujące error handling** | Kod który może rzucić wyjątek bez try/catch | Analiza krytycznych ścieżek | P1 |
+| **Hardcoded values** | Wartości które powinny być konfigurowalne | grep | P1-P2 |
+| **Race conditions** | Współdzielone zasoby bez locków | Analiza async kodu | P0 |
+| **Memory leaks** | Struktury które rosną bez czyszczenia | Analiza długich sesji | P1 |
+| **Brakujące testy** | Krytyczny kod bez pokrycia testami | Analiza coverage | P1 |
+| **UX problems** | Błędy niezrozumiałe dla tradera | Symulacja "Trader Journey" | P1 |
+
+### Komendy pomocnicze
+
+```bash
+# Placeholdery i TODO
+grep -rn "TODO\|FIXME\|HACK\|NotImplementedError" src/
+
+# Hardcoded values
+grep -rn "= 10000\|= 0.0\|placeholder\|hardcoded" src/
+
+# Nieużywane importy (Python)
+# pylint --disable=all --enable=unused-import src/
+
+# Historia zmian dla pliku
+git log --oneline -10 path/to/file.py
+```
+
+---
+
+## REGUŁY BEZWZGLĘDNE
+
+### NIGDY:
+- ❌ Nie ogłaszaj sukcesu bez dowodów (output, testy, screenshoty)
+- ❌ Nie wprowadzaj zmian bez analizy wpływu
+- ❌ Nie twórz alternatywnych wersji istniejącego kodu
+- ❌ Nie zostawiaj dead code
+- ❌ Nie zakładaj że coś działa - SPRAWDŹ
+- ❌ Nie mów "działa" bez konkretnych dowodów
+- ❌ Nie twórz backward compatibility layers - od razu docelowe rozwiązanie
+- ❌ Nie czekaj na polecenie - inicjuj!
+
+### ZAWSZE:
+- ✅ Najpierw test, potem implementacja
+- ✅ Uzasadniaj każdą decyzję biznesowo I technicznie
+- ✅ Sprawdzaj historię zmian przed modyfikacją
+- ✅ Weryfikuj wpływ na inne komponenty
+- ✅ Aktualizuj testy przy każdej zmianie kodu
+- ✅ Dokumentuj decyzje w komentarzach
+- ✅ Podawaj numery linii przy problemach
+- ✅ Usuwaj niepotrzebny kod
+- ✅ Szukaj następny priorytet po każdym zadaniu
 
 ---
 
@@ -546,13 +798,41 @@ grep -rn "TODO\|FIXME\|NotImplementedError" src/
 grep -rn "placeholder\|= 0.0\|= None" src/
 ```
 
+### URLs
+
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8080
+- QuestDB UI: http://localhost:9000
+
+---
+
+## METRYKI SUKCESU PROJEKTU
+
+### Dla tradera (użytkownik końcowy)
+- Czas od uruchomienia do pierwszego sygnału: < 5 minut
+- Czas od sygnału do decyzji: < 1 sekunda
+- Fałszywe alarmy: < 10%
+- Uptime: > 99.9%
+
+### Dla kodu (jakość techniczna)
+- Pokrycie testami: > 80%
+- Średnia ocena w macierzy: > 7/10
+- Brak krytycznych problemów (ocena < 4)
+- Zero dead code
+
+### Dla rozwoju (velocity)
+- Czas od pomysłu do działającej funkcji: mierzalny
+- Regresje po zmianach: 0
+- Czas naprawy błędu krytycznego: < 2h
+
 ---
 
 ## HISTORIA ZMIAN WORKFLOW
 
 | Wersja | Data | Zmiana | Uzasadnienie |
 |--------|------|--------|--------------|
-| 6.0 | 2025-12-04 | Dodano obowiązkową Macierz Oceny, rozbudowaną GAP ANALYSIS, wymuszenie ciągłej pętli | Agenci ogłaszali sukces przedwcześnie, nie szukali problemów, nie działali autonomicznie |
+| 7.0 | 2025-12-04 | Pełna przebudowa z Filozofią Pracy, biznesową Macierzą Oceny, Roadmapą, race conditions, backward compatibility | Workflow z wersji użytkownika który się sprawdzał |
+| 6.0 | 2025-12-04 | Dodano GAP ANALYSIS, wymuszenie ciągłej pętli | Agenci ogłaszali sukces przedwcześnie |
 | 5.0 | 2025-12-02 | Dodano MOTOR DZIAŁANIA | Wewnętrzne mechanizmy motywujące |
 | 4.1 | 2025-12-02 | Dodano AUDYT JAKOŚCI | Wykrywanie problemów poza testami |
 | 4.0 | 2025-12-02 | Separacja od DoD | Workflow = proces, DoD = cele |
