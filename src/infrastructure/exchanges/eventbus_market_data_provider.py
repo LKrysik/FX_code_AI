@@ -272,9 +272,12 @@ class EventBusMarketDataProvider(IMarketDataProvider):
             if time.time() - self._last_activity.get(symbol, 0) > self._queue_ttl
         ]
         empty_queues.extend(inactive_queues)
-        
-        for symbol in empty_queues:
-            del self._queues[symbol]
+
+        # Use set to avoid duplicates (symbol can be both empty AND inactive)
+        symbols_to_remove = set(empty_queues)
+        for symbol in symbols_to_remove:
+            if symbol in self._queues:
+                del self._queues[symbol]
         
         # Cleanup allowed symbols that no longer have queues
         orphaned_symbols = self._allowed_symbols - set(self._queues.keys())
@@ -283,10 +286,10 @@ class EventBusMarketDataProvider(IMarketDataProvider):
         
         after_count = len(self._queues)
         self._last_cleanup_time = time.time()
-        
-        if empty_queues or orphaned_symbols:
+
+        if symbols_to_remove or orphaned_symbols:
             self._logger.info("market_data_provider.cleanup_completed", {
-                "empty_queues_removed": len(empty_queues),
+                "empty_queues_removed": len(symbols_to_remove),
                 "orphaned_symbols_removed": len(orphaned_symbols),
                 "queues_before": before_count,
                 "queues_after": after_count

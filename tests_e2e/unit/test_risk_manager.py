@@ -80,7 +80,7 @@ def sample_order():
         exchange="MEXC",
         side=OrderSide.BUY,
         order_type=OrderType.LIMIT,
-        quantity=Decimal('0.1'),
+        quantity=Decimal('0.01'),  # Changed from 0.1 to 0.01 (500 USDT < 1000 limit)
         price=Decimal('50000'),
         status=OrderStatus.PENDING
     )

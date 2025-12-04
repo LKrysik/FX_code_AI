@@ -1,33 +1,24 @@
 """
 Unit Tests for MEXC Adapter - Phase 1 Live Trading
 ===================================================
-Tests for enhanced MEXC adapter with order submission and position fetching.
+⚠️ ORPHANED TEST FILE - NO IMPLEMENTATION EXISTS
 
-Test Coverage:
-- create_market_order: Success, API error, rate limit, timeout
-- create_limit_order: Success, API error, rate limit, timeout
-- cancel_order: Success, order not found, API error
-- get_order_status: Success, API error
-- get_positions: Success, empty positions, API error
-- Error handling: HTTP 500, HTTP 418, network timeout
-- Retry logic: 3 attempts with exponential backoff
-- Rate limiting: 10 requests/sec enforcement
+This test file tests MexcRealAdapter, OrderStatus, and OrderStatusResponse classes
+which DO NOT exist in the codebase. These were never implemented or were removed.
+
+Current implementation uses:
+- MexcFuturesAdapter (src.infrastructure.adapters.mexc_futures_adapter)
+- MexcPaperAdapter (src.infrastructure.adapters.mexc_paper_adapter)
+
+Both return Dict[str, Any] instead of response objects.
+
+STATUS: Disabled - all tests skipped until implementation exists
 """
 
 import pytest
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
-from aiohttp import ClientError, ClientTimeout
-import time
 
-from src.infrastructure.adapters.mexc_adapter import (
-    MexcRealAdapter,
-    OrderStatus,
-    OrderStatusResponse,
-    PositionResponse
-)
-from src.core.logger import StructuredLogger
-from src.core.circuit_breaker import CircuitBreakerOpenException
+# Skip entire module since implementation doesn't exist
+pytestmark = pytest.mark.skip(reason="MexcRealAdapter not implemented - orphaned test file")
 
 
 class TestMexcAdapterOrderSubmission:

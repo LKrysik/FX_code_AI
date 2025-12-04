@@ -76,12 +76,11 @@ class MexcWebSocketAdapter(IMarketDataProvider):
             "subscribe_orderbook": 'orderbook' in self.data_types
         })
         
-        # Configuration from settings
-        self.config = settings.get("mexc")
-        self.ws_url = self.config.get("futures_ws_url", "wss://contract.mexc.com/edge")
-        self.max_subscriptions_per_connection = self.config.get("max_subscriptions_per_connection", 30)
-        self.max_connections = self.config.get("max_connections", 5)
-        self.max_reconnect_attempts = self.config.get("max_reconnect_attempts", 5)
+        # Configuration from settings - use direct attribute access (not deprecated .get())
+        self.ws_url = getattr(settings, 'mexc_futures_ws_url', "wss://contract.mexc.com/edge")
+        self.max_subscriptions_per_connection = getattr(settings, 'mexc_max_subscriptions_per_connection', 30)
+        self.max_connections = getattr(settings, 'mexc_max_connections', 5)
+        self.max_reconnect_attempts = getattr(settings, 'mexc_max_reconnect_attempts', 5)
         
         # Configuration validation
         if self.max_subscriptions_per_connection <= 0:
@@ -157,7 +156,7 @@ class MexcWebSocketAdapter(IMarketDataProvider):
         self._orderbook_versions = {}  # symbol -> last_processed_version for delta synchronization
         
         # Periodic snapshot refresh to prevent drift from deltas
-        self._snapshot_refresh_interval = self.config.get("snapshot_refresh_interval", 300)  # 5 minutes default
+        self._snapshot_refresh_interval = getattr(settings, 'snapshot_refresh_interval', 300)  # 5 minutes default
         self._snapshot_refresh_tasks = {}  # symbol -> asyncio.Task for periodic refresh
 
         # ✅ REFACTORING: Initialize SubscriptionConfirmer component

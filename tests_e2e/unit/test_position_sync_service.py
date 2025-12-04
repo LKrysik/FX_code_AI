@@ -2,19 +2,54 @@
 Unit Tests for PositionSyncService
 ===================================
 Tests position synchronization, liquidation detection, and EventBus integration.
+
+Note: MEXC adapters return List[Dict[str, Any]], not PositionResponse objects.
+This test file mocks the adapter to return dicts as per the actual implementation.
 """
 
 import pytest
 import asyncio
 import time
+from typing import Dict, Any
 from unittest.mock import AsyncMock, MagicMock
 from decimal import Decimal
 
 # Import the components we're testing
 from src.domain.services.position_sync_service import PositionSyncService, LocalPosition
-from src.infrastructure.adapters.mexc_adapter import PositionResponse
 from src.core.event_bus import EventBus
 from src.core.circuit_breaker import CircuitBreakerOpenException
+
+
+def create_position_dict(
+    symbol: str,
+    side: str,
+    quantity: float,
+    entry_price: float,
+    current_price: float,
+    unrealized_pnl: float,
+    margin_ratio: float,
+    liquidation_price: float,
+    leverage: float,
+    margin: float
+) -> Dict[str, Any]:
+    """
+    Helper to create position dict (as returned by MEXC adapters).
+
+    This mimics the return type of MexcFuturesAdapter.get_positions() and
+    MexcPaperAdapter.get_positions() which both return List[Dict[str, Any]].
+    """
+    return {
+        "symbol": symbol,
+        "side": side,
+        "quantity": quantity,
+        "entry_price": entry_price,
+        "current_price": current_price,
+        "unrealized_pnl": unrealized_pnl,
+        "margin_ratio": margin_ratio,
+        "liquidation_price": liquidation_price,
+        "leverage": leverage,
+        "margin": margin
+    }
 
 
 @pytest.fixture
@@ -246,7 +281,7 @@ async def test_sync_positions_update_existing(position_sync, mexc_adapter):
     )
 
     # Mock MEXC returns updated position
-    exchange_position = PositionResponse(
+    exchange_position = create_position_dict(
         symbol="BTC_USDT",
         side="LONG",
         quantity=0.01,
@@ -263,20 +298,23 @@ async def test_sync_positions_update_existing(position_sync, mexc_adapter):
     # Manually trigger sync (instead of waiting for background task)
     await position_sync.start()
     await asyncio.sleep(0.5)
-    await position_sync.stop()
 
+    # FIX: Check position BEFORE stop() (stop() clears positions)
     # Position should be updated
+    assert "BTC_USDT" in position_sync.positions
     position = position_sync.positions["BTC_USDT"]
     assert position.current_price == 52000.0
     assert position.unrealized_pnl == 200.0
     assert position.margin_ratio == 160.0
+
+    await position_sync.stop()
 
 
 @pytest.mark.asyncio
 async def test_sync_positions_detect_new_position(position_sync, mexc_adapter):
     """Test detecting new position opened externally on exchange."""
     # Mock MEXC returns new position not in local tracking
-    exchange_position = PositionResponse(
+    exchange_position = create_position_dict(
         symbol="ETH_USDT",
         side="LONG",
         quantity=1.0,
@@ -292,13 +330,15 @@ async def test_sync_positions_detect_new_position(position_sync, mexc_adapter):
 
     await position_sync.start()
     await asyncio.sleep(0.5)
-    await position_sync.stop()
 
+    # FIX: Check position BEFORE stop() (stop() clears positions)
     # Should have added new position
     assert "ETH_USDT" in position_sync.positions
     position = position_sync.positions["ETH_USDT"]
     assert position.side == "LONG"
     assert position.quantity == 1.0
+
+    await position_sync.stop()
 
 
 @pytest.mark.asyncio
@@ -325,10 +365,12 @@ async def test_sync_positions_circuit_breaker_open(position_sync, mexc_adapter):
 
     await position_sync.start()
     await asyncio.sleep(0.5)
-    await position_sync.stop()
 
+    # FIX: Check position BEFORE stop() (stop() clears positions)
     # Position should still exist (not removed due to circuit breaker)
     assert "BTC_USDT" in position_sync.positions
+
+    await position_sync.stop()
 
 
 # ===== TEST: Getters =====

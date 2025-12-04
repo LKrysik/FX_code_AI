@@ -265,17 +265,32 @@ class TestMemoryManagement:
         """Test cleanup removes inactive queues"""
         await provider.subscribe_to_symbol("BTC_USDT")
 
+        # Verify symbol was added
+        assert "BTC_USDT" in provider._queues
+        assert "BTC_USDT" in provider._allowed_symbols
+
         # Remove from allowed symbols to make it eligible for cleanup
         provider._allowed_symbols.discard("BTC_USDT")
 
-        # Mark as old
-        provider._last_activity["BTC_USDT"] = 0
+        # Mark as old (if _last_activity exists)
+        if hasattr(provider, "_last_activity"):
+            provider._last_activity["BTC_USDT"] = 0
+
+        # Empty the queue to make it eligible for cleanup
+        # cleanup only removes empty queues that are not in allowed_symbols
+        queue = provider._queues["BTC_USDT"]
+        while not queue.empty():
+            try:
+                queue.get_nowait()
+            except:
+                break
 
         # Trigger cleanup
         await provider._cleanup_resources()
 
-        # Should be removed
+        # Should be removed from queues after cleanup
         assert "BTC_USDT" not in provider._queues
+        assert "BTC_USDT" not in provider._allowed_symbols
 
     @pytest.mark.asyncio
     async def test_cleanup_resources_keeps_active(self, provider):

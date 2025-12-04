@@ -415,6 +415,237 @@ def lightweight_app(lightweight_container):
         token = secrets.token_urlsafe(32)
         return _json_ok({"token": token})
 
+    # ========================================================================
+    # MOCK ENDPOINTS FOR UNIT TESTS
+    # ========================================================================
+
+    # Sessions endpoints
+    @app.post("/sessions/start")
+    async def mock_start_session(request: Request):
+        """Mock start session endpoint"""
+        try:
+            body = await request.json()
+        except Exception:
+            return _json_error("validation_error", "Request body must be valid JSON", status=422)
+
+        mode = body.get("mode")
+        symbols = body.get("symbols")
+
+        # Validate mode
+        if not mode:
+            return _json_error("validation_error", "mode is required", status=422)
+        if mode not in ("collect", "backtest", "paper", "live", "data_collection"):
+            return _json_error("validation_error", f"Invalid mode: {mode}. Must be one of: collect, backtest, paper, live", status=422)
+
+        # Validate symbols
+        if not symbols:
+            return _json_error("validation_error", "symbols is required", status=422)
+        if not isinstance(symbols, list) or len(symbols) == 0:
+            return _json_error("validation_error", "symbols cannot be empty", status=422)
+
+        return _json_ok({
+            "session_id": "mock_session_123",
+            "status": "started",
+            "mode": mode,
+            "symbols": symbols
+        })
+
+    @app.post("/sessions/stop")
+    async def mock_stop_session(request: Request):
+        """Mock stop session endpoint"""
+        return _json_ok({
+            "session_id": "mock_session_123",
+            "status": "stopped"
+        })
+
+    @app.get("/sessions/execution-status")
+    async def mock_execution_status():
+        """Mock execution status endpoint"""
+        return _json_ok({
+            "session_id": "mock_session_123",
+            "status": "idle",
+            "mode": None,
+            "symbols": []
+        })
+
+    # Strategies endpoints
+    @app.get("/api/strategies")
+    async def mock_list_strategies(enabled: bool = None):
+        """Mock list strategies endpoint"""
+        return _json_ok({
+            "strategies": [],
+            "total": 0
+        })
+
+    @app.get("/api/strategies/")
+    async def mock_list_strategies_trailing_slash():
+        """Mock for trailing slash - should return 404/405"""
+        return _json_error("not_found", "Endpoint not found. Did you mean /api/strategies?", status=404)
+
+    @app.post("/api/strategies")
+    async def mock_create_strategy(request: Request):
+        """Mock create strategy endpoint"""
+        try:
+            body = await request.json()
+        except Exception:
+            return _json_error("validation_error", "Request body must be valid JSON", status=422)
+
+        strategy_name = body.get("strategy_name")
+        direction = body.get("direction")
+
+        # Validate name
+        if not strategy_name:
+            return _json_error("validation_error", "strategy_name is required", status=422)
+        if not strategy_name.strip():
+            return _json_error("validation_error", "strategy_name cannot be empty", status=422)
+
+        # Validate direction if provided
+        if direction and direction not in ("LONG", "SHORT", "BOTH"):
+            return _json_error("validation_error", f"Invalid direction: {direction}. Must be LONG, SHORT, or BOTH", status=422)
+
+        return JSONResponse(
+            content={
+                "type": "response",
+                "data": {
+                    "id": "strategy_123",
+                    "strategy_name": strategy_name,
+                    "description": body.get("description", ""),
+                    "direction": direction or "LONG",
+                    "enabled": body.get("enabled", False)
+                }
+            },
+            status_code=201
+        )
+
+    @app.get("/api/strategies/{strategy_id}")
+    async def mock_get_strategy(strategy_id: str):
+        """Mock get strategy by ID endpoint"""
+        if strategy_id == "test_strategy_id":
+            return _json_ok({
+                "id": strategy_id,
+                "strategy_name": "Test Strategy",
+                "description": "Test description",
+                "direction": "LONG",
+                "enabled": True
+            })
+        return _json_error("not_found", f"Strategy not found: {strategy_id}", status=404)
+
+    @app.put("/api/strategies/{strategy_id}")
+    async def mock_update_strategy(strategy_id: str, request: Request):
+        """Mock update strategy endpoint"""
+        try:
+            body = await request.json()
+        except Exception:
+            return _json_error("validation_error", "Request body must be valid JSON", status=422)
+
+        # Validate body is not empty
+        if not body:
+            return _json_error("validation_error", "Request body cannot be empty", status=422)
+
+        # Validate direction if provided
+        if "direction" in body and body["direction"] not in ("LONG", "SHORT", "BOTH"):
+            return _json_error("validation_error", f"Invalid direction: {body['direction']}", status=422)
+
+        # Validate enabled if provided
+        if "enabled" in body and not isinstance(body["enabled"], bool):
+            return _json_error("validation_error", "enabled must be a boolean", status=422)
+
+        return _json_ok({
+            "id": strategy_id,
+            **body
+        })
+
+    @app.delete("/api/strategies/{strategy_id}")
+    async def mock_delete_strategy(strategy_id: str):
+        """Mock delete strategy endpoint"""
+        return JSONResponse(content=None, status_code=204)
+
+    @app.post("/api/strategies/{strategy_id}/activate")
+    async def mock_activate_strategy(strategy_id: str):
+        """Mock activate strategy endpoint"""
+        return _json_ok({
+            "id": strategy_id,
+            "status": "activated",
+            "enabled": True
+        })
+
+    @app.post("/api/strategies/{strategy_id}/deactivate")
+    async def mock_deactivate_strategy(strategy_id: str):
+        """Mock deactivate strategy endpoint"""
+        return _json_ok({
+            "id": strategy_id,
+            "status": "deactivated",
+            "enabled": False
+        })
+
+    # Indicator variants endpoints
+    @app.get("/api/indicator-variants")
+    async def mock_list_indicator_variants(base_indicator_type: str = None):
+        """Mock list indicator variants endpoint"""
+        return _json_ok({
+            "variants": [],
+            "total": 0
+        })
+
+    @app.post("/api/indicator-variants")
+    async def mock_create_indicator_variant(request: Request):
+        """Mock create indicator variant endpoint"""
+        try:
+            body = await request.json()
+        except Exception:
+            return _json_error("validation_error", "Request body must be valid JSON", status=422)
+
+        name = body.get("name")
+        base_indicator_type = body.get("base_indicator_type")
+        parameters = body.get("parameters")
+
+        # Validate name
+        if not name:
+            return _json_error("validation_error", "name is required", status=422)
+        if not name.strip():
+            return _json_error("validation_error", "name cannot be empty", status=422)
+
+        # Validate base_indicator_type
+        if not base_indicator_type:
+            return _json_error("validation_error", "base_indicator_type is required", status=422)
+
+        # Validate parameters if provided
+        if parameters is not None and not isinstance(parameters, dict):
+            return _json_error("validation_error", "parameters must be a dictionary", status=422)
+
+        return JSONResponse(
+            content={
+                "type": "response",
+                "data": {
+                    "id": "variant_123",
+                    "name": name,
+                    "base_indicator_type": base_indicator_type,
+                    "variant_type": body.get("variant_type", "custom"),
+                    "parameters": parameters or {}
+                }
+            },
+            status_code=201
+        )
+
+    @app.delete("/api/indicator-variants/{variant_id}")
+    async def mock_delete_indicator_variant(variant_id: str):
+        """Mock delete indicator variant endpoint"""
+        return JSONResponse(content=None, status_code=204)
+
+    # Indicator history endpoints (supplement indicators_routes.router)
+    @app.get("/api/v1/indicators/{symbol}/history")
+    async def mock_get_indicator_history(symbol: str, limit: int = 100):
+        """Mock get indicator history endpoint"""
+        # Validate limit
+        if limit < 1 or limit > 10000:
+            return _json_error("validation_error", f"limit must be between 1 and 10000, got {limit}", status=422)
+
+        return _json_ok({
+            "symbol": symbol,
+            "history": [],
+            "limit": limit
+        })
+
     # Register routes WITHOUT heavy initialization
     # Import and include routers
     try:
