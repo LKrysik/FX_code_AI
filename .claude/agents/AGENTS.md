@@ -1,6 +1,99 @@
 # System Agentów - FXcrypto
 
-**Wersja:** 13.0 | **Data:** 2025-12-05
+**Wersja:** 14.0 | **Data:** 2025-12-05
+
+---
+
+## CEL PROGRAMU
+
+```
+FXcrypto to system do wykrywania pump/dump na kryptowalutach.
+
+CO TRADER CHCE OSIĄGNĄĆ:
+1. Wykryć moment pumpu/dumpu ZANIM większość rynku
+2. Wejść w pozycję z określonym ryzykiem
+3. Wyjść z zyskiem lub minimalną stratą
+
+JAK SYSTEM TO REALIZUJE:
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  Data Collection │────▶│   Indicators    │────▶│    Signals      │
+│  (OHLCV z MEXC)  │     │  (RSI, MACD,    │     │  (S1, Z1, ZE1)  │
+│                  │     │   Volume Surge) │     │                 │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+                                                         │
+                              ┌───────────────────────────┘
+                              ▼
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│   Backtest      │◀────│    Strategy     │────▶│  Paper/Live     │
+│ (na historii)   │     │  (5-section)    │     │    Trading      │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+
+SYGNAŁY STRATEGII 5-SEKCJI:
+- S1: Signal Detection (wykrycie potencjalnego pumpu)
+- S2: Signal Confirmation (potwierdzenie trendu)
+- Z1: Entry (otwarcie pozycji)
+- Z2: Position Add (dodanie do pozycji)
+- ZE1: Exit (zamknięcie z TP/SL)
+```
+
+---
+
+## ARCHITEKTURA TECHNICZNA
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│                         FRONTEND                               │
+│  Next.js 14 | React | MUI | Port 3000                         │
+│                                                                │
+│  Strony:                                                       │
+│  /                    → PumpDumpDashboard (główny widok)       │
+│  /trading-session     → SessionConfigDialog (start sesji)     │
+│  /strategy-builder    → StrategyBuilder5Section               │
+│  /strategies          → Lista strategii                       │
+│  /data-collection     → Zarządzanie danymi historycznymi      │
+│  /settings            → API keys, preferencje                 │
+└───────────────────────────────┬────────────────────────────────┘
+                                │ HTTP + WebSocket
+                                ▼
+┌────────────────────────────────────────────────────────────────┐
+│                         BACKEND                                │
+│  Python | FastAPI | Uvicorn | Port 8080                       │
+│                                                                │
+│  Główne moduły:                                               │
+│  src/api/unified_server.py      → API endpoints               │
+│  src/services/session_manager.py → Zarządzanie sesjami        │
+│  src/core/strategy_engine.py    → Wykonanie strategii         │
+│  src/indicators/                → Wskaźniki (RSI, MACD...)    │
+│  src/adapters/mexc_adapter.py   → Komunikacja z giełdą        │
+└───────────────────────────────┬────────────────────────────────┘
+                                │ SQL
+                                ▼
+┌────────────────────────────────────────────────────────────────┐
+│                         DATABASE                               │
+│  QuestDB | Port 9000 (HTTP) | Port 8812 (PostgreSQL)          │
+│                                                                │
+│  Tabele:                                                       │
+│  ohlcv_1m           → Dane świecowe (symbol, ts, O, H, L, C, V)│
+│  signals            → Historia sygnałów                       │
+│  trades             → Wykonane transakcje                     │
+│  trading_sessions   → Sesje (backtest, paper, live)           │
+└────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## MAPOWANIE: UI → API → DATABASE
+
+| Komponent UI | Co pokazuje | Endpoint API | Tabela QuestDB |
+|--------------|-------------|--------------|----------------|
+| **CandlestickChart** | Świece OHLCV | `GET /api/ohlcv/{symbol}` | `ohlcv_1m` |
+| **SymbolWatchlist** | Lista symboli + ceny | `GET /api/symbols` | - (z MEXC) |
+| **SignalHistoryPanel** | Lista sygnałów | `GET /sessions/{id}/signals` | `signals` |
+| **EquityCurveChart** | Krzywa kapitału | `GET /sessions/{id}/equity` | `trading_sessions` |
+| **TransactionHistoryPanel** | Transakcje | `GET /sessions/{id}/transactions` | `trades` |
+| **PositionMonitor** | Otwarte pozycje | `GET /sessions/{id}/positions` | `trades` (open) |
+| **LiveIndicatorPanel** | Wartości RSI, MACD | `GET /api/indicators/{symbol}` | - (kalkulowane) |
+| **StrategyBuilder5Section** | Edycja strategii | `POST/PUT /api/strategies` | - (JSON file) |
 
 ---
 
@@ -155,6 +248,50 @@ Driver (koordynuje, NIE koduje, AUTONOMICZNY)
 | 7.3 | Widzi postęp | Progress indicator | Dane napływają | Count rośnie |
 | 7.4 | Zatrzymuje | Button: Stop | Status = COMPLETED | Dane zapisane |
 | 7.5 | Widzi wykres danych | `/data-collection/[id]/chart` | Chart z OHLCV | Historyczne świece |
+
+---
+
+## SZYBKA WERYFIKACJA POZIOMÓW
+
+**Driver: użyj tych komend przed delegowaniem, żeby wiedzieć gdzie jest problem:**
+
+```bash
+# POZIOM 1: Dashboard
+curl -s http://localhost:8080/health | jq '.status'
+# Oczekiwane: "healthy"
+
+curl -s http://localhost:8080/api/symbols | jq '. | length'
+# Oczekiwane: > 0 (lista symboli)
+
+# POZIOM 2: Konfiguracja sesji
+curl -s http://localhost:8080/api/strategies | jq '. | length'
+# Oczekiwane: > 0 (są strategie)
+
+curl -s http://localhost:8080/api/data-collection/sessions | jq '.sessions | length'
+# Oczekiwane: > 0 (są sesje danych)
+
+# POZIOM 3: Strategy Builder
+curl -s -X POST http://localhost:8080/api/strategies \
+  -H "Content-Type: application/json" \
+  -d '{"strategy_name":"test_strat","enabled":true}' | jq '.strategy_name'
+# Oczekiwane: "test_strat"
+
+# POZIOM 4: Backtest
+# Najpierw uruchom sesję, potem:
+curl -s "http://localhost:8080/sessions/{SESSION_ID}/equity" | jq '.data | length'
+# Oczekiwane: > 10 (punkty equity)
+
+curl -s "http://localhost:8080/sessions/{SESSION_ID}/signals" | jq '. | length'
+# Oczekiwane: > 0 (sygnały wygenerowane)
+
+# POZIOM 5: Paper Trading
+curl -s "http://localhost:8080/sessions/{SESSION_ID}/positions" | jq '. | length'
+# Jeśli sygnały → powinny być pozycje
+
+# POZIOM 7: Data Collection
+curl -s "http://localhost:9000/exec?query=SELECT%20count()%20FROM%20ohlcv_1m"
+# Oczekiwane: > 0 (dane w QuestDB)
+```
 
 ---
 
@@ -532,24 +669,53 @@ Trader chce: [cel]
 ### WERDYKT: PASS / FAIL
 ```
 
+### KIEDY UŻYĆ VETO
+
+Trading-domain może zablokować zmianę jeśli:
+
+| Sytuacja | Przykład | Akcja |
+|----------|----------|-------|
+| UX uniemożliwia flow | Przycisk "Start" schowany za 10 kliknięć | VETO + propozycja zmiany |
+| Błąd bez wyjaśnienia | "Error 500" zamiast "Brak danych do backtestu" | VETO + wymóg user-friendly błędu |
+| Utrata danych | Edycja strategii bez potwierdzenia nadpisuje | VETO + wymóg confirmation dialog |
+| Wolne UI | Ładowanie > 5s bez loading indicator | VETO + wymóg skeleton/spinner |
+
+**Format VETO:**
+```markdown
+## VETO: [funkcja]
+### Problem
+[Co trader nie może zrobić]
+### Wymaganie
+[Co musi być zmienione]
+### Blokuje
+[Które testy Trader Journey są zablokowane]
+```
+
 ---
 
 ## CODE-REVIEWER: CHECKLIST
 
 ```markdown
 ### JAKOŚĆ KODU
-- [ ] Nowy kod ma testy
-- [ ] Edge cases przetestowane
-- [ ] Error handling konkretny (nie bare except)
+- [ ] Nowy kod ma testy jednostkowe
+- [ ] Edge cases: null, empty, timeout obsłużone
+- [ ] Error handling: konkretne wyjątki (nie bare except)
+- [ ] Logowanie: błędy logowane z kontekstem
 
-### ARCHITEKTURA
-- [ ] EventBus do komunikacji
-- [ ] DI przez konstruktor
-- [ ] Brak breaking changes
+### ARCHITEKTURA (ten projekt)
+- [ ] API: FastAPI router z Pydantic models
+- [ ] Frontend: React hooks + Zustand store
+- [ ] Baza: QuestDB przez HTTP API lub PostgreSQL wire
+- [ ] Brak breaking changes w API (backwards compatible)
 
-### TRADER JOURNEY
-- [ ] Nie psuje żadnego testu z poziomów 1-5
-- [ ] Błędy zrozumiałe dla tradera
+### TRADER JOURNEY (7 poziomów!)
+- [ ] Nie psuje żadnego testu z poziomów 1-7
+- [ ] Błędy zrozumiałe dla tradera (nie stack trace)
+- [ ] UI pokazuje loading state podczas ładowania
+
+### SZYBKA WERYFIKACJA
+Uruchom komendy z sekcji "SZYBKA WERYFIKACJA POZIOMÓW"
+i sprawdź że wszystkie zwracają oczekiwane wartości.
 ```
 
 ---
@@ -612,20 +778,29 @@ Po 3 iteracjach BEZ POSTĘPU → ESKALUJ:
 
 ---
 
-**Wersja:** 13.0 | **Zmieniono:** 2025-12-05
+**Wersja:** 14.0 | **Zmieniono:** 2025-12-05
 
 ## CHANGELOG
+
+### v13 → v14
+
+| Zmiana | Uzasadnienie |
+|--------|--------------|
+| Dodano "CEL PROGRAMU" | Agent rozumie CO system ma robić, nie tylko JAK testować |
+| Dodano "ARCHITEKTURA TECHNICZNA" | Agent wie gdzie są pliki, jakie technologie |
+| Dodano "MAPOWANIE UI → API → DB" | Agent wie skąd komponent bierze dane |
+| Dodano "SZYBKA WERYFIKACJA POZIOMÓW" | Driver może w 30s sprawdzić gdzie jest problem |
+| Dodano proces VETO dla trading-domain | Jasne kiedy można blokować i jak |
+| Naprawiono code-reviewer checklist | "poziomów 1-7" zamiast błędnego "1-5" |
+| Checklist specyficzny dla projektu | FastAPI, Zustand, QuestDB - nie ogólne zasady |
 
 ### v12 → v13
 
 | Zmiana | Uzasadnienie |
 |--------|--------------|
-| Trader Journey teraz odzwierciedla DOKŁADNĄ funkcjonalność UI | Każdy test ma: stronę, komponent, akcję |
+| Trader Journey odzwierciedla funkcjonalność UI | Każdy test ma: stronę, komponent, akcję |
 | 7 poziomów zamiast 5 | Dashboard, Konfiguracja sesji, Strategia, Backtest, Paper, Live, Data Collection |
 | Dodano nazwy komponentów | SymbolWatchlist, SignalHistoryPanel, EquityCurveChart etc. |
-| Dodano URL dla każdej strony | /trading-session, /strategy-builder, /data-collection |
-| Testy UI z Playwright-style | page.locator(), click(), assert visible |
-| Każdy test ma konkretny "Dowód" | Nie abstrakcyjne "działa" tylko "świece widoczne", "lista > 0" |
 
 ### v11 → v12
 
@@ -633,6 +808,4 @@ Po 3 iteracjach BEZ POSTĘPU → ESKALUJ:
 |--------|--------------|
 | Usunięto Docker | Nie używamy - wszystko przez start_all.ps1 |
 | Usunięto grepy security | Nie mieliśmy takich problemów |
-| Usunięto proste curle /health | Nie dowodzą że system działa |
 | Dodano PRAWDZIWY Trader Journey | 5 poziomów z konkretnymi testami |
-| Dodano testy z perspektywy tradera | "Co trader może zrobić" nie "jaki HTTP code" |
