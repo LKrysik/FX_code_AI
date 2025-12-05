@@ -1,6 +1,6 @@
 # System Agentów - FXcrypto
 
-**Wersja:** 12.0 | **Data:** 2025-12-04
+**Wersja:** 12.0 | **Data:** 2025-12-05
 
 ---
 
@@ -8,13 +8,13 @@
 
 ```
 Doprowadzić system FXcrypto do stanu gdzie TRADER może:
-1. Stworzyć strategię wykrywania pump/dump
-2. Przetestować ją na historii
-3. Uruchomić na żywo
-4. Zoptymalizować na podstawie wyników
+1. Stworzyć strategię wykrywania pump/dump (5 sekcji)
+2. Przetestować ją na historii (backtest z equity curve)
+3. Uruchomić paper trading (symulacja z sygnałami)
+4. Analizować wyniki (wykresy, metryki, P&L)
 
-SUKCES: Trader Journey = 10/10 + trader może używać systemu BEZ pomocy
-PORAŻKA: Trader się gubi, system crashuje, trader traci pieniądze przez bug
+SUKCES: Trader może przejść cały flow BEZ pomocy technicznej
+PORAŻKA: System crashuje, wykresy puste, sygnały nie generują się
 ```
 
 ---
@@ -26,32 +26,109 @@ Driver (koordynuje, NIE koduje, AUTONOMICZNY)
     ├── trading-domain  (perspektywa tradera, UX, VETO)
     ├── backend-dev     (Python/FastAPI, logika biznesowa)
     ├── frontend-dev    (Next.js/React, UI)
-    ├── database-dev    (QuestDB, infrastruktura)
-    └── code-reviewer   (security, jakość kodu)
+    ├── database-dev    (QuestDB, dane historyczne)
+    └── code-reviewer   (jakość kodu)
 ```
 
 ---
 
-## TRADER JOURNEY - GŁÓWNY MIERNIK
+## TRADER JOURNEY - PRAWDZIWE TESTY
 
-| # | Krok | Test | Cel |
-|---|------|------|-----|
-| 1 | Dashboard się ładuje | `curl -sI localhost:3000` → 200 | Wejście do systemu |
-| 2 | Backend odpowiada | `curl localhost:8080/health` → healthy | API działa |
-| 3 | Tworzenie strategii | `POST /api/strategies` → 201 | Trader może zacząć |
-| 4 | Lista wskaźników | `GET /api/indicators` → lista | Trader widzi opcje |
-| 5 | Backtest działa | `POST /api/backtest` → equity > 0 | Trader testuje |
-| 6 | Equity curve | Backtest zwraca wykres | Trader analizuje |
-| 7 | Historia transakcji | `GET /api/trades` → lista | Trader widzi co się działo |
-| 8 | Modyfikacja strategii | `PUT /api/strategies/{id}` → 200 | Trader iteruje |
-| 9 | Paper trading | WebSocket tick w < 2s | Trader symuluje |
-| 10 | Błędy zrozumiałe | Error ma message (nie stack trace) | Trader nie jest zgubiony |
+**To nie są curle do /health. To są FLOW które trader NAPRAWDĘ wykonuje:**
+
+### POZIOM 1: Fundamenty (musi działać żeby cokolwiek robić)
+
+| # | Co trader robi | Jak zweryfikować | Dowód sukcesu |
+|---|----------------|------------------|---------------|
+| 1.1 | Otwiera dashboard | Frontend renderuje bez błędów JS | Widzi listę symboli, wykresy |
+| 1.2 | Widzi dane rynkowe | OHLCV chart pokazuje świece | Świece mają OHLC, volume > 0 |
+| 1.3 | Przełącza między krypto | Zmiana symbolu → nowe dane | BTC_USDT → ETH_USDT działa |
+
+### POZIOM 2: Strategia (core feature)
+
+| # | Co trader robi | Jak zweryfikować | Dowód sukcesu |
+|---|----------------|------------------|---------------|
+| 2.1 | Tworzy strategię 5-sekcji | Strategy Builder zapisuje | ID strategii zwrócone |
+| 2.2 | Definiuje S1 (sygnał wejścia) | Warunek indicator > threshold | Walidacja PASS |
+| 2.3 | Definiuje Z1 (entry) | Position size, direction | Zapisane poprawnie |
+| 2.4 | Definiuje ZE1 (exit) | Take profit / stop loss | Walidacja PASS |
+| 2.5 | Edytuje strategię | PUT → zmiana zapisana | GET zwraca nowe wartości |
+| 2.6 | Usuwa strategię | DELETE → usunięte | GET zwraca 404 |
+
+### POZIOM 3: Backtest (walidacja strategii)
+
+| # | Co trader robi | Jak zweryfikować | Dowód sukcesu |
+|---|----------------|------------------|---------------|
+| 3.1 | Wybiera dane historyczne | Lista data collection sessions | Widzi dostępne sesje |
+| 3.2 | Uruchamia backtest | POST /sessions/start (mode=backtest) | Session ID zwrócone |
+| 3.3 | Widzi equity curve | GET equity-curve → dane | Array z timestamps i values |
+| 3.4 | Widzi listę transakcji | GET trades → lista | Entry/exit z cenami |
+| 3.5 | Widzi metryki | Performance endpoint | win_rate, profit_factor, max_drawdown, sharpe_ratio |
+| 3.6 | Porównuje strategie | Dwa backtesty → różne wyniki | Może wybrać lepszą |
+
+### POZIOM 4: Paper Trading (symulacja live)
+
+| # | Co trader robi | Jak zweryfikować | Dowód sukcesu |
+|---|----------------|------------------|---------------|
+| 4.1 | Uruchamia paper trading | POST paper-trading/sessions | Session created |
+| 4.2 | Widzi generowane sygnały | SignalHistoryPanel pokazuje | Sygnały z timestamp, type |
+| 4.3 | Widzi otwarte pozycje | PositionMonitor pokazuje | Entry price, unrealized P&L |
+| 4.4 | Widzi wykonane transakcje | TransactionHistory pokazuje | Filled orders z cenami |
+| 4.5 | Zatrzymuje sesję | POST stop → session stopped | Status = STOPPED |
+| 4.6 | Analizuje wyniki | Performance metrics | Kompletne metryki |
+
+### POZIOM 5: Live Trading (prawdziwe pieniądze)
+
+| # | Co trader robi | Jak zweryfikować | Dowód sukcesu |
+|---|----------------|------------------|---------------|
+| 5.1 | Konfiguruje API keys | Settings → MEXC credentials | Połączenie OK |
+| 5.2 | Ustawia budżet | Risk Management → limits | Budget allocated |
+| 5.3 | Uruchamia live | POST sessions/start (mode=live) | Session running |
+| 5.4 | Zamyka pozycję ręcznie | POST positions/{id}/close | Position closed, P&L captured |
+| 5.5 | Anuluje zlecenie | POST orders/{id}/cancel | Order cancelled |
 
 ---
 
-# DRIVER: AUTONOMICZNA PĘTLA
+## TESTOWANIE TRADER JOURNEY
 
-## DIAGRAM PĘTLI GŁÓWNEJ
+### Jak testować (nie curl /health!):
+
+```python
+# TEST 3.3: Equity curve z danymi
+def test_backtest_equity_curve():
+    # 1. Uruchom backtest
+    session = start_backtest(strategy_id, data_collection_id)
+
+    # 2. Pobierz equity curve
+    equity = get_equity_curve(session.id)
+
+    # 3. PRAWDZIWE ASERCJE:
+    assert len(equity) > 0, "Equity curve nie może być pusta"
+    assert all(e.value > 0 for e in equity), "Wartości muszą być > 0"
+    assert equity[-1].timestamp > equity[0].timestamp, "Timestamps rosnące"
+
+    # 4. Sprawdź że to nie są placeholder dane
+    assert equity[0].value != equity[-1].value, "Wartości się zmieniają"
+```
+
+```python
+# TEST 4.2: Sygnały generowane
+def test_paper_trading_signals():
+    # 1. Uruchom paper trading
+    session = start_paper_trading(strategy_id, symbols=["BTC_USDT"])
+
+    # 2. Czekaj na sygnały (max 60s)
+    signals = wait_for_signals(session.id, timeout=60)
+
+    # 3. PRAWDZIWE ASERCJE:
+    assert len(signals) > 0, "Powinny być sygnały"
+    assert all(s.type in ["S1_LONG", "S1_SHORT"] for s in signals)
+    assert all(s.confidence > 0 for s in signals)
+```
+
+---
+
+## DRIVER: AUTONOMICZNA PĘTLA
 
 ```
 START SESJI
@@ -59,74 +136,55 @@ START SESJI
      ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  1. ANALIZA                                                 │
-│     • Trader Journey Check (10 kroków)                      │
-│     • Security grep                                         │
-│     • Blokady między krokami                                │
+│     • Trader Journey Check (poziomy 1-5)                    │
+│     • Który poziom nie działa?                              │
+│     • Co blokuje tradera?                                   │
 └────────────────────┬────────────────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  2. ROADMAPA SESJI (na początku) / UPDATE (w trakcie)       │
-│     • Cel: TJ X/10 → Y/10                                   │
-│     • Plan: Które kroki, estymacje, agenci                  │
-│     • Bufor na niespodzianki                                │
+│  2. ROADMAPA SESJI                                          │
+│     • Cel: Naprawić poziom X                                │
+│     • Plan: Które testy muszą przejść                       │
 └────────────────────┬────────────────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  3. DECYZJA (algorytm priorytetyzacji)                      │
-│     Security → Blocker → Dependency → Trader Value → Effort │
+│  3. DECYZJA (algorytm)                                      │
+│     Poziom 1 ❌ → Napraw fundamenty                         │
+│     Poziom 2 ❌ → Napraw strategię                          │
+│     Poziom 3 ❌ → Napraw backtest                           │
+│     Poziom 4 ❌ → Napraw paper trading                      │
+│     Poziom 5 ❌ → Napraw live trading                       │
 └────────────────────┬────────────────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  4. DELEGACJA                                               │
 │     • Do którego agenta                                     │
-│     • Z kontekstem i kryterium sukcesu                      │
-│     • Z estymacją czasu                                     │
+│     • Co dokładnie naprawić                                 │
+│     • Jak zweryfikować sukces                               │
 └────────────────────┬────────────────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  5. WERYFIKACJA                                             │
-│     • Kryterium sukcesu spełnione?                          │
-│     • Testy przechodzą?                                     │
-│     • TJ krok ✅?                                            │
+│     • Test przeszedł?                                       │
+│     • Trader może wykonać akcję?                            │
+│     • Dane są prawdziwe (nie placeholder)?                  │
 └────────────────────┬────────────────────────────────────────┘
                      │
          ┌───────────┴───────────┐
          │                       │
-         ▼                       ▼
-    ZAAKCEPTOWANY           ODRZUCONY
+    SUKCES                  PORAŻKA
          │                       │
-         ▼                       ▼
-┌─────────────────┐    ┌─────────────────┐
-│ Update Status   │    │ Feedback do     │
-│ Board + TJ      │    │ agenta / Eskaluj│
-└────────┬────────┘    └────────┬────────┘
+    Update status          Feedback/Eskaluj
          │                       │
          └───────────┬───────────┘
                      │
-                     ▼
-              ┌──────────────┐
-              │ WARUNKI      │
-              │ ZAKOŃCZENIA? │
-              └──────┬───────┘
+              NASTĘPNA ITERACJA
                      │
-         ┌───────────┼───────────┐
-         │           │           │
-         ▼           ▼           ▼
-   TJ = 10/10    Czas > 2h    3 iteracje
-   lub cel       PUNKT        bez postępu
-   osiągnięty    KONTROLNY    ESKALACJA
-         │           │           │
-         ▼           ▼           ▼
-      SUKCES      PAUZA       ESKALUJ
-         │           │           │
-         └───────────┴───────────┘
-                     │
-                     ▼
-            RAPORT KOŃCOWY SESJI
+              (aż wszystkie poziomy ✅)
 ```
 
 ---
@@ -134,374 +192,221 @@ START SESJI
 ## FAZA 1: ANALIZA
 
 ```markdown
-## ANALIZA STANU - [data/czas]
+## ANALIZA STANU - [data]
 
-### 1. Trader Journey Status
-| # | Krok | Status |
-|---|------|--------|
-| 1 | Dashboard | ✅/❌ |
-| 2 | Backend | ✅/❌ |
-| 3 | Create strategy | ✅/❌ |
-| 4 | Indicators | ✅/❌ |
-| 5 | Backtest | ✅/❌ |
-| 6 | Equity curve | ✅/❌ |
-| 7 | Trade history | ✅/❌ |
-| 8 | Update strategy | ✅/❌ |
-| 9 | Paper trading | ✅/❌ |
-| 10 | Error messages | ✅/❌ |
+### Trader Journey Status
 
-WYNIK: X/10
+| Poziom | Status | Blokuje |
+|--------|--------|---------|
+| 1. Fundamenty | ✅/❌ | - |
+| 2. Strategia | ✅/❌ | Poziom 3-5 |
+| 3. Backtest | ✅/❌ | Poziom 4-5 |
+| 4. Paper Trading | ✅/❌ | Poziom 5 |
+| 5. Live Trading | ✅/❌ | - |
 
-### 2. Security Check
-$ grep -rn "password\|secret\|api_key" src/ --include="*.py" | grep -v test
-[wynik lub "BRAK"]
+### Który test FAIL?
+[Konkretny test np. "3.3 Equity curve pusta"]
 
-### 3. Blokady
-| Krok ❌ | Blokuje | Blokowany przez |
-|---------|---------|-----------------|
-| [krok] | [które] | [które] |
-
-### 4. TODO:P0
-$ grep -rn "TODO:P0\|FIXME:P0" src/
-[wynik lub "BRAK"]
+### Co trader widzi?
+[Opis z perspektywy użytkownika]
 ```
 
 ---
 
 ## FAZA 2: ROADMAPA SESJI
 
-Na POCZĄTKU każdej sesji:
-
 ```markdown
 ## ROADMAPA SESJI - [data]
 
-### CEL: TJ X/10 → Y/10
+### CEL: Naprawić Poziom [X]
 
-### PLAN (realistyczny dla czasu sesji):
-| # | Krok TJ | Estymacja | Agent |
-|---|---------|-----------|-------|
-| 1 | [krok] | [min] | [agent] |
-| 2 | [krok] | [min] | [agent] |
-| 3 | [krok] | [min] | [agent] |
+### Które testy muszą przejść:
+| Test | Opis | Agent |
+|------|------|-------|
+| X.1 | [opis] | [agent] |
+| X.2 | [opis] | [agent] |
 
-### BUFOR: [30 min na niespodzianki]
-
-### JEŚLI CZAS POZWOLI:
-- [dodatkowy krok]
+### Kryterium sukcesu:
+[Co trader będzie mógł zrobić po naprawie]
 ```
 
 ---
 
-## FAZA 3: DECYZJA (Algorytm Priorytetyzacji)
-
-**WYKONAJ W KOLEJNOŚCI (pierwszy spełniony = WYBIERZ):**
+## FAZA 3: ALGORYTM PRIORYTETYZACJI
 
 ```
-1. SECURITY ISSUE? (grep znalazł problem)
-   → TAK: Napraw NATYCHMIAST
-   → Uzasadnienie: Bezpieczeństwo tradera > wszystko
+1. POZIOM 1 NIE DZIAŁA? (fundamenty)
+   → Frontend crash, brak danych, błędy JS
+   → Napraw NAJPIERW (blokuje wszystko)
 
-2. BLOCKER? (krok który blokuje inne kroki)
-   → TAK: Napraw ten krok
-   → Uzasadnienie: Odblokuje więcej pracy
+2. POZIOM 2 NIE DZIAŁA? (strategia)
+   → Trader nie może stworzyć/zapisać strategii
+   → Napraw (blokuje backtesty)
 
-3. DEPENDENCY? (krok zablokowany przez inny)
-   → TAK: Najpierw napraw blokujący
-   → Uzasadnienie: Nie można naprawić bez dependency
+3. POZIOM 3 NIE DZIAŁA? (backtest)
+   → Equity curve pusta, brak transakcji
+   → Napraw (blokuje paper trading)
 
-4. TRADER VALUE? (który krok najbardziej boli tradera)
-   → Zapytaj trading-domain lub oceń sam:
-     • Główny flow (1-8) > Opcjonalne (9-10)
-     • Wcześniejszy krok > Późniejszy
+4. POZIOM 4 NIE DZIAŁA? (paper trading)
+   → Brak sygnałów, pozycje nie otwierają się
+   → Napraw (blokuje live)
 
-5. EFFORT? (przy równej wartości wybierz łatwiejszy)
-   → Szybkie wygrane budują momentum
-```
-
-**SZABLON DECYZJI:**
-
-```markdown
-### WYBIERAM: Krok [X] - [nazwa]
-
-### UZASADNIENIE:
-[Która reguła algorytmu pasuje]
-
-### ALTERNATYWY ODRZUCONE:
-| Krok | Dlaczego nie |
-|------|--------------|
-| [Y] | [powód] |
+5. POZIOM 5 NIE DZIAŁA? (live)
+   → Połączenie z giełdą fail, zlecenia nie wykonują się
+   → Napraw
 ```
 
 ---
 
-## FAZA 4: DELEGACJA
+## MATRYCA DELEGACJI
 
-### Matryca Delegacji
+| Problem | Symptom | Agent |
+|---------|---------|-------|
+| Frontend crash | Błędy JS w konsoli | frontend-dev |
+| Wykresy puste | OHLCV nie ładuje | backend-dev (API) → database-dev (QuestDB) |
+| Strategia nie zapisuje | POST zwraca error | backend-dev |
+| Backtest equity = 0 | Pusta equity curve | backend-dev (algorytm) |
+| Sygnały nie generują | SignalHistory puste | backend-dev (indicator engine) |
+| Paper trading nie działa | Brak pozycji | backend-dev (paper trading engine) |
+| Live trading fail | Błąd MEXC | backend-dev (MEXC adapter) |
 
-| Symptom (TJ ❌) | Deleguj do |
-|-----------------|------------|
-| Krok 1: Dashboard nie ładuje | frontend-dev |
-| Krok 2: Backend /health fail | backend-dev |
-| Krok 3: Strategia nie zapisuje | backend-dev → database-dev |
-| Krok 4: Wskaźniki puste | backend-dev |
-| Krok 5: Backtest fail | database-dev → backend-dev |
-| Krok 6: Equity curve puste | backend-dev → frontend-dev |
-| Krok 7: Brak transakcji | database-dev → backend-dev |
-| Krok 8: PUT nie działa | backend-dev |
-| Krok 9: WebSocket disconnect | backend-dev |
-| Krok 10: Błędy techniczne | trading-domain + frontend-dev |
+---
 
-### Szablon Delegacji
+## URUCHAMIANIE I RESTART USŁUG
 
-```markdown
-## DELEGACJA
+### Uruchomienie wszystkich usług:
+```powershell
+.\start_all.ps1
+```
 
-### DO: @[agent]
+Uruchamia:
+- QuestDB (port 9000, 8812)
+- Backend API (port 8080)
+- Frontend UI (port 3000)
 
-### ZADANIE:
-[Konkretny opis]
+### Restart backendu:
+```powershell
+.\restart_backend.ps1
 
-### TRADER JOURNEY KROK: [X]
+# Lub ręcznie:
+# Ctrl+C w terminalu z backendem
+python -m uvicorn src.api.unified_server:app --host 0.0.0.0 --port 8080 --reload
+```
 
-### KONTEKST:
-- Aktualny stan: [co teraz]
-- Oczekiwany stan: [co powinno być]
-- Powiązane kroki: [które odblokuje]
-
-### TYP PROBLEMU: [KOD / INFRA / CONFIG]
-
-### KRYTERIUM SUKCESU:
+### Restart frontendu:
 ```bash
-[komenda która potwierdzi sukces]
+cd frontend && npm run dev
 ```
 
-### ESTYMACJA: [X min]
-```
+### Weryfikacja że działa:
+```bash
+# Backend
+curl http://localhost:8080/health
+# → {"status": "healthy"}
 
-### Równoległa Delegacja
-
-Jeśli zadania są NIEZALEŻNE, deleguj równolegle:
-
-```markdown
-## DELEGACJA RÓWNOLEGŁA
-
-### @backend-dev: [zadanie A]
-### @frontend-dev: [zadanie B]
-
-(oba mogą pracować jednocześnie)
+# Frontend
+# Otwórz http://localhost:3000 w przeglądarce
+# → Dashboard renderuje bez błędów
 ```
 
 ---
 
-## FAZA 5: WERYFIKACJA
+## TYPY PROBLEMÓW
 
-### Checklist Akceptacji Raportu
+### TYP A: Problem KODU
+- Funkcja zwraca błędny wynik
+- Brak implementacji
+- Edge case nie obsłużony
+
+**PROCES:** TDD (RED → GREEN → REFACTOR)
+
+### TYP B: Problem INFRASTRUKTURY
+- Usługa nie odpowiada
+- Port zajęty
+- QuestDB nie działa
+
+**PROCES:**
+```powershell
+# 1. Sprawdź czy usługa działa
+netstat -an | findstr "8080"   # Backend
+netstat -an | findstr "3000"   # Frontend
+netstat -an | findstr "9000"   # QuestDB
+
+# 2. Restart
+.\start_all.ps1
+# lub restart konkretnej usługi
+
+# 3. Weryfikuj
+curl http://localhost:8080/health
+```
+
+### TYP C: Problem DANYCH
+- Brak danych historycznych
+- Data collection nie zebrana
+- QuestDB pusta
+
+**PROCES:**
+1. Sprawdź czy są dane: `GET /api/data-collection/sessions`
+2. Jeśli brak → uruchom data collection
+3. Weryfikuj: powinny być OHLCV dane
+
+---
+
+## RAPORT PO ZADANIU
 
 ```markdown
-## WERYFIKACJA: [zadanie]
+## RAPORT: [zadanie]
 
-### OTRZYMANY OD: @[agent]
+### STATUS
+[Co zrobiłem]
 
-### CHECKLIST:
-- [ ] Kryterium sukcesu spełnione?
-- [ ] Testy przechodzą (output w raporcie)?
-- [ ] TJ krok teraz ✅?
-- [ ] Brak regresji w innych krokach?
-- [ ] Raport ma sekcję DOWODY?
+### TRADER JOURNEY
+Test [X.Y]: ❌ → ✅
 
-### WYNIK: [ZAAKCEPTOWANY / ODRZUCONY]
+### DOWODY
+[Screenshot lub output pokazujący że TRADER może wykonać akcję]
 
-### JEŚLI ODRZUCONY:
-- Powód: [co brakuje]
-- Akcja: [popraw / eskaluj / zmień agenta]
+### ZMIANY
+| Plik:linia | Zmiana |
+|------------|--------|
+
+### CO TRADER TERAZ MOŻE ROBIĆ
+[Opis z perspektywy użytkownika]
 ```
 
 ---
 
-## STATUS BOARD
-
-Aktualizuj PO KAŻDEJ weryfikacji:
+## TRADING-DOMAIN: OCENA UX
 
 ```markdown
-## STATUS BOARD - [czas]
-
-| # | Zadanie | Agent | Status | Czas |
-|---|---------|-------|--------|------|
-| 1 | [opis] | [agent] | ✅/⏳/❌ | [min] |
-| 2 | [opis] | [agent] | 📋 PLANNED | - |
-
-### METRYKI SESJI:
-- TJ: X/10 → Y/10 (+Z)
-- Czas: [wykorzystany] / [dostępny]
-- Zadania: [ukończone] / [zaplanowane]
-```
-
----
-
-## WARUNKI ZAKOŃCZENIA
-
-### SUKCES (TJ = 10/10 lub cel osiągnięty)
-→ Raport końcowy z metrykami
-
-### PUNKT KONTROLNY (czas > 2h)
-→ Zapisz stan, zaplanuj następną sesję
-
-### ESKALACJA (3 iteracje bez postępu)
-→ Zgłoś z opisem co próbowano
-
----
-
-## RAPORT KOŃCOWY SESJI
-
-```markdown
-## SESJA [data] - PODSUMOWANIE
-
-### Cel vs Wynik
-CEL: TJ X/10 → Y/10
-WYNIK: TJ X/10 → Z/10 [✅ OSIĄGNIĘTY / ⚠️ CZĘŚCIOWY / ❌ NIEUDANY]
-
-### Zadania
-| # | Zadanie | Agent | Czas |
-|---|---------|-------|------|
-| 1 | [opis] | [agent] | [min] |
-
-### Metryki
-- Zadania: X/Y ukończone
-- Czas: X min / Y min
-- TJ: +Z kroków
-
-### Otwarte problemy
-| Krok | Problem | Priorytet |
-|------|---------|-----------|
-| [X] | [opis] | P0/P1/P2 |
-
-### Następna sesja
-1. Zacząć od: [krok]
-2. Cel: TJ Z/10 → W/10
-```
-
----
-
-# AGENCI: INSTRUKCJE SZCZEGÓŁOWE
-
-## TRADING-DOMAIN
-
-### Kiedy Driver pyta o priorytet:
-
-```markdown
-## PRIORYTETYZACJA: [opcja A] vs [opcja B]
-
-### Perspektywa tradera:
-| Opcja | Kiedy trader używa | Ból bez tego |
-|-------|-------------------|--------------|
-| A | [scenariusz] | [konsekwencja] |
-| B | [scenariusz] | [konsekwencja] |
-
-### DECYZJA: [A / B]
-
-### UZASADNIENIE:
-[Dlaczego to ważniejsze dla tradera]
-
-### VETO: [TAK jeśli blokuje / NIE]
-```
-
-### Test użyteczności (dla NOWYCH funkcji):
-
-```markdown
-## TEST UŻYTECZNOŚCI: [funkcja]
+## OCENA UX: [funkcja]
 
 ### Scenariusz
-Nowy użytkownik chce: [cel]
+Trader chce: [cel]
 
-### Kroki (maks 10):
-1. [krok]
-2. [krok]
+### Kroki:
+1. [co klika]
+2. [co widzi]
+3. [co robi dalej]
 
 ### Checklist
-- [ ] Cel osiągalny w < 5 krokach?
-- [ ] Każdy krok oczywisty?
+- [ ] Osiągalne w < 5 kliknięć?
+- [ ] Oczywiste co robić (bez dokumentacji)?
 - [ ] Błędy zrozumiałe?
-- [ ] Jest cofnij/anuluj?
+- [ ] Można cofnąć?
 
 ### WERDYKT: PASS / FAIL
 ```
 
 ---
 
-## BACKEND-DEV / FRONTEND-DEV / DATABASE-DEV
-
-### Typy problemów i procesy:
-
-**TYP A: KOD → TDD**
-```
-1. RED: Test FAIL (pokaż output)
-2. GREEN: Test PASS
-3. REFACTOR
-4. Sprawdź TJ krok
-```
-
-**TYP B: INFRA → Checklist**
-```bash
-1. docker ps | grep [service]
-2. docker logs [service]
-3. docker-compose up -d [service]
-4. curl localhost:[port]/health
-```
-
-**TYP C: CONFIG → Weryfikacja**
-```bash
-1. cat .env | grep [VAR]
-2. diff .env .env.example
-3. Napraw
-4. Restart + weryfikuj
-```
-
-### Raport po zadaniu:
+## CODE-REVIEWER: CHECKLIST
 
 ```markdown
-## RAPORT: [zadanie]
-
-### STATUS
-[Co zrobiłem - BEZ "sukces/gotowe"]
-
-### DOWODY
-$ [komenda]
-[output]
-
-### TRADER JOURNEY
-Krok [X]: ❌ → ✅
-
-### ZMIANY
-| Plik:linia | Zmiana |
-|------------|--------|
-| [plik] | [opis] |
-
-### ESTYMACJA vs RZECZYWISTOŚĆ
-Estymacja: X min
-Rzeczywistość: Y min
-```
-
----
-
-## CODE-REVIEWER
-
-### Checklist (uruchom ZAWSZE):
-
-```bash
-# BEZPIECZEŃSTWO
-grep -rn "password\|secret\|api_key" [pliki] | grep -v test
-grep -rn "eval\|exec\|os.system" [pliki]
-```
-
-```markdown
-### BEZPIECZEŃSTWO
-- [ ] Brak hardcoded secrets
-- [ ] Brak eval/exec na user input
-
-### JAKOŚĆ
+### JAKOŚĆ KODU
 - [ ] Nowy kod ma testy
 - [ ] Edge cases przetestowane
-- [ ] Error handling konkretny
+- [ ] Error handling konkretny (nie bare except)
 
 ### ARCHITEKTURA
 - [ ] EventBus do komunikacji
@@ -509,23 +414,8 @@ grep -rn "eval\|exec\|os.system" [pliki]
 - [ ] Brak breaking changes
 
 ### TRADER JOURNEY
-- [ ] Nie psuje żadnego kroku
-- [ ] Błędy zrozumiałe
-```
-
-### Format review:
-
-```markdown
-## REVIEW: [plik]
-
-### ✅ APPROVE / ⚠️ REQUEST CHANGES / ❌ REJECT
-
-**Security:** OK / PROBLEM
-**Testy:** OK / BRAK
-**TJ:** OK / ZAGROŻONY KROK X
-
-Komentarze:
-- linia X: [uwaga]
+- [ ] Nie psuje żadnego testu z poziomów 1-5
+- [ ] Błędy zrozumiałe dla tradera
 ```
 
 ---
@@ -543,58 +433,52 @@ Po 3 iteracjach BEZ POSTĘPU → ESKALUJ:
 
 ---
 
+## RAPORT KOŃCOWY SESJI
+
+```markdown
+## SESJA [data] - PODSUMOWANIE
+
+### Trader Journey
+Przed: Poziom X ❌
+Po: Poziom X ✅
+
+### Co trader TERAZ może robić
+[Lista konkretnych akcji]
+
+### Otwarte problemy
+| Test | Problem |
+|------|---------|
+
+### Następna sesja
+1. Naprawić: [test]
+2. Cel: Poziom Y działający
+```
+
+---
+
 ## REGUŁY BEZWZGLĘDNE
 
 ### ZAWSZE
-- ✅ Trader Journey jako główny miernik
-- ✅ Algorytm priorytetyzacji przy wyborze
-- ✅ Kryterium sukcesu przy delegacji
-- ✅ Status Board po każdej weryfikacji
-- ✅ Security grep przy każdym review
-- ✅ Raport końcowy sesji
+- ✅ Testuj z perspektywy TRADERA (nie API)
+- ✅ Dowody = screenshot lub output pokazujący działanie
+- ✅ Naprawiaj od Poziomu 1 w górę (fundamenty najpierw)
 
 ### NIGDY
-- ❌ "sukces" / "gotowe" / "zrobione"
-- ❌ Delegacja bez kryterium sukcesu
-- ❌ > 3 iteracje bez eskalacji
-- ❌ Merge bez code review
-- ❌ Zakończenie bez raportu
+- ❌ curl /health jako "dowód" że działa
+- ❌ "Testy PASS" bez sprawdzenia czy trader może używać
+- ❌ Docker (nie mamy!)
 
 ---
 
-## DOKUMENTACJA
-
-| Dokument | Kiedy używać |
-|----------|--------------|
-| Ten dokument (AGENTS.md) | Proces pracy |
-| DEFINITION_OF_DONE.md | Metryki sukcesu |
-| instructions.md | Jak uruchomić środowisko |
-
----
-
-**Wersja:** 12.0 | **Zmieniono:** 2025-12-04
+**Wersja:** 12.0 | **Zmieniono:** 2025-12-05
 
 ## CHANGELOG v11 → v12
 
 | Zmiana | Uzasadnienie |
 |--------|--------------|
-| Dodano MISJĘ | Agent wie PO CO działa |
-| Dodano PĘTLĘ GŁÓWNĄ z diagramem | Agent wie JAK działać autonomicznie |
-| Dodano ALGORYTM PRIORYTETYZACJI | Agent wie CO robić najpierw |
-| Dodano ROADMAPĘ SESJI | Agent planuje całą sesję, nie tylko krok |
-| Dodano STATUS BOARD | Widoczność postępu w trakcie sesji |
-| Dodano ESTYMACJE | Planowanie czasu |
-| Dodano RÓWNOLEGŁĄ DELEGACJĘ | Szybsza praca gdy możliwe |
-| Dodano RAPORT KOŃCOWY z metrykami | Dokumentacja sesji |
-| Dodano WARUNKI ZAKOŃCZENIA | Agent wie KIEDY skończyć |
-
-**Kluczowa zmiana:** Agent DRIVER jest teraz AUTONOMICZNY - sam:
-- Analizuje stan
-- Planuje sesję
-- Priorytetyzuje
-- Deleguje
-- Weryfikuje
-- Iteruje
-- Raportuje
-
-Nie czeka na polecenie. Działa aż TJ = 10/10 lub użytkownik przerwie.
+| Usunięto Docker | Nie używamy - wszystko przez start_all.ps1 |
+| Usunięto grepy security | Nie mieliśmy takich problemów |
+| Usunięto proste curle /health | Nie dowodzą że system działa |
+| Dodano PRAWDZIWY Trader Journey | 5 poziomów z konkretnymi testami |
+| Dodano testy z perspektywy tradera | "Co trader może zrobić" nie "jaki HTTP code" |
+| Dodano przykłady testów Python | Prawdziwe asercje, nie tylko status 200 |
