@@ -1,6 +1,6 @@
 # System Agentów - FXcrypto
 
-**Wersja:** 12.0 | **Data:** 2025-12-05
+**Wersja:** 13.0 | **Data:** 2025-12-05
 
 ---
 
@@ -32,98 +32,217 @@ Driver (koordynuje, NIE koduje, AUTONOMICZNY)
 
 ---
 
-## TRADER JOURNEY - PRAWDZIWE TESTY
+## TRADER JOURNEY - RZECZYWISTE TESTY UI
 
-**To nie są curle do /health. To są FLOW które trader NAPRAWDĘ wykonuje:**
+**To są DOKŁADNE akcje które trader wykonuje w interfejsie:**
 
-### POZIOM 1: Fundamenty (musi działać żeby cokolwiek robić)
+---
 
-| # | Co trader robi | Jak zweryfikować | Dowód sukcesu |
-|---|----------------|------------------|---------------|
-| 1.1 | Otwiera dashboard | Frontend renderuje bez błędów JS | Widzi listę symboli, wykresy |
-| 1.2 | Widzi dane rynkowe | OHLCV chart pokazuje świece | Świece mają OHLC, volume > 0 |
-| 1.3 | Przełącza między krypto | Zmiana symbolu → nowe dane | BTC_USDT → ETH_USDT działa |
+### POZIOM 1: Dashboard (punkt wejścia)
 
-### POZIOM 2: Strategia (core feature)
+**Strona: http://localhost:3000/**
 
-| # | Co trader robi | Jak zweryfikować | Dowód sukcesu |
-|---|----------------|------------------|---------------|
-| 2.1 | Tworzy strategię 5-sekcji | Strategy Builder zapisuje | ID strategii zwrócone |
-| 2.2 | Definiuje S1 (sygnał wejścia) | Warunek indicator > threshold | Walidacja PASS |
-| 2.3 | Definiuje Z1 (entry) | Position size, direction | Zapisane poprawnie |
-| 2.4 | Definiuje ZE1 (exit) | Take profit / stop loss | Walidacja PASS |
-| 2.5 | Edytuje strategię | PUT → zmiana zapisana | GET zwraca nowe wartości |
-| 2.6 | Usuwa strategię | DELETE → usunięte | GET zwraca 404 |
+| # | Akcja tradera | Gdzie w UI | Test | Dowód |
+|---|---------------|------------|------|-------|
+| 1.1 | Otwiera dashboard | `/` → PumpDumpDashboard | Frontend renderuje | Brak błędów JS w konsoli |
+| 1.2 | Widzi status systemu | SystemStatusIndicator (header) | Połączenie WS | Ikona zielona, "Connected" |
+| 1.3 | Widzi symbole | SymbolWatchlist (sidebar) | Lista symboli | BTC_USDT, ETH_USDT widoczne |
+| 1.4 | Klika symbol | SymbolWatchlist → click | Dane się ładują | CandlestickChart pokazuje świece |
+| 1.5 | Widzi wykres OHLCV | CandlestickChart (main) | Świece z danymi | OHLC + volume > 0 |
+| 1.6 | Przełącza symbol | SymbolWatchlist → inny symbol | Wykres się aktualizuje | ETH_USDT dane widoczne |
 
-### POZIOM 3: Backtest (walidacja strategii)
+---
 
-| # | Co trader robi | Jak zweryfikować | Dowód sukcesu |
-|---|----------------|------------------|---------------|
-| 3.1 | Wybiera dane historyczne | Lista data collection sessions | Widzi dostępne sesje |
-| 3.2 | Uruchamia backtest | POST /sessions/start (mode=backtest) | Session ID zwrócone |
-| 3.3 | Widzi equity curve | GET equity-curve → dane | Array z timestamps i values |
-| 3.4 | Widzi listę transakcji | GET trades → lista | Entry/exit z cenami |
-| 3.5 | Widzi metryki | Performance endpoint | win_rate, profit_factor, max_drawdown, sharpe_ratio |
-| 3.6 | Porównuje strategie | Dwa backtesty → różne wyniki | Może wybrać lepszą |
+### POZIOM 2: Konfiguracja sesji
 
-### POZIOM 4: Paper Trading (symulacja live)
+**Strona: http://localhost:3000/trading-session**
 
-| # | Co trader robi | Jak zweryfikować | Dowód sukcesu |
-|---|----------------|------------------|---------------|
-| 4.1 | Uruchamia paper trading | POST paper-trading/sessions | Session created |
-| 4.2 | Widzi generowane sygnały | SignalHistoryPanel pokazuje | Sygnały z timestamp, type |
-| 4.3 | Widzi otwarte pozycje | PositionMonitor pokazuje | Entry price, unrealized P&L |
-| 4.4 | Widzi wykonane transakcje | TransactionHistory pokazuje | Filled orders z cenami |
-| 4.5 | Zatrzymuje sesję | POST stop → session stopped | Status = STOPPED |
-| 4.6 | Analizuje wyniki | Performance metrics | Kompletne metryki |
+| # | Akcja tradera | Gdzie w UI | Test | Dowód |
+|---|---------------|------------|------|-------|
+| 2.1 | Otwiera konfigurację | `/trading-session` | Strona renderuje | Widzi 4 sekcje: Mode, Strategies, Symbols, Budget |
+| 2.2 | Wybiera tryb | ToggleButtonGroup (Live/Paper/Backtest) | Tryb się zmienia | Odpowiedni Alert info wyświetla się |
+| 2.3 | Widzi listę strategii | Table ze strategiami | API zwraca strategie | Checkboxy działają, strategia zaznaczona |
+| 2.4 | Wybiera symbole | Chip buttons z symbolami | Symbole dodają się | SelectedSymbols > 0 |
+| 2.5 | Ustawia budżet | TextField: Global Budget | Wartość zapisuje | $1000 USDT widoczne |
+| 2.6 | Ustawia SL/TP | TextField: Stop Loss / Take Profit | Wartości ustawiają się | 5% / 10% widoczne |
 
-### POZIOM 5: Live Trading (prawdziwe pieniądze)
+**Dla BACKTEST dodatkowo:**
 
-| # | Co trader robi | Jak zweryfikować | Dowód sukcesu |
-|---|----------------|------------------|---------------|
-| 5.1 | Konfiguruje API keys | Settings → MEXC credentials | Połączenie OK |
-| 5.2 | Ustawia budżet | Risk Management → limits | Budget allocated |
-| 5.3 | Uruchamia live | POST sessions/start (mode=live) | Session running |
-| 5.4 | Zamyka pozycję ręcznie | POST positions/{id}/close | Position closed, P&L captured |
-| 5.5 | Anuluje zlecenie | POST orders/{id}/cancel | Order cancelled |
+| # | Akcja tradera | Gdzie w UI | Test | Dowód |
+|---|---------------|------------|------|-------|
+| 2.7 | Wybiera sesję danych | Select: Data Collection Session | Dropdown działa | Lista sesji z datami i ilością rekordów |
+| 2.8 | Ustawia przyspieszenie | Slider: Acceleration Factor | 1x-100x | Wartość widoczna "10x" |
+
+---
+
+### POZIOM 3: Strategia (5-Section Builder)
+
+**Strona: http://localhost:3000/strategy-builder**
+
+| # | Akcja tradera | Gdzie w UI | Test | Dowód |
+|---|---------------|------------|------|-------|
+| 3.1 | Otwiera builder | `/strategy-builder` | StrategyBuilder5Section | Widzi 5 sekcji: S1, S2, Z1, Z2, ZE1 |
+| 3.2 | Definiuje S1 | Sekcja S1 (Signal Detection) | Dodaje warunek | RSI > 70, VOLUME_SURGE > 2x |
+| 3.3 | Definiuje Z1 | Sekcja Z1 (Entry Confirmation) | Dodaje entry | Position size, direction LONG |
+| 3.4 | Definiuje ZE1 | Sekcja ZE1 (Exit Strategy) | Dodaje exit | Take Profit 5%, Stop Loss 2% |
+| 3.5 | Zapisuje strategię | Button: Save Strategy | API zwraca ID | Toast "Strategy saved" + ID |
+| 3.6 | Widzi strategię w liście | `/strategies` | Lista strategii | Nowa strategia widoczna |
+| 3.7 | Edytuje strategię | Click → Edit | Dane się ładują | Poprzednie wartości wypełnione |
+| 3.8 | Usuwa strategię | Button: Delete | Strategia znika | Lista bez tej strategii |
+
+---
+
+### POZIOM 4: Backtest Session
+
+**Strony: /trading-session → /dashboard?mode=backtest**
+
+| # | Akcja tradera | Gdzie w UI | Test | Dowód |
+|---|---------------|------------|------|-------|
+| 4.1 | Konfiguruje backtest | `/trading-session` (mode=backtest) | Wybiera strategię + sesję danych | Validation PASS |
+| 4.2 | Startuje sesję | Button: "Start BACKTEST Session" | API uruchamia | Redirect do dashboard |
+| 4.3 | Widzi status sesji | Alert w headerze | "Session running: backtest_xxx" | Status RUNNING |
+| 4.4 | Widzi equity curve | EquityCurveChart | Wykres rysuje się | Linia equity z punktami |
+| 4.5 | Widzi drawdown | DrawdownChart | Wykres drawdown | Obszar pod 0% widoczny |
+| 4.6 | Widzi transakcje | TransactionHistoryPanel | Lista transakcji | Entry/Exit z cenami i P&L |
+| 4.7 | Widzi sygnały | SignalHistoryPanel | Lista sygnałów | S1, Z1, ZE1 z timestamp |
+| 4.8 | Rozwija sygnał | Click row → expand | Szczegóły sygnału | indicator_values, conditions_met |
+| 4.9 | Widzi metryki | Performance summary | Win rate, PF, Sharpe | Liczby > 0, nie N/A |
+| 4.10 | Zatrzymuje sesję | Button: Stop Session | Status = STOPPED | Alert znika lub zmienia kolor |
+
+---
+
+### POZIOM 5: Paper Trading Session
+
+**Strony: /trading-session → /dashboard?mode=paper**
+
+| # | Akcja tradera | Gdzie w UI | Test | Dowód |
+|---|---------------|------------|------|-------|
+| 5.1 | Konfiguruje paper | `/trading-session` (mode=paper) | Wybiera strategię + symbole | Validation PASS |
+| 5.2 | Startuje sesję | Button: "Start PAPER Session" | API uruchamia | Redirect do dashboard |
+| 5.3 | Widzi WebSocket | SystemStatusIndicator | WS connected | Zielona ikona |
+| 5.4 | Widzi live price | SymbolWatchlist / CandlestickChart | Ceny się aktualizują | Price zmienia się w czasie |
+| 5.5 | Widzi sygnał live | SignalHistoryPanel | Nowy sygnał pojawia się | Flash/highlight nowego wiersza |
+| 5.6 | Widzi pozycję | PositionMonitor | Otwarta pozycja | Entry price, Unrealized P&L |
+| 5.7 | Widzi transakcję | TransactionHistoryPanel | Filled order | Cena entry, timestamp |
+| 5.8 | Widzi indicator live | LiveIndicatorPanel | Wartości wskaźników | RSI, MACD aktualne |
+| 5.9 | Zatrzymuje sesję | Button: Stop Session | Status = STOPPED | Pozycje zamknięte |
+
+---
+
+### POZIOM 6: Live Trading Session
+
+**Strony: /trading-session + /settings → /dashboard?mode=live**
+
+| # | Akcja tradera | Gdzie w UI | Test | Dowód |
+|---|---------------|------------|------|-------|
+| 6.1 | Konfiguruje API | `/settings` → MEXC credentials | API key + secret | Connection test PASS |
+| 6.2 | Konfiguruje risk | `/risk-management` | Limits ustawione | Max position, daily loss |
+| 6.3 | Startuje live | `/trading-session` (mode=live) + Start | API uruchamia | RED warning confirmed |
+| 6.4 | Widzi real balance | WalletBalance | Prawdziwe USDT | Saldo z giełdy |
+| 6.5 | Widzi real order | OrderHistory | Zlecenie na giełdzie | Order ID z MEXC |
+| 6.6 | Widzi risk alerts | RiskAlerts | Ostrzeżenia | Jeśli przekroczone limity |
+
+---
+
+### POZIOM 7: Data Collection
+
+**Strona: http://localhost:3000/data-collection**
+
+| # | Akcja tradera | Gdzie w UI | Test | Dowód |
+|---|---------------|------------|------|-------|
+| 7.1 | Widzi sesje | Lista sesji | API zwraca dane | Session ID, symbols, count |
+| 7.2 | Startuje zbieranie | Button: Start Collection | Nowa sesja | Status = RUNNING |
+| 7.3 | Widzi postęp | Progress indicator | Dane napływają | Count rośnie |
+| 7.4 | Zatrzymuje | Button: Stop | Status = COMPLETED | Dane zapisane |
+| 7.5 | Widzi wykres danych | `/data-collection/[id]/chart` | Chart z OHLCV | Historyczne świece |
 
 ---
 
 ## TESTOWANIE TRADER JOURNEY
 
-### Jak testować (nie curl /health!):
+### Jak testować (PRAWDZIWE interakcje UI):
 
 ```python
-# TEST 3.3: Equity curve z danymi
-def test_backtest_equity_curve():
-    # 1. Uruchom backtest
-    session = start_backtest(strategy_id, data_collection_id)
+# TEST 1.4: Symbol click → dane się ładują
+def test_symbol_click_loads_data():
+    """Trader klika symbol w SymbolWatchlist"""
+    # 1. Otwórz dashboard
+    page = browser.goto("http://localhost:3000")
 
-    # 2. Pobierz equity curve
-    equity = get_equity_curve(session.id)
+    # 2. Znajdź i kliknij symbol
+    symbol_btn = page.locator("[data-testid='symbol-BTC_USDT']")
+    symbol_btn.click()
 
     # 3. PRAWDZIWE ASERCJE:
-    assert len(equity) > 0, "Equity curve nie może być pusta"
-    assert all(e.value > 0 for e in equity), "Wartości muszą być > 0"
-    assert equity[-1].timestamp > equity[0].timestamp, "Timestamps rosnące"
+    chart = page.locator("[data-testid='candlestick-chart']")
+    assert chart.is_visible(), "Wykres musi być widoczny"
 
-    # 4. Sprawdź że to nie są placeholder dane
-    assert equity[0].value != equity[-1].value, "Wartości się zmieniają"
+    # 4. Sprawdź że są dane (nie placeholder)
+    candles = chart.locator(".candle")
+    assert candles.count() > 0, "Muszą być świece"
 ```
 
 ```python
-# TEST 4.2: Sygnały generowane
-def test_paper_trading_signals():
+# TEST 4.4: Equity curve z danymi (backtest)
+def test_backtest_equity_curve():
+    """Po uruchomieniu backtestu equity curve się rysuje"""
+    # 1. Uruchom backtest przez API
+    session = api.start_session({
+        "session_type": "backtest",
+        "strategy_config": {"pump_detector": ["BTC_USDT"]},
+        "config": {"session_id": data_session_id}
+    })
+
+    # 2. Czekaj na zakończenie
+    wait_for_session_complete(session.id, timeout=60)
+
+    # 3. Pobierz equity curve
+    equity = api.get_equity_curve(session.id)
+
+    # 4. PRAWDZIWE ASERCJE:
+    assert len(equity) > 10, "Musi być > 10 punktów"
+    assert equity[0]["value"] != equity[-1]["value"], "Wartości się zmieniają"
+    assert all(e["timestamp"] for e in equity), "Timestamps są"
+```
+
+```python
+# TEST 5.5: Sygnał pojawia się w SignalHistoryPanel (paper trading)
+def test_paper_trading_signal_appears():
+    """Trader widzi nowe sygnały w real-time"""
     # 1. Uruchom paper trading
-    session = start_paper_trading(strategy_id, symbols=["BTC_USDT"])
+    session = api.start_session({
+        "session_type": "paper",
+        "strategy_config": {"pump_detector": ["BTC_USDT"]},
+        "symbols": ["BTC_USDT"]
+    })
 
     # 2. Czekaj na sygnały (max 60s)
     signals = wait_for_signals(session.id, timeout=60)
 
     # 3. PRAWDZIWE ASERCJE:
     assert len(signals) > 0, "Powinny być sygnały"
-    assert all(s.type in ["S1_LONG", "S1_SHORT"] for s in signals)
-    assert all(s.confidence > 0 for s in signals)
+    for signal in signals:
+        assert signal["signal_type"] in ["S1", "S2", "Z1", "Z2", "ZE1"]
+        assert signal["indicator_values"], "Muszą być wartości wskaźników"
+        assert signal["conditions_met"], "Muszą być warunki"
+```
+
+```python
+# TEST 7.5: Data collection chart pokazuje dane
+def test_data_collection_chart():
+    """Trader przegląda zebrane dane historyczne"""
+    # 1. Pobierz listę sesji
+    sessions = api.get_data_collection_sessions()
+    assert len(sessions) > 0, "Muszą być sesje"
+
+    # 2. Otwórz chart
+    page = browser.goto(f"/data-collection/{sessions[0].id}/chart")
+
+    # 3. PRAWDZIWE ASERCJE:
+    chart = page.locator("[data-testid='ohlcv-chart']")
+    assert chart.is_visible()
+    candles = chart.locator(".candle")
+    assert candles.count() > 0, "Muszą być świece"
 ```
 
 ---
@@ -151,11 +270,13 @@ START SESJI
                      ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  3. DECYZJA (algorytm)                                      │
-│     Poziom 1 ❌ → Napraw fundamenty                         │
-│     Poziom 2 ❌ → Napraw strategię                          │
-│     Poziom 3 ❌ → Napraw backtest                           │
-│     Poziom 4 ❌ → Napraw paper trading                      │
-│     Poziom 5 ❌ → Napraw live trading                       │
+│     Poziom 1 ❌ → Napraw Dashboard (frontend)               │
+│     Poziom 2 ❌ → Napraw Konfigurację sesji                 │
+│     Poziom 3 ❌ → Napraw Strategy Builder                   │
+│     Poziom 4 ❌ → Napraw Backtest                           │
+│     Poziom 5 ❌ → Napraw Paper Trading                      │
+│     Poziom 6 ❌ → Napraw Live Trading                       │
+│     Poziom 7 ❌ → Napraw Data Collection                    │
 └────────────────────┬────────────────────────────────────────┘
                      │
                      ▼
@@ -198,11 +319,13 @@ START SESJI
 
 | Poziom | Status | Blokuje |
 |--------|--------|---------|
-| 1. Fundamenty | ✅/❌ | - |
-| 2. Strategia | ✅/❌ | Poziom 3-5 |
-| 3. Backtest | ✅/❌ | Poziom 4-5 |
-| 4. Paper Trading | ✅/❌ | Poziom 5 |
-| 5. Live Trading | ✅/❌ | - |
+| 1. Dashboard | ✅/❌ | Wszystko |
+| 2. Konfiguracja sesji | ✅/❌ | Poziom 4-6 |
+| 3. Strategy Builder | ✅/❌ | Poziom 4-6 |
+| 4. Backtest | ✅/❌ | - |
+| 5. Paper Trading | ✅/❌ | Poziom 6 |
+| 6. Live Trading | ✅/❌ | - |
+| 7. Data Collection | ✅/❌ | Poziom 4 (backtest) |
 
 ### Który test FAIL?
 [Konkretny test np. "3.3 Equity curve pusta"]
@@ -235,40 +358,51 @@ START SESJI
 ## FAZA 3: ALGORYTM PRIORYTETYZACJI
 
 ```
-1. POZIOM 1 NIE DZIAŁA? (fundamenty)
-   → Frontend crash, brak danych, błędy JS
+1. POZIOM 1 NIE DZIAŁA? (Dashboard)
+   → Frontend crash, błędy JS, SymbolWatchlist nie ładuje
    → Napraw NAJPIERW (blokuje wszystko)
 
-2. POZIOM 2 NIE DZIAŁA? (strategia)
+2. POZIOM 2 NIE DZIAŁA? (Konfiguracja sesji)
+   → /trading-session nie działa, strategie nie ładują
+   → Napraw (blokuje uruchomienie sesji)
+
+3. POZIOM 3 NIE DZIAŁA? (Strategy Builder)
    → Trader nie może stworzyć/zapisać strategii
-   → Napraw (blokuje backtesty)
+   → Napraw (blokuje backtesty i trading)
 
-3. POZIOM 3 NIE DZIAŁA? (backtest)
-   → Equity curve pusta, brak transakcji
-   → Napraw (blokuje paper trading)
+4. POZIOM 4 NIE DZIAŁA? (Backtest)
+   → Equity curve pusta, brak transakcji w panelu
+   → Napraw
 
-4. POZIOM 4 NIE DZIAŁA? (paper trading)
-   → Brak sygnałów, pozycje nie otwierają się
+5. POZIOM 5 NIE DZIAŁA? (Paper Trading)
+   → Brak sygnałów w SignalHistoryPanel, pozycje nie otwierają się
    → Napraw (blokuje live)
 
-5. POZIOM 5 NIE DZIAŁA? (live)
-   → Połączenie z giełdą fail, zlecenia nie wykonują się
+6. POZIOM 6 NIE DZIAŁA? (Live Trading)
+   → Połączenie z MEXC fail, zlecenia nie wykonują się
    → Napraw
+
+7. POZIOM 7 NIE DZIAŁA? (Data Collection)
+   → Brak danych do backtestów
+   → Napraw (blokuje backtest)
 ```
 
 ---
 
 ## MATRYCA DELEGACJI
 
-| Problem | Symptom | Agent |
-|---------|---------|-------|
-| Frontend crash | Błędy JS w konsoli | frontend-dev |
-| Wykresy puste | OHLCV nie ładuje | backend-dev (API) → database-dev (QuestDB) |
-| Strategia nie zapisuje | POST zwraca error | backend-dev |
-| Backtest equity = 0 | Pusta equity curve | backend-dev (algorytm) |
-| Sygnały nie generują | SignalHistory puste | backend-dev (indicator engine) |
-| Paper trading nie działa | Brak pozycji | backend-dev (paper trading engine) |
-| Live trading fail | Błąd MEXC | backend-dev (MEXC adapter) |
+| Problem | Komponent UI | Symptom | Agent |
+|---------|--------------|---------|-------|
+| Dashboard nie renderuje | PumpDumpDashboard | Błędy JS w konsoli | frontend-dev |
+| Symbole nie ładują | SymbolWatchlist | Lista pusta | backend-dev (API) |
+| Wykres OHLCV pusty | CandlestickChart | Brak świec | database-dev (QuestDB) |
+| Sesja nie startuje | SessionConfigDialog | Button disabled / error | backend-dev (/sessions/start) |
+| Strategia nie zapisuje | StrategyBuilder5Section | Toast error | backend-dev (strategy API) |
+| Equity curve pusta | EquityCurveChart | Linia płaska | backend-dev (backtest engine) |
+| Sygnały nie pojawiają | SignalHistoryPanel | Tabela pusta | backend-dev (indicator engine) |
+| Pozycje nie otwierają | PositionMonitor | Lista pusta | backend-dev (paper trading) |
+| Live orders fail | OrderHistory | Błąd MEXC | backend-dev (MEXC adapter) |
+| Data collection fail | /data-collection | Sesja nie startuje | backend-dev + database-dev |
 
 ---
 
@@ -438,20 +572,27 @@ Po 3 iteracjach BEZ POSTĘPU → ESKALUJ:
 ```markdown
 ## SESJA [data] - PODSUMOWANIE
 
-### Trader Journey
-Przed: Poziom X ❌
-Po: Poziom X ✅
+### Trader Journey Status
+| Poziom | Przed | Po |
+|--------|-------|-----|
+| 1. Dashboard | ❌/✅ | ✅ |
+| 2. Konfiguracja sesji | ❌/✅ | ✅ |
+| 3. Strategy Builder | ❌/✅ | ✅ |
+| 4. Backtest | ❌/✅ | ✅ |
+| 5. Paper Trading | ❌/✅ | ✅ |
+| 6. Live Trading | ❌/✅ | ✅ |
+| 7. Data Collection | ❌/✅ | ✅ |
 
 ### Co trader TERAZ może robić
-[Lista konkretnych akcji]
+[Lista konkretnych akcji w UI, np. "uruchomić backtest i zobaczyć equity curve"]
 
 ### Otwarte problemy
-| Test | Problem |
-|------|---------|
+| Test | Komponent | Problem |
+|------|-----------|---------|
 
 ### Następna sesja
-1. Naprawić: [test]
-2. Cel: Poziom Y działający
+1. Naprawić: [test X.Y w poziomie Z]
+2. Komponent: [nazwa komponentu]
 ```
 
 ---
@@ -459,9 +600,10 @@ Po: Poziom X ✅
 ## REGUŁY BEZWZGLĘDNE
 
 ### ZAWSZE
-- ✅ Testuj z perspektywy TRADERA (nie API)
-- ✅ Dowody = screenshot lub output pokazujący działanie
-- ✅ Naprawiaj od Poziomu 1 w górę (fundamenty najpierw)
+- ✅ Testuj z perspektywy TRADERA (co widzi w UI, nie jaki HTTP code)
+- ✅ Dowody = screenshot komponentu lub output z prawdziwymi danymi
+- ✅ Naprawiaj od Poziomu 1 w górę (Dashboard → Konfiguracja → ... → Live)
+- ✅ Odwołuj się do nazw komponentów (SignalHistoryPanel, EquityCurveChart)
 
 ### NIGDY
 - ❌ curl /health jako "dowód" że działa
@@ -470,9 +612,22 @@ Po: Poziom X ✅
 
 ---
 
-**Wersja:** 12.0 | **Zmieniono:** 2025-12-05
+**Wersja:** 13.0 | **Zmieniono:** 2025-12-05
 
-## CHANGELOG v11 → v12
+## CHANGELOG
+
+### v12 → v13
+
+| Zmiana | Uzasadnienie |
+|--------|--------------|
+| Trader Journey teraz odzwierciedla DOKŁADNĄ funkcjonalność UI | Każdy test ma: stronę, komponent, akcję |
+| 7 poziomów zamiast 5 | Dashboard, Konfiguracja sesji, Strategia, Backtest, Paper, Live, Data Collection |
+| Dodano nazwy komponentów | SymbolWatchlist, SignalHistoryPanel, EquityCurveChart etc. |
+| Dodano URL dla każdej strony | /trading-session, /strategy-builder, /data-collection |
+| Testy UI z Playwright-style | page.locator(), click(), assert visible |
+| Każdy test ma konkretny "Dowód" | Nie abstrakcyjne "działa" tylko "świece widoczne", "lista > 0" |
+
+### v11 → v12
 
 | Zmiana | Uzasadnienie |
 |--------|--------------|
@@ -481,4 +636,3 @@ Po: Poziom X ✅
 | Usunięto proste curle /health | Nie dowodzą że system działa |
 | Dodano PRAWDZIWY Trader Journey | 5 poziomów z konkretnymi testami |
 | Dodano testy z perspektywy tradera | "Co trader może zrobić" nie "jaki HTTP code" |
-| Dodano przykłady testów Python | Prawdziwe asercje, nie tylko status 200 |
