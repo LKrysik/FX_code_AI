@@ -106,6 +106,29 @@ class VariantParameter:
     description: str = ""
     validation_rules: Dict[str, Any] = None
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert VariantParameter to dictionary for JSON serialization."""
+        import math
+
+        # Helper function to handle inf/nan values
+        def sanitize_value(value):
+            if isinstance(value, float):
+                if math.isinf(value) or math.isnan(value):
+                    return None
+            return value
+
+        return {
+            "name": self.name,
+            "parameter_type": self.parameter_type,
+            "default_value": sanitize_value(self.default_value),
+            "min_value": sanitize_value(self.min_value),
+            "max_value": sanitize_value(self.max_value),
+            "allowed_values": self.allowed_values,
+            "is_required": self.is_required,
+            "description": self.description,
+            "validation_rules": self.validation_rules
+        }
+
 
 # Export all types for easy importing
 __all__ = [

@@ -2035,10 +2035,16 @@ async def get_available_algorithms(
         algorithms_metadata = registry.get_all_metadata()
         algorithm_stats = registry.get_statistics()
 
+        # Filter out non-serializable fields (calculation_function) for API response
+        serializable_algorithms = []
+        for algo_data in algorithms_metadata.values():
+            algo_copy = {k: v for k, v in algo_data.items() if k != "calculation_function"}
+            serializable_algorithms.append(algo_copy)
+
         return JSONResponse(content={
             "status": "success",
             "data": {
-                "algorithms": list(algorithms_metadata.values()),
+                "algorithms": serializable_algorithms,
                 "statistics": algorithm_stats
             }
         })
@@ -2099,10 +2105,13 @@ async def get_algorithm_details(
                 status_code=404,
                 detail=f"Algorithm '{algorithm_type}' not found"
             )
-        
+
+        # Filter out non-serializable fields (calculation_function) for API response
+        serializable_metadata = {k: v for k, v in metadata.items() if k != "calculation_function"}
+
         return JSONResponse(content={
             "status": "success",
-            "data": metadata
+            "data": serializable_metadata
         })
         
     except HTTPException:

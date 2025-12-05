@@ -255,12 +255,19 @@ class IndicatorAlgorithm(ABC):
 
     def get_registry_metadata(self) -> Dict[str, Any]:
         """Return complete metadata for engine registration."""
+        # Convert VariantParameter objects to dicts for JSON serialization
+        parameters = self.get_parameters()
+        serializable_parameters = [
+            param.to_dict() if hasattr(param, 'to_dict') else param
+            for param in parameters
+        ]
+
         return {
             "indicator_type": self.get_indicator_type(),
             "name": self.get_name(),
             "description": self.get_description(),
             "category": self.get_category(),
-            "parameters": self.get_parameters(),
+            "parameters": serializable_parameters,
             "calculation_function": self._create_engine_hook()
         }
     
