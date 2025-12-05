@@ -1,6 +1,58 @@
 # PEŁNY OPIS INTERFEJSU UI - FXcrypto
 
-**Wersja:** 1.0 | **Data:** 2025-12-05
+**Wersja:** 2.0 | **Data:** 2025-12-05
+
+**Powiązane dokumenty:**
+- `docs/UI_BACKLOG.md` - Priorytetyzowana lista funkcji do implementacji
+
+---
+
+## JAK AKTUALIZOWAĆ TEN DOKUMENT
+
+### Kiedy aktualizować
+- Po dodaniu nowej strony/funkcji do UI
+- Po implementacji elementu z backlogu (`docs/UI_BACKLOG.md`)
+- Co kilka iteracji pracy nad frontendem
+
+### Jak przygotować aktualizację (prompt dla agenta)
+
+```
+Wciel się w tradera i przejdź przez interfejs:
+
+1. Zobacz jakie są funkcjonalności interfejsu - poszczególnych jego stron
+2. Zobacz do czego został stworzony
+3. Opisz go słownie - jakie funkcje daje traderowi, co mu umożliwia zrobić
+4. Uzasadnij że dobrze rozumiesz interfejs i niczego nie przegapiłeś
+5. Zbuduj kompletny obraz tego co trader może zrobić - jak podróż przez interfejs
+
+Następnie oceń krytycznie i obiektywnie:
+- Czy ten sposób działania i te funkcje rzeczywiście spełniają oczekiwania tradera?
+- Czy są rzeczy których brakuje? (ustawianie, przełączanie widoków, oglądanie szczegółów zleceń)
+- Czy można obejrzeć wykres, przewijać go, powiększać?
+- Czy konfiguracja strategii pozwala na dodawanie/usuwanie warunków?
+- Pomyśl co zawiera dobry interfejs dla tradera - jakie funkcje, opcje które ułatwiają działanie, oglądanie.
+```
+
+### Format sekcji dla nowej strony
+
+```markdown
+## STRONA X: NAZWA (`/path`)
+
+### Cel
+[1-2 zdania: co trader tu robi]
+
+### Układ
+[ASCII diagram pokazujący layout strony]
+
+### Funkcje
+| Element | Funkcja | Interakcja |
+|---------|---------|------------|
+| [nazwa] | [co robi] | [jak trader wchodzi w interakcję] |
+
+### Braki (jeśli są)
+| Problem | Dlaczego ważne | Priorytet |
+|---------|----------------|-----------|
+```
 
 ---
 
@@ -87,6 +139,14 @@ Punkt wejścia do aplikacji. Pokazuje przegląd rynku i szybkie akcje.
 | Active Signals | Lista wykrytych sygnałów | [Trade] → start sesji |
 | Risk Panel | Podsumowanie portfolio | [Emergency Stop] → zatrzymaj wszystko |
 
+### Braki
+| Problem | Dlaczego ważne | Priorytet |
+|---------|----------------|-----------|
+| Brak mini-wykresu przy symbolu | Trader nie widzi setupu bez wykresu | HIGH |
+| Brak stanu konta z giełdy | "Portfolio" - ale ile naprawdę na MEXC? | HIGH |
+| Brak szczegółów aktywnych pozycji | 2 pozycje - ale KTÓRE? Na jakim P&L? | CRITICAL |
+| Brak historii przegapionych sygnałów | Czy wczoraj były dobre sygnały? | MEDIUM |
+
 ---
 
 ## STRONA 2: TRADING SESSION (`/trading-session`)
@@ -158,6 +218,14 @@ Punkt wejścia do aplikacji. Pokazuje przegląd rynku i szybkie akcje.
 | Data Session | Wybór danych do backtestu | Dropdown |
 | Acceleration | Szybkość backtestu | Slider 1x-100x |
 | START Button | Uruchomienie sesji | Kliknięcie → redirect do /dashboard |
+
+### Braki
+| Problem | Dlaczego ważne | Priorytet |
+|---------|----------------|-----------|
+| Brak podglądu strategii | Zaznaczam strategię ale NIE WIDZĘ jej warunków | HIGH |
+| Brak rekomendacji symboli | Skaner widzi pump na SOL, ale brak połączenia z tą stroną | MEDIUM |
+| Brak porównania strategii | Mam 3 strategie - która lepsza? Brak statystyk | MEDIUM |
+| Brak ostrzeżenia o konflikcie | Co jeśli 2 strategie na ten sam symbol? | LOW |
 
 ---
 
@@ -235,6 +303,21 @@ Punkt wejścia do aplikacji. Pokazuje przegląd rynku i szybkie akcje.
 | Live Indicators | Wartości wskaźników | Auto-refresh |
 | Signal History | Tabela sygnałów | [Details] → panel szczegółów |
 | Transaction History | Tabela transakcji | [Details] → szczegóły |
+
+### Braki (CRITICAL - najważniejsza strona!)
+| Problem | Dlaczego ważne | Priorytet |
+|---------|----------------|-----------|
+| Brak zoom na wykresie | Muszę widzieć detale świecy, formację | CRITICAL |
+| Brak scroll/przewijania wykresu | Chcę zobaczyć historię - co było 1h temu? | CRITICAL |
+| Brak wskaźników na wykresie | RSI/MACD pokazane jako liczby - muszę WIDZIEĆ na wykresie | CRITICAL |
+| Brak poziomu entry/SL/TP na wykresie | Nie widzę gdzie wszedłem i gdzie mam stopy | CRITICAL |
+| Brak szczegółów sygnału | [Details] - ale gdzie panel ze szczegółami? | CRITICAL |
+| Brak ręcznego zamknięcia pozycji | Widzę że idzie źle - JAK SZYBKO ZAMKNĄĆ? | CRITICAL |
+| Brak modyfikacji SL/TP | Chcę przesunąć stop loss - gdzie to zrobić? | CRITICAL |
+| Brak rysowania linii | Chcę narysować trend line, support/resistance | HIGH |
+| Brak orderbook | Gdzie jest głębokość rynku? | HIGH |
+| Brak trade tape | Chcę widzieć ostatnie transakcje na rynku | HIGH |
+| Brak multi-timeframe | Widzę 1m, ale co na 5m, 15m, 1h? | HIGH |
 
 ---
 
@@ -344,6 +427,16 @@ Punkt wejścia do aplikacji. Pokazuje przegląd rynku i szybkie akcje.
 | Validate | Sprawdzenie poprawności | Kliknięcie → walidacja |
 | Save | Zapisanie strategii | Kliknięcie → API call |
 
+### Braki
+| Problem | Dlaczego ważne | Priorytet |
+|---------|----------------|-----------|
+| Brak wizualizacji warunków na wykresie | "RSI > 70" - ale gdzie to było ostatnio? | HIGH |
+| Brak Quick Backtest Preview | Stworzył strategię - chcę zobaczyć jak działała na 100 świecach | HIGH |
+| Brak złożonych warunków | Chcę: (RSI > 70 AND Volume > 2x) OR (MACD crossover) | MEDIUM |
+| Brak importu/eksportu strategii | Mam dobrą strategię - chcę ją backupować | MEDIUM |
+| Brak wersjonowania | Zmieniam strategię - jak wrócić do poprzedniej wersji? | MEDIUM |
+| Brak komentarzy/notatek | Dlaczego dałem RSI > 70? Chcę zapisać notkę | LOW |
+
 ---
 
 ## STRONA 5: DATA COLLECTION (`/data-collection`)
@@ -431,6 +524,13 @@ Zbieranie danych historycznych do backtestów.
 | Download | Pobranie danych | (nie zaimplementowane) |
 | Delete | Usunięcie sesji | Kliknięcie → potwierdź |
 
+### Braki
+| Problem | Dlaczego ważne | Priorytet |
+|---------|----------------|-----------|
+| Download nie działa | "nie zaimplementowane" - a chcę analizować w Excelu! | HIGH |
+| Brak jakości danych | Czy są luki? Missing candles? | MEDIUM |
+| Brak statystyk danych | Ile świec, jaki zakres cen, avg volume | LOW |
+
 ---
 
 ## STRONA 6: INDICATORS (`/indicators`)
@@ -466,6 +566,13 @@ Zarządzanie wariantami wskaźników technicznych.
 | Create New | Tworzenie wariantu | Dialog z parametrami |
 | Edit | Edycja parametrów | ✏️ kliknięcie |
 | Delete | Usunięcie wariantu | 🗑️ kliknięcie |
+
+### Braki
+| Problem | Dlaczego ważne | Priorytet |
+|---------|----------------|-----------|
+| Brak wizualizacji wskaźnika | RSI_14 vs RSI_21 - który lepszy? Chcę ZOBACZYĆ | HIGH |
+| Brak opisu wskaźnika | Co mierzy Volume_Surge? Jak interpretować? | MEDIUM |
+| Brak testu wskaźnika | Ile sygnałów dał RSI_14 ostatnio? | MEDIUM |
 
 ---
 
@@ -520,6 +627,14 @@ Real-time skanowanie rynku w poszukiwaniu pump/dump.
 | Monitor | Dodanie do obserwacji | Kliknięcie |
 | Alert | Ustawienie alertu | Kliknięcie |
 
+### Braki
+| Problem | Dlaczego ważne | Priorytet |
+|---------|----------------|-----------|
+| Brak mini-wykresu w tabeli | Symbol ma +12% - ale jak wygląda wykres? | HIGH |
+| Brak historii sygnału | Ten symbol dał sygnał - ale co było ostatnio? | MEDIUM |
+| Brak statystyk trafności | "STRONG signal" - ale ile % było trafnych? | MEDIUM |
+| Brak szczegółów po kliknięciu | Klikam wiersz - chcę panel ze szczegółami | MEDIUM |
+
 ---
 
 ## STRONA 8: SETTINGS (`/settings`)
@@ -559,6 +674,15 @@ Konfiguracja aplikacji.
 - Enable compression
 - Max connections
 
+### Braki
+| Problem | Dlaczego ważne | Priorytet |
+|---------|----------------|-----------|
+| Brak domyślnych SL/TP | Chcę ustawić domyślnie 3% SL, 6% TP | HIGH |
+| Brak klawiszy skrótów | Szybko zamknij pozycję = jakiś klawisz? | MEDIUM |
+| Brak profili | Jeden profil dla scalping, inny dla swing | MEDIUM |
+| Brak backup/restore | Jak przenieść ustawienia na inny komputer? | LOW |
+| Brak 2FA | Bezpieczeństwo konta | LOW |
+
 ---
 
 ## GŁÓWNE FLOW UŻYTKOWNIKA
@@ -594,6 +718,75 @@ STOP → Analiza wyników
 
 ---
 
+## BRAKUJĄCE FUNKCJE SYSTEMOWE
+
+### 1. Panel Zarządzania Pozycją (CRITICAL)
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ BTC_USDT LONG                                                   │
+│ Entry: $65,000 | Current: $65,500 | P&L: +$50 (+0.77%)         │
+│ Size: 0.1 BTC | Value: $6,550                                  │
+│ SL: $64,000 (-1.54%) | TP: $67,000 (+3.08%)                    │
+│ Time: 2h 15m                                                    │
+│ ┌─────────┬─────────┬─────────┬─────────┐                      │
+│ │ Close   │ Close   │ Modify  │ Add to  │                      │
+│ │ 100%    │ 50%     │ SL/TP   │ Position│                      │
+│ └─────────┴─────────┴─────────┴─────────┘                      │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 2. Strona Raportów (/reports)
+```
+- Win Rate: 68%
+- Avg Win: +$45 | Avg Loss: -$23
+- Profit Factor: 1.95
+- Max Drawdown: -$230 (-8.5%)
+- Sharpe Ratio: 1.8
+- Best Trade: BTC +$120 | Worst Trade: ETH -$85
+- Trading Calendar: Heatmap miesięczny
+```
+
+### 3. Interaktywny Wykres
+```
+TOOLBAR:
+[🔍+] [🔍-] [📏] [✏️] [📐] [🔄] [⏱️ 1m|5m|15m|1h|4h|1d]
+
+OVERLAYS:
+- Poziom entry (zielona linia)
+- Poziom SL (czerwona linia)
+- Poziom TP (niebieska linia)
+- RSI jako subplot poniżej
+- Volume jako bars poniżej
+- Sygnały S1/Z1/ZE1 jako markery
+
+DRAWING TOOLS:
+- Horizontal line
+- Trend line
+- Fibonacci retracement
+- Rectangle (zone)
+
+INTERACTIONS:
+- Scroll: przewijanie historii
+- Wheel: zoom in/out
+- Drag: przesuwanie wykresu
+- Click: crosshair z wartościami
+```
+
+### 4. Keyboard Shortcuts
+```
+ESC     - Emergency Stop All
+C       - Close current position
+S       - Toggle Scanner
+D       - Go to Dashboard
+T       - Go to Trading Session
+1-9     - Switch symbols in watchlist
++/-     - Zoom chart
+←→      - Scroll chart
+F       - Full screen chart
+```
+
+---
+
 ## UWAGI IMPLEMENTACYJNE
 
 ### Co jest zaimplementowane ✅
@@ -612,6 +805,22 @@ STOP → Analiza wyników
 - Szczegóły transakcji
 - Download danych
 - Real-time alerts
+
+### Priorytet implementacji
+Patrz: `docs/UI_BACKLOG.md`
+
+---
+
+## CHANGELOG
+
+### v2.0 (2025-12-05)
+- Dodano instrukcje aktualizacji dokumentu
+- Dodano sekcje "Braki" do każdej strony
+- Dodano "BRAKUJĄCE FUNKCJE SYSTEMOWE" (panel pozycji, raporty, wykres, shortcuts)
+- Dodano link do UI_BACKLOG.md
+
+### v1.0 (2025-12-05)
+- Początkowa wersja dokumentu
 
 ---
 

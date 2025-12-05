@@ -1,6 +1,31 @@
 # System Agentów - FXcrypto
 
-**Wersja:** 14.0 | **Data:** 2025-12-05
+**Wersja:** 15.0 | **Data:** 2025-12-05
+
+---
+
+## DOKUMENTACJA UI (AKTUALIZUJ PO ZADANIACH!)
+
+### Powiązane dokumenty:
+- `docs/UI_INTERFACE_SPECIFICATION.md` - Pełny opis interfejsu (strony, funkcje, braki)
+- `docs/UI_BACKLOG.md` - Priorytetyzowana lista funkcji do implementacji
+
+### Kiedy aktualizować:
+| Zdarzenie | Dokument do aktualizacji |
+|-----------|-------------------------|
+| Zaimplementowano funkcję z backlogu | `UI_BACKLOG.md` → zmień status na DONE |
+| Dodano nową stronę/komponent | `UI_INTERFACE_SPECIFICATION.md` → dodaj sekcję |
+| Naprawiono brak z listy | `UI_INTERFACE_SPECIFICATION.md` → usuń z sekcji "Braki" |
+| Co 3-5 iteracji frontendowych | Oba dokumenty → przejrzyj aktualność |
+
+### Jak aktualizować UI_INTERFACE_SPECIFICATION.md:
+```
+Wciel się w tradera i przejdź przez interfejs:
+1. Zobacz jakie są funkcjonalności interfejsu
+2. Opisz go słownie - jakie funkcje daje traderowi
+3. Oceń krytycznie - czy spełnia oczekiwania tradera
+4. Zidentyfikuj braki (ustawianie, widoki, wykresy, szczegóły)
+```
 
 ---
 
@@ -778,9 +803,17 @@ Po 3 iteracjach BEZ POSTĘPU → ESKALUJ:
 
 ---
 
-**Wersja:** 14.0 | **Zmieniono:** 2025-12-05
+**Wersja:** 15.0 | **Zmieniono:** 2025-12-05
 
 ## CHANGELOG
+
+### v14 → v15
+
+| Zmiana | Uzasadnienie |
+|--------|--------------|
+| Dodano sekcję "DOKUMENTACJA UI" | Referencje do UI_INTERFACE_SPECIFICATION.md i UI_BACKLOG.md |
+| Instrukcje aktualizacji dokumentów | Agenci wiedzą kiedy i jak aktualizować dokumentację UI |
+| Prompt do oceny UI | Jak wcielić się w tradera i ocenić interfejs |
 
 ### v13 → v14
 
