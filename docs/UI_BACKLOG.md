@@ -1,8 +1,13 @@
 # UI BACKLOG - FXcrypto Pump/Dump Detection
 
-**Wersja:** 2.0 | **Data:** 2025-12-06
+**Wersja:** 3.0 | **Data:** 2025-12-06
 
 **Cel systemu:** Wykrywanie pump/dump i shortowanie na szczycie pumpu
+
+**Filozofia:** STATE MACHINE CENTRIC DESIGN - wszystko w UI musi wspierać:
+1. Konfigurację state machine (Strategy Builder)
+2. Obserwację state machine w czasie rzeczywistym (Dashboard)
+3. Analizę historii state machine (Session History)
 
 **Powiązane dokumenty:**
 - `docs/UI_INTERFACE_SPECIFICATION.md` - Pełny opis interfejsu i architektury systemu
@@ -15,173 +20,135 @@
 1. Wybierz zadanie z najwyższym priorytetem (CRITICAL → HIGH → MEDIUM → LOW)
 2. Zaimplementuj funkcję
 3. Zaktualizuj status na `DONE` i dodaj datę
-4. Zaktualizuj `UI_INTERFACE_SPECIFICATION.md` (usuń z sekcji "Braki")
+4. Zaktualizuj `UI_INTERFACE_SPECIFICATION.md`
 
-### Kiedy aktualizować:
-- Po implementacji funkcji → zmień status na DONE
-- Po krytycznej ocenie UI → dodaj nowe pozycje
-- Co kilka iteracji → przejrzyj priorytety
-
----
-
-## LEGENDA PRIORYTETÓW
-
+### Priorytety:
 | Priorytet | Znaczenie |
 |-----------|-----------|
-| CRITICAL | Bez tego trader nie może wykrywać pump/dump i shortować |
-| HIGH | Znacząco utrudnia konfigurację strategii lub monitoring |
+| CRITICAL | Bez tego trader NIE WIDZI co robi state machine |
+| HIGH | Znacząco utrudnia konfigurację lub monitoring |
 | MEDIUM | Ułatwia pracę, ale można obejść |
 | LOW | Nice to have |
 
 ---
 
-## CRITICAL - BEZ TEGO NIE MOŻNA WYKRYWAĆ PUMP/DUMP
+## CRITICAL - STATE MACHINE VISIBILITY
 
-### WYKRES - Pump Detection Visualization
+**Bez tych funkcji trader NIE WIE co robi system!**
 
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| C-01 | Zoom wykresu | /dashboard | Scroll wheel lub przyciski +/- (widzieć szczegóły pumpu) | TODO |
-| C-02 | Przewijanie wykresu | /dashboard | Drag w historię (analiza przeszłych pumpów) | TODO |
-| C-03 | Wskaźniki pump na wykresie | /dashboard | PUMP_MAGNITUDE, VELOCITY, VOLUME_SURGE jako subplots | TODO |
-| C-04 | Entry/SL/TP SHORT na wykresie | /dashboard | Poziome linie pokazujące SHORT pozycję | TODO |
-| C-05 | Oznaczenia S1/Z1/ZE1 | /dashboard | Markery gdzie był pump(S1), peak(Z1), dump end(ZE1) | TODO |
+### FAZA 2: LIVE MONITORING (Dashboard)
 
-### SHORT POZYCJA - Zarządzanie
+| ID | Funkcja | Opis | Status |
+|----|---------|------|--------|
+| SM-01 | **State overview table** | Tabela: Strategy × Symbol × STAN × Since | TODO |
+| SM-02 | **Current state display** | Duży badge: MONITORING / SIGNAL_DETECTED / POSITION_ACTIVE | TODO |
+| SM-03 | **Condition progress** | Które warunki Z1/ZE1/E1 spełnione ✅, które pending ❌ | TODO |
+| SM-04 | **Transition log** | Lista: timestamp → from_state → to_state → trigger values | TODO |
+| SM-05 | **Chart S1/Z1/ZE1 markers** | Markery na wykresie gdzie pump, peak, dump end | TODO |
 
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| C-06 | Panel SHORT pozycji | /dashboard | Entry peak, current price, P&L, SL powyżej, TP poniżej | TODO |
-| C-07 | Emergency close | /dashboard | Szybkie zamknięcie gdy pump kontynuuje | TODO |
-| C-08 | Modyfikacja SL/TP | /dashboard | Przesunięcie SL bliżej jeśli dump się rozwija | TODO |
+### FAZA 2: CHART (Dashboard)
 
-### STRATEGY STATE - Real-time Monitoring
+| ID | Funkcja | Opis | Status |
+|----|---------|------|--------|
+| CH-01 | **Zoom wykresu** | Scroll wheel lub +/- buttons | TODO |
+| CH-02 | **Przewijanie wykresu** | Drag w historię (analiza przeszłych pumpów) | TODO |
+| CH-03 | **Entry/SL/TP lines** | Poziome linie pokazujące SHORT pozycję | TODO |
 
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| C-09 | State machine display | /dashboard | Aktualny stan: MONITORING/SIGNAL_DETECTED/POSITION_ACTIVE | TODO |
-| C-10 | Condition status | /dashboard | Które warunki Z1 spełnione, które pending | TODO |
-| C-11 | Panel szczegółów sygnału | /dashboard | Wartości wskaźników w momencie S1 | TODO |
+### FAZA 2: POSITION MANAGEMENT (Dashboard)
 
-### INDICATOR VARIANTS - Configuration
+| ID | Funkcja | Opis | Status |
+|----|---------|------|--------|
+| PM-01 | **Position panel** | Entry, current, P&L, SL, TP, leverage, time | TODO |
+| PM-02 | **Emergency close** | Szybkie zamknięcie gdy pump kontynuuje | TODO |
+| PM-03 | **Modify SL/TP** | Przesunięcie stopów | TODO |
 
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| C-12 | Preview wariantu | /indicators | Wykres jak wariant reaguje na historyczne pumpy | TODO |
+### FAZA 3: SESSION HISTORY (NOWA STRONA!)
+
+| ID | Funkcja | Opis | Status |
+|----|---------|------|--------|
+| SH-01 | **Session list page** | `/session-history` - lista wszystkich sesji | TODO |
+| SH-02 | **Session detail page** | `/session-history/[id]` - szczegóły sesji | TODO |
+| SH-03 | **Summary stats** | S1 count, Z1 count, O1 count, E1 count, accuracy | TODO |
+| SH-04 | **Transition timeline** | Wizualna oś czasu z przejściami | TODO |
+| SH-05 | **Transition details** | Expandable: jakie wartości miały wskaźniki | TODO |
+| SH-06 | **Chart with markers** | Wykres z zaznaczonymi S1/Z1/ZE1 | TODO |
+| SH-07 | **Per-trade breakdown** | Tabela: każdy trade osobno z P&L | TODO |
 
 ---
 
-## HIGH - ZNACZĄCO UTRUDNIA KONFIGURACJĘ LUB MONITORING
+## HIGH - KONFIGURACJA I UNDERSTANDING
 
-### STRATEGY BUILDER - Pump Detection Config
+**Bez tych funkcji trader nie wie JAK skonfigurować system poprawnie.**
 
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| H-01 | Wizualizacja "gdzie by był S1" | /strategy-builder | Zaznacz na wykresie gdzie strategia by wykryła pump | TODO |
-| H-02 | State machine preview | /strategy-builder | Diagram S1→O1/Z1→ZE1/E1 z warunkami | TODO |
-| H-03 | Quick backtest | /strategy-builder | Ile pumpów by wykryła, ile szczytów trafiła | TODO |
-| H-04 | Opis wariantów w dropdown | /strategy-builder | "PumpFast" - pokaż tooltip z parametrami | TODO |
+### FAZA 1: STRATEGY BUILDER
 
-### INDICATOR VARIANTS - Tuning
+| ID | Funkcja | Opis | Status |
+|----|---------|------|--------|
+| SB-01 | **State machine diagram** | Wizualizacja: MONITORING → S1 → Z1 → ZE1/E1 | TODO |
+| SB-02 | **Quick backtest** | Ile S1, Z1, O1, E1 by wygenerowała strategia | TODO |
+| SB-03 | **"Where would S1 trigger"** | Zaznacz na wykresie gdzie byłyby sygnały | TODO |
+| SB-04 | **Variant tooltips** | Tooltip: "PumpFast" = t1=5s, t3=30s, d=15s | TODO |
 
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| H-05 | Porównanie wariantów | /indicators | Fast vs Medium na tym samym wykresie | TODO |
-| H-06 | Opis parametrów | /indicators | Co robi t1, t3, d? Jaki efekt zmiany? | TODO |
-| H-07 | Test "ile sygnałów" | /indicators | Ile S1 wygenerowałby wariant w 24h | TODO |
+### FAZA 1: INDICATOR VARIANTS
 
-### DASHBOARD - Pump Monitoring
+| ID | Funkcja | Opis | Status |
+|----|---------|------|--------|
+| IV-01 | **Preview on chart** | Wykres: jak wariant reaguje na historyczne pumpy | TODO |
+| IV-02 | **Compare variants** | Fast vs Medium na tym samym wykresie | TODO |
+| IV-03 | **Parameter docs** | Co robi t1, t3, d? Jaki efekt ma zmiana? | TODO |
+| IV-04 | **Signal count test** | Ile S1 wygenerowałby wariant w 24h | TODO |
 
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| H-08 | Real-time pump indicators | /dashboard | PUMP_MAGNITUDE, VELOCITY jako duże liczby | TODO |
-| H-09 | Velocity trend | /dashboard | Czy pump zwalnia czy przyspiesza (strzałka) | TODO |
-| H-10 | Peak prediction | /dashboard | "Zbliża się szczyt" indicator | TODO |
+### FAZA 2: TRADING SESSION
 
-### TRADING SESSION
+| ID | Funkcja | Opis | Status |
+|----|---------|------|--------|
+| TS-01 | **Strategy preview** | Po zaznaczeniu: pokaż warunki S1, Z1, ZE1 | TODO |
+| TS-02 | **Session matrix** | Tabela: strategia × symbol = X instancji | TODO |
+| TS-03 | **Symbol recommendation** | "SOL_USDT ma wysoki volume - dobry dla pump" | TODO |
 
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| H-11 | Podgląd strategii | /trading-session | Po zaznaczeniu - pokaż warunki S1, Z1, ZE1 | TODO |
-| H-12 | Symbol recommendation | /trading-session | "SOL_USDT ma wysoki volume - dobry dla pump detection" | TODO |
+### FAZA 2: DASHBOARD - PUMP INDICATORS
+
+| ID | Funkcja | Opis | Status |
+|----|---------|------|--------|
+| PI-01 | **Real-time pump values** | PUMP_MAGNITUDE, VELOCITY jako duże liczby | TODO |
+| PI-02 | **Velocity trend** | Strzałka: pump przyspiesza ↑ / zwalnia ↓ | TODO |
+| PI-03 | **Pump subplot** | Wykres wskaźników pump pod main chart | TODO |
+
+---
+
+## MEDIUM - ULEPSZENIA UX
 
 ### DATA COLLECTION
 
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| H-13 | Download danych | /data-collection | Eksport do CSV (analiza pumpów offline) | TODO |
-| H-14 | Pump history in data | /data-collection | Oznacz gdzie były historyczne pumpy | TODO |
+| ID | Funkcja | Opis | Status |
+|----|---------|------|--------|
+| DC-01 | Download danych | Eksport do CSV | TODO |
+| DC-02 | Pump history marking | Oznacz gdzie były historyczne pumpy | TODO |
+| DC-03 | Data quality indicator | Wskaźnik luk w danych | TODO |
 
 ### MARKET SCANNER
 
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| H-13 | Mini-wykres w tabeli | /market-scanner | Sparkline przy każdym symbolu | TODO |
-
-### SETTINGS
-
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| H-14 | Domyślne SL/TP | /settings | Ustawienia domyślnych wartości | TODO |
-
-### NOWE STRONY
-
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| H-15 | Strona raportów | /reports | Win rate, avg win/loss, drawdown, calendar | TODO |
-
----
-
-## MEDIUM - UŁATWIA PRACĘ
-
-### DASHBOARD
-
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| M-01 | Historia przegapionych sygnałów | / | Sygnały z ostatnich 24h | TODO |
-
-### TRADING SESSION
-
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| M-02 | Rekomendacja symboli | /trading-session | Na podstawie aktywnych sygnałów ze skanera | TODO |
-| M-03 | Porównanie strategii | /trading-session | Statystyki win rate/profit dla każdej | TODO |
+| ID | Funkcja | Opis | Status |
+|----|---------|------|--------|
+| MS-01 | Mini-wykres w tabeli | Sparkline przy każdym symbolu | TODO |
+| MS-02 | Signal history | Co się działo z tym symbolem ostatnio | TODO |
+| MS-03 | Panel szczegółów | Po kliknięciu wiersza - szczegóły | TODO |
 
 ### STRATEGY BUILDER
 
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| M-04 | Złożone warunki | /strategy-builder | (A AND B) OR C | TODO |
-| M-05 | Import/eksport strategii | /strategy-builder | JSON export/import | TODO |
-| M-06 | Wersjonowanie strategii | /strategy-builder | Historia zmian, rollback | TODO |
-
-### DATA COLLECTION
-
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| M-07 | Jakość danych | /data-collection | Wskaźnik luk w danych | TODO |
-
-### INDICATORS
-
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| M-08 | Opis wskaźnika | /indicators | Dokumentacja co mierzy i jak interpretować | TODO |
-| M-09 | Test wskaźnika | /indicators | Ile sygnałów wygenerował ostatnio | TODO |
-
-### MARKET SCANNER
-
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| M-10 | Historia sygnału | /market-scanner | Co się działo z tym symbolem ostatnio | TODO |
-| M-11 | Statystyki trafności | /market-scanner | % trafnych sygnałów STRONG/MEDIUM/WEAK | TODO |
-| M-12 | Panel szczegółów | /market-scanner | Po kliknięciu wiersza - szczegóły | TODO |
+| ID | Funkcja | Opis | Status |
+|----|---------|------|--------|
+| SB-05 | Complex conditions | (A AND B) OR C | TODO |
+| SB-06 | Import/export | JSON export/import strategii | TODO |
+| SB-07 | Version history | Historia zmian, rollback | TODO |
 
 ### SETTINGS
 
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| M-13 | Klawisze skrótów | /settings | Konfiguracja keyboard shortcuts | TODO |
-| M-14 | Profile | /settings | Różne profile dla różnych stylów tradingu | TODO |
+| ID | Funkcja | Opis | Status |
+|----|---------|------|--------|
+| ST-01 | Default SL/TP | Domyślne wartości | TODO |
+| ST-02 | Keyboard shortcuts | Konfiguracja skrótów | TODO |
+| ST-03 | Profiles | Różne profile dla różnych stylów | TODO |
 
 ---
 
@@ -189,51 +156,55 @@
 
 ### DASHBOARD
 
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| L-01 | Fibonacci retracement | /dashboard | Drawing tool | TODO |
-| L-02 | Rectangle zones | /dashboard | Drawing tool | TODO |
+| ID | Funkcja | Opis | Status |
+|----|---------|------|--------|
+| D-01 | Fibonacci retracement | Drawing tool | TODO |
+| D-02 | Rectangle zones | Drawing tool | TODO |
+| D-03 | Multi-timeframe | 1m/5m/15m/1h toggle | TODO |
 
-### TRADING SESSION
+### SESSION HISTORY
 
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| L-03 | Ostrzeżenie o konflikcie | /trading-session | 2 strategie na ten sam symbol | TODO |
+| ID | Funkcja | Opis | Status |
+|----|---------|------|--------|
+| SH-08 | Replay mode | Odtworzenie sesji krok po kroku | TODO |
+| SH-09 | Export report | PDF/CSV raport sesji | TODO |
 
-### STRATEGY BUILDER
+### SYSTEM
 
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| L-04 | Komentarze/notatki | /strategy-builder | Notatki przy warunkach | TODO |
-
-### DATA COLLECTION
-
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| L-05 | Statystyki danych | /data-collection | Min/max/avg cena, volume | TODO |
-
-### SETTINGS
-
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| L-06 | Backup/restore | /settings | Export/import wszystkich ustawień | TODO |
-| L-07 | 2FA | /settings | Two-factor authentication | TODO |
+| ID | Funkcja | Opis | Status |
+|----|---------|------|--------|
+| SY-01 | Keyboard shortcuts | ESC=stop, C=close, D=dashboard, etc. | TODO |
+| SY-02 | Backup/restore | Export/import wszystkich ustawień | TODO |
 
 ---
 
-## SYSTEMOWE - KEYBOARD SHORTCUTS
+## KEYBOARD SHORTCUTS (do zaimplementowania)
 
-| Skrót | Funkcja | Status |
-|-------|---------|--------|
-| ESC | Emergency Stop All | TODO |
-| C | Close current position | TODO |
-| S | Toggle Scanner | TODO |
-| D | Go to Dashboard | TODO |
-| T | Go to Trading Session | TODO |
-| 1-9 | Switch symbols in watchlist | TODO |
-| +/- | Zoom chart | TODO |
-| ←→ | Scroll chart | TODO |
-| F | Full screen chart | TODO |
+| Skrót | Funkcja | Priorytet |
+|-------|---------|-----------|
+| ESC | Emergency Stop All | HIGH |
+| C | Close current position | HIGH |
+| D | Go to Dashboard | MEDIUM |
+| T | Go to Trading Session | MEDIUM |
+| S | Go to Session History | MEDIUM |
+| +/- | Zoom chart | MEDIUM |
+| ←→ | Scroll chart | MEDIUM |
+| 1-9 | Switch symbols in watchlist | LOW |
+| F | Full screen chart | LOW |
+
+---
+
+## BACKEND REQUIREMENTS (dla state machine visibility)
+
+Żeby UI mogło pokazywać state machine, backend MUSI dostarczać:
+
+| Endpoint | Dane | Status |
+|----------|------|--------|
+| GET /sessions/{id}/state | Aktualny stan każdej instancji | ❓ SPRAWDZIĆ |
+| GET /sessions/{id}/transitions | Lista przejść z wartościami | ❓ SPRAWDZIĆ |
+| WS /sessions/{id}/events | Real-time state changes | ❓ SPRAWDZIĆ |
+| GET /sessions/{id}/conditions | Aktualny progress warunków | ❓ SPRAWDZIĆ |
+| POST /sessions/{id}/close | Emergency close | ❓ SPRAWDZIĆ |
 
 ---
 
@@ -241,16 +212,36 @@
 
 | Priorytet | Liczba | Zrobione |
 |-----------|--------|----------|
-| CRITICAL | 8 | 0 |
-| HIGH | 15 | 0 |
-| MEDIUM | 14 | 0 |
-| LOW | 7 | 0 |
-| **RAZEM** | **44** | **0** |
+| CRITICAL | 17 | 0 |
+| HIGH | 14 | 0 |
+| MEDIUM | 13 | 0 |
+| LOW | 6 | 0 |
+| **RAZEM** | **50** | **0** |
+
+### Rozkład według faz
+
+| Faza | CRITICAL | HIGH | MEDIUM | LOW |
+|------|----------|------|--------|-----|
+| Faza 1: Konfiguracja | 0 | 8 | 3 | 0 |
+| Faza 2: Monitoring | 10 | 6 | 4 | 3 |
+| Faza 3: Analiza | 7 | 0 | 0 | 2 |
+| System | 0 | 0 | 6 | 1 |
 
 ---
 
 ## CHANGELOG
 
+### v3.0 (2025-12-06)
+- **MAJOR REFACTOR:** Backlog przeprojektowany pod STATE MACHINE CENTRIC DESIGN
+- Nowa struktura: CRITICAL = state machine visibility
+- Dodano całą sekcję Session History (NOWA STRONA!) - 7 pozycji CRITICAL
+- Dodano Backend Requirements - co API musi dostarczać
+- Przenumerowano wszystkie ID dla jasności
+- Dodano statystyki według faz
+
+### v2.0 (2025-12-06)
+- Restrukturyzacja pod pump/dump workflow
+- Dodano kategorie CRITICAL dla pump detection
+
 ### v1.0 (2025-12-05)
-- Początkowa wersja backlogu na podstawie krytycznej oceny UI
-- 44 pozycje: 8 CRITICAL, 15 HIGH, 14 MEDIUM, 7 LOW
+- Początkowa wersja backlogu
