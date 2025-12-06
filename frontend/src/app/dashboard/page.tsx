@@ -73,6 +73,7 @@ import { TransactionHistoryPanel } from '@/components/dashboard/TransactionHisto
 import { SessionConfigDialog, type SessionConfig } from '@/components/dashboard/SessionConfigDialog';
 import EquityCurveChart from '@/components/charts/EquityCurveChart';
 import DrawdownChart from '@/components/charts/DrawdownChart';
+import PositionMonitor from '@/components/trading/PositionMonitor';
 
 // ============================================================================
 // Types
@@ -599,7 +600,7 @@ function DashboardContent() {
               indicator_id: key,
               indicator_name: key,
               value: typeof value === 'number' ? value : 0,
-              threshold_min: null,
+              threshold_min: undefined,
               met: true,
             });
           }
@@ -894,7 +895,7 @@ function DashboardContent() {
             </Grid>
           )}
 
-          {/* Signal History & Transaction History (Tabbed) */}
+          {/* Signal History, Transaction History, and Positions (Tabbed) */}
           <Grid item xs={12}>
             <Paper sx={{ p: 0 }}>
               <Tabs
@@ -904,6 +905,7 @@ function DashboardContent() {
               >
                 <Tab label="📊 Signal History" />
                 <Tab label="💰 Transaction History" />
+                <Tab label="📍 Active Positions" />
               </Tabs>
 
               <Box sx={{ p: 2 }}>
@@ -920,6 +922,12 @@ function DashboardContent() {
                     sessionId={sessionId}
                     refreshInterval={5000}
                     isActive={historyTab === 1}
+                  />
+                </Box>
+                <Box sx={{ display: historyTab === 2 ? 'block' : 'none', height: '500px' }}>
+                  <PositionMonitor
+                    session_id={sessionId || undefined}
+                    className="h-full"
                   />
                 </Box>
               </Box>

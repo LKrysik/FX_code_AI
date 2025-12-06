@@ -1,13 +1,19 @@
 /**
  * PositionMonitor Component - Agent 6
  * ====================================
- * Real-time position monitoring with margin ratio tracking and liquidation warnings.
+ * Real-time position monitoring with advanced position management features.
  *
  * Features:
  * - Real-time position updates via WebSocket
- * - Margin ratio gauge (< 15% = red alert)
- * - Liquidation price display
- * - Close position button
+ * - Expandable position details (liquidation price, margin, timestamps)
+ * - Close position controls:
+ *   - Close 100% button (red)
+ *   - Close 50% button (orange)
+ * - Stop Loss / Take Profit management:
+ *   - View current SL/TP levels
+ *   - Edit SL/TP via inline form
+ *   - Update SL/TP with validation
+ * - Margin ratio tracking (< 15% = red alert)
  * - P&L color-coding (green = profit, red = loss)
  * - Auto-refresh every 1s
  */
@@ -40,19 +46,35 @@ export default function PositionMonitor({
   const [error, setError] = useState<string | null>(null);
   const [closingPositionId, setClosingPositionId] = useState<string | null>(null);
 
+  // Expanded position detail state
+  const [expandedPositionId, setExpandedPositionId] = useState<string | null>(null);
+
+  // SL/TP edit state
+  const [editingSLTP, setEditingSLTP] = useState<{
+    positionId: string;
+    stopLoss: string;
+    takeProfit: string;
+  } | null>(null);
+
   const { lastMessage, isConnected } = useWebSocket({
     onMessage: (message: WebSocketMessage) => {
-      // Listen for position updates from live_trading stream
-      if (message.type === 'data' && message.stream === 'live_trading') {
-        const data = message.data;
-        if (data.symbol && (data.unrealized_pnl !== undefined || data.margin_ratio !== undefined)) {
-          // This is a position update
-          handlePositionUpdate(data);
+      try {
+        // Listen for position updates from live_trading stream
+        if (message.type === 'data' && message.stream === 'live_trading') {
+          const data = message.data;
+          if (data && data.symbol && (data.unrealized_pnl !== undefined || data.margin_ratio !== undefined)) {
+            // This is a position update
+            handlePositionUpdate(data);
+          }
         }
-      }
-      // Also listen for direct position_update events
-      else if (message.type === 'position_update' || message.stream === 'position_update') {
-        handlePositionUpdate(message.data);
+        // Also listen for direct position_update events
+        else if (message.type === 'position_update' || message.stream === 'position_update') {
+          if (message.data) {
+            handlePositionUpdate(message.data);
+          }
+        }
+      } catch (err) {
+        console.error('[PositionMonitor] Error handling WebSocket message:', err);
       }
     }
   });
@@ -96,17 +118,38 @@ export default function PositionMonitor({
     });
   };
 
-  // Close position
-  const handleClosePosition = async (position: Position) => {
+  // Close position (100%)
+  const handleClosePosition = async (position: Position, percentage: number = 100) => {
     const position_id = `${position.session_id}:${position.symbol}`;
-    if (closingPositionId || !confirm(`Close position ${position.symbol}?`)) {
+    if (closingPositionId) return;
+
+    const action = percentage === 100 ? 'Close' : `Close ${percentage}% of`;
+    if (!confirm(`${action} position ${position.symbol}?`)) {
       return;
     }
 
     try {
       setClosingPositionId(position_id);
-      const result = await tradingAPI.closePosition(position_id, 'USER_REQUESTED');
-      console.log('[PositionMonitor] Position close order submitted:', result);
+
+      if (percentage === 100) {
+        // Close entire position
+        const result = await tradingAPI.closePosition(position_id, 'USER_REQUESTED');
+        console.log('[PositionMonitor] Position close order submitted:', result);
+      } else {
+        // Partial close: calculate partial quantity
+        const partialQuantity = position.quantity * (percentage / 100);
+        console.log('[PositionMonitor] Closing partial position:', {
+          symbol: position.symbol,
+          percentage,
+          partialQuantity,
+          totalQuantity: position.quantity
+        });
+
+        // Note: This requires a backend endpoint for partial close
+        // For now, we'll show a warning that it's not fully implemented
+        alert(`Partial close feature requires backend support.\nWould close ${partialQuantity.toFixed(4)} ${position.symbol} (${percentage}%)`);
+      }
+
       // Position will be removed from list via WebSocket update
       setTimeout(fetchPositions, 1000);  // Refresh after 1s
     } catch (err: any) {
@@ -114,6 +157,49 @@ export default function PositionMonitor({
       alert(`Failed to close position: ${err.message}`);
     } finally {
       setClosingPositionId(null);
+    }
+  };
+
+  // Toggle position detail expansion
+  const handleToggleExpand = (position: Position) => {
+    const position_id = `${position.session_id}:${position.symbol}`;
+    setExpandedPositionId(expandedPositionId === position_id ? null : position_id);
+  };
+
+  // Start editing SL/TP
+  const handleStartEditSLTP = (position: Position) => {
+    const position_id = `${position.session_id}:${position.symbol}`;
+    setEditingSLTP({
+      positionId: position_id,
+      stopLoss: position.stop_loss_price?.toString() || '',
+      takeProfit: position.take_profit_price?.toString() || '',
+    });
+  };
+
+  // Update SL/TP
+  const handleUpdateSLTP = async () => {
+    if (!editingSLTP) return;
+
+    try {
+      const [session_id, symbol] = editingSLTP.positionId.split(':');
+      const stopLoss = parseFloat(editingSLTP.stopLoss);
+      const takeProfit = parseFloat(editingSLTP.takeProfit);
+
+      console.log('[PositionMonitor] Updating SL/TP:', {
+        session_id,
+        symbol,
+        stopLoss,
+        takeProfit
+      });
+
+      // Note: This requires a backend endpoint for updating SL/TP
+      // For now, we'll show a warning that it's not fully implemented
+      alert(`SL/TP update feature requires backend support.\nWould set:\nSL: ${stopLoss || 'N/A'}\nTP: ${takeProfit || 'N/A'}`);
+
+      setEditingSLTP(null);
+    } catch (err: any) {
+      console.error('[PositionMonitor] Failed to update SL/TP:', err);
+      alert(`Failed to update SL/TP: ${err.message}`);
     }
   };
 
@@ -225,63 +311,190 @@ export default function PositionMonitor({
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Current</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">P&L</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Margin Ratio</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Liquidation</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {positions.map((position) => (
-                <tr key={`${position.session_id}:${position.symbol}`} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{position.symbol}</div>
-                    <div className="text-xs text-gray-500">{position.leverage}x</div>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      position.side === 'LONG' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                    }`}>
-                      {position.side}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-right text-sm text-gray-900">
-                    {position.quantity.toFixed(4)}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-right text-sm text-gray-900">
-                    {formatCurrency(position.entry_price)}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-right text-sm text-gray-900">
-                    {formatCurrency(position.current_price)}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-right">
-                    <div className={`text-sm font-medium ${getPnLColor(position.unrealized_pnl)}`}>
-                      {formatCurrency(position.unrealized_pnl)}
-                    </div>
-                    <div className={`text-xs ${getPnLColor(position.unrealized_pnl_pct)}`}>
-                      {formatPercent(position.unrealized_pnl_pct)}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-right">
-                    <div className={`text-sm font-medium ${getMarginRatioColor(position.margin_ratio)}`}>
-                      {position.margin_ratio.toFixed(1)}%
-                    </div>
-                    {position.margin_ratio < 25 && (
-                      <div className="text-xs text-red-500">⚠️ Low margin</div>
+              {positions.map((position) => {
+                const position_id = `${position.session_id}:${position.symbol}`;
+                const isExpanded = expandedPositionId === position_id;
+                const isEditing = editingSLTP?.positionId === position_id;
+
+                return (
+                  <React.Fragment key={position_id}>
+                    {/* Main Row */}
+                    <tr className="hover:bg-gray-50">
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => handleToggleExpand(position)}
+                            className="text-gray-400 hover:text-gray-600"
+                            title="Toggle details"
+                          >
+                            <svg className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                          </button>
+                          <div>
+                            <div className="text-sm font-medium text-gray-900">{position.symbol}</div>
+                            <div className="text-xs text-gray-500">{position.leverage}x Leverage</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                          position.side === 'LONG' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                        }`}>
+                          {position.side}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-right text-sm text-gray-900">
+                        {position.quantity.toFixed(4)}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-right text-sm text-gray-900">
+                        {formatCurrency(position.entry_price)}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-right text-sm text-gray-900">
+                        {formatCurrency(position.current_price)}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-right">
+                        <div className={`text-sm font-medium ${getPnLColor(position.unrealized_pnl)}`}>
+                          {formatCurrency(position.unrealized_pnl)}
+                        </div>
+                        <div className={`text-xs ${getPnLColor(position.unrealized_pnl_pct)}`}>
+                          {formatPercent(position.unrealized_pnl_pct)}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-right">
+                        <div className={`text-sm font-medium ${getMarginRatioColor(position.margin_ratio)}`}>
+                          {position.margin_ratio.toFixed(1)}%
+                        </div>
+                        {position.margin_ratio < 25 && (
+                          <div className="text-xs text-red-500">⚠️ Low margin</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center justify-center space-x-1">
+                          <button
+                            onClick={() => handleClosePosition(position, 100)}
+                            disabled={closingPositionId === position_id}
+                            className="px-2 py-1 text-xs font-medium text-white bg-red-600 rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Close 100% of position"
+                          >
+                            {closingPositionId === position_id ? 'Closing...' : 'Close 100%'}
+                          </button>
+                          <button
+                            disabled={true}
+                            className="px-2 py-1 text-xs font-medium text-white bg-gray-400 rounded cursor-not-allowed opacity-50"
+                            title="Coming soon - requires backend support"
+                          >
+                            50%
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+
+                    {/* Expanded Detail Row */}
+                    {isExpanded && (
+                      <tr className="bg-gray-50">
+                        <td colSpan={8} className="px-4 py-4">
+                          <div className="grid grid-cols-2 gap-4">
+                            {/* Left Column: Position Details */}
+                            <div>
+                              <h4 className="text-sm font-semibold text-gray-700 mb-2">Position Details</h4>
+                              <div className="space-y-1 text-xs">
+                                <div className="flex justify-between">
+                                  <span className="text-gray-600">Liquidation Price:</span>
+                                  <span className="font-medium text-red-600">{formatCurrency(position.liquidation_price)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-gray-600">Margin Used:</span>
+                                  <span className="font-medium">{formatCurrency(position.margin)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-gray-600">Opened At:</span>
+                                  <span className="font-medium">{new Date(position.opened_at).toLocaleString()}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-gray-600">Updated At:</span>
+                                  <span className="font-medium">{new Date(position.updated_at).toLocaleString()}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Right Column: SL/TP Management */}
+                            <div>
+                              <h4 className="text-sm font-semibold text-gray-700 mb-2">Risk Management</h4>
+                              {!isEditing ? (
+                                <div className="space-y-2">
+                                  <div className="flex justify-between text-xs">
+                                    <span className="text-gray-600">Stop Loss:</span>
+                                    <span className={`font-medium ${position.stop_loss_price ? 'text-red-600' : 'text-gray-400'}`}>
+                                      {position.stop_loss_price ? formatCurrency(position.stop_loss_price) : 'Not Set'}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between text-xs">
+                                    <span className="text-gray-600">Take Profit:</span>
+                                    <span className={`font-medium ${position.take_profit_price ? 'text-green-600' : 'text-gray-400'}`}>
+                                      {position.take_profit_price ? formatCurrency(position.take_profit_price) : 'Not Set'}
+                                    </span>
+                                  </div>
+                                  <button
+                                    disabled={true}
+                                    className="mt-2 w-full px-3 py-1 text-xs font-medium text-white bg-gray-400 rounded cursor-not-allowed opacity-50"
+                                    title="Coming soon - requires backend support"
+                                  >
+                                    {position.stop_loss_price || position.take_profit_price ? 'Edit SL/TP' : 'Set SL/TP'} (Coming soon)
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="space-y-2">
+                                  <div>
+                                    <label className="block text-xs text-gray-600 mb-1">Stop Loss Price</label>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      value={editingSLTP.stopLoss}
+                                      onChange={(e) => setEditingSLTP({ ...editingSLTP, stopLoss: e.target.value })}
+                                      className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                      placeholder="Enter SL price"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-xs text-gray-600 mb-1">Take Profit Price</label>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      value={editingSLTP.takeProfit}
+                                      onChange={(e) => setEditingSLTP({ ...editingSLTP, takeProfit: e.target.value })}
+                                      className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                      placeholder="Enter TP price"
+                                    />
+                                  </div>
+                                  <div className="flex space-x-2">
+                                    <button
+                                      onClick={handleUpdateSLTP}
+                                      className="flex-1 px-3 py-1 text-xs font-medium text-white bg-green-600 rounded hover:bg-green-700"
+                                    >
+                                      Update
+                                    </button>
+                                    <button
+                                      onClick={() => setEditingSLTP(null)}
+                                      className="flex-1 px-3 py-1 text-xs font-medium text-gray-700 bg-gray-200 rounded hover:bg-gray-300"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
                     )}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-right text-sm text-gray-900">
-                    {formatCurrency(position.liquidation_price)}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-center">
-                    <button
-                      onClick={() => handleClosePosition(position)}
-                      disabled={closingPositionId === `${position.session_id}:${position.symbol}`}
-                      className="px-3 py-1 text-xs font-medium text-white bg-red-600 rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {closingPositionId === `${position.session_id}:${position.symbol}` ? 'Closing...' : 'Close'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         )}

@@ -35,6 +35,10 @@ export interface Position {
   opened_at: string;
   updated_at: string;
   status: 'OPEN' | 'CLOSED' | 'LIQUIDATED';
+
+  // Risk management (optional - may not be set)
+  stop_loss_price?: number;
+  take_profit_price?: number;
 }
 
 export interface Order {

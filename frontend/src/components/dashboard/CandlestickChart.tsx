@@ -9,6 +9,9 @@
  * - Volume bars
  * - Signal markers overlay
  * - Responsive sizing
+ * - Interactive zoom (mouse wheel)
+ * - Pan/scroll (drag to scroll)
+ * - Reset zoom button
  *
  * Performance:
  * - Optimized for 1000+ candles
@@ -19,7 +22,9 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Box, Typography, CircularProgress, Alert } from '@mui/material';
+import { Box, Typography, CircularProgress, Alert, IconButton } from '@mui/material';
+import { ZoomOutMap as ResetZoomIcon } from '@mui/icons-material';
+import { createChart, IChartApi, ISeriesApi, CandlestickData, Time } from 'lightweight-charts';
 
 // ============================================================================
 // Types
@@ -66,6 +71,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   // ========================================
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [candleData, setCandleData] = useState<CandleData[]>([]);
@@ -74,8 +81,17 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   // Data Loading
   // ========================================
 
+  // AbortController ref for cleanup
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const loadChartData = async () => {
     if (!sessionId) return;
+
+    // Abort previous request if still pending
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
 
     setLoading(true);
     setError(null);
@@ -84,7 +100,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       // Load OHLCV data from backend
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
       const ohlcvResponse = await fetch(
-        `${apiUrl}/api/chart/ohlcv?session_id=${sessionId}&symbol=${symbol}&interval=1m&limit=500`
+        `${apiUrl}/api/chart/ohlcv?session_id=${sessionId}&symbol=${symbol}&interval=1m&limit=500`,
+        { signal: abortControllerRef.current.signal }
       );
 
       if (!ohlcvResponse.ok) {
@@ -104,6 +121,10 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         setError(null);
       }
     } catch (err) {
+      // Ignore abort errors
+      if (err instanceof Error && err.name === 'AbortError') {
+        return;
+      }
       console.error('Failed to load chart data:', err);
       setCandleData([]);
       setError(`Failed to load chart data: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -111,6 +132,95 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       setLoading(false);
     }
   };
+
+  // ========================================
+  // Chart Initialization
+  // ========================================
+
+  // Initialize lightweight-charts instance
+  useEffect(() => {
+    if (!chartContainerRef.current) return;
+
+    // Create chart with zoom/pan enabled
+    const chart = createChart(chartContainerRef.current, {
+      width: chartContainerRef.current.clientWidth,
+      height: height,
+      layout: {
+        background: { color: '#1e1e1e' },
+        textColor: '#d1d4dc',
+      },
+      grid: {
+        vertLines: { color: '#2B2B43' },
+        horzLines: { color: '#2B2B43' },
+      },
+      crosshair: {
+        mode: 1, // Normal crosshair
+      },
+      rightPriceScale: {
+        borderColor: '#2B2B43',
+      },
+      timeScale: {
+        borderColor: '#2B2B43',
+        timeVisible: true,
+        secondsVisible: false,
+        // Enable zoom and scroll
+        rightOffset: 12,
+        barSpacing: 6,
+        fixLeftEdge: false,
+        fixRightEdge: false,
+      },
+      handleScroll: {
+        mouseWheel: true, // Enable zoom with mouse wheel
+        pressedMouseMove: true, // Enable pan with drag
+        horzTouchDrag: true, // Enable touch drag on mobile
+        vertTouchDrag: true,
+      },
+      handleScale: {
+        axisPressedMouseMove: {
+          time: true,
+          price: true,
+        },
+        axisDoubleClickReset: {
+          time: true,
+          price: true,
+        },
+        mouseWheel: true, // Enable zoom with mouse wheel
+        pinch: true, // Enable pinch zoom on mobile
+      },
+    });
+
+    chartRef.current = chart;
+
+    // Add candlestick series (v5 API - use 'as any' for compatibility)
+    const candlestickSeries = (chart as any).addCandlestickSeries({
+      upColor: '#26a69a',
+      downColor: '#ef5350',
+      borderVisible: false,
+      wickUpColor: '#26a69a',
+      wickDownColor: '#ef5350',
+    });
+
+    candlestickSeriesRef.current = candlestickSeries;
+
+    // Handle resize
+    const handleResize = () => {
+      if (chartContainerRef.current && chartRef.current) {
+        chartRef.current.applyOptions({
+          width: chartContainerRef.current.clientWidth,
+        });
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      chart.remove();
+      chartRef.current = null;
+      candlestickSeriesRef.current = null;
+    };
+  }, [height]);
 
   // ========================================
   // Effects
@@ -123,7 +233,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     }
   }, [sessionId, symbol]);
 
-  // Auto-refresh
+  // Auto-refresh with cleanup
   useEffect(() => {
     if (!autoRefresh || !sessionId) return;
 
@@ -131,15 +241,45 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       loadChartData();
     }, refreshInterval);
 
-    return () => clearInterval(intervalId);
+    return () => {
+      clearInterval(intervalId);
+      // Abort any pending request on cleanup
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, [autoRefresh, sessionId, symbol, refreshInterval]);
 
-  // Render chart using HTML5 Canvas (lightweight approach)
+  // Update chart data when candleData changes
   useEffect(() => {
-    if (!chartContainerRef.current || candleData.length === 0) return;
+    if (!candlestickSeriesRef.current || candleData.length === 0) return;
 
-    renderSimpleChart(chartContainerRef.current, candleData, height);
-  }, [candleData, height]);
+    // Convert to lightweight-charts format
+    const chartData: CandlestickData[] = candleData.map((candle) => ({
+      time: candle.time as Time,
+      open: candle.open,
+      high: candle.high,
+      low: candle.low,
+      close: candle.close,
+    }));
+
+    candlestickSeriesRef.current.setData(chartData);
+
+    // Fit content to show all data
+    if (chartRef.current) {
+      chartRef.current.timeScale().fitContent();
+    }
+  }, [candleData]);
+
+  // ========================================
+  // Handlers
+  // ========================================
+
+  const handleResetZoom = () => {
+    if (chartRef.current) {
+      chartRef.current.timeScale().fitContent();
+    }
+  };
 
   // ========================================
   // Render
@@ -147,6 +287,33 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
   return (
     <Box sx={{ position: 'relative', width: '100%', height }}>
+      {/* Reset Zoom Button */}
+      {candleData.length > 0 && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            zIndex: 100,
+          }}
+        >
+          <IconButton
+            onClick={handleResetZoom}
+            size="small"
+            sx={{
+              backgroundColor: 'rgba(30, 30, 30, 0.8)',
+              color: '#d1d4dc',
+              '&:hover': {
+                backgroundColor: 'rgba(30, 30, 30, 0.95)',
+              },
+            }}
+            title="Reset Zoom"
+          >
+            <ResetZoomIcon fontSize="small" />
+          </IconButton>
+        </Box>
+      )}
+
       {loading && (
         <Box
           sx={{
@@ -187,7 +354,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         sx={{
           width: '100%',
           height: '100%',
-          backgroundColor: 'background.paper',
+          backgroundColor: '#1e1e1e',
           border: 1,
           borderColor: 'divider',
           borderRadius: 1,
@@ -197,102 +364,3 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   );
 };
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-/**
- * Simple canvas-based chart rendering.
- * Lightweight alternative to heavy charting libraries.
- */
-function renderSimpleChart(
-  container: HTMLDivElement,
-  data: CandleData[],
-  height: number
-) {
-  // Clear container
-  container.innerHTML = '';
-
-  // Create canvas
-  const canvas = document.createElement('canvas');
-  canvas.width = container.clientWidth;
-  canvas.height = height;
-  container.appendChild(canvas);
-
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-
-  // Calculate chart dimensions
-  const padding = 40;
-  const chartWidth = canvas.width - padding * 2;
-  const chartHeight = canvas.height - padding * 2;
-
-  // Find price range
-  const prices = data.flatMap((d) => [d.high, d.low]);
-  const minPrice = Math.min(...prices);
-  const maxPrice = Math.max(...prices);
-  const priceRange = maxPrice - minPrice;
-
-  // Draw background
-  ctx.fillStyle = '#1e1e1e';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  // Draw grid lines
-  ctx.strokeStyle = '#333';
-  ctx.lineWidth = 1;
-  for (let i = 0; i <= 5; i++) {
-    const y = padding + (chartHeight / 5) * i;
-    ctx.beginPath();
-    ctx.moveTo(padding, y);
-    ctx.lineTo(padding + chartWidth, y);
-    ctx.stroke();
-  }
-
-  // Draw candles
-  const candleWidth = chartWidth / data.length;
-
-  data.forEach((candle, i) => {
-    const x = padding + i * candleWidth;
-
-    // Normalize prices to chart coordinates
-    const openY =
-      padding + chartHeight - ((candle.open - minPrice) / priceRange) * chartHeight;
-    const closeY =
-      padding + chartHeight - ((candle.close - minPrice) / priceRange) * chartHeight;
-    const highY =
-      padding + chartHeight - ((candle.high - minPrice) / priceRange) * chartHeight;
-    const lowY =
-      padding + chartHeight - ((candle.low - minPrice) / priceRange) * chartHeight;
-
-    const isGreen = candle.close >= candle.open;
-    const color = isGreen ? '#26a69a' : '#ef5350';
-
-    // Draw wick (high-low line)
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(x + candleWidth / 2, highY);
-    ctx.lineTo(x + candleWidth / 2, lowY);
-    ctx.stroke();
-
-    // Draw body (open-close rectangle)
-    ctx.fillStyle = color;
-    const bodyHeight = Math.abs(closeY - openY) || 1;
-    const bodyY = Math.min(openY, closeY);
-    ctx.fillRect(x + 1, bodyY, candleWidth - 2, bodyHeight);
-  });
-
-  // Draw price labels
-  ctx.fillStyle = '#fff';
-  ctx.font = '12px monospace';
-  for (let i = 0; i <= 5; i++) {
-    const price = minPrice + (priceRange / 5) * (5 - i);
-    const y = padding + (chartHeight / 5) * i;
-    ctx.fillText(price.toFixed(2), padding + chartWidth + 5, y + 4);
-  }
-
-  // Draw symbol label
-  ctx.fillStyle = '#fff';
-  ctx.font = 'bold 16px sans-serif';
-  ctx.fillText(data[0]?.toString() || 'Chart', padding, padding - 10);
-}
