@@ -1,9 +1,11 @@
-# UI BACKLOG - FXcrypto
+# UI BACKLOG - FXcrypto Pump/Dump Detection
 
-**Wersja:** 1.0 | **Data:** 2025-12-05
+**Wersja:** 2.0 | **Data:** 2025-12-06
+
+**Cel systemu:** Wykrywanie pump/dump i shortowanie na szczycie pumpu
 
 **Powiązane dokumenty:**
-- `docs/UI_INTERFACE_SPECIFICATION.md` - Pełny opis interfejsu
+- `docs/UI_INTERFACE_SPECIFICATION.md` - Pełny opis interfejsu i architektury systemu
 
 ---
 
@@ -26,78 +28,89 @@
 
 | Priorytet | Znaczenie |
 |-----------|-----------|
-| CRITICAL | Bez tego trader nie może handlować - blokuje core flow |
-| HIGH | Znacząco utrudnia pracę tradera |
+| CRITICAL | Bez tego trader nie może wykrywać pump/dump i shortować |
+| HIGH | Znacząco utrudnia konfigurację strategii lub monitoring |
 | MEDIUM | Ułatwia pracę, ale można obejść |
 | LOW | Nice to have |
 
 ---
 
-## CRITICAL - BEZ TEGO NIE MOŻNA HANDLOWAĆ
+## CRITICAL - BEZ TEGO NIE MOŻNA WYKRYWAĆ PUMP/DUMP
 
-### WYKRES - Interaktywność
-
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| C-01 | Zoom wykresu | /dashboard | Scroll wheel lub przyciski +/- | TODO |
-| C-02 | Przewijanie wykresu | /dashboard | Drag lub scroll w historię | TODO |
-| C-03 | Wskaźniki na wykresie | /dashboard | RSI/MACD jako subplot pod wykresem | TODO |
-| C-04 | Entry/SL/TP na wykresie | /dashboard | Poziome linie pokazujące pozycję | TODO |
-
-### POZYCJE - Zarządzanie
+### WYKRES - Pump Detection Visualization
 
 | ID | Funkcja | Strona | Opis | Status |
 |----|---------|--------|------|--------|
-| C-05 | Panel pozycji | /dashboard | Szczegóły otwartej pozycji (entry, P&L, size) | TODO |
-| C-06 | Zamknięcie pozycji | /dashboard | Przyciski Close 100%, Close 50% | TODO |
-| C-07 | Modyfikacja SL/TP | /dashboard | Edycja stop loss / take profit w locie | TODO |
+| C-01 | Zoom wykresu | /dashboard | Scroll wheel lub przyciski +/- (widzieć szczegóły pumpu) | TODO |
+| C-02 | Przewijanie wykresu | /dashboard | Drag w historię (analiza przeszłych pumpów) | TODO |
+| C-03 | Wskaźniki pump na wykresie | /dashboard | PUMP_MAGNITUDE, VELOCITY, VOLUME_SURGE jako subplots | TODO |
+| C-04 | Entry/SL/TP SHORT na wykresie | /dashboard | Poziome linie pokazujące SHORT pozycję | TODO |
+| C-05 | Oznaczenia S1/Z1/ZE1 | /dashboard | Markery gdzie był pump(S1), peak(Z1), dump end(ZE1) | TODO |
 
-### SYGNAŁY - Szczegóły
+### SHORT POZYCJA - Zarządzanie
 
 | ID | Funkcja | Strona | Opis | Status |
 |----|---------|--------|------|--------|
-| C-08 | Panel szczegółów sygnału | /dashboard | Po kliknięciu [Details] - panel boczny ze szczegółami | TODO |
+| C-06 | Panel SHORT pozycji | /dashboard | Entry peak, current price, P&L, SL powyżej, TP poniżej | TODO |
+| C-07 | Emergency close | /dashboard | Szybkie zamknięcie gdy pump kontynuuje | TODO |
+| C-08 | Modyfikacja SL/TP | /dashboard | Przesunięcie SL bliżej jeśli dump się rozwija | TODO |
+
+### STRATEGY STATE - Real-time Monitoring
+
+| ID | Funkcja | Strona | Opis | Status |
+|----|---------|--------|------|--------|
+| C-09 | State machine display | /dashboard | Aktualny stan: MONITORING/SIGNAL_DETECTED/POSITION_ACTIVE | TODO |
+| C-10 | Condition status | /dashboard | Które warunki Z1 spełnione, które pending | TODO |
+| C-11 | Panel szczegółów sygnału | /dashboard | Wartości wskaźników w momencie S1 | TODO |
+
+### INDICATOR VARIANTS - Configuration
+
+| ID | Funkcja | Strona | Opis | Status |
+|----|---------|--------|------|--------|
+| C-12 | Preview wariantu | /indicators | Wykres jak wariant reaguje na historyczne pumpy | TODO |
 
 ---
 
-## HIGH - ZNACZĄCO UTRUDNIA PRACĘ
+## HIGH - ZNACZĄCO UTRUDNIA KONFIGURACJĘ LUB MONITORING
 
-### DASHBOARD
+### STRATEGY BUILDER - Pump Detection Config
 
 | ID | Funkcja | Strona | Opis | Status |
 |----|---------|--------|------|--------|
-| H-01 | Mini-wykres przy symbolu | / | Sparkline w Market Scanner | TODO |
-| H-02 | Szczegóły aktywnych pozycji | / | Lista pozycji z P&L w Risk Panel | TODO |
-| H-03 | Stan konta z giełdy | / | Rzeczywiste saldo USDT z MEXC | TODO |
-| H-04 | Rysowanie linii | /dashboard | Trend line, horizontal line | TODO |
-| H-05 | Orderbook | /dashboard | Głębokość rynku (bids/asks) | TODO |
-| H-06 | Trade tape | /dashboard | Ostatnie transakcje na rynku | TODO |
-| H-07 | Multi-timeframe | /dashboard | Przełącznik 1m/5m/15m/1h/4h/1d | TODO |
+| H-01 | Wizualizacja "gdzie by był S1" | /strategy-builder | Zaznacz na wykresie gdzie strategia by wykryła pump | TODO |
+| H-02 | State machine preview | /strategy-builder | Diagram S1→O1/Z1→ZE1/E1 z warunkami | TODO |
+| H-03 | Quick backtest | /strategy-builder | Ile pumpów by wykryła, ile szczytów trafiła | TODO |
+| H-04 | Opis wariantów w dropdown | /strategy-builder | "PumpFast" - pokaż tooltip z parametrami | TODO |
+
+### INDICATOR VARIANTS - Tuning
+
+| ID | Funkcja | Strona | Opis | Status |
+|----|---------|--------|------|--------|
+| H-05 | Porównanie wariantów | /indicators | Fast vs Medium na tym samym wykresie | TODO |
+| H-06 | Opis parametrów | /indicators | Co robi t1, t3, d? Jaki efekt zmiany? | TODO |
+| H-07 | Test "ile sygnałów" | /indicators | Ile S1 wygenerowałby wariant w 24h | TODO |
+
+### DASHBOARD - Pump Monitoring
+
+| ID | Funkcja | Strona | Opis | Status |
+|----|---------|--------|------|--------|
+| H-08 | Real-time pump indicators | /dashboard | PUMP_MAGNITUDE, VELOCITY jako duże liczby | TODO |
+| H-09 | Velocity trend | /dashboard | Czy pump zwalnia czy przyspiesza (strzałka) | TODO |
+| H-10 | Peak prediction | /dashboard | "Zbliża się szczyt" indicator | TODO |
 
 ### TRADING SESSION
 
 | ID | Funkcja | Strona | Opis | Status |
 |----|---------|--------|------|--------|
-| H-08 | Podgląd strategii | /trading-session | Po zaznaczeniu strategii - pokaż jej warunki | TODO |
-
-### STRATEGY BUILDER
-
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| H-09 | Wizualizacja warunków | /strategy-builder | Pokaż na wykresie gdzie warunek był spełniony | TODO |
-| H-10 | Quick backtest preview | /strategy-builder | Mini-backtest na 100 świecach | TODO |
+| H-11 | Podgląd strategii | /trading-session | Po zaznaczeniu - pokaż warunki S1, Z1, ZE1 | TODO |
+| H-12 | Symbol recommendation | /trading-session | "SOL_USDT ma wysoki volume - dobry dla pump detection" | TODO |
 
 ### DATA COLLECTION
 
 | ID | Funkcja | Strona | Opis | Status |
 |----|---------|--------|------|--------|
-| H-11 | Download danych | /data-collection | Eksport do CSV | TODO |
-
-### INDICATORS
-
-| ID | Funkcja | Strona | Opis | Status |
-|----|---------|--------|------|--------|
-| H-12 | Wizualizacja wskaźnika | /indicators | Wykres pokazujący wartości wskaźnika | TODO |
+| H-13 | Download danych | /data-collection | Eksport do CSV (analiza pumpów offline) | TODO |
+| H-14 | Pump history in data | /data-collection | Oznacz gdzie były historyczne pumpy | TODO |
 
 ### MARKET SCANNER
 

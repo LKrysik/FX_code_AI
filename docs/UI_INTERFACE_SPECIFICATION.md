@@ -1,6 +1,6 @@
 # PEŁNY OPIS INTERFEJSU UI - FXcrypto
 
-**Wersja:** 2.0 | **Data:** 2025-12-05
+**Wersja:** 3.0 | **Data:** 2025-12-06
 
 **Powiązane dokumenty:**
 - `docs/UI_BACKLOG.md` - Priorytetyzowana lista funkcji do implementacji
@@ -58,12 +58,183 @@ Następnie oceń krytycznie i obiektywnie:
 
 ## CEL SYSTEMU
 
-FXcrypto to **system do automatycznego wykrywania pump/dump na kryptowalutach**. Trader używa tego interfejsu, żeby:
+**FXcrypto to system do wykrywania PUMP/DUMP i shortowania na szczycie pumpu.**
 
-1. **Zdefiniować strategię** - warunki wejścia/wyjścia oparte na wskaźnikach (RSI, MACD, Volume Surge)
-2. **Przetestować strategię na historii** (backtest) - sprawdzić czy strategia zarabia na danych z przeszłości
-3. **Uruchomić symulację** (paper trading) - obserwować sygnały w czasie rzeczywistym bez ryzykowania pieniędzy
-4. **Handlować na żywo** (live trading) - prawdziwe transakcje na giełdzie MEXC
+```
+PUMP wykryty → Czekaj na SZCZYT → SHORT na szczycie → Zamknij gdy dump się kończy
+```
+
+### Główny przypadek użycia:
+
+1. **Wykryj PUMP** - nagły wzrost ceny + volume surge + wysoka velocity
+2. **Identyfikuj SZCZYT** - pump zwalnia, RSI overbought, exhaustion
+3. **Wejdź SHORT** - na szczycie, przed dumpem
+4. **Zarządzaj pozycją** - SL powyżej szczytu (jeśli pump kontynuuje), TP na dumpie
+
+### Co trader robi w systemie:
+
+1. **Tworzy warianty wskaźników** - konfiguruje czułość detekcji (jak szybko wykryć pump)
+2. **Definiuje strategię** - kiedy wykryć pump (S1), kiedy wejść short (Z1), kiedy zamknąć (ZE1)
+3. **Testuje na historii** - czy strategia poprawnie wykrywa szczyty?
+4. **Monitoruje na żywo** - obserwuje sygnały i pozycje
+
+---
+
+## ARCHITEKTURA SYSTEMU (KLUCZOWE!)
+
+### WSKAŹNIKI - Predefiniowane w systemie
+
+**NIE TWORZYMY wskaźników od zera!** System ma 20+ wbudowanych algorytmów:
+
+| Kategoria | Wskaźniki |
+|-----------|-----------|
+| **Pump Detection** | `PUMP_MAGNITUDE_PCT`, `PRICE_VELOCITY`, `VOLUME_SURGE_RATIO`, `PUMP_PROBABILITY` |
+| **Techniczne** | `RSI`, `SMA`, `EMA`, `MACD`, `BOLLINGER_BANDS`, `VWAP` |
+| **Momentum** | `PRICE_MOMENTUM`, `MOMENTUM_REVERSAL_INDEX`, `VELOCITY_CASCADE` |
+| **Risk** | `POSITION_RISK_SCORE`, `UNREALIZED_PNL_PCT`, `PORTFOLIO_EXPOSURE_PCT` |
+| **Liquidity** | `BID_ASK_IMBALANCE`, `LIQUIDITY_DRAIN_INDEX`, `DUMP_EXHAUSTION_SCORE` |
+| **Market Data** | `PRICE`, `VOLUME`, `SPREAD_PCT`, `BEST_BID`, `BEST_ASK` |
+
+### WARIANTY WSKAŹNIKÓW - Konfiguracje parametrów
+
+**Wariant = wskaźnik bazowy + konkretne parametry**
+
+```
+Wskaźnik bazowy: PUMP_MAGNITUDE_PCT
+Parametry: t1=10s (current window), t3=60s (baseline start), d=30s (baseline length)
+
+Wariant 1: "Fast Pump" → t1=5s, t3=30s, d=15s  (szybsze wykrycie)
+Wariant 2: "Slow Pump" → t1=20s, t3=120s, d=60s (mniej fałszywych)
+```
+
+**Typy wariantów (gdzie pokazywać na wykresie):**
+- `general` - wykres pomocniczy (0-1 lub 0-100)
+- `price` - główny wykres (wartości cenowe)
+- `stop_loss` - linie SL na wykresie
+- `take_profit` - linie TP na wykresie
+
+### STRATEGIA 5-SEKCYJNA (dla pump/dump shorting)
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│              STRATEGIA 5-SEKCYJNA - PUMP/DUMP SHORTING              │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  S1: PUMP DETECTION (wykrycie pumpu)                                │
+│  ├─ PUMP_MAGNITUDE_PCT > 5%  (cena wzrosła o 5%)                   │
+│  ├─ PRICE_VELOCITY > 0.5     (szybkość wzrostu)                    │
+│  ├─ VOLUME_SURGE_RATIO > 3   (volume 3x większy niż normalnie)     │
+│  └─ Wynik: "Mamy pumpa!" → szukaj szczytu                          │
+│                                                                     │
+│  O1: FALSE SIGNAL CANCELLATION (fałszywy alarm)                     │
+│  ├─ Timeout: 60s - jeśli szczyt nie znaleziony → anuluj           │
+│  ├─ PRICE_VELOCITY < 0 (cena zaczęła spadać PRZED shortem)         │
+│  ├─ PUMP_MAGNITUDE_PCT < 2% (pump się "rozmył")                    │
+│  └─ Cooldown: 5 min przed kolejnym sygnałem                        │
+│                                                                     │
+│  Z1: PEAK ENTRY - SHORT (wejście na szczycie)                       │
+│  ├─ PRICE_VELOCITY < 0.1     (pump zwalnia!)                       │
+│  ├─ MOMENTUM_REVERSAL_INDEX > 0.7 (sygnał odwrócenia)              │
+│  ├─ DUMP_EXHAUSTION_SCORE < 0.3 (kupujący się wyczerpują)          │
+│  │                                                                  │
+│  ├─ Position Size: 10% kapitału                                    │
+│  ├─ Stop Loss: +3% POWYŻEJ entry (jeśli pump kontynuuje)           │
+│  ├─ Take Profit: -5% PONIŻEJ entry (gdy dump)                      │
+│  └─ Leverage: 2x                                                   │
+│                                                                     │
+│  ZE1: DUMP END DETECTION (koniec dumpu - zamknij short)             │
+│  ├─ PRICE_VELOCITY > -0.1   (dump zwalnia)                         │
+│  ├─ DUMP_EXHAUSTION_SCORE > 0.8 (sprzedający wyczerpani)           │
+│  └─ Wynik: zamknij short z zyskiem                                 │
+│                                                                     │
+│  E1: EMERGENCY EXIT (pump kontynuuje!)                              │
+│  ├─ PUMP_MAGNITUDE_PCT > 15% (pump jest większy niż oczekiwano)    │
+│  ├─ UNREALIZED_PNL_PCT < -5% (strata > 5%)                         │
+│  └─ Akcje: zamknij natychmiast, cooldown 30 min                    │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### KLUCZOWE WSKAŹNIKI DLA PUMP/DUMP
+
+| Wskaźnik | Co mierzy | Użycie w strategii |
+|----------|-----------|-------------------|
+| `PUMP_MAGNITUDE_PCT` | % wzrostu od baseline | S1: wykrycie pumpu (>5%) |
+| `PRICE_VELOCITY` | szybkość zmiany ceny/s | S1: pump trwa, Z1: pump zwalnia |
+| `VOLUME_SURGE_RATIO` | mnożnik volume vs normal | S1: potwierdzenie pumpu |
+| `MOMENTUM_REVERSAL_INDEX` | sygnał odwrócenia trendu | Z1: szczyt osiągnięty |
+| `DUMP_EXHAUSTION_SCORE` | wyczerpanie pressure | Z1: sprzedający wchodzą, ZE1: kończą |
+| `UNREALIZED_PNL_PCT` | P&L otwartej pozycji | E1: max loss reached |
+
+### WARUNEK - Struktura
+
+```json
+{
+  "id": "pump_detected",
+  "indicatorId": "PUMP_MAGNITUDE_PCT_fast",  ← nazwa WARIANTU wskaźnika
+  "operator": ">",                            ← >, <, >=, <=, ==, between
+  "value": 5.0,                               ← wartość progowa
+  "enabled": true
+}
+```
+
+### MASZYNA STANÓW STRATEGII
+
+```
+INACTIVE → MONITORING → SIGNAL_DETECTED → ENTRY_EVALUATION →
+                ↓               ↓
+         (O1 timeout)    (O1 conditions)
+                ↓               ↓
+           SIGNAL_CANCELLED ←───┘
+                ↓
+             cooldown
+                ↓
+           MONITORING (restart)
+
+ENTRY_EVALUATION → POSITION_ACTIVE → CLOSE_ORDER_EVALUATION → EXITED
+                          ↓                    ↓
+                    (E1 emergency)       (ZE1 conditions / SL / TP)
+                          ↓                    ↓
+                    EMERGENCY_EXIT ←───────────┘
+```
+
+### CO UI MUSI WSPIERAĆ (dla pump/dump trading)
+
+| Funkcja | Dlaczego potrzebne |
+|---------|-------------------|
+| **Tworzenie wariantów wskaźników** | Dostrojenie czułości wykrywania (szybki vs dokładny pump detection) |
+| **Budowanie strategii 5-sekcyjnej** | S1: kiedy pump, Z1: kiedy szczyt, ZE1: kiedy dump kończy |
+| **Wizualizacja wskaźników na wykresie** | Widzieć PUMP_MAGNITUDE, VELOCITY w czasie rzeczywistym |
+| **Oznaczanie sygnałów na wykresie** | Gdzie był S1 (pump), Z1 (short entry), ZE1 (close) |
+| **Backtest z wizualizacją** | Czy strategia poprawnie wykrywa szczyty? Gdzie były błędy? |
+| **Real-time monitoring** | Aktualny pump magnitude, velocity, czy zbliża się szczyt? |
+| **Analiza wyników** | Ile szczytów trafiono, ile fałszywych alarmów, avg P&L |
+
+### CO TRADER CHCE WIDZIEĆ W UI
+
+```
+DASHBOARD podczas pump detection:
+┌─────────────────────────────────────────────────────────────────────┐
+│ BTC_USDT - PUMP W TOKU!                                             │
+│                                                                     │
+│ ⚡ PUMP_MAGNITUDE: 7.3%    ← jak duży pump                         │
+│ 🚀 PRICE_VELOCITY: 0.42   ← pump nadal szybki                      │
+│ 📊 VOLUME_SURGE: 4.2x     ← bardzo wysokie volume                  │
+│                                                                     │
+│ 🔴 Status: SIGNAL_DETECTED (S1 triggered 23s ago)                   │
+│ ⏳ Czekam na szczyt... (Z1 conditions monitoring)                   │
+│                                                                     │
+│ [Wykres z zaznaczonym momentem S1 i aktualnym poziomem ceny]        │
+│                                                                     │
+│ Z1 Warunki:                                                         │
+│ ├─ PRICE_VELOCITY < 0.1  ❌ (teraz: 0.42)                           │
+│ ├─ MOMENTUM_REV > 0.7    ❌ (teraz: 0.35)                           │
+│ └─ DUMP_EXHAUST < 0.3    ✅ (teraz: 0.22)                           │
+│                                                                     │
+│ Gdy Z1 spełnione → AUTO SHORT @ market                              │
+│ SL: +3% | TP: -5%                                                   │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -345,70 +516,76 @@ Punkt wejścia do aplikacji. Pokazuje przegląd rynku i szybkie akcje.
 │                                                                 │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│ TAB 2: STRATEGY EDITOR (5-Section Builder)                      │
+│ TAB 2: STRATEGY EDITOR (5-Section Pump/Dump Builder)            │
 │ ┌────────────────────────────────────────────────────────────┐  │
-│ │ Strategy Name: [pump_detector_v2                         ] │  │
+│ │ Strategy Name: [pump_peak_shorting_v1                    ] │  │
+│ │ Direction: [SHORT ▼] ← bo shortujemy na szczycie pumpu    │  │
 │ └────────────────────────────────────────────────────────────┘  │
 │                                                                 │
 │ ┌────────────────────────────────────────────────────────────┐  │
-│ │ S1: SIGNAL DETECTION (wykrycie potencjalnego pumpu)        │  │
+│ │ S1: PUMP DETECTION (wykrycie pumpu)                        │  │
 │ │ ┌────────────────────────────────────────────────────────┐ │  │
-│ │ │ Condition 1: [RSI▼] [>▼] [70    ]           [🗑️]      │ │  │
-│ │ │ Condition 2: [Volume_Surge▼] [>▼] [2.0  ]   [🗑️]      │ │  │
-│ │ │ Condition 3: [Price_Change▼] [>▼] [5%   ]   [🗑️]      │ │  │
-│ │ │                                                        │ │  │
+│ │ │ [PumpFast▼]        [>▼]  [5.0  %]  ← pump > 5%  [🗑️] │ │  │
+│ │ │ [VelocityQuick▼]   [>▼]  [0.3  ]   ← szybki wzrost    │ │  │
+│ │ │ [VolumeSurge3x▼]   [>▼]  [2.5  x]  ← volume spikes    │ │  │
 │ │ │ [+ Add Condition]                                      │ │  │
 │ │ └────────────────────────────────────────────────────────┘ │  │
-│ │ Logic: [AND▼] all conditions must be true                  │  │
+│ │ Logic: [AND▼] - wszystkie muszą być true                   │  │
+│ │ ℹ️ Gdy S1 spełnione: "PUMP WYKRYTY!" → szukaj szczytu     │  │
 │ └────────────────────────────────────────────────────────────┘  │
 │                                                                 │
 │ ┌────────────────────────────────────────────────────────────┐  │
-│ │ Z1: ENTRY CONFIRMATION (otwarcie pozycji)                  │  │
-│ │ Position Size: [Percentage▼] [1  %]                        │  │
-│ │ Direction: [LONG▼]                                         │  │
-│ │ Entry Conditions:                                          │  │
+│ │ O1: FALSE SIGNAL CANCEL (fałszywy alarm)                   │  │
+│ │ Timeout: [60    ] seconds ← jeśli szczyt nie w 60s        │  │
+│ │ Cooldown: [5    ] minutes ← przed kolejnym sygnałem       │  │
+│ │ Cancel if:                                                 │  │
 │ │ ┌────────────────────────────────────────────────────────┐ │  │
-│ │ │ [Price▼] [crosses above▼] [TWAP_300▼]        [🗑️]     │ │  │
-│ │ │ [+ Add Condition]                                      │ │  │
-│ │ └────────────────────────────────────────────────────────┘ │  │
-│ └────────────────────────────────────────────────────────────┘  │
-│                                                                 │
-│ ┌────────────────────────────────────────────────────────────┐  │
-│ │ O1: ORDER CANCEL (timeout/anulowanie)                      │  │
-│ │ Timeout: [300   ] seconds                                  │  │
-│ │ Cooldown: [5    ] minutes                                  │  │
-│ │ Cancel Conditions:                                         │  │
-│ │ ┌────────────────────────────────────────────────────────┐ │  │
-│ │ │ [RSI▼] [<▼] [50    ] (signal weakness)        [🗑️]    │ │  │
+│ │ │ [VelocityQuick▼]   [<▼]  [0   ]   ← pump cofnął [🗑️] │ │  │
+│ │ │ [PumpFast▼]        [<▼]  [2.0 %]  ← pump rozmył się   │ │  │
 │ │ │ [+ Add Condition]                                      │ │  │
 │ │ └────────────────────────────────────────────────────────┘ │  │
 │ └────────────────────────────────────────────────────────────┘  │
 │                                                                 │
 │ ┌────────────────────────────────────────────────────────────┐  │
-│ │ ZE1: EXIT STRATEGY (zamknięcie pozycji)                    │  │
+│ │ Z1: PEAK ENTRY - SHORT (wejście na szczycie)               │  │
+│ │ Position Size: [Percentage▼] [10 %]                        │  │
+│ │ Leverage: [2   x]                                          │  │
+│ │                                                            │  │
+│ │ Entry when PEAK detected:                                  │  │
 │ │ ┌────────────────────────────────────────────────────────┐ │  │
-│ │ │ Take Profit: [5    %]                                  │ │  │
-│ │ │ Stop Loss:   [2    %]                                  │ │  │
-│ │ │ Trailing Stop: [☐] [1    %]                            │ │  │
-│ │ └────────────────────────────────────────────────────────┘ │  │
-│ │ Exit Conditions:                                           │  │
-│ │ ┌────────────────────────────────────────────────────────┐ │  │
-│ │ │ [RSI▼] [<▼] [30    ] (momentum loss)          [🗑️]    │ │  │
-│ │ │ [Volume▼] [<▼] [avg_volume * 0.5]             [🗑️]    │ │  │
+│ │ │ [VelocityQuick▼]       [<▼]  [0.1 ]   ← pump zwalnia  │ │  │
+│ │ │ [ReversalSensitive▼]   [>▼]  [0.6 ]   ← sygnał zwrotu │ │  │
 │ │ │ [+ Add Condition]                                      │ │  │
 │ │ └────────────────────────────────────────────────────────┘ │  │
+│ │                                                            │  │
+│ │ Risk Management:                                           │  │
+│ │ Stop Loss:   [+3   %] POWYŻEJ entry (pump kontynuuje)     │  │
+│ │ Take Profit: [-5   %] PONIŻEJ entry (dump nastąpił)       │  │
 │ └────────────────────────────────────────────────────────────┘  │
 │                                                                 │
 │ ┌────────────────────────────────────────────────────────────┐  │
-│ │ EMERGENCY EXIT (awaryjne wyjście)                          │  │
-│ │ ☑️ Cancel all pending orders                               │  │
-│ │ ☑️ Close position immediately                              │  │
-│ │ ☑️ Log event                                               │  │
-│ │ Cooldown after emergency: [60   ] minutes                  │  │
+│ │ ZE1: DUMP END DETECTION (zamknij short gdy dump kończy)    │  │
+│ │ ┌────────────────────────────────────────────────────────┐ │  │
+│ │ │ [VelocityQuick▼]        [>▼]  [-0.1]  ← dump zwalnia  │ │  │
+│ │ │ [DUMP_EXHAUSTION▼]      [>▼]  [0.7 ]  ← sprzedaż kończy│ │  │
+│ │ │ [+ Add Condition]                                      │ │  │
+│ │ └────────────────────────────────────────────────────────┘ │  │
+│ │ ℹ️ Zamknij short z zyskiem zanim odbicie                  │  │
 │ └────────────────────────────────────────────────────────────┘  │
 │                                                                 │
 │ ┌────────────────────────────────────────────────────────────┐  │
-│ │                    [Validate]  [Save Strategy]             │  │
+│ │ E1: EMERGENCY EXIT (pump kontynuuje - uciekaj!)            │  │
+│ │ ┌────────────────────────────────────────────────────────┐ │  │
+│ │ │ [PumpFast▼]            [>▼]  [15  %]  ← mega pump!     │ │  │
+│ │ │ [UNREALIZED_PNL_PCT▼]  [<▼]  [-5  %]  ← max loss       │ │  │
+│ │ │ [+ Add Condition]                                      │ │  │
+│ │ └────────────────────────────────────────────────────────┘ │  │
+│ │ Actions: ☑️ Cancel pending ☑️ Close immediately ☑️ Log    │  │
+│ │ Cooldown: [30   ] minutes                                  │  │
+│ └────────────────────────────────────────────────────────────┘  │
+│                                                                 │
+│ ┌────────────────────────────────────────────────────────────┐  │
+│ │           [Validate]  [Backtest Preview]  [Save Strategy]  │  │
 │ └────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -417,25 +594,25 @@ Punkt wejścia do aplikacji. Pokazuje przegląd rynku i szybkie akcje.
 | Element | Funkcja | Interakcja |
 |---------|---------|------------|
 | Strategy List | Przeglądanie strategii | ✏️ Edit, 🗑️ Delete |
-| Strategy Name | Nazwa strategii | Text input |
-| S1 Conditions | Warunki wykrycia sygnału | Dropdown + input |
-| Add Condition | Dodanie warunku | Kliknięcie |
-| Remove Condition | Usunięcie warunku | 🗑️ kliknięcie |
-| Logic Selector | AND/OR dla warunków | Dropdown |
-| Z1 Entry | Konfiguracja wejścia | Dropdowns + inputs |
-| ZE1 Exit | Take Profit / Stop Loss | Inputs + checkboxy |
+| Strategy Name + Direction | Nazwa + SHORT/LONG | Text + dropdown |
+| S1 Conditions | Warunki wykrycia PUMPU | Dropdown (warianty) + operator + value |
+| O1 Cancel | Timeout + warunki anulowania | Inputs + conditions |
+| Z1 Peak Entry | Warunki SZCZYTU + position size + SL/TP | Conditions + risk config |
+| ZE1 Dump End | Warunki końca dumpu | Conditions |
+| E1 Emergency | Warunki awaryjne + akcje | Conditions + checkboxy |
 | Validate | Sprawdzenie poprawności | Kliknięcie → walidacja |
+| Backtest Preview | Szybki test na ostatnich danych | Kliknięcie → mini-backtest |
 | Save | Zapisanie strategii | Kliknięcie → API call |
 
 ### Braki
 | Problem | Dlaczego ważne | Priorytet |
 |---------|----------------|-----------|
-| Brak wizualizacji warunków na wykresie | "RSI > 70" - ale gdzie to było ostatnio? | HIGH |
-| Brak Quick Backtest Preview | Stworzył strategię - chcę zobaczyć jak działała na 100 świecach | HIGH |
-| Brak złożonych warunków | Chcę: (RSI > 70 AND Volume > 2x) OR (MACD crossover) | MEDIUM |
-| Brak importu/eksportu strategii | Mam dobrą strategię - chcę ją backupować | MEDIUM |
-| Brak wersjonowania | Zmieniam strategię - jak wrócić do poprzedniej wersji? | MEDIUM |
-| Brak komentarzy/notatek | Dlaczego dałem RSI > 70? Chcę zapisać notkę | LOW |
+| Brak wizualizacji "gdzie by był S1" | Chcę zobaczyć na wykresie gdzie by strategia wykryła pump | CRITICAL |
+| Brak preview maszyny stanów | Jak strategia przechodzi S1→O1/Z1→ZE1/E1? | CRITICAL |
+| Brak Backtest Preview | Ile szczytów trafiłbym z tą strategią? | HIGH |
+| Brak walidacji logiki | Czy Z1 warunki mają sens po S1? | HIGH |
+| Brak opisu wariantów | Dropdown pokazuje "PumpFast" ale co to znaczy? | MEDIUM |
+| Brak importu/eksportu | Backup strategii, współdzielenie | MEDIUM |
 
 ---
 
@@ -533,46 +710,72 @@ Zbieranie danych historycznych do backtestów.
 
 ---
 
-## STRONA 6: INDICATORS (`/indicators`)
+## STRONA 6: INDICATOR VARIANTS (`/indicators`)
 
 ### Cel
-Zarządzanie wariantami wskaźników technicznych.
+**Konfiguracja wariantów predefiniowanych wskaźników** - dostrajanie czułości detekcji pump/dump.
+
+**WAŻNE:** NIE tworzymy nowych wskaźników! Wybieramy z 20+ wbudowanych i konfigurujemy parametry.
 
 ### Układ
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ Indicator Variants                                              │
+│ Indicator Variants - Pump/Dump Detection Configuration          │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│ ┌────────────────────────────────────────────────────────────┐  │
-│ │ AVAILABLE VARIANTS                          [+ Create New] │  │
-│ ├────────────────────────────────────────────────────────────┤  │
-│ │ Name          │ Base Type │ Parameters          │ Actions  │  │
-│ ├───────────────┼───────────┼─────────────────────┼──────────┤  │
-│ │ RSI_14        │ RSI       │ period=14           │ ✏️ 🗑️    │  │
-│ │ RSI_21        │ RSI       │ period=21           │ ✏️ 🗑️    │  │
-│ │ MACD_12_26_9  │ MACD      │ fast=12,slow=26,sig=9│ ✏️ 🗑️   │  │
-│ │ Volume_Surge  │ VOLUME    │ lookback=20         │ ✏️ 🗑️    │  │
-│ │ TWAP_300      │ TWAP      │ window=300          │ ✏️ 🗑️    │  │
-│ └───────────────┴───────────┴─────────────────────┴──────────┘  │
+│ KATEGORIE:                                                      │
+│ [Pump Detection] [Momentum] [Risk] [Market Data]               │
 │                                                                 │
+│ ┌────────────────────────────────────────────────────────────┐  │
+│ │ PUMP DETECTION VARIANTS                     [+ Create New] │  │
+│ ├────────────────────────────────────────────────────────────┤  │
+│ │ Name              │ Base Type          │ Parameters        │  │
+│ ├───────────────────┼────────────────────┼───────────────────┤  │
+│ │ PumpFast          │ PUMP_MAGNITUDE_PCT │ t1=5s, t3=30s     │  │
+│ │ PumpMedium        │ PUMP_MAGNITUDE_PCT │ t1=10s, t3=60s    │  │
+│ │ VelocityQuick     │ PRICE_VELOCITY     │ window=10s        │  │
+│ │ VolumeSurge3x     │ VOLUME_SURGE_RATIO │ lookback=20       │  │
+│ │ ReversalSensitive │ MOMENTUM_REV_INDEX │ threshold=0.5     │  │
+│ └───────────────────┴────────────────────┴───────────────────┘  │
+│                                                                 │
+│ ┌────────────────────────────────────────────────────────────┐  │
+│ │ CREATE VARIANT                                         [X] │  │
+│ │                                                            │  │
+│ │ Base Indicator: [PUMP_MAGNITUDE_PCT ▼]                     │  │
+│ │ Variant Name:   [Fast_Pump_Detection    ]                  │  │
+│ │                                                            │  │
+│ │ PARAMETERS:                                                │  │
+│ │ ├─ t1 (current window):  [5   ] seconds                    │  │
+│ │ ├─ t3 (baseline start):  [30  ] seconds                    │  │
+│ │ ├─ d  (baseline length): [15  ] seconds                    │  │
+│ │ └─ r  (refresh interval):[1.0 ] seconds                    │  │
+│ │                                                            │  │
+│ │ PREVIEW:                                                   │  │
+│ │ [Wykres pokazujący jak wariant reaguje na dane historyczne]│  │
+│ │                                                            │  │
+│ │                              [Cancel] [Save Variant]        │  │
+│ └────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ### Funkcje
 | Element | Funkcja | Interakcja |
 |---------|---------|------------|
-| Create New | Tworzenie wariantu | Dialog z parametrami |
-| Edit | Edycja parametrów | ✏️ kliknięcie |
-| Delete | Usunięcie wariantu | 🗑️ kliknięcie |
+| Kategorie | Filtrowanie wskaźników | Tabs: Pump, Momentum, Risk |
+| Variants Table | Lista wariantów użytkownika | Kliknięcie → szczegóły |
+| Create New | Tworzenie nowego wariantu | Dialog z parametrami |
+| Base Indicator | Wybór z predefiniowanych | Dropdown z opisami |
+| Parameters | Konfiguracja czułości | Inputy z walidacją |
+| Preview | Wizualizacja jak wariant działa | Wykres real-time |
 
 ### Braki
 | Problem | Dlaczego ważne | Priorytet |
 |---------|----------------|-----------|
-| Brak wizualizacji wskaźnika | RSI_14 vs RSI_21 - który lepszy? Chcę ZOBACZYĆ | HIGH |
-| Brak opisu wskaźnika | Co mierzy Volume_Surge? Jak interpretować? | MEDIUM |
-| Brak testu wskaźnika | Ile sygnałów dał RSI_14 ostatnio? | MEDIUM |
+| Brak preview na danych historycznych | Jak ma się zachowywać PumpFast vs PumpMedium? | CRITICAL |
+| Brak opisu parametrów | Co robi t1 vs t3? Jaki efekt ma zmiana? | HIGH |
+| Brak porównania wariantów | Wykresy obok siebie: Fast vs Medium | HIGH |
+| Brak testu "ile sygnałów by dał" | Ile S1 wygenerowałby ten wariant w ostatnich 24h? | MEDIUM |
 
 ---
 
@@ -720,30 +923,43 @@ STOP → Analiza wyników
 
 ## BRAKUJĄCE FUNKCJE SYSTEMOWE
 
-### 1. Panel Zarządzania Pozycją (CRITICAL)
+### 1. Panel Zarządzania SHORT Pozycją (CRITICAL)
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ BTC_USDT LONG                                                   │
-│ Entry: $65,000 | Current: $65,500 | P&L: +$50 (+0.77%)         │
-│ Size: 0.1 BTC | Value: $6,550                                  │
-│ SL: $64,000 (-1.54%) | TP: $67,000 (+3.08%)                    │
-│ Time: 2h 15m                                                    │
+│ BTC_USDT SHORT 🔴 (shorting na szczycie pumpu)                  │
+│                                                                 │
+│ Entry: $65,500 (peak) | Current: $64,200 | P&L: +$130 (+1.98%) │
+│ Size: 0.1 BTC | Leverage: 2x                                   │
+│ SL: $67,500 (+3%) ⬆️ | TP: $62,200 (-5%) ⬇️                    │
+│ Time in position: 12m 45s                                      │
+│                                                                 │
+│ Strategy State: POSITION_ACTIVE                                 │
+│ ZE1 monitoring: DUMP_EXHAUSTION = 0.45 (waiting for 0.7)       │
+│                                                                 │
 │ ┌─────────┬─────────┬─────────┬─────────┐                      │
-│ │ Close   │ Close   │ Modify  │ Add to  │                      │
-│ │ 100%    │ 50%     │ SL/TP   │ Position│                      │
+│ │ Close   │ Close   │ Modify  │ Emergency│                      │
+│ │ 100%    │ 50%     │ SL/TP   │ Exit    │                      │
 │ └─────────┴─────────┴─────────┴─────────┘                      │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 2. Strona Raportów (/reports)
+### 2. Strona Raportów Pump/Dump (/reports)
 ```
-- Win Rate: 68%
-- Avg Win: +$45 | Avg Loss: -$23
-- Profit Factor: 1.95
-- Max Drawdown: -$230 (-8.5%)
-- Sharpe Ratio: 1.8
-- Best Trade: BTC +$120 | Worst Trade: ETH -$85
-- Trading Calendar: Heatmap miesięczny
+PUMP/DUMP DETECTION STATS:
+- Pumpy wykryte (S1): 47
+- Szczyty trafione (Z1): 32 (68% accuracy)
+- Fałszywe alarmy (O1 cancel): 15
+
+TRADING PERFORMANCE:
+- Win Rate: 71%
+- Avg Win: +$85 (dump caught) | Avg Loss: -$35 (pump continued)
+- Profit Factor: 2.4
+- Max Drawdown: -$180 (-6.2%)
+
+PER SYMBOL:
+- BTC_USDT: 89% accuracy, +$450
+- ETH_USDT: 65% accuracy, +$120
+- SOL_USDT: 45% accuracy, -$80 (too volatile)
 ```
 
 ### 3. Interaktywny Wykres
@@ -813,10 +1029,21 @@ Patrz: `docs/UI_BACKLOG.md`
 
 ## CHANGELOG
 
+### v3.0 (2025-12-06)
+- **KLUCZOWE:** Dodano "ARCHITEKTURA SYSTEMU" - wyjaśnienie jak działają wskaźniki, warianty, strategia 5-sekcyjna
+- Zmieniono cel systemu na: "wykrywanie pump/dump i shortowanie na szczycie"
+- Strategia 5-sekcyjna teraz pokazuje przykład pump detection → peak shorting
+- Zaktualizowano Strategy Builder z przykładem SHORT na szczycie pumpu
+- Zaktualizowano Indicator Variants - wybór z predefiniowanych, nie tworzenie od zera
+- Dodano kluczowe wskaźniki dla pump/dump (PUMP_MAGNITUDE_PCT, PRICE_VELOCITY, etc.)
+- Dodano maszynę stanów strategii
+- Zaktualizowano panel pozycji na SHORT
+- Zaktualizowano raporty na pump/dump specific metrics
+
 ### v2.0 (2025-12-05)
 - Dodano instrukcje aktualizacji dokumentu
 - Dodano sekcje "Braki" do każdej strony
-- Dodano "BRAKUJĄCE FUNKCJE SYSTEMOWE" (panel pozycji, raporty, wykres, shortcuts)
+- Dodano "BRAKUJĄCE FUNKCJE SYSTEMOWE"
 - Dodano link do UI_BACKLOG.md
 
 ### v1.0 (2025-12-05)
@@ -824,4 +1051,4 @@ Patrz: `docs/UI_BACKLOG.md`
 
 ---
 
-**Dokument jest podstawą do testowania interfejsu.**
+**Dokument jest podstawą do testowania interfejsu i rozumienia systemu pump/dump detection.**
