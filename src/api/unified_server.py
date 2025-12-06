@@ -85,6 +85,10 @@ import src.api.transactions_routes as transactions_routes_module
 from src.api.chart_routes import router as chart_router
 import src.api.chart_routes as chart_routes_module
 
+# Import state machine API
+from src.api.state_machine_routes import router as state_machine_router
+import src.api.state_machine_routes as state_machine_routes_module
+
 
 class LoginRequest(BaseModel):
     username: str
@@ -334,6 +338,13 @@ def create_unified_app():
             questdb_provider=questdb_provider
         )
         logger.info("chart_routes initialized")
+
+        # Initialize state machine routes with ExecutionController and StrategyManager
+        state_machine_routes_module.initialize_state_machine_dependencies(
+            execution_controller=ws_controller.execution_controller,
+            strategy_manager=ws_strategy_manager
+        )
+        logger.info("state_machine_routes initialized")
 
         # Start DashboardCacheService (background updates every 1 second)
         dashboard_cache_service = DashboardCacheService(
@@ -770,6 +781,9 @@ def create_unified_app():
     app.include_router(signals_router)
     app.include_router(transactions_router)
     app.include_router(chart_router)
+
+    # Include state machine API router
+    app.include_router(state_machine_router)
 
     # ✅ CIRCULAR IMPORT FIX: verify_csrf_token is now in dependencies.py
     # No need to import it here - routes already import it directly from dependencies.py

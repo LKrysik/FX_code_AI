@@ -74,6 +74,9 @@ import { SessionConfigDialog, type SessionConfig } from '@/components/dashboard/
 import EquityCurveChart from '@/components/charts/EquityCurveChart';
 import DrawdownChart from '@/components/charts/DrawdownChart';
 import PositionMonitor from '@/components/trading/PositionMonitor';
+import StateOverviewTableIntegration from '@/components/dashboard/StateOverviewTable.integration';
+import ConditionProgressIntegration from '@/components/dashboard/ConditionProgress.integration';
+import TransitionLogIntegration from '@/components/dashboard/TransitionLog.integration';
 
 // ============================================================================
 // Types
@@ -755,6 +758,19 @@ function DashboardContent() {
         </Alert>
       )}
 
+      {/* State Machine Overview - Full Width */}
+      {isSessionRunning && sessionId && (
+        <Box sx={{ mb: 3 }}>
+          <StateOverviewTableIntegration
+            sessionId={sessionId}
+            onNavigateToDetail={(instance) => {
+              setSelectedSymbol(instance.symbol);
+              setViewMode('single');
+            }}
+          />
+        </Box>
+      )}
+
       {/* Main Dashboard Content */}
       {!isSessionRunning ? (
         <Paper sx={{ p: 4, textAlign: 'center' }}>
@@ -873,11 +889,21 @@ function DashboardContent() {
                   />
                 </Paper>
 
-                <LiveIndicatorPanel
-                  sessionId={sessionId}
-                  symbol={selectedSymbol}
-                  refreshInterval={5000}
-                />
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={6}>
+                    <LiveIndicatorPanel
+                      sessionId={sessionId}
+                      symbol={selectedSymbol}
+                      refreshInterval={5000}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <ConditionProgressIntegration
+                      sessionId={sessionId}
+                      symbol={selectedSymbol}
+                    />
+                  </Grid>
+                </Grid>
               </Grid>
             </>
           ) : (
@@ -906,6 +932,7 @@ function DashboardContent() {
                 <Tab label="📊 Signal History" />
                 <Tab label="💰 Transaction History" />
                 <Tab label="📍 Active Positions" />
+                <Tab label="🔄 State Transitions" />
               </Tabs>
 
               <Box sx={{ p: 2 }}>
@@ -928,6 +955,12 @@ function DashboardContent() {
                   <PositionMonitor
                     session_id={sessionId || undefined}
                     className="h-full"
+                  />
+                </Box>
+                <Box sx={{ display: historyTab === 3 ? 'block' : 'none' }}>
+                  <TransitionLogIntegration
+                    sessionId={sessionId}
+                    symbol={viewMode === 'single' ? selectedSymbol : undefined}
                   />
                 </Box>
               </Box>

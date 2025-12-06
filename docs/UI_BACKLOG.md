@@ -1,6 +1,6 @@
 # UI BACKLOG - FXcrypto Pump/Dump Detection
 
-**Wersja:** 3.0 | **Data:** 2025-12-06
+**Wersja:** 4.0 | **Data:** 2025-12-06
 
 **Cel systemu:** Wykrywanie pump/dump i shortowanie na szczycie pumpu
 
@@ -40,10 +40,10 @@
 
 | ID | Funkcja | Opis | Status |
 |----|---------|------|--------|
-| SM-01 | **State overview table** | Tabela: Strategy × Symbol × STAN × Since | TODO |
-| SM-02 | **Current state display** | Duży badge: MONITORING / SIGNAL_DETECTED / POSITION_ACTIVE | TODO |
-| SM-03 | **Condition progress** | Które warunki Z1/ZE1/E1 spełnione ✅, które pending ❌ | TODO |
-| SM-04 | **Transition log** | Lista: timestamp → from_state → to_state → trigger values | TODO |
+| SM-01 | **State overview table** | Tabela: Strategy × Symbol × STAN × Since | ✅ DONE (2025-12-06) |
+| SM-02 | **Current state display** | Duży badge: MONITORING / SIGNAL_DETECTED / POSITION_ACTIVE | ✅ DONE (2025-12-06) |
+| SM-03 | **Condition progress** | Które warunki Z1/ZE1/E1 spełnione ✅, które pending ❌ | ✅ DONE (2025-12-06) |
+| SM-04 | **Transition log** | Lista: timestamp → from_state → to_state → trigger values | ✅ DONE (2025-12-06) |
 | SM-05 | **Chart S1/Z1/ZE1 markers** | Markery na wykresie gdzie pump, peak, dump end | TODO |
 
 ### FAZA 2: CHART (Dashboard)
@@ -200,11 +200,11 @@
 
 | Endpoint | Dane | Status |
 |----------|------|--------|
-| GET /sessions/{id}/state | Aktualny stan każdej instancji | ❓ SPRAWDZIĆ |
-| GET /sessions/{id}/transitions | Lista przejść z wartościami | ❓ SPRAWDZIĆ |
-| WS /sessions/{id}/events | Real-time state changes | ❓ SPRAWDZIĆ |
-| GET /sessions/{id}/conditions | Aktualny progress warunków | ❓ SPRAWDZIĆ |
-| POST /sessions/{id}/close | Emergency close | ❓ SPRAWDZIĆ |
+| GET /api/sessions/{id}/state | Aktualny stan każdej instancji | ✅ DONE (2025-12-06) |
+| GET /api/sessions/{id}/transitions | Lista przejść z wartościami | ✅ DONE (placeholder) |
+| GET /api/sessions/{id}/conditions | Aktualny progress warunków S1/O1/Z1/ZE1/E1 | ✅ DONE (2025-12-06) |
+| WS /ws | Real-time events (subscription model) | ✅ EXISTS |
+| POST /api/sessions/{id}/stop | Emergency stop session | ✅ EXISTS |
 
 ---
 
@@ -212,11 +212,11 @@
 
 | Priorytet | Liczba | Zrobione |
 |-----------|--------|----------|
-| CRITICAL | 17 | 0 |
+| CRITICAL | 17 | 4 |
 | HIGH | 14 | 0 |
 | MEDIUM | 13 | 0 |
 | LOW | 6 | 0 |
-| **RAZEM** | **50** | **0** |
+| **RAZEM** | **50** | **4** |
 
 ### Rozkład według faz
 
@@ -230,6 +230,26 @@
 ---
 
 ## CHANGELOG
+
+### v4.1 (2025-12-06)
+- Backend: GET /api/sessions/{id}/conditions ✅ - pełna implementacja
+- Naprawiono SM integration components - poprawne endpointy:
+  - StateOverviewTable.integration.tsx → /api/sessions/{id}/state
+  - TransitionLog.integration.tsx → /api/sessions/{id}/transitions
+  - ConditionProgress.integration.tsx → /api/sessions/{id}/conditions
+- Weryfikacja: Strategy evaluation loop ISTNIEJE (event-driven przez indicator.updated)
+- Analiza architektury: session flow, UI-backend communication verified
+
+### v4.0 (2025-12-06)
+- **STATE MACHINE VISIBILITY ZAIMPLEMENTOWANA!**
+- SM-01: StateOverviewTable - tabela wszystkich instancji ✅
+- SM-02: StateBadge - kolorowe badge stanów ✅
+- SM-03: ConditionProgress - progress warunków S1/Z1/ZE1/E1 ✅
+- SM-04: TransitionLog - historia przejść ✅
+- Backend: GET /api/sessions/{id}/state ✅
+- Backend: GET /api/sessions/{id}/transitions (placeholder) ✅
+- Integracja komponentów w Dashboard page.tsx ✅
+- Nowy Tab "State Transitions" w Dashboard ✅
 
 ### v3.0 (2025-12-06)
 - **MAJOR REFACTOR:** Backlog przeprojektowany pod STATE MACHINE CENTRIC DESIGN
