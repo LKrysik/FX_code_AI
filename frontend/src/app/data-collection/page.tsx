@@ -101,6 +101,86 @@ const formatETA = (etaSeconds: number): string => {
   }
 };
 
+/**
+ * DC-03: Data Quality Indicator
+ * Calculates data quality based on records collected vs expected.
+ * Assumes ~60 records per minute for price data (1 update/second typical).
+ */
+interface DataQuality {
+  score: number; // 0-100
+  level: 'excellent' | 'good' | 'fair' | 'poor' | 'unknown';
+  color: 'success' | 'info' | 'warning' | 'error' | 'default';
+  gaps: number; // estimated gap percentage
+  tooltip: string;
+}
+
+const calculateDataQuality = (session: DataCollectionSession): DataQuality => {
+  // For running or pending sessions, return unknown
+  if (session.status === 'running' || session.status === 'pending') {
+    return {
+      score: 0,
+      level: 'unknown',
+      color: 'default',
+      gaps: 0,
+      tooltip: 'Quality available after session completes'
+    };
+  }
+
+  // Parse duration to minutes
+  const durationMatch = session.duration.match(/(\d+)\s*([dhms])/gi);
+  if (!durationMatch || session.records_collected === 0) {
+    return {
+      score: 0,
+      level: 'poor',
+      color: 'error',
+      gaps: 100,
+      tooltip: 'No data collected or invalid duration'
+    };
+  }
+
+  let totalMinutes = 0;
+  for (const match of durationMatch) {
+    const num = parseInt(match);
+    if (match.includes('d')) totalMinutes += num * 24 * 60;
+    else if (match.includes('h')) totalMinutes += num * 60;
+    else if (match.includes('m')) totalMinutes += num;
+    else if (match.includes('s')) totalMinutes += num / 60;
+  }
+
+  // Expected records: ~60/min per symbol per data type (conservative estimate)
+  const symbolCount = session.symbols.length;
+  const dataTypeCount = session.data_types.length;
+  const expectedRecords = totalMinutes * 60 * symbolCount * dataTypeCount;
+
+  // Calculate completeness ratio
+  const ratio = Math.min(session.records_collected / expectedRecords, 1);
+  const score = Math.round(ratio * 100);
+  const gaps = Math.round((1 - ratio) * 100);
+
+  let level: DataQuality['level'];
+  let color: DataQuality['color'];
+
+  if (score >= 95) {
+    level = 'excellent';
+    color = 'success';
+  } else if (score >= 80) {
+    level = 'good';
+    color = 'info';
+  } else if (score >= 50) {
+    level = 'fair';
+    color = 'warning';
+  } else {
+    level = 'poor';
+    color = 'error';
+  }
+
+  const tooltip = `${session.records_collected.toLocaleString()} / ~${Math.round(expectedRecords).toLocaleString()} expected records\n` +
+    `${gaps}% data gaps estimated\n` +
+    `${symbolCount} symbols × ${dataTypeCount} data types × ${totalMinutes.toFixed(0)} min`;
+
+  return { score, level, color, gaps, tooltip };
+};
+
 export default function DataCollectionPage() {
   // Use reactive WebSocket store instead of polling
   const { isConnected } = useWebSocketStore();
@@ -689,13 +769,99 @@ export default function DataCollectionPage() {
     }
   };
 
-  const handleDownloadData = (sessionId: string) => {
-    // In a real implementation, this would trigger a download
+  /**
+   * DC-01: Download session data as CSV (eksport CSV)
+   * Fetches chart data for each symbol in the session and exports as CSV file
+   */
+  const handleDownloadData = async (session: DataCollectionSession) => {
+    if (!session.symbols || session.symbols.length === 0) {
+      setSnackbar({
+        open: true,
+        message: 'No symbols available for this session',
+        severity: 'warning'
+      });
+      return;
+    }
+
     setSnackbar({
       open: true,
-      message: `Downloading data for session ${sessionId}`,
+      message: `Preparing CSV export for session ${session.session_id}...`,
       severity: 'info'
     });
+
+    try {
+      // Fetch data for all symbols in the session
+      const allDataPromises = session.symbols.map(async (symbol) => {
+        try {
+          const chartData = await apiService.getChartData(session.session_id, symbol, 100000);
+          return { symbol, data: chartData?.data || [] };
+        } catch (error) {
+          console.warn(`Failed to fetch data for ${symbol}:`, error);
+          return { symbol, data: [] };
+        }
+      });
+
+      const allSymbolData = await Promise.all(allDataPromises);
+
+      // Check if we have any data
+      const totalRecords = allSymbolData.reduce((sum, s) => sum + s.data.length, 0);
+      if (totalRecords === 0) {
+        setSnackbar({
+          open: true,
+          message: 'No data available to export for this session',
+          severity: 'warning'
+        });
+        return;
+      }
+
+      // Build CSV content
+      // Header: timestamp, symbol, price, volume (and any other available fields)
+      const csvLines: string[] = [];
+      csvLines.push('timestamp,datetime,symbol,price,volume,bid,ask');
+
+      for (const { symbol, data } of allSymbolData) {
+        for (const point of data) {
+          const timestamp = point.timestamp || 0;
+          const datetime = new Date(timestamp * 1000).toISOString();
+          const price = point.price ?? point.close ?? '';
+          const volume = point.volume ?? '';
+          const bid = point.bid ?? '';
+          const ask = point.ask ?? '';
+
+          csvLines.push(`${timestamp},${datetime},${symbol},${price},${volume},${bid},${ask}`);
+        }
+      }
+
+      const csvContent = csvLines.join('\n');
+
+      // Create download blob
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+
+      // Create temporary link and trigger download
+      const link = document.createElement('a');
+      const filename = `data_collection_${session.session_id}_${new Date().toISOString().slice(0, 10)}.csv`;
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      setSnackbar({
+        open: true,
+        message: `Downloaded ${totalRecords.toLocaleString()} records to ${filename}`,
+        severity: 'success'
+      });
+
+    } catch (error: any) {
+      console.error('Failed to export CSV:', error);
+      setSnackbar({
+        open: true,
+        message: `Failed to export CSV: ${error.message || 'Unknown error'}`,
+        severity: 'error'
+      });
+    }
   };
 
   const handleViewCharts = (session: DataCollectionSession) => {
@@ -905,6 +1071,7 @@ export default function DataCollectionPage() {
                 <TableCell>Data Types</TableCell>
                 <TableCell>Duration</TableCell>
                 <TableCell align="right">Records</TableCell>
+                <TableCell align="center">Quality</TableCell>
                 <TableCell>Storage Path</TableCell>
                 <TableCell>Actions</TableCell>
               </TableRow>
@@ -983,6 +1150,38 @@ export default function DataCollectionPage() {
                       )}
                     </Box>
                   </TableCell>
+                  {/* DC-03: Data Quality Indicator */}
+                  <TableCell align="center">
+                    {(() => {
+                      const quality = calculateDataQuality(session);
+                      return (
+                        <Tooltip title={quality.tooltip} arrow>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+                            <Chip
+                              label={quality.level === 'unknown' ? '...' : `${quality.score}%`}
+                              size="small"
+                              color={quality.color}
+                              sx={{ minWidth: 50 }}
+                            />
+                            {quality.level !== 'unknown' && (
+                              <Box sx={{ width: 60, height: 4, bgcolor: 'grey.200', borderRadius: 2, overflow: 'hidden' }}>
+                                <Box
+                                  sx={{
+                                    width: `${quality.score}%`,
+                                    height: '100%',
+                                    bgcolor: quality.color === 'success' ? 'success.main' :
+                                            quality.color === 'info' ? 'info.main' :
+                                            quality.color === 'warning' ? 'warning.main' : 'error.main',
+                                    transition: 'width 0.3s ease'
+                                  }}
+                                />
+                              </Box>
+                            )}
+                          </Box>
+                        </Tooltip>
+                      );
+                    })()}
+                  </TableCell>
                   <TableCell>
                     <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
                       {session.storage_path}
@@ -1012,7 +1211,7 @@ export default function DataCollectionPage() {
                       <span>
                         <IconButton
                           size="small"
-                          onClick={() => handleDownloadData(session.session_id)}
+                          onClick={() => handleDownloadData(session)}
                           disabled={session.status !== 'completed'}
                         >
                           <DownloadIcon fontSize="small" />
@@ -1046,7 +1245,7 @@ export default function DataCollectionPage() {
               ))}
               {sessions.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
                     <Typography variant="body2" color="text.secondary">
                       No data collection sessions found. Start your first collection to see results here.
                     </Typography>

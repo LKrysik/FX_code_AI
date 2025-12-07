@@ -36,9 +36,11 @@ import {
   CheckCircle as CheckCircleIcon,
   Error as ErrorIcon,
   Refresh as RefreshIcon,
+  HelpOutline as HelpOutlineIcon,
 } from '@mui/icons-material';
 import { IndicatorVariant } from '@/types/strategy';
 import { apiService } from '@/services/api';
+import { ParameterTooltipContent, PARAMETER_DOCS, ParameterDocsPanel } from './IndicatorParameterDocs';
 
 interface VariantManagerProps {
   onVariantCreated?: (variant: IndicatorVariant) => void;
@@ -100,6 +102,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
   });
 
   const [parameterErrors, setParameterErrors] = useState<Record<string, string>>({});
+  const [showDocsPanel, setShowDocsPanel] = useState(false);
   const systemIndicatorsRequestRef = useRef<Promise<SystemIndicator[]> | null>(null);
   const hasPrefetchedSystemIndicatorsRef = useRef(false);
 
@@ -844,30 +847,64 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
 
             {selectedSystemIndicator && (
               <Box>
-                <Typography variant="h6" gutterBottom>
-                  Parameters
-                </Typography>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Typography variant="h6">
+                    Parameters
+                  </Typography>
+                  <Tooltip title="Show parameter documentation">
+                    <IconButton
+                      size="small"
+                      onClick={() => setShowDocsPanel(!showDocsPanel)}
+                      color={showDocsPanel ? 'primary' : 'default'}
+                    >
+                      <HelpOutlineIcon />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+
+                {showDocsPanel && (
+                  <Box sx={{ mb: 3 }}>
+                    <ParameterDocsPanel />
+                  </Box>
+                )}
+
                 <Grid container spacing={2}>
-                  {selectedSystemIndicator.parameters.map((param) => (
-                    <Grid item xs={12} md={param.type === 'json' ? 12 : 6} key={param.name}>
-                      <TextField
-                        fullWidth
-                        label={`${param.name}${param.required ? ' *' : ''}`}
-                        type={param.type === 'int' || param.type === 'float' ? 'number' : 'text'}
-                        multiline={param.type === 'json'}
-                        rows={param.type === 'json' ? 4 : 1}
-                        value={variantForm.parameters[param.name] || ''}
-                        onChange={(e) => handleParameterChange(param.name, e.target.value)}
-                        error={!!parameterErrors[param.name]}
-                        helperText={parameterErrors[param.name] || param.description || (param.type === 'json' ? 'JSON format required' : '')}
-                        inputProps={{
-                          min: param.min_value,
-                          max: param.max_value,
-                          step: param.type === 'float' ? '0.01' : '1',
-                        }}
-                      />
-                    </Grid>
-                  ))}
+                  {selectedSystemIndicator.parameters.map((param) => {
+                    const paramDoc = PARAMETER_DOCS[param.name];
+                    return (
+                      <Grid item xs={12} md={param.type === 'json' ? 12 : 6} key={param.name}>
+                        <Tooltip
+                          title={paramDoc ? <ParameterTooltipContent param={param.name} value={variantForm.parameters[param.name]} /> : ''}
+                          placement="top-start"
+                          arrow
+                        >
+                          <TextField
+                            fullWidth
+                            label={
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                {param.name}{param.required ? ' *' : ''}
+                                {paramDoc && (
+                                  <HelpOutlineIcon sx={{ fontSize: 14, color: 'action.active' }} />
+                                )}
+                              </Box>
+                            }
+                            type={param.type === 'int' || param.type === 'float' ? 'number' : 'text'}
+                            multiline={param.type === 'json'}
+                            rows={param.type === 'json' ? 4 : 1}
+                            value={variantForm.parameters[param.name] || ''}
+                            onChange={(e) => handleParameterChange(param.name, e.target.value)}
+                            error={!!parameterErrors[param.name]}
+                            helperText={parameterErrors[param.name] || param.description || (param.type === 'json' ? 'JSON format required' : '')}
+                            inputProps={{
+                              min: param.min_value,
+                              max: param.max_value,
+                              step: param.type === 'float' ? '0.01' : '1',
+                            }}
+                          />
+                        </Tooltip>
+                      </Grid>
+                    );
+                  })}
                 </Grid>
               </Box>
             )}

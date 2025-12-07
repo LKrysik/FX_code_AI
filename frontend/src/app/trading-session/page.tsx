@@ -66,6 +66,9 @@ import {
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
 import { apiService } from '@/services/api';
+import StrategyPreviewPanel from '@/components/trading/StrategyPreviewPanel';
+import SessionMatrix from '@/components/trading/SessionMatrix';
+import SymbolRecommendation from '@/components/trading/SymbolRecommendation';
 
 // ============================================================================
 // Types
@@ -529,6 +532,29 @@ export default function TradingSessionPage() {
             </CardContent>
           </Card>
 
+          {/* Strategy Preview Panel (TS-01) - Shows S1, Z1, ZE1, E1 conditions */}
+          {selectedStrategies.length > 0 && (
+            <Box sx={{ mb: 3 }}>
+              <StrategyPreviewPanel
+                strategyName={selectedStrategies[selectedStrategies.length - 1]}
+              />
+            </Box>
+          )}
+
+          {/* Session Matrix (TS-02) - Strategy x Symbol grid */}
+          {(selectedStrategies.length > 0 || selectedSymbols.length > 0) && (
+            <Box sx={{ mb: 3 }}>
+              <SessionMatrix
+                strategies={strategies.map(s => s.strategy_name)}
+                symbols={availableSymbols}
+                selectedStrategies={selectedStrategies}
+                selectedSymbols={selectedSymbols}
+                mode={(selectedStrategies.length > 0 && selectedSymbols.length > 0) ? 'full' : 'compact'}
+                showTotals={true}
+              />
+            </Box>
+          )}
+
           {/* Symbol Selection */}
           <Card sx={{ mb: 3 }}>
             <CardHeader
@@ -603,6 +629,24 @@ export default function TradingSessionPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* TS-03: Symbol Recommendations (only for live/paper mode) */}
+          {mode !== 'backtest' && (
+            <Box sx={{ mb: 3 }}>
+              <SymbolRecommendation
+                selectedSymbols={selectedSymbols}
+                onAddSymbol={(symbol) => {
+                  if (!selectedSymbols.includes(symbol)) {
+                    setSelectedSymbols([...selectedSymbols, symbol]);
+                  }
+                }}
+                onRemoveSymbol={(symbol) => {
+                  setSelectedSymbols(selectedSymbols.filter(s => s !== symbol));
+                }}
+                maxRecommendations={5}
+              />
+            </Box>
+          )}
 
           {/* Budget & Risk Management */}
           <Card sx={{ mb: 3 }}>

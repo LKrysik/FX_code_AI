@@ -34,6 +34,9 @@ import {
   AccordionSummary,
   AccordionDetails,
   Badge,
+  Drawer,
+  Divider,
+  alpha,
 } from '@mui/material';
 import {
   Refresh as RefreshIcon,
@@ -49,8 +52,15 @@ import {
   Speed as SpeedIcon,
   ShowChart as ChartIcon,
   Warning as WarningIcon,
+  Close as CloseIcon,
+  Info as InfoIcon,
+  Timeline as TimelineIcon,
+  AttachMoney as AttachMoneyIcon,
+  BarChart as BarChartIcon,
 } from '@mui/icons-material';
 import { apiService } from '@/services/api';
+import MiniSparkline, { generateMockSparklineData } from '@/components/charts/MiniSparkline';
+import { SignalHistoryPanel } from '@/components/market-scanner/SignalHistoryPanel';
 
 interface ScannerData {
   symbol: string;
@@ -65,6 +75,7 @@ interface ScannerData {
   volatility: number;
   liquidity: number;
   signalStrength: 'weak' | 'medium' | 'strong' | 'extreme';
+  priceHistory?: number[]; // For sparkline chart (MS-01)
 }
 
 interface ScannerSettings {
@@ -86,6 +97,8 @@ const commonSymbols = [
 export default function MarketScannerPage() {
   const [scannerData, setScannerData] = useState<ScannerData[]>([]);
   const [filteredData, setFilteredData] = useState<ScannerData[]>([]);
+  // Price history for sparklines (MS-01) - keeps last 20 values per symbol
+  const [priceHistoryMap, setPriceHistoryMap] = useState<Record<string, number[]>>({});
   const [loading, setLoading] = useState(false);
   const [settings, setSettings] = useState<ScannerSettings>({
     minPumpMagnitude: 5,
@@ -103,6 +116,9 @@ export default function MarketScannerPage() {
     severity: 'info'
   });
   const [alerts, setAlerts] = useState<any[]>([]);
+  // MS-03: Selected symbol for details panel
+  const [selectedSymbol, setSelectedSymbol] = useState<ScannerData | null>(null);
+  const [detailsDrawerOpen, setDetailsDrawerOpen] = useState(false);
 
   useEffect(() => {
     loadScannerData();
@@ -181,7 +197,36 @@ export default function MarketScannerPage() {
           } as ScannerData;
         });
 
-      setScannerData(scannerResults);
+      // Update price history for sparklines (MS-01)
+      setPriceHistoryMap(prev => {
+        const newHistory = { ...prev };
+        scannerResults.forEach(result => {
+          const currentHistory = newHistory[result.symbol] || [];
+          // Add new price, keep last 20 values
+          newHistory[result.symbol] = [...currentHistory.slice(-19), result.price];
+
+          // If first load (no history), generate initial mock data based on trend
+          if (currentHistory.length === 0 && result.price > 0) {
+            // Generate 15 previous points with slight variation to show trend
+            const trendDirection = result.trend === 'bullish' ? 'up' : result.trend === 'bearish' ? 'down' : 'random';
+            newHistory[result.symbol] = generateMockSparklineData(16, trendDirection, 0.02)
+              .map((v, i, arr) => {
+                // Scale to match current price
+                const scaleFactor = result.price / arr[arr.length - 1];
+                return v * scaleFactor;
+              });
+          }
+        });
+        return newHistory;
+      });
+
+      // Add priceHistory to scanner results
+      const resultsWithHistory = scannerResults.map(result => ({
+        ...result,
+        priceHistory: priceHistoryMap[result.symbol] || []
+      }));
+
+      setScannerData(resultsWithHistory);
 
       // Check for alerts
       checkForAlerts(scannerResults);
@@ -250,6 +295,21 @@ export default function MarketScannerPage() {
       message: `Quick trade initiated for ${symbol}`,
       severity: 'success'
     });
+  };
+
+  /**
+   * MS-03: Handle row click to open details panel
+   */
+  const handleRowClick = (data: ScannerData) => {
+    setSelectedSymbol(data);
+    setDetailsDrawerOpen(true);
+  };
+
+  /**
+   * MS-03: Close details panel
+   */
+  const handleCloseDetails = () => {
+    setDetailsDrawerOpen(false);
   };
 
   const clearAlerts = () => {
@@ -426,6 +486,11 @@ export default function MarketScannerPage() {
                   <TableHead>
                     <TableRow>
                       <TableCell>Symbol</TableCell>
+                      <TableCell align="center">
+                        <Tooltip title="Price trend (last 20 values)">
+                          <ChartIcon fontSize="small" />
+                        </Tooltip>
+                      </TableCell>
                       <TableCell align="right">Price</TableCell>
                       <TableCell align="right">24h %</TableCell>
                       <TableCell align="right">Volume</TableCell>
@@ -447,11 +512,30 @@ export default function MarketScannerPage() {
                   </TableHead>
                   <TableBody>
                     {filteredData.map((data) => (
-                      <TableRow key={data.symbol} hover>
+                      <TableRow
+                        key={data.symbol}
+                        hover
+                        onClick={() => handleRowClick(data)}
+                        sx={{
+                          cursor: 'pointer',
+                          bgcolor: selectedSymbol?.symbol === data.symbol ? alpha('#2196f3', 0.1) : 'transparent',
+                        }}
+                      >
                         <TableCell>
                           <Typography variant="body2" fontWeight="bold">
                             {data.symbol.replace('_', '/')}
                           </Typography>
+                        </TableCell>
+                        {/* Mini Sparkline Chart (MS-01) */}
+                        <TableCell align="center" sx={{ py: 0.5 }}>
+                          <MiniSparkline
+                            data={priceHistoryMap[data.symbol] || data.priceHistory || []}
+                            width={70}
+                            height={22}
+                            color="auto"
+                            showMarker={true}
+                            strokeWidth={1.5}
+                          />
                         </TableCell>
                         <TableCell align="right">
                           <Typography variant="body2">
@@ -608,6 +692,230 @@ export default function MarketScannerPage() {
           {snackbar.message}
         </Alert>
       </Snackbar>
+
+      {/* MS-03: Symbol Details Drawer */}
+      <Drawer
+        anchor="right"
+        open={detailsDrawerOpen}
+        onClose={handleCloseDetails}
+        PaperProps={{
+          sx: { width: { xs: '100%', sm: 400 } }
+        }}
+      >
+        {selectedSymbol && (
+          <Box sx={{ p: 2 }}>
+            {/* Header */}
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="h5" fontWeight="bold">
+                {selectedSymbol.symbol.replace('_', '/')}
+              </Typography>
+              <IconButton onClick={handleCloseDetails}>
+                <CloseIcon />
+              </IconButton>
+            </Box>
+
+            <Divider sx={{ mb: 2 }} />
+
+            {/* Large Price Display */}
+            <Box sx={{ textAlign: 'center', mb: 3, p: 2, bgcolor: 'background.default', borderRadius: 2 }}>
+              <Typography variant="h3" fontWeight="bold">
+                ${selectedSymbol.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}
+              </Typography>
+              <Chip
+                label={`${selectedSymbol.priceChange24h >= 0 ? '+' : ''}${selectedSymbol.priceChange24h.toFixed(2)}%`}
+                color={selectedSymbol.priceChange24h >= 0 ? 'success' : 'error'}
+                size="medium"
+                sx={{ mt: 1 }}
+              />
+            </Box>
+
+            {/* Sparkline Chart (larger) */}
+            <Box sx={{ mb: 3, p: 2, bgcolor: 'background.default', borderRadius: 2 }}>
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                <TimelineIcon fontSize="small" sx={{ mr: 0.5, verticalAlign: 'middle' }} />
+                Price History (Last 20 ticks)
+              </Typography>
+              <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
+                <MiniSparkline
+                  data={priceHistoryMap[selectedSymbol.symbol] || selectedSymbol.priceHistory || []}
+                  width={340}
+                  height={80}
+                  color="auto"
+                  showMarker={true}
+                  showFill={true}
+                  strokeWidth={2}
+                />
+              </Box>
+            </Box>
+
+            {/* Key Metrics Grid */}
+            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+              <BarChartIcon fontSize="small" sx={{ mr: 0.5, verticalAlign: 'middle' }} />
+              Key Metrics
+            </Typography>
+            <Grid container spacing={1} sx={{ mb: 3 }}>
+              <Grid item xs={6}>
+                <Paper sx={{ p: 1.5, textAlign: 'center' }}>
+                  <Typography variant="caption" color="text.secondary">Volume 24h</Typography>
+                  <Typography variant="body1" fontWeight="bold">
+                    ${(selectedSymbol.volume24h / 1000000).toFixed(2)}M
+                  </Typography>
+                </Paper>
+              </Grid>
+              <Grid item xs={6}>
+                <Paper sx={{ p: 1.5, textAlign: 'center' }}>
+                  <Typography variant="caption" color="text.secondary">Trend</Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 0.5 }}>
+                    {getTrendIcon(selectedSymbol.trend)}
+                    <Typography variant="body1" fontWeight="bold" sx={{ textTransform: 'capitalize' }}>
+                      {selectedSymbol.trend}
+                    </Typography>
+                  </Box>
+                </Paper>
+              </Grid>
+              <Grid item xs={6}>
+                <Paper sx={{ p: 1.5, textAlign: 'center' }}>
+                  <Typography variant="caption" color="text.secondary">Volatility</Typography>
+                  <Typography
+                    variant="body1"
+                    fontWeight="bold"
+                    color={selectedSymbol.volatility > 15 ? 'error.main' : selectedSymbol.volatility > 8 ? 'warning.main' : 'success.main'}
+                  >
+                    {selectedSymbol.volatility.toFixed(1)}%
+                  </Typography>
+                </Paper>
+              </Grid>
+              <Grid item xs={6}>
+                <Paper sx={{ p: 1.5, textAlign: 'center' }}>
+                  <Typography variant="caption" color="text.secondary">Liquidity</Typography>
+                  <Typography variant="body1" fontWeight="bold">
+                    {selectedSymbol.liquidity.toFixed(0)}%
+                  </Typography>
+                </Paper>
+              </Grid>
+            </Grid>
+
+            {/* Pump/Dump Indicators */}
+            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+              <FlashIcon fontSize="small" sx={{ mr: 0.5, verticalAlign: 'middle' }} />
+              Pump/Dump Detection
+            </Typography>
+            <Paper sx={{ p: 2, mb: 3 }}>
+              <Box sx={{ mb: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                  <Typography variant="body2">Pump Magnitude</Typography>
+                  <Typography
+                    variant="body2"
+                    fontWeight="bold"
+                    color={selectedSymbol.pumpMagnitude > 15 ? 'error.main' : selectedSymbol.pumpMagnitude > 8 ? 'warning.main' : 'text.primary'}
+                  >
+                    {selectedSymbol.pumpMagnitude.toFixed(1)}%
+                  </Typography>
+                </Box>
+                <LinearProgress
+                  variant="determinate"
+                  value={Math.min(selectedSymbol.pumpMagnitude / 20 * 100, 100)}
+                  color={selectedSymbol.pumpMagnitude > 15 ? 'error' : selectedSymbol.pumpMagnitude > 8 ? 'warning' : 'primary'}
+                  sx={{ height: 8, borderRadius: 4 }}
+                />
+              </Box>
+              <Box sx={{ mb: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                  <Typography variant="body2">Volume Surge</Typography>
+                  <Typography
+                    variant="body2"
+                    fontWeight="bold"
+                    color={selectedSymbol.volumeSurge > 5 ? 'error.main' : selectedSymbol.volumeSurge > 3 ? 'warning.main' : 'text.primary'}
+                  >
+                    {selectedSymbol.volumeSurge.toFixed(1)}x
+                  </Typography>
+                </Box>
+                <LinearProgress
+                  variant="determinate"
+                  value={Math.min(selectedSymbol.volumeSurge / 10 * 100, 100)}
+                  color={selectedSymbol.volumeSurge > 5 ? 'error' : selectedSymbol.volumeSurge > 3 ? 'warning' : 'primary'}
+                  sx={{ height: 8, borderRadius: 4 }}
+                />
+              </Box>
+              <Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                  <Typography variant="body2">Confidence Score</Typography>
+                  <Typography variant="body2" fontWeight="bold" color="primary">
+                    {selectedSymbol.confidenceScore.toFixed(0)}%
+                  </Typography>
+                </Box>
+                <LinearProgress
+                  variant="determinate"
+                  value={selectedSymbol.confidenceScore}
+                  color="primary"
+                  sx={{ height: 8, borderRadius: 4 }}
+                />
+              </Box>
+            </Paper>
+
+            {/* Signal Strength */}
+            <Box sx={{ textAlign: 'center', mb: 3 }}>
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                Signal Strength
+              </Typography>
+              <Chip
+                label={selectedSymbol.signalStrength.toUpperCase()}
+                color={getSignalColor(selectedSymbol.signalStrength)}
+                size="medium"
+                sx={{ fontSize: '1.1rem', fontWeight: 'bold', px: 3, py: 2, height: 'auto' }}
+              />
+            </Box>
+
+            {/* MS-02: Signal History */}
+            <Paper sx={{ p: 2, mb: 3 }}>
+              <SignalHistoryPanel
+                symbol={selectedSymbol.symbol}
+                maxSignals={7}
+                showOutcomes={true}
+              />
+            </Paper>
+
+            {/* Action Buttons */}
+            <Divider sx={{ mb: 2 }} />
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button
+                variant="contained"
+                color="success"
+                fullWidth
+                startIcon={<PlayIcon />}
+                onClick={() => {
+                  handleQuickTrade(selectedSymbol.symbol);
+                  handleCloseDetails();
+                }}
+              >
+                Quick Trade
+              </Button>
+              <Button
+                variant="outlined"
+                color="primary"
+                fullWidth
+                startIcon={<ChartIcon />}
+              >
+                View Chart
+              </Button>
+            </Box>
+            <Button
+              variant="outlined"
+              color="warning"
+              fullWidth
+              startIcon={<NotificationsActiveIcon />}
+              sx={{ mt: 1 }}
+            >
+              Set Alert
+            </Button>
+
+            {/* Last Update */}
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 2 }}>
+              Last update: {selectedSymbol.lastUpdate}
+            </Typography>
+          </Box>
+        )}
+      </Drawer>
     </Box>
   );
 }

@@ -29,10 +29,12 @@ import {
   Security as SecurityIcon,
   Storage as StorageIcon,
   TrendingUp as TrendingUpIcon,
+  History as HistoryIcon,
 } from '@mui/icons-material';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { UserMenu } from '@/components/auth';
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 
 const drawerWidth = 280;
 
@@ -60,6 +62,12 @@ const menuItems = [
     icon: <AssessmentIcon />,
     path: '/backtesting',
     description: 'Historical strategy testing'
+  },
+  {
+    text: 'Session History',
+    icon: <HistoryIcon />,
+    path: '/session-history',
+    description: 'Review past trading sessions and performance'
   },
   {
     text: 'Data Collection',
@@ -102,6 +110,9 @@ export default function Layout({ children }: LayoutProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const pathname = usePathname();
+
+  // SY-01: Global keyboard shortcuts
+  useKeyboardShortcuts();
 
   const handleDrawerToggle = () => {
     setDrawerOpen(!drawerOpen);

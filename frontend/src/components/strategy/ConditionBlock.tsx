@@ -12,6 +12,7 @@ import Chip from '@mui/material/Chip';
 import Tooltip from '@mui/material/Tooltip';
 import { Delete as DeleteIcon, ExpandMore as ExpandMoreIcon, Info as InfoIcon } from '@mui/icons-material';
 import { Condition, IndicatorVariant, LogicOperator } from '@/types/strategy';
+import { ParameterTooltipContent, PARAMETER_DOCS } from '@/components/indicators/IndicatorParameterDocs';
 
 interface ConditionBlockProps {
   condition: Condition;
@@ -166,14 +167,23 @@ export const ConditionBlock = ({
         )}
 
         {/* Show current logic as chip (read-only view) */}
-        {!isLastCondition && !onLogicChange && (
-          <Chip
-            label={logicType}
-            size="small"
-            color={getLogicColor(logicType)}
-            variant="outlined"
-            sx={{ mr: 1 }}
-          />
+        {/* SB-05: Interactive Logic Operator - shows between conditions (except last one) */}
+        {!isLastCondition && (
+          <Tooltip title={onLogicChange ? "Click to toggle AND/OR" : `Logic operator: ${logicType}`}>
+            <Chip
+              label={logicType}
+              size="small"
+              color={getLogicColor(logicType)}
+              variant={onLogicChange ? "filled" : "outlined"}
+              onClick={onLogicChange ? () => handleLogicChange(logicType === 'AND' ? 'OR' : 'AND') : undefined}
+              sx={{
+                mr: 1,
+                cursor: onLogicChange ? 'pointer' : 'default',
+                '&:hover': onLogicChange ? { transform: 'scale(1.05)' } : {},
+                transition: 'transform 0.2s ease',
+              }}
+            />
+          </Tooltip>
         )}
 
         <IconButton
@@ -305,15 +315,32 @@ export const ConditionBlock = ({
                     Parameters:
                   </Typography>
                   <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
-                    {Object.entries(selectedIndicator.parameters).map(([key, value]) => (
-                      <Chip
-                        key={key}
-                        label={`${key}=${value}`}
-                        size="small"
-                        variant="outlined"
-                        sx={{ fontSize: '0.7rem', height: 20 }}
-                      />
-                    ))}
+                    {Object.entries(selectedIndicator.parameters).map(([key, value]) => {
+                      const paramDoc = PARAMETER_DOCS[key];
+                      return (
+                        <Tooltip
+                          key={key}
+                          title={paramDoc ? <ParameterTooltipContent param={key} value={value} /> : `${key}=${value}`}
+                          arrow
+                          placement="top"
+                        >
+                          <Chip
+                            label={`${key}=${value}`}
+                            size="small"
+                            variant="outlined"
+                            sx={{
+                              fontSize: '0.7rem',
+                              height: 20,
+                              cursor: paramDoc ? 'help' : 'default',
+                              '&:hover': paramDoc ? {
+                                borderColor: 'primary.main',
+                                bgcolor: 'action.hover'
+                              } : {}
+                            }}
+                          />
+                        </Tooltip>
+                      );
+                    })}
                   </Box>
                 </Box>
               )}

@@ -77,6 +77,7 @@ import PositionMonitor from '@/components/trading/PositionMonitor';
 import StateOverviewTableIntegration from '@/components/dashboard/StateOverviewTable.integration';
 import ConditionProgressIntegration from '@/components/dashboard/ConditionProgress.integration';
 import TransitionLogIntegration from '@/components/dashboard/TransitionLog.integration';
+import PumpIndicatorsPanel from '@/components/dashboard/PumpIndicatorsPanel';
 
 // ============================================================================
 // Types
@@ -888,6 +889,15 @@ function DashboardContent() {
                     autoRefresh={true}
                   />
                 </Paper>
+
+                {/* Pump Indicators Panel (PI-01, PI-02, PI-03) - Most prominent position */}
+                <Box sx={{ mb: 2 }}>
+                  <PumpIndicatorsPanel
+                    sessionId={sessionId}
+                    symbol={selectedSymbol}
+                    refreshInterval={2000}
+                  />
+                </Box>
 
                 <Grid container spacing={2}>
                   <Grid item xs={12} md={6}>

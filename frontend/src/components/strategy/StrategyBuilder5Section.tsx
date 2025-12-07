@@ -34,19 +34,24 @@ import {
   CheckCircle as CheckCircleIcon,
   Add as AddIcon,
   PlayArrow as PlayIcon,
+  Download as DownloadIcon,
+  Upload as UploadIcon,
 } from '@mui/icons-material';
 import { ConditionBlock } from './ConditionBlock';
+import StateMachineDiagram from './StateMachineDiagram';
 import {
   calculateLiquidationPrice,
   formatLiquidationPrice,
   assessLeverageRisk,
   getRecommendedLeverage,
 } from '@/utils/leverageCalculator';
+import { StrategyVersionHistory, StrategyVersion } from './StrategyVersionHistory';
 import {
   Strategy5Section,
   Condition,
   IndicatorVariant,
   StrategyValidationResult,
+  LogicOperator,
 } from '@/types/strategy';
 
 interface StrategyBuilder5SectionProps {
@@ -304,6 +309,50 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
     }
   };
 
+  /**
+   * SB-05: Update logic operator for a condition
+   * Changes AND/OR logic connector between conditions
+   */
+  const updateConditionLogic = (section: 's1' | 'z1' | 'o1' | 'ze1' | 'emergency', conditionId: string, newLogic: LogicOperator) => {
+    switch (section) {
+      case 's1':
+        handleS1Change(
+          strategyData.s1_signal.conditions.map(c => c.id === conditionId ? { ...c, logic: newLogic } : c)
+        );
+        break;
+      case 'z1':
+        handleZ1ConditionsChange(
+          strategyData.z1_entry.conditions.map(c => c.id === conditionId ? { ...c, logic: newLogic } : c)
+        );
+        break;
+      case 'o1':
+        handleO1Change({
+          conditions: strategyData.o1_cancel.conditions.map(c => c.id === conditionId ? { ...c, logic: newLogic } : c),
+        });
+        break;
+      case 'ze1':
+        handleZE1ConditionsChange(
+          strategyData.ze1_close.conditions.map(c => c.id === conditionId ? { ...c, logic: newLogic } : c)
+        );
+        break;
+      case 'emergency':
+        handleEmergencyChange({
+          conditions: strategyData.emergency_exit.conditions.map(c => c.id === conditionId ? { ...c, logic: newLogic } : c),
+        });
+        break;
+    }
+  };
+
+  // SB-07: Handle version restore
+  const handleVersionRestore = (version: StrategyVersion) => {
+    setStrategyData(version.strategyData);
+    setNotification({
+      open: true,
+      message: `Restored strategy from ${new Date(version.timestamp).toLocaleString()}`,
+      severity: 'success',
+    });
+  };
+
   const handleValidate = async () => {
     if (!strategyData.name.trim()) {
       setNotification({
@@ -377,6 +426,152 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
     } finally {
       setSaving(false);
     }
+  };
+
+  /**
+   * SB-06: Export strategy as JSON file
+   */
+  const handleExportJSON = () => {
+    if (!strategyData.name || !strategyData.name.trim()) {
+      setNotification({
+        open: true,
+        message: 'Please enter a strategy name before exporting',
+        severity: 'error',
+      });
+      return;
+    }
+
+    try {
+      // Create export object with metadata
+      const exportData = {
+        _meta: {
+          exportedAt: new Date().toISOString(),
+          version: '1.0',
+          type: 'FXcrypto_Strategy_5Section',
+        },
+        strategy: strategyData,
+      };
+
+      const jsonContent = JSON.stringify(exportData, null, 2);
+      const blob = new Blob([jsonContent], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+
+      // Create filename from strategy name (sanitize for filesystem)
+      const safeName = strategyData.name
+        .replace(/[^a-z0-9_-]/gi, '_')
+        .replace(/_+/g, '_')
+        .toLowerCase();
+      const filename = `strategy_${safeName}_${new Date().toISOString().slice(0, 10)}.json`;
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      setNotification({
+        open: true,
+        message: `Strategy exported as ${filename}`,
+        severity: 'success',
+      });
+    } catch (error: any) {
+      setNotification({
+        open: true,
+        message: `Export failed: ${error.message || 'Unknown error'}`,
+        severity: 'error',
+      });
+    }
+  };
+
+  /**
+   * SB-06: Import strategy from JSON file
+   */
+  const handleImportJSON = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string;
+        const importData = JSON.parse(content);
+
+        // Validate import format
+        if (!importData.strategy) {
+          throw new Error('Invalid file format: missing strategy data');
+        }
+
+        const imported = importData.strategy;
+
+        // Validate required fields
+        if (!imported.s1_signal || !imported.z1_entry || !imported.o1_cancel || !imported.emergency_exit) {
+          throw new Error('Invalid strategy format: missing required sections');
+        }
+
+        // Apply imported strategy
+        setStrategyData({
+          name: imported.name || 'Imported Strategy',
+          direction: imported.direction || 'LONG',
+          s1_signal: imported.s1_signal || { conditions: [] },
+          z1_entry: {
+            conditions: imported.z1_entry?.conditions || [],
+            positionSize: imported.z1_entry?.positionSize || { type: 'percentage', value: 10 },
+            timeoutSeconds: imported.z1_entry?.timeoutSeconds || 0,
+            stopLoss: imported.z1_entry?.stopLoss,
+            takeProfit: imported.z1_entry?.takeProfit,
+          },
+          o1_cancel: {
+            timeoutSeconds: imported.o1_cancel?.timeoutSeconds || 30,
+            conditions: imported.o1_cancel?.conditions || [],
+            cooldownMinutes: imported.o1_cancel?.cooldownMinutes || 0,
+          },
+          ze1_close: {
+            conditions: imported.ze1_close?.conditions || [],
+            riskAdjustedPricing: imported.ze1_close?.riskAdjustedPricing,
+          },
+          emergency_exit: {
+            conditions: imported.emergency_exit?.conditions || [],
+            cooldownMinutes: imported.emergency_exit?.cooldownMinutes || 5,
+            actions: imported.emergency_exit?.actions || {
+              cancelPending: true,
+              closePosition: true,
+              logEvent: true,
+            },
+          },
+          ze1_enabled: imported.ze1_enabled ?? false,
+        });
+
+        // Expand all sections to show imported data
+        setExpandedSections(new Set(['s1', 'z1', 'o1', 'ze1', 'emergency']));
+
+        setNotification({
+          open: true,
+          message: `Strategy "${imported.name || 'Imported'}" loaded successfully! Review and save to apply.`,
+          severity: 'success',
+        });
+      } catch (error: any) {
+        setNotification({
+          open: true,
+          message: `Import failed: ${error.message || 'Invalid JSON file'}`,
+          severity: 'error',
+        });
+      }
+    };
+
+    reader.onerror = () => {
+      setNotification({
+        open: true,
+        message: 'Failed to read file',
+        severity: 'error',
+      });
+    };
+
+    reader.readAsText(file);
+
+    // Reset input to allow re-importing same file
+    event.target.value = '';
   };
 
   const getIndicatorsForSection = (section: 's1' | 'z1' | 'o1' | 'ze1' | 'emergency'): IndicatorVariant[] => {
@@ -460,6 +655,14 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
         </FormControl>
       </Box>
 
+      {/* State Machine Diagram */}
+      <Box sx={{ mb: 4 }}>
+        <StateMachineDiagram
+          currentState="MONITORING"
+          showLabels={true}
+        />
+      </Box>
+
       {/* 5-Section Accordions */}
       <Box sx={{ mb: 4 }}>
         {/* S1 - Signal Detection */}
@@ -477,7 +680,7 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
             </Typography>
 
             <Typography variant="subtitle2" sx={{ mb: 2 }}>
-              Conditions (AND logic):
+              Conditions (click AND/OR chip to toggle logic):
             </Typography>
 
             {strategyData.s1_signal.conditions.map((condition, index) => (
@@ -488,7 +691,9 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                 availableIndicators={getIndicatorsForSection('s1')}
                 onChange={(updated) => updateCondition('s1', updated)}
                 onRemove={() => removeCondition('s1', condition.id)}
-                logicType="AND"
+                logicType={condition.logic || 'AND'}
+                onLogicChange={(newLogic) => updateConditionLogic('s1', condition.id, newLogic)}
+                isLastCondition={index === strategyData.s1_signal.conditions.length - 1}
               />
             ))}
 
@@ -518,7 +723,7 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
             </Typography>
 
             <Typography variant="subtitle2" sx={{ mb: 2 }}>
-              Entry Conditions (AND logic):
+              Entry Conditions (click AND/OR chip to toggle logic):
             </Typography>
 
             {strategyData.z1_entry.conditions.map((condition, index) => (
@@ -529,7 +734,9 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                 availableIndicators={getIndicatorsForSection('z1')}
                 onChange={(updated) => updateCondition('z1', updated)}
                 onRemove={() => removeCondition('z1', condition.id)}
-                logicType="AND"
+                logicType={condition.logic || 'AND'}
+                onLogicChange={(newLogic) => updateConditionLogic('z1', condition.id, newLogic)}
+                isLastCondition={index === strategyData.z1_entry.conditions.length - 1}
               />
             ))}
 
@@ -1473,7 +1680,7 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
             </Box>
 
             <Typography variant="subtitle2" sx={{ mb: 2 }}>
-              AND Custom Conditions (all conditions = cancel):
+              AND Custom Conditions (click AND/OR chip to toggle logic):
             </Typography>
 
             {strategyData.o1_cancel.conditions.map((condition, index) => (
@@ -1484,7 +1691,9 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                 availableIndicators={getIndicatorsForSection('o1')}
                 onChange={(updated) => updateCondition('o1', updated)}
                 onRemove={() => removeCondition('o1', condition.id)}
-                logicType="AND"
+                logicType={condition.logic || 'AND'}
+                onLogicChange={(newLogic) => updateConditionLogic('o1', condition.id, newLogic)}
+                isLastCondition={index === strategyData.o1_cancel.conditions.length - 1}
               />
             ))}
 
@@ -1562,7 +1771,7 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
             </Typography>
 
             <Typography variant="subtitle2" sx={{ mb: 2 }}>
-              Close Conditions (AND logic):
+              Close Conditions (click AND/OR chip to toggle logic):
             </Typography>
 
             {strategyData.ze1_close.conditions.map((condition, index) => (
@@ -1573,7 +1782,9 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                 availableIndicators={getIndicatorsForSection('ze1')}
                 onChange={(updated) => updateCondition('ze1', updated)}
                 onRemove={() => removeCondition('ze1', condition.id)}
-                logicType="AND"
+                logicType={condition.logic || 'AND'}
+                onLogicChange={(newLogic) => updateConditionLogic('ze1', condition.id, newLogic)}
+                isLastCondition={index === strategyData.ze1_close.conditions.length - 1}
               />
             ))}
 
@@ -1760,7 +1971,7 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
             </Typography>
 
             <Typography variant="subtitle2" sx={{ mb: 2 }}>
-              Emergency Conditions (all conditions = emergency exit):
+              Emergency Conditions (click AND/OR chip to toggle logic):
             </Typography>
 
             {strategyData.emergency_exit.conditions.map((condition, index) => (
@@ -1771,7 +1982,9 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
                 availableIndicators={getIndicatorsForSection('emergency')}
                 onChange={(updated) => updateCondition('emergency', updated)}
                 onRemove={() => removeCondition('emergency', condition.id)}
-                logicType="AND"
+                logicType={condition.logic || 'AND'}
+                onLogicChange={(newLogic) => updateConditionLogic('emergency', condition.id, newLogic)}
+                isLastCondition={index === strategyData.emergency_exit.conditions.length - 1}
               />
             ))}
 
@@ -1857,7 +2070,42 @@ export const StrategyBuilder5Section: React.FC<StrategyBuilder5SectionProps> = (
       </Box>
 
       {/* Action Buttons */}
-      <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', mt: 4 }}>
+      <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', mt: 4, flexWrap: 'wrap' }}>
+        {/* Import/Export/Version History Group */}
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+          {/* SB-07: Version History */}
+          <StrategyVersionHistory
+            strategyName={strategyData.name}
+            currentStrategy={strategyData}
+            onRestore={handleVersionRestore}
+          />
+          <Button
+            variant="outlined"
+            color="secondary"
+            startIcon={<UploadIcon />}
+            component="label"
+          >
+            Import
+            <input
+              type="file"
+              accept=".json,application/json"
+              hidden
+              onChange={handleImportJSON}
+            />
+          </Button>
+          <Button
+            variant="outlined"
+            color="secondary"
+            startIcon={<DownloadIcon />}
+            onClick={handleExportJSON}
+          >
+            Export
+          </Button>
+        </Box>
+
+        <Divider orientation="vertical" flexItem />
+
+        {/* Validation/Save Group */}
         <Button
           variant="outlined"
           onClick={handleValidate}
