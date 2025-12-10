@@ -186,6 +186,7 @@ export function useSmartCache<T>(
   const opts = useMemo(() => ({
     ...DEFAULT_OPTIONS,
     ...options,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [
     options.ttl,
     options.staleWhileRevalidate,

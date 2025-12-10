@@ -305,6 +305,7 @@ export const UPlotChart: React.FC<UPlotChartProps> = ({
         plotRef.current = null;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, series, dimensions, priceRange, volumeRange, secondaryRange]);
 
   return (

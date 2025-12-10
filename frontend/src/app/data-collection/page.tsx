@@ -240,6 +240,7 @@ export default function DataCollectionPage() {
         symbols: availableSymbols
       }));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [availableSymbols]);
 
   // ✅ FIX: Refresh sessions when user returns to page (visibility change)

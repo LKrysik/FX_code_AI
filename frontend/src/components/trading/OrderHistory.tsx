@@ -78,11 +78,13 @@ export default function OrderHistory({
   // Fetch initial orders
   useEffect(() => {
     fetchOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session_id]);
 
   // Apply filters
   useEffect(() => {
     applyFilters();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orders, statusFilter, symbolFilter]);
 
   // Fetch orders from REST API

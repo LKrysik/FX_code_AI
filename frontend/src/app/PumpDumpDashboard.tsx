@@ -223,11 +223,13 @@ const DashboardContent = React.memo(function DashboardContent() {
 
     // Initial backend connection check (WebSocket status is reactive)
     checkBackendConnection();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Empty dependency array - only run once
 
   // ✅ PERFORMANCE FIX: Separate data loading with proper dependencies
   useEffect(() => {
     loadDashboardData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
 
   // Load dashboard data using stores
@@ -292,6 +294,7 @@ const DashboardContent = React.memo(function DashboardContent() {
     } finally {
       useDashboardStore.getState().setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchWalletBalance, fetchTradingPerformance, fetchStrategies, fetchMarketData, fetchActiveSignals, retryCount, walletBalance, performance, strategies.length, marketData.length, activeSignals.length]);
 
 

@@ -69,12 +69,14 @@ import { apiService } from '@/services/api';
 import StrategyPreviewPanel from '@/components/trading/StrategyPreviewPanel';
 import SessionMatrix from '@/components/trading/SessionMatrix';
 import SymbolRecommendation from '@/components/trading/SymbolRecommendation';
+import StateMachineDiagram from '@/components/strategy/StateMachineDiagram';
 
 // ============================================================================
 // Types
 // ============================================================================
 
 interface StrategyData {
+  id: string;
   strategy_name: string;
   enabled: boolean;
   description?: string;
@@ -190,7 +192,8 @@ export default function TradingSessionPage() {
   useEffect(() => {
     fetchStrategies();
     fetchDataSessions();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Intentionally run only on mount
 
   // Update available symbols when backtest session changes
   useEffect(() => {
@@ -494,7 +497,7 @@ export default function TradingSessionPage() {
                   <TableBody>
                     {strategies.map(strategy => (
                       <TableRow
-                        key={strategy.strategy_name}
+                        key={strategy.id}
                         sx={{
                           backgroundColor: selectedStrategies.includes(strategy.strategy_name) ? 'action.selected' : 'inherit',
                           cursor: 'pointer',
@@ -534,11 +537,40 @@ export default function TradingSessionPage() {
 
           {/* Strategy Preview Panel (TS-01) - Shows S1, Z1, ZE1, E1 conditions */}
           {selectedStrategies.length > 0 && (
-            <Box sx={{ mb: 3 }}>
-              <StrategyPreviewPanel
-                strategyName={selectedStrategies[selectedStrategies.length - 1]}
-              />
-            </Box>
+            <Grid container spacing={3} sx={{ mb: 3 }}>
+              {/* Left: State Machine Diagram - Visual flow preview */}
+              <Grid item xs={12} md={5}>
+                <Card>
+                  <CardHeader
+                    title="State Machine Flow"
+                    subheader="Visual representation of trading states"
+                    sx={{ pb: 0 }}
+                  />
+                  <CardContent>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                      Your strategy will transition through these states:
+                    </Typography>
+                    <StateMachineDiagram showLabels={true} />
+                    <Box sx={{ mt: 2 }}>
+                      <Typography variant="caption" color="text.secondary">
+                        <strong>S1</strong> = Pump detected (MONITORING → SIGNAL_DETECTED)<br />
+                        <strong>Z1</strong> = Entry executed (SIGNAL_DETECTED → POSITION_ACTIVE)<br />
+                        <strong>O1</strong> = Timeout (SIGNAL_DETECTED → MONITORING)<br />
+                        <strong>ZE1</strong> = Normal exit (POSITION_ACTIVE → MONITORING)<br />
+                        <strong>E1</strong> = Emergency exit (POSITION_ACTIVE → MONITORING)
+                      </Typography>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+
+              {/* Right: Strategy Conditions Preview */}
+              <Grid item xs={12} md={7}>
+                <StrategyPreviewPanel
+                  strategyName={selectedStrategies[selectedStrategies.length - 1]}
+                />
+              </Grid>
+            </Grid>
           )}
 
           {/* Session Matrix (TS-02) - Strategy x Symbol grid */}

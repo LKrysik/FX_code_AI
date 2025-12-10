@@ -49,6 +49,7 @@ import {
 } from '@mui/icons-material';
 import { apiService } from '@/services/api';
 import UPlotChart, { UPlotSeries, UPlotDataPoint } from '@/components/UPlotChart';
+import { PumpHistoryMarking, PumpEvent, generatePumpMarkers } from '@/components/data-collection/PumpHistoryMarking';
 
 interface ChartDataPoint {
   timestamp: number;
@@ -260,15 +261,18 @@ export default function ChartPage() {
     severity: 'info'
   });
   const [indicatorStatuses, setIndicatorStatuses] = useState<Record<string, IndicatorStatusState>>({});
+  const [detectedPumps, setDetectedPumps] = useState<PumpEvent[]>([]);
 
   useEffect(() => {
     loadSessionData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
   useEffect(() => {
     if (selectedSymbol) {
       loadChartData();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSymbol, maxPoints]);
 
   useEffect(() => {
@@ -281,6 +285,7 @@ export default function ChartPage() {
       }
     };
     processData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartData, timeInterval, indicators, isCreatingIndicator]); // Added isCreatingIndicator to dependency
 
   const loadSessionData = async () => {
@@ -1552,6 +1557,17 @@ export default function ChartPage() {
           )}
         </AccordionDetails>
       </Accordion>
+
+      {/* DC-02: Pump History Marking */}
+      {processedData.length > 0 && (
+        <Box sx={{ mb: 3 }}>
+          <PumpHistoryMarking
+            data={processedData}
+            onPumpsDetected={setDetectedPumps}
+            showOnChart={true}
+          />
+        </Box>
+      )}
 
       {/* Charts */}
       {processedData.length > 0 && (

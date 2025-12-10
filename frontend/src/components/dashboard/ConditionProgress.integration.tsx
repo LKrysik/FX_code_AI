@@ -218,6 +218,7 @@ const ConditionProgressIntegration: React.FC<ConditionProgressIntegrationProps> 
     } finally {
       setIsLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, symbol]);
 
   // ========================================

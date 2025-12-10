@@ -28,7 +28,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Box, Typography, CircularProgress, Alert, IconButton, Tooltip, Chip, ToggleButtonGroup, ToggleButton } from '@mui/material';
 import { ZoomOutMap as ResetZoomIcon, Info as InfoIcon } from '@mui/icons-material';
-import { createChart, IChartApi, ISeriesApi, CandlestickData, Time } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, CandlestickData, Time, CandlestickSeries } from 'lightweight-charts';
 import {
   ChartDrawingTools,
   FibonacciOverlay,
@@ -331,8 +331,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
     chartRef.current = chart;
 
-    // Add candlestick series (v5 API - use 'as any' for compatibility)
-    const candlestickSeries = (chart as any).addCandlestickSeries({
+    // Add candlestick series (v5 API - use chart.addSeries with CandlestickSeries type)
+    const candlestickSeries = chart.addSeries(CandlestickSeries, {
       upColor: '#26a69a',
       downColor: '#ef5350',
       borderVisible: false,
@@ -367,13 +367,16 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   // ========================================
 
   // Initial load
+  // Intentionally exclude loadChartData from deps - runs when sessionId or symbol changes
   useEffect(() => {
     if (sessionId) {
       loadChartData();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, symbol]);
 
   // Auto-refresh with cleanup
+  // Intentionally exclude loadChartData from deps - runs when autoRefresh, sessionId, symbol, or refreshInterval changes
   useEffect(() => {
     if (!autoRefresh || !sessionId) return;
 
@@ -388,6 +391,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         abortControllerRef.current.abort();
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRefresh, sessionId, symbol, refreshInterval]);
 
   // Update chart data when candleData changes

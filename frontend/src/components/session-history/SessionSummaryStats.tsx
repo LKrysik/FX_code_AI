@@ -139,6 +139,7 @@ export const SessionSummaryStats: React.FC<SessionSummaryStatsProps> = ({
     };
 
     loadStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, propStats, onStatsLoad]);
 
   // ========================================

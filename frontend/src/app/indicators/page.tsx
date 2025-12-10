@@ -13,13 +13,19 @@ import {
 import {
   Tune as VariantsIcon,
   Compare as CompareIcon,
+  ShowChart as ChartIcon,
+  Analytics as AnalyticsIcon,
 } from '@mui/icons-material';
 import { VariantManager } from '@/components/indicators/VariantManager';
 import { VariantComparison } from '@/components/indicators/VariantComparison';
+import { VariantChartPreview } from '@/components/indicators/VariantChartPreview';
+import { SignalCountTest } from '@/components/indicators/SignalCountTest';
+import { IndicatorVariant } from '@/types/strategy';
 
 
 export default function IndicatorsPage() {
   const [activeTab, setActiveTab] = useState(0);
+  const [selectedVariant, setSelectedVariant] = useState<IndicatorVariant | null>(null);
   const [snackbar, setSnackbar] = useState<{open: boolean, message: string, severity: 'success' | 'error' | 'info'}>({
     open: false,
     message: '',
@@ -39,6 +45,8 @@ export default function IndicatorsPage() {
         >
           <Tab label="Variant Manager" icon={<VariantsIcon />} iconPosition="start" />
           <Tab label="Compare Variants" icon={<CompareIcon />} iconPosition="start" />
+          <Tab label="Preview on Chart" icon={<ChartIcon />} iconPosition="start" />
+          <Tab label="Signal Count Test" icon={<AnalyticsIcon />} iconPosition="start" />
         </Tabs>
       </Paper>
 
@@ -72,6 +80,24 @@ export default function IndicatorsPage() {
       {/* Tab 1: Compare Variants */}
       {activeTab === 1 && (
         <VariantComparison />
+      )}
+
+      {/* Tab 2: Preview on Chart (IV-01) */}
+      {activeTab === 2 && (
+        <VariantChartPreview
+          variant={selectedVariant}
+          onPumpDetected={(pump) => {
+            console.log('Pump detected:', pump);
+          }}
+        />
+      )}
+
+      {/* Tab 3: Signal Count Test (IV-04) */}
+      {activeTab === 3 && (
+        <SignalCountTest
+          variant={selectedVariant}
+          onVariantSelect={(v) => setSelectedVariant(v)}
+        />
       )}
 
       {/* Snackbar for notifications */}

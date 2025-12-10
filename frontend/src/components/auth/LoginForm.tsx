@@ -40,6 +40,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSuccess }) => {
     if (error) {
       clearError();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [username, password]);
 
   // Handle successful login

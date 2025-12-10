@@ -1,0 +1,105 @@
+[
+  {
+    "name": "dashboard",
+    "description": "Main Dashboard with State Machine Overview",
+    "url": "http://localhost:3001/dashboard",
+    "screenshot": null,
+    "error": "page.goto: Timeout 60000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3001/dashboard\", waiting until \"networkidle\"\u001b[22m\n",
+    "passed": false
+  },
+  {
+    "name": "trading-session",
+    "description": "Trading Session Configuration with State Machine Diagram",
+    "url": "http://localhost:3001/trading-session",
+    "screenshot": "ui-screenshots\\trading-session.png",
+    "checkpoints": [
+      {
+        "name": "Page title visible",
+        "passed": true,
+        "details": "Title found"
+      },
+      {
+        "name": "Trading mode selector exists",
+        "passed": true,
+        "details": "Found 4 trading mode buttons"
+      },
+      {
+        "name": "Strategy selection section exists",
+        "passed": true,
+        "details": "Strategy selection found"
+      }
+    ],
+    "passed": true
+  },
+  {
+    "name": "session-history",
+    "description": "Session History List",
+    "url": "http://localhost:3001/session-history",
+    "screenshot": "ui-screenshots\\session-history.png",
+    "checkpoints": [
+      {
+        "name": "Page loads",
+        "passed": true,
+        "details": "Page content loaded"
+      },
+      {
+        "name": "Session History title or table exists",
+        "passed": true,
+        "details": "Session History section found"
+      }
+    ],
+    "passed": true
+  },
+  {
+    "name": "strategy-builder",
+    "description": "Strategy Builder with 5-Section Editor",
+    "url": "http://localhost:3001/strategy-builder",
+    "screenshot": "ui-screenshots\\strategy-builder.png",
+    "checkpoints": [
+      {
+        "name": "Page loads",
+        "passed": true,
+        "details": "Page content loaded"
+      },
+      {
+        "name": "Strategy list or editor visible",
+        "passed": true,
+        "details": "Found table: true, tabs: 2"
+      }
+    ],
+    "passed": true
+  },
+  {
+    "name": "indicators",
+    "description": "Indicators Management with Variant System",
+    "url": "http://localhost:3001/indicators",
+    "screenshot": "ui-screenshots\\indicators.png",
+    "checkpoints": [
+      {
+        "name": "Tabs visible",
+        "passed": true,
+        "details": "Found 6 tabs"
+      },
+      {
+        "name": "Variant Manager tab exists",
+        "passed": true,
+        "details": "Variant Manager tab found"
+      }
+    ],
+    "passed": true
+  },
+  {
+    "name": "data-collection",
+    "description": "Data Collection Sessions",
+    "url": "http://localhost:3001/data-collection",
+    "screenshot": "ui-screenshots\\data-collection.png",
+    "checkpoints": [
+      {
+        "name": "Page loads",
+        "passed": true,
+        "details": "Page content loaded"
+      }
+    ],
+    "passed": true
+  }
+]

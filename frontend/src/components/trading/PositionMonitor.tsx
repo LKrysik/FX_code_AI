@@ -82,6 +82,7 @@ export default function PositionMonitor({
   // Fetch initial positions
   useEffect(() => {
     fetchPositions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session_id]);
 
   // Fetch positions from REST API

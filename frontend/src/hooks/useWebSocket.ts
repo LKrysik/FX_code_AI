@@ -11,7 +11,7 @@
  * - TypeScript-first design
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 
 export interface WebSocketMessage {
   type: string;
@@ -67,7 +67,18 @@ const DEFAULT_OPTIONS: Required<Omit<UseWebSocketOptions, 'onOpen' | 'onClose' |
  * ```
  */
 export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketReturn {
-  const opts = { ...DEFAULT_OPTIONS, ...options };
+  const opts = useMemo(() => ({
+    ...DEFAULT_OPTIONS,
+    ...options
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [
+    options.url,
+    options.reconnect,
+    options.reconnectInterval,
+    options.reconnectDecay,
+    options.reconnectAttempts,
+    options.heartbeatInterval
+  ]);
 
   const [isConnected, setIsConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null);
@@ -247,6 +258,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         wsRef.current = null;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);  // Only run on mount/unmount
 
   return {

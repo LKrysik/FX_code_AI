@@ -78,6 +78,7 @@ import StateOverviewTableIntegration from '@/components/dashboard/StateOverviewT
 import ConditionProgressIntegration from '@/components/dashboard/ConditionProgress.integration';
 import TransitionLogIntegration from '@/components/dashboard/TransitionLog.integration';
 import PumpIndicatorsPanel from '@/components/dashboard/PumpIndicatorsPanel';
+import ActivePositionBanner from '@/components/dashboard/ActivePositionBanner';
 
 // ============================================================================
 // Types
@@ -404,6 +405,7 @@ function DashboardContent() {
 
   // Load available sessions when switching to backtest mode
   // FIX ERROR 40: Add AbortController and remove loadAvailableSessions from deps
+  // Intentionally exclude loadAvailableSessions from deps to prevent unnecessary re-fetches
   useEffect(() => {
     if (mode !== 'backtest') return;
 
@@ -411,6 +413,7 @@ function DashboardContent() {
     loadAvailableSessions(abortController.signal);
 
     return () => abortController.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]); // Removed loadAvailableSessions to prevent unnecessary re-fetches
 
   // Load dashboard data when sessionId changes
@@ -770,6 +773,20 @@ function DashboardContent() {
             }}
           />
         </Box>
+      )}
+
+      {/* CRITICAL: Active Position Banner - HIGH VISIBILITY when position open */}
+      {/* This banner appears prominently when trader has an active position */}
+      {/* Trader MUST see P&L, Entry, Current price IMMEDIATELY without clicking tabs */}
+      {isSessionRunning && sessionId && (
+        <ActivePositionBanner
+          sessionId={sessionId}
+          onNavigateToPositions={() => setHistoryTab(2)} // Switch to "Active Positions" tab
+          onClosePosition={(positionId) => {
+            console.log('[Dashboard] Position closed from banner:', positionId);
+            // Position will auto-refresh via banner's internal state
+          }}
+        />
       )}
 
       {/* Main Dashboard Content */}

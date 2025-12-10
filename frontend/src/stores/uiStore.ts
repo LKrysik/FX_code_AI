@@ -157,10 +157,10 @@ export const useNotificationCount = () => {
 };
 
 export const useIsLoading = (key?: string) => {
-  if (key) {
-    return useUIStore(state => state.loadingStates[key] || false);
-  }
-  return useUIStore(state => state.globalLoading);
+  // Always call hook unconditionally - selector handles the logic
+  return useUIStore(state =>
+    key ? (state.loadingStates[key] || false) : state.globalLoading
+  );
 };
 
 // Initialize theme from localStorage

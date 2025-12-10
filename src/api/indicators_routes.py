@@ -572,9 +572,30 @@ async def get_streaming_indicator_engine() -> StreamingIndicatorEngine:
     return _streaming_engine
 
 
+def _sanitize_for_json(obj: Any) -> Any:
+    """
+    Recursively sanitize data for JSON serialization.
+    Replaces inf/-inf/nan with None to avoid JSON errors.
+    """
+    import math
+
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    elif isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_sanitize_for_json(item) for item in obj]
+    elif isinstance(obj, tuple):
+        return tuple(_sanitize_for_json(item) for item in obj)
+    return obj
+
+
 def _json_ok(payload: Dict[str, Any], request_id: Optional[str] = None) -> JSONResponse:
     """Helper function to create OK JSON response with proper envelope"""
-    body = ensure_envelope({"type": "response", "data": payload}, request_id=request_id)
+    sanitized_payload = _sanitize_for_json(payload)
+    body = ensure_envelope({"type": "response", "data": sanitized_payload}, request_id=request_id)
     return JSONResponse(content=body)
 
 

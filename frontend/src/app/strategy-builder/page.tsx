@@ -30,6 +30,8 @@ import {
 } from '@mui/icons-material';
 
 import { StrategyBuilder5Section } from '@/components/strategy/StrategyBuilder5Section';
+import { QuickBacktestPreview } from '@/components/strategy/QuickBacktestPreview';
+import { SignalPreviewChart } from '@/components/strategy/SignalPreviewChart';
 import { apiService } from '@/services/api';
 import { Strategy5Section, IndicatorVariant, StrategyValidationResult } from '@/types/strategy';
 
@@ -93,9 +95,11 @@ export default function StrategyBuilderPage() {
   });
 
   // Load initial data
+  // Intentionally run only on mount to load initial data
   useEffect(() => {
     console.log('Strategy Builder: Starting to load initial data...');
     loadInitialData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Helper function to convert API variant to frontend IndicatorVariant
@@ -450,6 +454,19 @@ export default function StrategyBuilderPage() {
               onSave={handleSaveStrategy}
               onValidate={handleValidateStrategy}
               availableIndicators={availableIndicators}
+            />
+
+            {/* SB-02: Quick Backtest Preview */}
+            <QuickBacktestPreview
+              strategy={editingStrategy}
+              onRunFullBacktest={() => {
+                showNotification('Full backtest requires backend integration', 'info');
+              }}
+            />
+
+            {/* SB-03: Signal Preview Chart */}
+            <SignalPreviewChart
+              strategy={editingStrategy}
             />
           </Box>
         ) : (

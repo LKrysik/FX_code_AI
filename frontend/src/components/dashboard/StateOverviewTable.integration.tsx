@@ -28,8 +28,8 @@ interface StateOverviewIntegrationProps {
 
 const StateOverviewTableIntegration: React.FC<StateOverviewIntegrationProps> = ({
   sessionId,
-  apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
-  wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000',
+  apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080',
+  wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://127.0.0.1:8080/ws',
   onNavigateToDetail,
 }) => {
   // ========================================
@@ -87,7 +87,7 @@ const StateOverviewTableIntegration: React.FC<StateOverviewIntegrationProps> = (
       // UWAGA: WebSocket endpoint /ws/state-machines/{sessionId} NIE ISTNIEJE w backendzie
       // Używamy głównego WS endpoint /ws z subscription model
       // TODO: Backend powinien obsługiwać channel 'state_machines' z session_id
-      const socket = new WebSocket(`${wsUrl}/ws`);
+      const socket = new WebSocket(wsUrl);
 
       socket.onopen = () => {
         console.log('WebSocket connected');

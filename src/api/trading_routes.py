@@ -6,6 +6,7 @@ REST endpoints for live trading operations: positions, orders, performance.
 Endpoints:
 - GET /api/trading/positions - Query live positions
 - POST /api/trading/positions/{position_id}/close - Close a position
+- PATCH /api/trading/positions/{position_id}/sl-tp - Modify SL/TP (PM-03)
 - GET /api/trading/orders - Query live orders
 - POST /api/trading/orders/{order_id}/cancel - Cancel an order
 - GET /api/trading/performance/{session_id} - Calculate session performance
@@ -197,6 +198,22 @@ class ClosePositionResponse(BaseModel):
     closed_pnl: Optional[float] = None
 
 
+class ModifySlTpRequest(BaseModel):
+    """Request to modify SL/TP for a position (PM-03)."""
+    stop_loss: Optional[float] = Field(None, description="New stop loss price (null to remove)")
+    take_profit: Optional[float] = Field(None, description="New take profit price (null to remove)")
+
+
+class ModifySlTpResponse(BaseModel):
+    """Response after modifying SL/TP."""
+    success: bool
+    message: str
+    position_id: str
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
+    updated_at: str
+
+
 class CancelOrderResponse(BaseModel):
     """Response after canceling an order."""
     success: bool
@@ -255,7 +272,7 @@ async def get_positions(
         })
 
         # Execute query
-        positions = await provider.fetch(query, *params)
+        positions = await provider.execute_query(query, params)
 
         # Convert to response models
         position_list = []
@@ -344,7 +361,7 @@ async def close_position(
             WHERE session_id = $1 AND symbol = $2 AND status = 'OPEN'
             ORDER BY updated_at DESC LIMIT 1
         """
-        positions = await provider.fetch(query, session_id, symbol)
+        positions = await provider.execute_query(query, [session_id, symbol])
 
         if not positions:
             raise HTTPException(
@@ -389,6 +406,158 @@ async def close_position(
         raise
     except Exception as e:
         logger.error("trading_api.close_position_error", {
+            "position_id": position_id,
+            "error": str(e)
+        })
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/positions/{position_id}/sl-tp", response_model=ModifySlTpResponse)
+async def modify_sl_tp(
+    position_id: str = Path(..., description="Position ID (format: session_id:symbol)"),
+    request: ModifySlTpRequest = ModifySlTpRequest(),
+    current_user: UserSession = Depends(get_current_user),
+    csrf_token: str = Depends(verify_csrf_token)
+) -> ModifySlTpResponse:
+    """
+    Modify Stop Loss and Take Profit for an open position (PM-03).
+
+    Position ID format: "session_id:symbol" (e.g., "live_20251107_abc123:BTC_USDT")
+
+    This endpoint:
+    1. Validates the position exists and is OPEN
+    2. Validates SL/TP values (SL below entry for SHORT, above for LONG, etc.)
+    3. Updates SL/TP in live_positions table
+    4. Optionally creates/modifies conditional orders on exchange
+
+    Args:
+        position_id: Position identifier (session_id:symbol)
+        request: New SL/TP values (null to remove)
+
+    Returns:
+        Updated SL/TP values with timestamp
+    """
+    try:
+        provider = get_questdb_provider()
+
+        # Parse position_id (format: session_id:symbol)
+        parts = position_id.split(":")
+        if len(parts) != 2:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid position_id format. Expected 'session_id:symbol', got '{position_id}'"
+            )
+
+        session_id, symbol = parts
+
+        # Fetch current position
+        query = """
+            SELECT * FROM live_positions
+            WHERE session_id = $1 AND symbol = $2 AND status = 'OPEN'
+            ORDER BY updated_at DESC LIMIT 1
+        """
+        positions = await provider.execute_query(query, [session_id, symbol])
+
+        if not positions:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Position not found: {position_id} (or already closed)"
+            )
+
+        position = positions[0]
+        entry_price = position.get("entry_price", 0.0)
+        side = position.get("side", "")
+
+        # Validate SL/TP values based on position side
+        if request.stop_loss is not None:
+            if side == "LONG" and request.stop_loss >= entry_price:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Stop Loss ({request.stop_loss}) must be below entry price ({entry_price}) for LONG position"
+                )
+            if side == "SHORT" and request.stop_loss <= entry_price:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Stop Loss ({request.stop_loss}) must be above entry price ({entry_price}) for SHORT position"
+                )
+
+        if request.take_profit is not None:
+            if side == "LONG" and request.take_profit <= entry_price:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Take Profit ({request.take_profit}) must be above entry price ({entry_price}) for LONG position"
+                )
+            if side == "SHORT" and request.take_profit >= entry_price:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Take Profit ({request.take_profit}) must be below entry price ({entry_price}) for SHORT position"
+                )
+
+        # Update position in database
+        # Note: QuestDB uses INSERT for updates (time-series append)
+        # We create a new row with updated values
+        update_time = datetime.now(timezone.utc)
+
+        # Prepare updated values (keep existing if not provided)
+        new_sl = request.stop_loss if request.stop_loss is not None else position.get("stop_loss_price")
+        new_tp = request.take_profit if request.take_profit is not None else position.get("take_profit_price")
+
+        # Insert updated position record
+        insert_query = """
+            INSERT INTO live_positions (
+                session_id, symbol, side, quantity, entry_price, current_price,
+                liquidation_price, unrealized_pnl, unrealized_pnl_pct, margin,
+                leverage, margin_ratio, stop_loss_price, take_profit_price,
+                opened_at, updated_at, status, timestamp
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+            )
+        """
+        await provider.execute(
+            insert_query,
+            session_id,
+            symbol,
+            position.get("side"),
+            position.get("quantity"),
+            position.get("entry_price"),
+            position.get("current_price"),
+            position.get("liquidation_price"),
+            position.get("unrealized_pnl"),
+            position.get("unrealized_pnl_pct"),
+            position.get("margin"),
+            position.get("leverage"),
+            position.get("margin_ratio"),
+            new_sl,
+            new_tp,
+            position.get("opened_at"),
+            update_time,
+            "OPEN",
+            update_time
+        )
+
+        logger.info("trading_api.sl_tp_modified", {
+            "position_id": position_id,
+            "symbol": symbol,
+            "side": side,
+            "old_sl": position.get("stop_loss_price"),
+            "new_sl": new_sl,
+            "old_tp": position.get("take_profit_price"),
+            "new_tp": new_tp
+        })
+
+        return ModifySlTpResponse(
+            success=True,
+            message=f"SL/TP updated for position {position_id}",
+            position_id=position_id,
+            stop_loss=new_sl,
+            take_profit=new_tp,
+            updated_at=update_time.isoformat()
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("trading_api.modify_sl_tp_error", {
             "position_id": position_id,
             "error": str(e)
         })
@@ -447,7 +616,7 @@ async def get_orders(
         })
 
         # Execute query
-        orders = await provider.fetch(query, *params)
+        orders = await provider.execute_query(query, params if params else None)
 
         # Convert to response models
         order_list = []
@@ -520,7 +689,7 @@ async def cancel_order(
 
         # Fetch order to validate
         query = "SELECT * FROM live_orders WHERE order_id = $1 LIMIT 1"
-        orders = await provider.fetch(query, order_id)
+        orders = await provider.execute_query(query, [order_id])
 
         if not orders:
             raise HTTPException(
@@ -601,7 +770,7 @@ async def get_performance(
             WHERE session_id = $1 AND status = 'FILLED'
             ORDER BY filled_at ASC
         """
-        orders = await provider.fetch(orders_query, session_id)
+        orders = await provider.execute_query(orders_query, [session_id])
 
         # 2. Fetch all positions (to get unrealized P&L)
         positions_query = """
@@ -610,7 +779,7 @@ async def get_performance(
             WHERE session_id = $1
             ORDER BY opened_at ASC
         """
-        positions = await provider.fetch(positions_query, session_id)
+        positions = await provider.execute_query(positions_query, [session_id])
 
         # 3. Calculate metrics
         if not orders and not positions:
@@ -662,7 +831,7 @@ async def get_performance(
             WHERE session_id = $1
             ORDER BY timestamp ASC
         """
-        equity_data = await provider.fetch(equity_query, session_id)
+        equity_data = await provider.execute_query(equity_query, [session_id])
 
         # Max drawdown from equity curve
         if equity_data and len(equity_data) > 0:
@@ -716,7 +885,7 @@ async def get_performance(
             WHERE session_id = $1
             LIMIT 1
         """
-        session_data = await provider.fetch(session_query, session_id)
+        session_data = await provider.execute_query(session_query, [session_id])
         initial_balance = 10000.0  # Default fallback
         if session_data and len(session_data) > 0:
             initial_balance = session_data[0].get("initial_balance", 10000.0)

@@ -92,6 +92,7 @@ export default function SignalLog({
   // Apply filters
   useEffect(() => {
     applyFilters();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signals, signalTypeFilter, symbolFilter, confidenceMin]);
 
   // Handle signal update from WebSocket

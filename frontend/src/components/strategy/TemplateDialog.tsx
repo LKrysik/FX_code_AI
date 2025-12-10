@@ -73,6 +73,7 @@ export const TemplateDialog: React.FC<TemplateDialogProps> = ({
     if (open) {
       fetchTemplates();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, activeTab, selectedCategory]);
 
   const fetchTemplates = async () => {

@@ -19,7 +19,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket';
-import { createChart, IChartApi, ISeriesApi, CandlestickData, Time, CandlestickSeriesPartialOptions } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, CandlestickData, Time, CandlestickSeriesPartialOptions, CandlestickSeries, HistogramSeries } from 'lightweight-charts';
 
 // ========================================
 // TypeScript Types
@@ -113,8 +113,8 @@ export default function TradingChart({
 
     chartRef.current = chart;
 
-    // Add candlestick series (v5 API uses addSeries)
-    const candlestickSeries = (chart as any).addCandlestickSeries({
+    // Add candlestick series (v5 API uses chart.addSeries with CandlestickSeries type)
+    const candlestickSeries = chart.addSeries(CandlestickSeries, {
       upColor: '#26a69a',
       downColor: '#ef5350',
       borderVisible: false,
@@ -124,13 +124,17 @@ export default function TradingChart({
 
     candlestickSeriesRef.current = candlestickSeries;
 
-    // Add volume series (histogram)
-    const volumeSeries = (chart as any).addHistogramSeries({
+    // Add volume series (histogram) - v5 API uses chart.addSeries with HistogramSeries type
+    const volumeSeries = chart.addSeries(HistogramSeries, {
       color: '#26a69a',
       priceFormat: {
         type: 'volume',
       },
-      priceScaleId: '', // Separate scale for volume
+      priceScaleId: 'volume', // Separate scale for volume
+    });
+
+    // Set scale margins for volume series (v5 API - configure via priceScale)
+    chart.priceScale('volume').applyOptions({
       scaleMargins: {
         top: 0.8, // 80% for price, 20% for volume
         bottom: 0,
@@ -160,6 +164,7 @@ export default function TradingChart({
   // Fetch historical data
   useEffect(() => {
     fetchHistoricalData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol, timeframe, session_id]);
 
   // Fetch historical OHLCV data

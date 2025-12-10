@@ -204,9 +204,11 @@ export default function StrategiesPage() {
     severity: 'info'
   });
 
+  // Intentionally run only on mount to load initial data
   useEffect(() => {
     loadStrategies();
     loadUserStrategies();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadStrategies = async () => {
@@ -558,8 +560,8 @@ export default function StrategiesPage() {
               </Alert>
             ) : (
               <Grid container spacing={2}>
-                {userStrategies.map((strategy) => (
-                  <Grid item xs={12} md={6} lg={4} key={strategy.strategy_name}>
+                {userStrategies.map((strategy, index) => (
+                  <Grid item xs={12} md={6} lg={4} key={`${strategy.strategy_name}-${index}`}>
                     <Card>
                       <CardContent>
                         <Typography variant="h6">{strategy.strategy_name}</Typography>

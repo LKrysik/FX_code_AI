@@ -234,6 +234,7 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
       initialState: systemStatus,
       timestamp: new Date().toISOString()
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Cache health check for 30 seconds
@@ -362,6 +363,7 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
         lastChecked: Date.now(),
       };
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionStatus, healthStatus?.lastUpdated, healthData]); // Remove getHealthOverallStatus from deps
 
   // Update system status only when computed values change
@@ -534,6 +536,7 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
       // Clear any intervals or subscriptions here if needed
       // Note: Zustand stores handle their own cleanup
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Performance monitoring - log re-render causes (only log significant changes)

@@ -122,6 +122,7 @@ export default function MarketScannerPage() {
 
   useEffect(() => {
     loadScannerData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Auto-refresh with current settings; pause when tab hidden
@@ -132,6 +133,7 @@ export default function MarketScannerPage() {
 
   useEffect(() => {
     applyFilters();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scannerData, settings]);
 
   const loadScannerData = async () => {

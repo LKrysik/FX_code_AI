@@ -11,11 +11,9 @@
  * - SH-03: Summary stats (S1 count, Z1 count, accuracy) ✅
  * - SH-04: Transition timeline visualization ✅
  * - SH-05: Transition details (expandable with indicator values) ✅
+ * - SH-06: Chart with S1/Z1/ZE1 markers ✅ (2025-12-07)
  * - SH-07: Per-trade breakdown table ✅
  * - SH-08: Session replay mode ✅
- *
- * TODO (Future sprint):
- * - SH-06: Chart with S1/Z1/ZE1 markers (use SM-05 component)
  *
  * Related: docs/UI_BACKLOG.md - SH-02 through SH-08
  */
@@ -50,11 +48,13 @@ import { TransitionTimeline } from '@/components/session-history/TransitionTimel
 import { SessionSummaryStats } from '@/components/session-history/SessionSummaryStats';
 import { TradeBreakdownTable } from '@/components/session-history/TradeBreakdownTable';
 import { TransitionDetails } from '@/components/session-history/TransitionDetails';
+import { SessionChartWithMarkers } from '@/components/session-history/SessionChartWithMarkers';
 import {
   Timeline as TimelineIcon,
   Analytics as StatsIcon,
   TableChart as TradesIcon,
   ListAlt as DetailsIcon,
+  ShowChart as ChartIcon,
 } from '@mui/icons-material';
 
 // ============================================================================
@@ -375,6 +375,7 @@ export default function SessionDetailPage() {
           scrollButtons="auto"
         >
           <Tab label="Statistics" icon={<StatsIcon />} iconPosition="start" />
+          <Tab label="Chart" icon={<ChartIcon />} iconPosition="start" />
           <Tab label="Timeline" icon={<TimelineIcon />} iconPosition="start" />
           <Tab label="Details" icon={<DetailsIcon />} iconPosition="start" />
           <Tab label="Trades" icon={<TradesIcon />} iconPosition="start" />
@@ -388,8 +389,26 @@ export default function SessionDetailPage() {
           </Box>
         )}
 
-        {/* Tab 1: SH-04 Transition Timeline */}
+        {/* Tab 1: SH-06 Chart with Markers - CRITICAL for trader analysis */}
         {activeTab === 1 && (
+          <Box sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              Price Chart with Transition Markers (SH-06)
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Visual correlation of state machine transitions with price action.
+              See EXACTLY where pumps were detected (S1), entries executed (Z1), and exits made (ZE1/E1).
+            </Typography>
+            <SessionChartWithMarkers
+              sessionId={sessionId}
+              symbol={session.symbols.split(',')[0]?.trim() || 'BTC_USDT'}
+              height={500}
+            />
+          </Box>
+        )}
+
+        {/* Tab 2: SH-04 Transition Timeline */}
+        {activeTab === 2 && (
           <Box sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom>
               Transition Timeline (SH-04)
@@ -407,22 +426,22 @@ export default function SessionDetailPage() {
           </Box>
         )}
 
-        {/* Tab 2: SH-05 Transition Details */}
-        {activeTab === 2 && (
+        {/* Tab 3: SH-05 Transition Details */}
+        {activeTab === 3 && (
           <Box sx={{ p: 3 }}>
             <TransitionDetails sessionId={sessionId} />
           </Box>
         )}
 
-        {/* Tab 3: SH-07 Trade Breakdown */}
-        {activeTab === 3 && (
+        {/* Tab 4: SH-07 Trade Breakdown */}
+        {activeTab === 4 && (
           <Box sx={{ p: 3 }}>
             <TradeBreakdownTable sessionId={sessionId} />
           </Box>
         )}
 
-        {/* Tab 4: SH-08 Replay Mode */}
-        {activeTab === 4 && (
+        {/* Tab 5: SH-08 Replay Mode */}
+        {activeTab === 5 && (
           <Box sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom>
               Session Replay (SH-08)
