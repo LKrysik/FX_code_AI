@@ -10,7 +10,10 @@
     "type-check": "tsc --noEmit",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "verify:ui": "npx playwright install chromium --with-deps && npx ts-node --esm scripts/verify-ui.ts",
+    "verify:trader-journey": "npx playwright install chromium --with-deps && npx ts-node --esm scripts/verify-trader-journey.ts",
+    "verify:all": "npm run build && npm run verify:ui && npm run verify:trader-journey"
   },
   "dependencies": {
     "@emotion/react": "^11.11.1",
@@ -35,6 +38,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0",
+    "ts-node": "^10.9.2",
     "@testing-library/jest-dom": "^6.1.5",
     "@testing-library/react": "^14.1.2",
     "@testing-library/user-event": "^14.5.1",

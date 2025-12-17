@@ -1,6 +1,64 @@
 # System Agentów - FXcrypto
 
-**Wersja:** 15.0 | **Data:** 2025-12-05
+**Wersja:** 16.0 | **Data:** 2025-12-17
+
+---
+
+## AUTOMATYCZNA WERYFIKACJA UI
+
+### Komendy weryfikacyjne (uruchamiane przez agentów):
+
+```bash
+cd frontend && npm run verify:ui              # Podstawowa weryfikacja UI
+cd frontend && npm run verify:trader-journey  # Pełny flow tradera
+cd frontend && npm run verify:all             # Build + oba testy
+```
+
+### Proces weryfikacji zmian frontend:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    FRONTEND-DEV: Implementuje                           │
+│  1. Koduje zmianę                                                       │
+│  2. npm run build (MUSI PASS)                                          │
+│  3. npm run verify:ui (MUSI PASS)                                      │
+│  4. Raport z OUTPUT komend                                             │
+└────────────────────────────────────┬────────────────────────────────────┘
+                                     │
+                                     ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    DRIVER: Weryfikuje raport                            │
+│  Czy zawiera output z build? → TAK/NIE                                 │
+│  Czy zawiera output z verify:ui? → TAK/NIE                             │
+│  Czy ALL CHECKS PASSED? → TAK/NIE                                      │
+│                                                                         │
+│  BRAK OUTPUTU = ODRZUCENIE                                             │
+└────────────────────────────────────┬────────────────────────────────────┘
+                                     │
+                                     ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                 TRADING-DOMAIN: Weryfikacja biznesowa                   │
+│  npm run verify:trader-journey                                         │
+│  TRADER JOURNEY COMPLETE? → AKCEPTUJ                                   │
+│  Którykolwiek FAIL? → VETO                                             │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Wymagane outputy w raportach:
+
+| Agent | Wymagany output | Szukaj w output |
+|-------|-----------------|-----------------|
+| frontend-dev | `npm run build` | "Compiled successfully" |
+| frontend-dev | `npm run verify:ui` | "ALL CHECKS PASSED" |
+| trading-domain | `npm run verify:trader-journey` | "TRADER JOURNEY COMPLETE" |
+
+### ZASADA: BEZ OUTPUTU = ODRZUCENIE
+
+```
+Agenci MUSZĄ wklejać PEŁNY output komend weryfikacyjnych.
+"Działa" bez outputu = NIE DZIAŁA.
+Driver ODRZUCA raporty bez dowodów.
+```
 
 ---
 
