@@ -1091,6 +1091,9 @@ class Container:
                 # 🔧 FIX GAP #2: Create strategy manager for activation
                 strategy_manager = await self.create_strategy_manager()
 
+                # ✅ FIX: Create backtest order manager for instant execution
+                backtest_order_manager = await self.create_backtest_order_manager()
+
                 # Set dependencies on controller
                 controller.wallet_service = wallet_service
                 controller.order_manager = order_manager
@@ -1098,6 +1101,7 @@ class Container:
                 controller.indicator_engine = indicator_engine  # ✅ NEW: Inject complete engine
                 controller.trading_persistence_service = trading_persistence_service  # ✅ AGENT 4: Inject persistence
                 controller.strategy_manager = strategy_manager  # 🔧 FIX GAP #2: Inject strategy manager
+                controller.backtest_order_manager = backtest_order_manager  # ✅ FIX: Inject backtest manager
 
                 # Initialize the controller asynchronously
                 await controller.initialize()

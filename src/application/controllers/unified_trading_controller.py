@@ -31,7 +31,8 @@ class UnifiedTradingController:
                  order_manager = None,
                  indicator_engine = None,
                  trading_persistence_service = None,  # ✅ NEW: DI parameter for trading persistence
-                 strategy_manager = None):  # 🔧 FIX GAP #2: DI parameter for strategy manager
+                 strategy_manager = None,  # 🔧 FIX GAP #2: DI parameter for strategy manager
+                 backtest_order_manager = None):  # ✅ FIX: DI parameter for backtest execution
 
         self.market_data_provider = market_data_provider
         self.event_bus = event_bus
@@ -51,6 +52,7 @@ class UnifiedTradingController:
         self.order_manager = order_manager
         self.trading_persistence_service = trading_persistence_service
         self.strategy_manager = strategy_manager  # 🔧 FIX GAP #2: Strategy manager for activation
+        self.backtest_order_manager = backtest_order_manager  # ✅ FIX: Backtest order manager
 
         # Execution mode
         self.execution_mode = "live"  # "live", "paper", "backtest"
@@ -250,6 +252,27 @@ class UnifiedTradingController:
         # This fixes the race condition where data replay was completing before indicators were registered
         selected_strategies = kwargs.get("selected_strategies", [])
 
+        # ✅ FIX: Swap to BacktestOrderManager for instant execution
+        # This ensures backtests use instant fills instead of simulated paper trading delays
+        if self.strategy_manager and self.backtest_order_manager:
+            self.logger.info("unified_trading_controller.switching_to_backtest_order_manager", {
+                "backtest_order_manager_id": id(self.backtest_order_manager)
+            })
+            # 1. Stop Live OrderManager to prevent duplicate signal processing
+            if self.order_manager:
+                await self.order_manager.stop()
+            
+            # 2. Start Backtest Order Manager (subscribes to events)
+            await self.backtest_order_manager.start()
+            
+            # 3. Swap dependency in StrategyManager
+            self.strategy_manager.order_manager = self.backtest_order_manager
+        elif self.strategy_manager and not self.backtest_order_manager:
+            self.logger.warning("unified_trading_controller.backtest_order_manager_missing", {
+                "status": "using_default_order_manager",
+                "impact": "backtest_will_be_slow_and_nondeterministic"
+            })
+
         async def pre_start_callback(session_id: str) -> None:
             """Activate strategies and register indicators before data replay starts"""
             self.logger.info("unified_trading_controller.pre_start_activating_strategies", {
@@ -394,6 +417,23 @@ class UnifiedTradingController:
                 "Cannot start paper trading: Container is configured with live OrderManager. "
                 "Set trading.live_trading_enabled=false in configuration to enable paper trading."
             )
+
+        # ✅ FIX: Ensure correct OrderManager is used (Live or Paper)
+        # Switch back from BacktestOrderManager if necessary
+        if self.strategy_manager and self.order_manager:
+            self.logger.info("unified_trading_controller.restoring_standard_order_manager", {
+                "order_manager_type": type(self.order_manager).__name__,
+                "mode": mode
+            })
+            # 1. Stop Backtest Manager
+            if self.backtest_order_manager:
+                await self.backtest_order_manager.stop()
+
+            # 2. Start Live Order Manager
+            await self.order_manager.start()
+
+            # 3. Restore dependency
+            self.strategy_manager.order_manager = self.order_manager
 
         # Map mode to ExecutionMode
         from .execution_controller import ExecutionMode

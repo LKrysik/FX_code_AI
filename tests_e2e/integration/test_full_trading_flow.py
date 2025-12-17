@@ -260,7 +260,7 @@ class TestFullTradingFlow:
         print("✅ Stage 7: Position closed → EXITED")
 
         # Cleanup
-        await strategy_manager.stop()
+        await strategy_manager.shutdown()
         await event_bus.shutdown()
 
         print("\n" + "="*60)
@@ -400,7 +400,7 @@ class TestFullTradingFlow:
         assert strategy1.current_state == StrategyState.MONITORING, \
             f"Conservative should NOT trigger, got {strategy1.current_state}"
 
-        await strategy_manager.stop()
+        await strategy_manager.shutdown()
         await event_bus.shutdown()
 
         print("✅ Multiple strategies work independently on same symbol")
@@ -446,7 +446,7 @@ class TestFullTradingFlow:
         assert "pump_magnitude_pct" in cached or len(cached) > 0, \
             "Indicator values should be cached"
 
-        await strategy_manager.stop()
+        await strategy_manager.shutdown()
         await event_bus.shutdown()
 
         print("✅ Indicator values are cached correctly")

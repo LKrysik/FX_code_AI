@@ -603,7 +603,9 @@ class RiskManager:
 
         # Check position size against max allowed
         max_position_pct = float(self.risk_config.max_position_size_percent) / 100.0
-        position_size_decimal = position_size if position_size < 1 else position_size / 100.0
+        # ✅ FIX: Handle 1.0 (100%) correctly as ratio.
+        # Previously STRICT < 1 treated 1.0 as 1% (1.0/100).
+        position_size_decimal = position_size if position_size <= 1.0 else position_size / 100.0
 
         if position_size_decimal > max_position_pct:
             warnings.append(f"Position size {position_size_decimal*100:.1f}% exceeds max {max_position_pct*100:.1f}%")

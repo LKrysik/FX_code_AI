@@ -491,11 +491,14 @@ class StrategyManager:
         # Reset all strategy states
         async with self._strategies_lock:
             for strategy in self.strategies.values():
-                strategy.current_state = StrategyState.MONITORING
-                strategy.signal_detection_time = None
-                strategy.entry_time = None
-                strategy.exit_time = None
-                strategy.cooldown_until = None
+                # ✅ RACE CONDITION FIX: Acquire evaluation lock to prevent concurrent modification
+                # This ensures we don't reset state while an evaluation is midway through updating it
+                async with self._get_strategy_evaluation_lock(strategy.strategy_name):
+                    strategy.current_state = StrategyState.MONITORING
+                    strategy.signal_detection_time = None
+                    strategy.entry_time = None
+                    strategy.exit_time = None
+                    strategy.cooldown_until = None
 
         # Clear cached indicator values
         async with self._indicator_values_lock:
@@ -1837,6 +1840,11 @@ class StrategyManager:
                             })
                             # Reset to monitoring state
                             strategy.current_state = StrategyState.MONITORING
+
+                            # ✅ FIX LEAK: Release slot and symbol lock on rejection
+                            await self.release_signal_slot(strategy.strategy_name)
+                            await self.unlock_symbol(strategy.symbol, strategy.strategy_name)
+
                             await self._publish_strategy_event(strategy, "position_rejected", {
                                 **indicator_values,
                                 "reasons": risk_check["reasons"],
@@ -1852,6 +1860,11 @@ class StrategyManager:
                                 "requested": position_size_usdt
                             })
                             strategy.current_state = StrategyState.MONITORING
+                            
+                            # ✅ FIX LEAK: Release slot and symbol lock on failure
+                            await self.release_signal_slot(strategy.strategy_name)
+                            await self.unlock_symbol(strategy.symbol, strategy.strategy_name)
+                            
                             return
 
                     except Exception as e:
