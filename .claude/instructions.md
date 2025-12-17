@@ -103,35 +103,33 @@ curl http://localhost:3000
 
 ## Where is X?
 
-### Backend (Python)
+**Pełna mapa kodu:** **[CODE_MAP.md](CODE_MAP.md)** (211 plików backend + 146 plików frontend)
 
-| Co | Gdzie |
-|----|-------|
-| API Server | `src/api/unified_server.py` |
-| Strategy Manager | `src/domain/services/strategy_manager.py` |
-| Risk Manager | `src/domain/services/risk_manager.py` |
-| Indicator Engine | `src/domain/services/streaming_indicator_engine.py` |
-| Event Bus | `src/core/event_bus.py` |
-| Container (DI) | `src/infrastructure/container.py` |
-| MEXC Adapter | `src/infrastructure/adapters/mexc_adapter.py` |
-| Paper Trading | `src/trading/paper_trading_engine.py` |
+### Skrót - najważniejsze pliki
 
-### Frontend (Next.js)
+| Zadanie | Katalog/Plik |
+|---------|--------------|
+| Sygnały/strategie | `src/domain/services/strategy_manager.py`, `pump_detector.py` |
+| Wskaźniki (RSI, Volume) | `src/domain/services/indicators/` |
+| Trading/zlecenia | `src/trading/`, `src/domain/services/order_*.py` |
+| Risk management | `src/domain/services/risk_manager.py` |
+| API endpoints | `src/api/*_routes.py` |
+| WebSocket | `src/api/websocket_server.py`, `connection_manager.py` |
+| MEXC giełda | `src/infrastructure/adapters/mexc_*.py` |
+| QuestDB | `src/data_feed/questdb_provider.py` |
+| Frontend pages | `frontend/src/app/` |
+| Frontend components | `frontend/src/components/` |
+| Frontend state | `frontend/src/stores/` |
+| Core (EventBus, DI) | `src/core/`, `src/infrastructure/container.py` |
 
-| Co | Gdzie |
-|----|-------|
-| App Router | `frontend/src/app/` |
-| Components | `frontend/src/components/` |
-| API calls | `frontend/src/lib/api.ts` |
-| Dashboard | `frontend/src/app/page.tsx` |
+### Szybki lookup błędów
 
-### Database (QuestDB)
-
-| Co | Gdzie |
-|----|-------|
-| QuestDB Provider | `src/data_feed/questdb_provider.py` |
-| Data Collection | `src/data/data_collection_persistence_service.py` |
-| Strategy Storage | `src/domain/services/strategy_storage.py` |
+| Błąd | Sprawdź |
+|------|---------|
+| Sygnały nie generują się | `strategy_manager.py`, `pump_detector.py` |
+| Equity curve pusta | `session_service.py`, `performance_tracker.py` |
+| WebSocket disconnect | `websocket_server.py`, `connection_manager.py` |
+| Frontend nie ładuje | `frontend/src/stores/`, `useWebSocket.ts` |
 
 ---
 
@@ -210,6 +208,7 @@ Szczegółowe metryki i kryteria sukcesu znajdują się w:
 
 | Dokument | Opis |
 |----------|------|
+| [CODE_MAP.md](CODE_MAP.md) | **Mapa kodu** - gdzie szukać plików |
 | [agents/AGENTS.md](agents/AGENTS.md) | Workflow i proces pracy agentów |
 | [DEFINITION_OF_DONE.md](DEFINITION_OF_DONE.md) | Cele i metryki sukcesu |
 | `docs/INDEX.md` | Pełna dokumentacja projektu |
@@ -277,4 +276,4 @@ python database/questdb/install_questdb.py
 
 ---
 
-**Last Updated**: 2025-12-04
+**Last Updated**: 2025-12-17
