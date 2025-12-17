@@ -156,10 +156,11 @@ def create_unified_app():
     # ARCHITECTURE: EventBus is a critical component - separate logging for debugging
     # This restores the dedicated event_bus.jsonl file that was removed in commit a4a6682
     # when EventBus was simplified from 1169 to 294 lines
+    # NOTE: Level set to WARNING to reduce log noise (was DEBUG)
     configure_module_logger(
         module_name="src.core.event_bus",
         log_file="logs/event_bus.jsonl",
-        level="DEBUG",
+        level="WARNING",
         console_enabled=False,
         max_file_size_mb=100,
         backup_count=5
