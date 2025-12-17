@@ -299,6 +299,15 @@ def create_unified_app():
 
         streaming_engine = await container.create_streaming_indicator_engine()
 
+        # ✅ CRITICAL FIX (2025-12-17): Start the indicator engine
+        # Without this, IndicatorEngine never subscribes to market data
+        # and never publishes indicator.updated events to StrategyManager
+        await streaming_engine.start()
+        logger.info("streaming_indicator_engine.started", {
+            "status": "publishing_indicator_updates",
+            "streaming_engine_id": id(streaming_engine)
+        })
+
         indicators_routes.initialize_indicators_dependencies(
             event_bus=event_bus,
             streaming_engine=streaming_engine,

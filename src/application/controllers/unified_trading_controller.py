@@ -199,6 +199,15 @@ class UnifiedTradingController:
             await self.trading_persistence_service.start()
             self.logger.info("unified_trading_controller.trading_persistence_started")
 
+        # ✅ CRITICAL FIX (2025-12-17): Start strategy manager
+        # Without this, StrategyManager never subscribes to indicator.updated events
+        # and strategies never receive indicator values for condition evaluation
+        if self.strategy_manager and hasattr(self.strategy_manager, 'start'):
+            await self.strategy_manager.start()
+            self.logger.info("unified_trading_controller.strategy_manager_started", {
+                "subscribed_to": ["indicator.updated", "market.price_update"]
+            })
+
         # Start monitoring with reduced frequency to prevent CPU overload
         await self.execution_monitor.start_monitoring()
 
