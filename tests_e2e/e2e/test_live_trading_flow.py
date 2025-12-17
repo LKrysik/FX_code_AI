@@ -22,16 +22,52 @@ from src.core.event_bus import EventBus
 from src.domain.services.risk_manager import RiskManager
 from src.domain.services.order_manager_live import LiveOrderManager, Order, OrderStatus
 from src.domain.services.position_sync_service import PositionSyncService, LocalPosition
-from src.infrastructure.adapters.mexc_adapter import (
-    MexcRealAdapter,
-    OrderStatusResponse,
-    PositionResponse,
-    OrderStatus as MexcOrderStatus
-)
+# DECISION (2025-12-16): MexcRealAdapter renamed to MexcFuturesAdapter
+# For E2E tests, we use mocks only - no real adapter needed
+from src.infrastructure.adapters.mexc_futures_adapter import MexcFuturesAdapter
 from src.domain.models.trading import Position, OrderSide
 from src.infrastructure.config.settings import AppSettings
 from src.core.logger import StructuredLogger
 from src.core.circuit_breaker import CircuitBreakerOpenException
+from dataclasses import dataclass
+from enum import Enum
+from typing import Optional
+
+# Mock types for E2E testing (original types removed from codebase)
+class MexcOrderStatus(str, Enum):
+    """Mock order status for testing"""
+    NEW = "NEW"
+    FILLED = "FILLED"
+    PARTIALLY_FILLED = "PARTIALLY_FILLED"
+    CANCELED = "CANCELED"
+
+@dataclass
+class OrderStatusResponse:
+    """Mock order status response for testing"""
+    exchange_order_id: str
+    symbol: str
+    side: str
+    order_type: str
+    quantity: float
+    price: float
+    status: MexcOrderStatus
+    filled_quantity: float
+    average_fill_price: float
+    created_at: int
+    updated_at: int
+
+@dataclass
+class PositionResponse:
+    """Mock position response for testing"""
+    symbol: str
+    position_side: str
+    quantity: float
+    entry_price: float
+    mark_price: float
+    unrealized_pnl: float
+    leverage: int
+    margin_type: str
+    liquidation_price: Optional[float] = None
 
 
 # ============================================================================
@@ -65,7 +101,7 @@ def mock_mexc_adapter(mock_logger):
 
     All methods return mock data.
     """
-    adapter = Mock(spec=MexcRealAdapter)
+    adapter = Mock(spec=MexcFuturesAdapter)
 
     # Mock successful order submission
     adapter.create_market_order = AsyncMock(return_value="MOCK_ORDER_123")

@@ -22,13 +22,36 @@ from decimal import Decimal
 from src.core.event_bus import EventBus
 from src.domain.services.risk_manager import RiskManager
 from src.domain.services.order_manager_live import LiveOrderManager, Order, OrderStatus
-from src.infrastructure.adapters.mexc_adapter import (
-    MexcRealAdapter,
-    OrderStatusResponse,
-    OrderStatus as MexcOrderStatus
-)
+# DECISION (2025-12-16): MexcRealAdapter renamed to MexcFuturesAdapter
+# For performance tests, we use mocks only - no real adapter needed
+from src.infrastructure.adapters.mexc_futures_adapter import MexcFuturesAdapter
 from src.infrastructure.config.settings import AppSettings
 from src.core.logger import StructuredLogger
+from dataclasses import dataclass
+from enum import Enum
+
+# Mock types for performance testing (original types removed from codebase)
+class MexcOrderStatus(str, Enum):
+    """Mock order status for performance testing"""
+    NEW = "NEW"
+    FILLED = "FILLED"
+    PARTIALLY_FILLED = "PARTIALLY_FILLED"
+    CANCELED = "CANCELED"
+
+@dataclass
+class OrderStatusResponse:
+    """Mock order status response for performance testing"""
+    exchange_order_id: str
+    symbol: str
+    side: str
+    order_type: str
+    quantity: float
+    price: float
+    status: MexcOrderStatus
+    filled_quantity: float
+    average_fill_price: float
+    created_at: int
+    updated_at: int
 
 
 # ============================================================================
@@ -59,7 +82,7 @@ def mock_mexc_adapter_fast(mock_logger):
 
     Returns immediately without delay.
     """
-    adapter = Mock(spec=MexcRealAdapter)
+    adapter = Mock(spec=MexcFuturesAdapter)
 
     # Fast mocks (return immediately)
     adapter.create_market_order = AsyncMock(return_value="MOCK_ORDER")

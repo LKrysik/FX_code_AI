@@ -71,7 +71,8 @@ class TestHealthDetailed:
 
         assert response.status_code == 200
 
-        health_data = response.json()["data"]["data"]
+        # API returns {"type": "response", "data": {...}}, NOT {"data": {"data": {...}}}
+        health_data = response.json()["data"]
         assert "components" in health_data
         assert "rest_api" in health_data["components"]
 
@@ -81,7 +82,8 @@ class TestHealthDetailed:
 
         assert response.status_code == 200
 
-        health_data = response.json()["data"]["data"]
+        # API returns {"type": "response", "data": {...}}, NOT {"data": {"data": {...}}}
+        health_data = response.json()["data"]
         assert "degradation_info" in health_data
         assert "unavailable_services" in health_data["degradation_info"]
         assert "degraded_services" in health_data["degradation_info"]

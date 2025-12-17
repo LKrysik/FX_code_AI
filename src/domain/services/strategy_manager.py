@@ -116,9 +116,21 @@ class ConditionGroup:
     require_all: bool = True  # If True, all conditions must be true; if False, any condition can be true
 
     def evaluate(self, indicator_values: Dict[str, Any]) -> ConditionResult:
-        """Evaluate all conditions in this group"""
+        """Evaluate all conditions in this group
+
+        BUG FIX (2025-12-17): Empty condition list returns FALSE, not TRUE.
+        Previously empty O1 (signal_cancellation) would always trigger cancellation.
+        Empty conditions should mean "no conditions to satisfy" = FALSE.
+
+        Business logic:
+        - Empty S1 = no detection criteria = FALSE (don't trigger signal)
+        - Empty O1 = no cancellation criteria = FALSE (don't cancel)
+        - Empty Z1 = no entry criteria = FALSE (don't enter)
+        - Empty ZE1 = no close criteria = FALSE (don't close)
+        - Empty E1 = no emergency criteria = FALSE (don't exit)
+        """
         if not self.conditions:
-            return ConditionResult.TRUE
+            return ConditionResult.FALSE  # No conditions = nothing to satisfy = FALSE
 
         results = []
         for condition in self.conditions:
@@ -254,29 +266,47 @@ class Strategy:
         return recorded_values
 
     def calculate_position_size(self, indicator_values: Dict[str, Any]) -> Dict[str, Any]:
-        """Calculate position sizing with risk-adjusted pricing per user_feedback.md"""
-        # Base position sizing
-        base_size = self.global_limits.get("base_position_pct", 0.5)
+        """Calculate position sizing with risk-adjusted pricing per user_feedback.md
 
-        # Risk-adjusted sizing for Z1 (entry orders)
-        risk_adjusted_size = self._calculate_risk_adjusted_position_size(indicator_values, base_size)
+        Returns:
+            Dict with:
+            - position_size_pct: percentage of capital to use (0.0 to 1.0 scale, e.g., 0.02 = 2%)
+            - risk_adjusted_multiplier: how much the position was adjusted based on risk
+            - max_leverage, stop_loss_pct, take_profit_pct: strategy limits
 
-        # Apply limits
-        max_size = self.global_limits.get("max_position_size_usdt", 1000)
-        min_size = self.global_limits.get("min_position_size_usdt", 10)
+        BUG FIX (2025-12-17): Previously returned USDT values in position_size_pct field,
+        then code multiplied by capital again causing incorrect position sizes.
+        Now correctly returns percentage (0.0-1.0 scale).
+        """
+        # Base position sizing as percentage (default 2% = 0.02)
+        base_size_pct = self.global_limits.get("base_position_pct", 0.02)
 
-        final_position_size = max(min_size, min(max_size, risk_adjusted_size))
+        # Risk-adjusted sizing multiplier
+        risk_multiplier = self._calculate_risk_adjustment_multiplier(indicator_values)
+        risk_adjusted_pct = base_size_pct * risk_multiplier
+
+        # Apply percentage limits (e.g., min 0.5% = 0.005, max 10% = 0.10)
+        max_pct = self.global_limits.get("max_position_pct", 0.10)  # Max 10% of capital
+        min_pct = self.global_limits.get("min_position_pct", 0.005)  # Min 0.5% of capital
+
+        final_position_pct = max(min_pct, min(max_pct, risk_adjusted_pct))
 
         return {
-            "position_size_pct": final_position_size,
-            "risk_adjusted_multiplier": risk_adjusted_size / base_size if base_size > 0 else 1.0,
+            "position_size_pct": final_position_pct,
+            "risk_adjusted_multiplier": risk_multiplier,
             "max_leverage": self.global_limits.get("max_leverage", 2.0),
             "stop_loss_pct": self.global_limits.get("stop_loss_buffer_pct", 10.0),
             "take_profit_pct": self.global_limits.get("target_profit_pct", 25.0)
         }
 
-    def _calculate_risk_adjusted_position_size(self, indicator_values: Dict[str, Any], base_size: float) -> float:
-        """Calculate risk-adjusted position size per user_feedback.md specification"""
+    def _calculate_risk_adjustment_multiplier(self, indicator_values: Dict[str, Any]) -> float:
+        """Calculate risk adjustment multiplier based on current market conditions.
+
+        Returns a multiplier (e.g., 1.0 = no adjustment, 0.5 = half size, 1.5 = 50% larger)
+
+        BUG FIX (2025-12-17): Renamed from _calculate_risk_adjusted_position_size.
+        Now returns multiplier only, not the adjusted size.
+        """
         # Get risk indicator value (default to moderate risk if not available)
         risk_value = indicator_values.get("risk_indicator", 50.0)  # Assume 0-100 scale
 
@@ -310,7 +340,7 @@ class Strategy:
             else:
                 multiplier = 1.0  # Fallback
 
-        return base_size * multiplier
+        return multiplier  # Return multiplier only, not adjusted size
 
     def calculate_close_price_adjustment(self, indicator_values: Dict[str, Any], base_close_price: float) -> Dict[str, Any]:
         """Calculate risk-adjusted close price per user_feedback.md ZE1 specification"""
@@ -1588,16 +1618,18 @@ class StrategyManager:
     async def _evaluate_strategy_locked(self, strategy: Strategy, indicator_values: Dict[str, Any]) -> None:
         """Internal locked evaluation - called only from _evaluate_strategy with lock held"""
         try:
-            # ✅ FIX (2025-12-03): Early exit if strategy already has a signal slot
+            # ✅ FIX (2025-12-03): Early exit if strategy already has a signal slot AND is in MONITORING
             # This prevents race condition where multiple parallel evaluations
             # all acquire slots before any changes state to SIGNAL_DETECTED
-            if strategy.strategy_name in self._global_signal_slots:
-                self.logger.debug("strategy_manager.skipping_evaluation_has_slot", {
+            # BUG FIX (2025-12-17): Only skip S1 evaluation in MONITORING state, not O1/Z1/ZE1/E1
+            # When strategy is in SIGNAL_DETECTED/ENTRY_EVALUATION/POSITION_ACTIVE, it must continue
+            if strategy.strategy_name in self._global_signal_slots and strategy.current_state == StrategyState.MONITORING:
+                self.logger.debug("strategy_manager.skipping_s1_has_slot", {
                     "strategy_name": strategy.strategy_name,
                     "current_state": strategy.current_state.value,
                     "existing_slots": self._global_signal_slots.get(strategy.strategy_name, 0)
                 })
-                return  # Strategy already has active signal(s), skip S1 evaluation
+                return  # Strategy already has active signal in MONITORING, skip S1 evaluation
 
             # 🔍 DEBUG: Log strategy evaluation
             self.logger.debug("strategy_manager.evaluating_strategy", {
@@ -1764,8 +1796,12 @@ class StrategyManager:
                     try:
                         current_price = indicator_values.get("price", indicator_values.get("last_price", 100.0))
                         position_size_pct = position_params.get("position_size_pct", 0.01)
-                        # Assume $1000 base capital for simulation
-                        base_capital = 1000.0
+                        # DECISION (2025-12-16): Use real capital from RiskManager instead of hardcoded value
+                        # This ensures position sizing reflects actual available capital
+                        # Changes to this logic require business owner approval
+                        base_capital = self.risk_manager.get_available_capital()
+                        if base_capital <= 0:
+                            base_capital = float(self.risk_manager.initial_capital)  # Fallback to initial
                         position_size_usdt = base_capital * position_size_pct
 
                         # Assess risk metrics
@@ -1831,7 +1867,14 @@ class StrategyManager:
                     try:
                         current_price = indicator_values.get("price", indicator_values.get("last_price", 100.0))
                         position_size_pct = position_params.get("position_size_pct", 0.01)
-                        base_capital = 1000.0
+                        # DECISION (2025-12-16): Use real capital from RiskManager for order sizing
+                        # Reuse base_capital calculated during risk assessment if available
+                        if self.risk_manager:
+                            base_capital = self.risk_manager.get_available_capital()
+                            if base_capital <= 0:
+                                base_capital = float(self.risk_manager.initial_capital)
+                        else:
+                            base_capital = 10000.0  # Default fallback without risk manager
                         order_value = base_capital * position_size_pct
                         quantity = order_value / current_price
 
@@ -1875,29 +1918,11 @@ class StrategyManager:
                 })
 
             elif strategy.current_state == StrategyState.POSITION_ACTIVE:
-                # ZE1: Check close order detection conditions
-                close_result = strategy.evaluate_close_order_detection(indicator_values)
-                if close_result == ConditionResult.TRUE:
-                    # Record indicator values at close decision
-                    close_indicators = strategy._record_decision_indicators(indicator_values, "ZE1_close_order_detection")
-                    strategy.current_state = StrategyState.CLOSE_ORDER_EVALUATION
+                # DECISION: E1 must be checked BEFORE ZE1 because emergency exit has highest priority
+                # Business rule: If conditions warrant emergency exit, normal close should not happen
+                # Example: Market crash detection should trigger E1 even if profit target (ZE1) is met
 
-                    # Publish signal_generated event for OrderManager
-                    await self._publish_signal_generated(
-                        strategy=strategy,
-                        signal_type="ZE1",
-                        action="SELL" if strategy.direction == "LONG" else "COVER",
-                        indicator_values=indicator_values,
-                        metadata={"recorded_indicators": close_indicators}
-                    )
-
-                    await self._publish_strategy_event(strategy, "close_order_detected", {
-                        **indicator_values,
-                        "recorded_indicators": close_indicators
-                    })
-                    return
-
-                # E1: Check emergency exit conditions (higher priority than ZE1)
+                # E1: Check emergency exit conditions FIRST (highest priority)
                 emergency_result = strategy.evaluate_emergency_exit(indicator_values)
                 if emergency_result == ConditionResult.TRUE:
                     # Record indicator values at emergency exit
@@ -1930,6 +1955,28 @@ class StrategyManager:
                     })
                     return
 
+                # ZE1: Check close order detection conditions (only if E1 not triggered)
+                close_result = strategy.evaluate_close_order_detection(indicator_values)
+                if close_result == ConditionResult.TRUE:
+                    # Record indicator values at close decision
+                    close_indicators = strategy._record_decision_indicators(indicator_values, "ZE1_close_order_detection")
+                    strategy.current_state = StrategyState.CLOSE_ORDER_EVALUATION
+
+                    # Publish signal_generated event for OrderManager
+                    await self._publish_signal_generated(
+                        strategy=strategy,
+                        signal_type="ZE1",
+                        action="SELL" if strategy.direction == "LONG" else "COVER",
+                        indicator_values=indicator_values,
+                        metadata={"recorded_indicators": close_indicators}
+                    )
+
+                    await self._publish_strategy_event(strategy, "close_order_detected", {
+                        **indicator_values,
+                        "recorded_indicators": close_indicators
+                    })
+                    return
+
             elif strategy.current_state == StrategyState.CLOSE_ORDER_EVALUATION:
                 # Execute close order based on ZE1 detection with risk-adjusted pricing
                 if self.order_manager:
@@ -1945,6 +1992,11 @@ class StrategyManager:
                             strategy.current_state = StrategyState.EXITED
                             strategy.position_active = False
                             strategy.exit_time = datetime.now()
+
+                            # Start cooldown after normal exit (ZE1) to prevent immediate re-entry
+                            # DECISION: Normal exit should have shorter cooldown than emergency exit
+                            cooldown_minutes = strategy.global_limits.get("normal_exit_cooldown_minutes", 5)
+                            strategy.start_cooldown(cooldown_minutes, "normal_exit")
 
                             # ✅ RACE CONDITION FIX: Release slot and symbol lock atomically
                             await self.release_signal_slot(strategy.strategy_name)
@@ -1962,7 +2014,8 @@ class StrategyManager:
                                 "order_id": close_order_id,
                                 "exit_reason": "close_order_detection",
                                 "slot_released": True,
-                                "symbol_unlocked": True
+                                "symbol_unlocked": True,
+                                "cooldown_minutes": cooldown_minutes
                             })
                             return
                     except Exception as e:
@@ -2010,6 +2063,39 @@ class StrategyManager:
                    "symbol_unlocked": True,
                    "budget_released": True
                })
+
+            # DECISION: After EXITED, strategy should return to MONITORING after cooldown expires
+            # Business rule: Allow strategy to capture new opportunities after position closed
+            # This prevents strategy from becoming permanently inactive after one trade
+            elif strategy.current_state == StrategyState.EXITED:
+                if not strategy.is_in_cooldown():
+                    # Reset strategy to monitoring state
+                    strategy.current_state = StrategyState.MONITORING
+                    strategy.position_active = False
+                    strategy.signal_detection_time = None
+                    strategy.entry_time = None
+                    strategy.exit_time = None
+
+                    await self._publish_strategy_event(strategy, "monitoring_resumed", {
+                        **indicator_values,
+                        "previous_state": "exited",
+                        "reason": "cooldown_expired"
+                    })
+
+            # DECISION: After SIGNAL_CANCELLED, strategy should return to MONITORING after cooldown expires
+            # Business rule: Allow strategy to detect new signals after cancellation
+            # This prevents strategy from being stuck forever after O1 trigger
+            elif strategy.current_state == StrategyState.SIGNAL_CANCELLED:
+                if not strategy.is_in_cooldown():
+                    # Reset strategy to monitoring state
+                    strategy.current_state = StrategyState.MONITORING
+                    strategy.signal_detection_time = None
+
+                    await self._publish_strategy_event(strategy, "monitoring_resumed", {
+                        **indicator_values,
+                        "previous_state": "signal_cancelled",
+                        "reason": "cooldown_expired"
+                    })
 
         except Exception as e:
             self.logger.error("strategy_manager.evaluation_error", {
@@ -2089,18 +2175,30 @@ class StrategyManager:
             if signal_type == "S1":
                 position_params = strategy.calculate_position_size(indicator_values)
                 position_size_pct = position_params.get("position_size_pct", 0.01)
-                # TODO: Get base capital from wallet/risk manager (see GitHub issue)
-                # Requires: WalletService or RiskManager integration to get available capital
-                # Current implementation: placeholder 1000.0 - update when wallet service is available
-                base_capital = 1000.0
+                # DECISION (2025-12-16): Use real capital from RiskManager for signal generation
+                # This ensures signal contains accurate position size information
+                # Changes to this logic require business owner approval
+                if self.risk_manager:
+                    base_capital = self.risk_manager.get_available_capital()
+                    if base_capital <= 0:
+                        base_capital = float(self.risk_manager.initial_capital)
+                else:
+                    base_capital = 10000.0  # Default fallback without risk manager
                 order_value = base_capital * position_size_pct
                 quantity = order_value / current_price
             else:
-                # For exit signals (ZE1, E1), use full position size
-                # TODO: Get actual position size from position manager (see GitHub issue)
-                # Requires: Position tracking system to retrieve current open position size
-                # Current implementation: placeholder 0.001 - update when position manager available
-                quantity = 0.001
+                # For exit signals (ZE1, E1), get position size from strategy's last entry
+                # Use position_active flag and tracked entry quantity
+                if hasattr(strategy, '_last_entry_quantity') and strategy._last_entry_quantity > 0:
+                    quantity = strategy._last_entry_quantity
+                else:
+                    # Fallback: estimate from base capital and position sizing
+                    if self.risk_manager:
+                        base_capital = float(self.risk_manager.initial_capital)
+                        position_size_pct = strategy.global_limits.get("base_position_pct", 0.01)
+                        quantity = (base_capital * position_size_pct) / current_price
+                    else:
+                        quantity = 0.001  # Minimal fallback
 
             # Generate unique signal ID
             signal_id = f"signal_{strategy.strategy_name}_{strategy.symbol}_{int(datetime.now().timestamp() * 1000)}"

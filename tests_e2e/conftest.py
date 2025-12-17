@@ -416,6 +416,59 @@ def lightweight_app(lightweight_container):
         return _json_ok({"token": token})
 
     # ========================================================================
+    # HEALTH ENDPOINTS (Kubernetes-style probes)
+    # ========================================================================
+
+    @app.get("/health")
+    async def mock_health():
+        """Basic health check endpoint"""
+        import time
+        return _json_ok({
+            "status": "healthy",
+            "timestamp": time.time(),
+            "uptime": 0,
+            "version": "1.0.0-test"
+        })
+
+    @app.get("/health/ready")
+    async def mock_health_ready():
+        """Kubernetes readiness probe - is the app ready to receive traffic?"""
+        return _json_ok({
+            "status": "ready",
+            "checks": {
+                "database": True,
+                "cache": True
+            }
+        })
+
+    @app.get("/health/live")
+    async def mock_health_live():
+        """Kubernetes liveness probe - is the app alive?"""
+        return _json_ok({
+            "status": "alive",
+            "pid": 12345
+        })
+
+    @app.get("/health/detailed")
+    async def mock_health_detailed():
+        """Detailed health check with component status"""
+        return _json_ok({
+            "status": "healthy",
+            "components": {
+                "rest_api": True,
+                "telemetry": True,
+                "circuit_breakers": True,
+                "health_monitoring": True
+            },
+            "degradation_info": {
+                "unavailable_services": [],
+                "degraded_services": [],
+                "healthy_services": 4,
+                "total_services": 4
+            }
+        })
+
+    # ========================================================================
     # MOCK ENDPOINTS FOR UNIT TESTS
     # ========================================================================
 

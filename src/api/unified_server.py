@@ -1558,6 +1558,55 @@ def create_unified_app():
             "version": "1.0"
         })
 
+    @app.get("/health/ready")
+    async def health_ready(_: Request):
+        """Kubernetes readiness probe - is the app ready to receive traffic?"""
+        try:
+            # Check critical dependencies
+            checks = {
+                "database": False,
+                "event_bus": False
+            }
+
+            # Check QuestDB connection
+            try:
+                if hasattr(app.state, 'container') and app.state.container:
+                    questdb = app.state.container._singleton_services.get("questdb_provider")
+                    if questdb and hasattr(questdb, '_initialized') and questdb._initialized:
+                        checks["database"] = True
+            except Exception:
+                pass
+
+            # Check EventBus
+            try:
+                if hasattr(app.state, 'container') and app.state.container:
+                    event_bus = app.state.container._singleton_services.get("event_bus")
+                    if event_bus and not getattr(event_bus, '_shutdown_requested', True):
+                        checks["event_bus"] = True
+            except Exception:
+                pass
+
+            # Ready if all critical checks pass
+            all_ready = all(checks.values())
+            status = "ready" if all_ready else "not_ready"
+
+            return _json_ok({
+                "status": status,
+                "checks": checks
+            })
+        except Exception as e:
+            return _json_error("readiness_error", f"Readiness check failed: {str(e)}", status=503)
+
+    @app.get("/health/live")
+    async def health_live(_: Request):
+        """Kubernetes liveness probe - is the app alive and not deadlocked?"""
+        import os
+        return _json_ok({
+            "status": "alive",
+            "pid": os.getpid(),
+            "timestamp": datetime.now().isoformat()
+        })
+
     @app.get("/health/detailed")
     async def health_detailed(_: Request):
         """Comprehensive health check with system analysis"""
