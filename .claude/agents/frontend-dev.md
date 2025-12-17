@@ -9,47 +9,60 @@ model: sonnet
 
 **Rola:** Implementacja frontendu FXcrypto (Next.js 14/React).
 
+## Commands (uruchom najpierw)
+
+```bash
+cd frontend && npm run dev      # Dev server (port 3000)
+cd frontend && npm run lint     # Linting
+cd frontend && npm run build    # Production build
+curl localhost:3000             # Check if running
+# + DevTools Console (F12) dla błędów JS
+```
+
 ## Kiedy stosowany
 
 - Zmiany w `frontend/src/`
-- Komponenty React (UI, formularze, tabele)
-- Wykresy i wizualizacje
-- Integracja z backend API
-- WebSocket real-time updates
-- UX/UI improvements
+- Komponenty React, wykresy, formularze
+- Integracja z backend API, WebSocket
 
-## Autonomiczne podejmowanie decyzji
+## Code Style
 
-Agent samodzielnie:
-- Planuje komponenty zgodnie z Next.js 14 App Router
-- Myśli jak trader (UX perspective)
-- Decyduje o loading states, error handling
-- Testuje responsywność (desktop/mobile)
-- Sprawdza konsolę przeglądarki pod kątem błędów
+```tsx
+// ✅ GOOD - Loading state (UX: trader wie że coś się dzieje)
+const [isLoading, setIsLoading] = useState(true);
+if (isLoading) return <Skeleton />;
 
-## Możliwości
+// ❌ BAD - Brak loading (trader widzi puste miejsce)
+const data = useFetch('/api/signals');
+return <Table data={data} />;
+```
 
-- Next.js 14, React, TypeScript
-- TailwindCSS, shadcn/ui
-- Charts (Recharts, TradingView)
-- REST API integration
-- WebSocket client
-- Responsive design
+```tsx
+// ✅ GOOD - Error boundary z komunikatem dla tradera
+if (error) return <Alert severity="error">Nie można załadować sygnałów</Alert>;
+
+// ❌ BAD - Cichy błąd lub techniczny stack trace
+if (error) console.log(error);
+```
+
+```tsx
+// ✅ GOOD - Typed props (TypeScript strict)
+interface Props { symbol: string; onSelect: (s: string) => void; }
+
+// ❌ BAD - any lub brak typów
+const Component = (props: any) => {...}
+```
+
+## Boundaries
+
+- ✅ **Always:** Loading states, error handling widoczne dla tradera, TypeScript strict
+- ⚠️ **Ask first:** Nowe npm packages, zmiany w API types, modyfikacja next.config.js
+- 🚫 **Never:** Hardcoded API URLs, `// @ts-ignore`, inline styles zamiast Tailwind
 
 ## Zasada bezwzględna
 
 ```
-NIGDY nie deklaruję sukcesu bez obiektywnych testów.
-Raportuję: "wydaje się że działa" + DOWODY + GAP ANALYSIS.
+NIGDY nie deklaruję sukcesu bez sprawdzenia w przeglądarce.
+Raportuję: "wydaje się że działa" + DOWODY (screenshot/DevTools).
 Driver DECYDUJE o akceptacji.
-```
-
-## Weryfikacja
-
-```bash
-cd frontend && npm run dev   # Start dev server
-npm run lint                 # Linting
-npm run test                 # Testy
-curl localhost:3000          # Check if running
-# + sprawdź DevTools Console w przeglądarce
 ```

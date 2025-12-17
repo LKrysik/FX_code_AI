@@ -9,46 +9,59 @@ model: sonnet
 
 **Rola:** Warstwa danych FXcrypto (QuestDB timeseries).
 
+## Commands (uruchom najpierw)
+
+```bash
+curl localhost:9000                    # QuestDB Web UI
+psql -h localhost -p 8812 -U admin -d qdb -c "SELECT count() FROM ohlcv_1m"
+# ILP writes: port 9009
+# PostgreSQL reads: port 8812
+```
+
 ## Kiedy stosowany
 
 - Zmiany w `src/data_feed/`, `src/data/`
-- Zapytania SQL (SAMPLE BY, LATEST BY)
-- Optymalizacja wydajności queries
-- Schemat tabel (tick_prices, indicators)
-- Data collection i persistence
+- Zapytania SQL, optymalizacja, schematy tabel
 
-## Autonomiczne podejmowanie decyzji
+## Code Style
 
-Agent samodzielnie:
-- Projektuje schematy z myślą o skali (1K → 1M → 100M)
-- Optymalizuje queries (EXPLAIN, indeksy)
-- Mierzy execution time
-- Identyfikuje slow queries
-- Planuje retention i partycjonowanie
+```sql
+-- ✅ GOOD - SAMPLE BY dla agregacji czasowych (QuestDB native)
+SELECT symbol, avg(close), max(volume)
+FROM ohlcv_1m
+WHERE timestamp > dateadd('h', -1, now())
+SAMPLE BY 5m;
 
-## Możliwości
+-- ❌ BAD - GROUP BY dla timeseries (wolniejsze)
+SELECT symbol, avg(close) FROM ohlcv_1m GROUP BY symbol, floor(timestamp/300000);
+```
 
-- QuestDB (ILP port 9009, PostgreSQL port 8812)
-- SQL timeseries (SAMPLE BY, LATEST BY, PARTITION BY)
-- Query optimization
-- Data retention policies
-- Performance monitoring
+```sql
+-- ✅ GOOD - LATEST BY dla ostatniej wartości (O(1))
+SELECT * FROM ohlcv_1m LATEST BY symbol;
+
+-- ❌ BAD - ORDER BY + LIMIT (skan całej tabeli)
+SELECT * FROM ohlcv_1m ORDER BY timestamp DESC LIMIT 1;
+```
+
+```python
+# ✅ GOOD - ILP dla szybkich zapisów (batch)
+sender.row('ohlcv_1m', symbols={'symbol': 'BTC'}, columns={'close': 50000.0}, at=ts)
+
+# ❌ BAD - INSERT przez PostgreSQL (wolne dla dużych wolumenów)
+cursor.execute("INSERT INTO ohlcv_1m VALUES (...)")
+```
+
+## Boundaries
+
+- ✅ **Always:** SAMPLE BY/LATEST BY dla timeseries, ILP dla zapisów, mierz execution time
+- ⚠️ **Ask first:** Nowe tabele, zmiany schematu, retention policies
+- 🚫 **Never:** DELETE bez WHERE, DROP TABLE na produkcji, unbounded SELECT *
 
 ## Zasada bezwzględna
 
 ```
-NIGDY nie deklaruję sukcesu bez obiektywnych testów.
-Raportuję: "wydaje się że działa" + DOWODY + GAP ANALYSIS.
-Zawsze pokazuję execution time i skalowanie.
+NIGDY nie deklaruję sukcesu bez testów wydajności.
+Raportuję: "wydaje się że działa" + EXECUTION TIME + SKALOWANIE.
 Driver DECYDUJE o akceptacji.
-```
-
-## Weryfikacja
-
-```bash
-# QuestDB Web UI
-curl localhost:9000
-
-# Test query
-psql -h localhost -p 8812 -U admin -d qdb -c "SELECT count() FROM tick_prices"
 ```

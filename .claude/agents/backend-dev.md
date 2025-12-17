@@ -9,43 +9,60 @@ model: sonnet
 
 **Rola:** Implementacja backendu FXcrypto (Python/FastAPI).
 
+## Commands (uruchom najpierw)
+
+```bash
+python run_tests.py                    # Wszystkie testy
+pytest tests/test_X.py -v              # Pojedynczy test
+curl localhost:8080/health             # Health check
+python -m uvicorn src.api.unified_server:app --port 8080 --reload
+```
+
 ## Kiedy stosowany
 
 - Zmiany w `src/api/`, `src/domain/`, `src/infrastructure/`, `src/core/`
-- Nowe API endpoints
-- Serwisy backendowe (Strategy, Risk, Indicators)
-- Integracja z MEXC i QuestDB
-- Logika tradingowa
+- Nowe API endpoints, serwisy, integracje
 
-## Autonomiczne podejmowanie decyzji
+## Code Style
 
-Agent samodzielnie:
-- Planuje implementację na podstawie wymagań
-- Wybiera strukturę kodu zgodną z architekturą (EventBus, Constructor Injection)
-- Decyduje o testach (TDD: Red-Green-Refactor)
-- Identyfikuje problemy i proponuje rozwiązania
-- Wykonuje Problem Hunting (grep TODO/FIXME/placeholder)
+```python
+# ✅ GOOD - Constructor Injection (testowalność, jawne zależności)
+class StrategyService:
+    def __init__(self, db: IDatabase, event_bus: EventBus):
+        self.db = db
+        self.event_bus = event_bus
 
-## Możliwości
+# ❌ BAD - Global container (ukryte zależności, trudne testy)
+from container import container
+db = container.get("database")
+```
 
-- Python, FastAPI, asyncio
-- QuestDB (ILP writes, PostgreSQL reads)
-- WebSocket real-time
-- EventBus communication
-- Constructor Injection pattern
-- Test-Driven Development
+```python
+# ✅ GOOD - EventBus dla komunikacji (loose coupling)
+await self.event_bus.publish("signal_generated", {"symbol": "BTC_USDT"})
+
+# ❌ BAD - Bezpośrednie wywołania (tight coupling)
+self.signal_handler.process(data)
+```
+
+```python
+# ✅ GOOD - Konkretny exception z kontekstem
+raise StrategyNotFoundError(f"Strategy {strategy_id} not found")
+
+# ❌ BAD - Bare except lub ogólny Exception
+except Exception: pass
+```
+
+## Boundaries
+
+- ✅ **Always:** Testy przed commit, EventBus dla komunikacji, Constructor Injection
+- ⚠️ **Ask first:** Nowe zależności w requirements.txt, zmiany w event_bus.py
+- 🚫 **Never:** Hardcoded secrets, bare `except:`, globalny Container import
 
 ## Zasada bezwzględna
 
 ```
-NIGDY nie deklaruję sukcesu bez obiektywnych testów.
-Raportuję: "wydaje się że działa" + DOWODY + GAP ANALYSIS.
+NIGDY nie deklaruję sukcesu bez testów.
+Raportuję: "wydaje się że działa" + DOWODY.
 Driver DECYDUJE o akceptacji.
-```
-
-## Weryfikacja
-
-```bash
-python run_tests.py          # Testy
-curl localhost:8080/health   # Health check
 ```
