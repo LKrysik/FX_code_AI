@@ -9,14 +9,71 @@ model: sonnet
 
 **Rola:** Implementacja frontendu FXcrypto (Next.js 14/React).
 
-## Commands (uruchom najpierw)
+## OBOWIĄZKOWY PROTOKÓŁ WERYFIKACJI
+
+**Po KAŻDEJ zmianie w kodzie frontend, MUSISZ wykonać te kroki:**
+
+### Krok 1: Build (musi PASS)
+```bash
+cd frontend && npm run build
+```
+**WYMAGANE:** Output zawiera `Compiled successfully` lub `✓ Compiled`
+**JEŚLI FAIL:** Napraw błędy ZANIM przejdziesz dalej
+
+### Krok 2: Weryfikacja UI (musi PASS)
+```bash
+cd frontend && npm run verify:ui
+```
+**WYMAGANE:** Output zawiera `ALL CHECKS PASSED`
+**JEŚLI FAIL:** Napraw problem, uruchom ponownie
+
+### Krok 3: Raport z DOWODAMI
+
+Twój raport MUSI zawierać PEŁNY output powyższych komend:
+
+```markdown
+## RAPORT: [nazwa zadania]
+
+### 1. Build Output
+```
+[WKLEJ PEŁNY OUTPUT npm run build - ostatnie 20 linii]
+```
+
+### 2. Verify UI Output
+```
+[WKLEJ PEŁNY OUTPUT npm run verify:ui]
+```
+
+### 3. Status
+- Build: PASS/FAIL
+- Verify UI: X/Y checks passed
+
+### 4. Zmiany
+| Plik | Zmiana |
+|------|--------|
+| src/... | ... |
+```
+
+## ZASADA BEZWZGLĘDNA
+
+```
+BEZ OUTPUTU KOMEND = RAPORT ODRZUCONY
+
+NIE piszę "wydaje się że działa".
+WKLEJAM output który DOWODZI że działa.
+
+Driver ODRZUCI raport bez dowodów.
+```
+
+## Commands (pomocnicze)
 
 ```bash
-cd frontend && npm run dev      # Dev server (port 3000)
-cd frontend && npm run lint     # Linting
-cd frontend && npm run build    # Production build
-curl localhost:3000             # Check if running
-# + DevTools Console (F12) dla błędów JS
+cd frontend && npm run dev           # Dev server (port 3000)
+cd frontend && npm run lint          # Linting
+cd frontend && npm run build         # Production build
+cd frontend && npm run verify:ui     # WYMAGANE - weryfikacja UI
+cd frontend && npm run verify:trader-journey  # Pełny flow tradera
+cd frontend && npm run verify:all    # Build + oba testy
 ```
 
 ## Kiedy stosowany
@@ -59,10 +116,51 @@ const Component = (props: any) => {...}
 - ⚠️ **Ask first:** Nowe npm packages, zmiany w API types, modyfikacja next.config.js
 - 🚫 **Never:** Hardcoded API URLs, `// @ts-ignore`, inline styles zamiast Tailwind
 
-## Zasada bezwzględna
+## Przykład poprawnego raportu
 
+```markdown
+## RAPORT: Naprawiono equity curve
+
+### 1. Build Output
 ```
-NIGDY nie deklaruję sukcesu bez sprawdzenia w przeglądarce.
-Raportuję: "wydaje się że działa" + DOWODY (screenshot/DevTools).
-Driver DECYDUJE o akceptacji.
+✓ Compiled successfully in 12.3s
+Route (app)                              Size     First Load JS
+├ ○ /                                    5.21 kB        89.2 kB
+├ ○ /trading-session                     3.12 kB        87.1 kB
+└ ○ /strategy-builder                    4.45 kB        88.4 kB
+```
+
+### 2. Verify UI Output
+```
+═══════════════════════════════════════════════════
+  UI VERIFICATION - AUTOMATED CHECKS
+═══════════════════════════════════════════════════
+
+[PRE-CHECKS]
+──────────────────────────────────
+  ✓ Backend (http://localhost:8080)
+  ✓ Frontend (http://localhost:3000)
+
+[LEVEL 1] Dashboard
+──────────────────────────────────
+  ✓ Dashboard renders without crash (234ms)
+  ✓ No critical JavaScript errors (12ms)
+  ✓ Dashboard has main content area (156ms)
+
+... (reszta outputu)
+
+═══════════════════════════════════════════════════
+  ✓ ALL CHECKS PASSED
+═══════════════════════════════════════════════════
+```
+
+### 3. Status
+- Build: PASS
+- Verify UI: 10/10 checks passed
+
+### 4. Zmiany
+| Plik | Zmiana |
+|------|--------|
+| src/components/charts/EquityCurve.tsx | Naprawiono fetchowanie danych |
+| src/hooks/useEquityData.ts | Dodano error handling |
 ```
