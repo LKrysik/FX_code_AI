@@ -51,7 +51,8 @@ class TradingPersistenceService:
                  event_bus: Optional[EventBus] = None,
                  logger: Optional[StructuredLogger] = None,
                  min_pool_size: int = 2,
-                 max_pool_size: int = 10):
+                 max_pool_size: int = 10,
+                 session_id: Optional[str] = None):
         """
         Initialize trading persistence service.
 
@@ -75,6 +76,7 @@ class TradingPersistenceService:
         self.logger = logger
         self.min_pool_size = min_pool_size
         self.max_pool_size = max_pool_size
+        self.session_id = session_id  # ✅ FIX: Track session_id for all persisted data
 
         self._pool: Optional[asyncpg.Pool] = None
         self._started = False
@@ -232,8 +234,9 @@ class TradingPersistenceService:
                     conditions_met,
                     indicator_values,
                     action,
-                    metadata
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    metadata,
+                    session_id
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             """
 
             async with self._pool.acquire() as conn:
@@ -247,7 +250,8 @@ class TradingPersistenceService:
                     conditions_json,
                     indicators_json,
                     action,
-                    metadata_json
+                    metadata_json,
+                    self.session_id  # ✅ FIX: Include session_id
                 )
 
             if self.logger:
@@ -324,8 +328,9 @@ class TradingPersistenceService:
                     filled_price,
                     status,
                     commission,
-                    metadata
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                    metadata,
+                    session_id
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             """
 
             async with self._pool.acquire() as conn:
@@ -343,7 +348,8 @@ class TradingPersistenceService:
                     None,  # filled_price (null until filled)
                     status,
                     0.0,  # commission (0 initially)
-                    metadata_json
+                    metadata_json,
+                    self.session_id  # ✅ FIX: Include session_id
                 )
 
             if self.logger:
@@ -504,8 +510,9 @@ class TradingPersistenceService:
                     stop_loss,
                     take_profit,
                     status,
-                    metadata
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                    metadata,
+                    session_id
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             """
 
             async with self._pool.acquire() as conn:
@@ -524,7 +531,8 @@ class TradingPersistenceService:
                     stop_loss,
                     take_profit,
                     status,
-                    metadata_json
+                    metadata_json,
+                    self.session_id  # ✅ FIX: Include session_id
                 )
 
             if self.logger:

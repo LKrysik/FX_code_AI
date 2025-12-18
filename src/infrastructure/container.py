@@ -455,12 +455,12 @@ class Container:
 
         return await self._get_or_create_singleton_async("order_manager", _create_async)
 
-    async def create_trading_persistence_service(self) -> 'TradingPersistenceService':
+    async def create_trading_persistence_service(self, session_id: Optional[str] = None) -> 'TradingPersistenceService':
         """
         Create trading persistence service for signals/orders/positions.
 
-        ARCHITECTURE: Singleton service that subscribes to EventBus events
-        and persists trading data to QuestDB for ALL modes (live/paper/backtest).
+        ARCHITECTURE: Creates new instance per session OR updates existing singleton's session_id.
+        This allows session separation while maintaining connection pool efficiency.
 
         Events subscribed:
         - signal_generated → INSERT INTO strategy_signals
@@ -471,8 +471,11 @@ class Container:
         - position_updated → UPDATE positions
         - position_closed → UPDATE positions
 
+        Args:
+            session_id: Optional session ID to associate with all persisted data
+
         Returns:
-            Configured TradingPersistenceService singleton
+            Configured TradingPersistenceService (singleton with updated session_id)
         """
         async def _create():
             from ..domain.services.trading_persistence import TradingPersistenceService
@@ -488,12 +491,25 @@ class Container:
                 event_bus=self.event_bus,
                 logger=self.logger,
                 min_pool_size=10,  # Increased from 2 (Agent 5 recommendation)
-                max_pool_size=50   # Increased from 10 (Agent 5 recommendation)
+                max_pool_size=50,   # Increased from 10 (Agent 5 recommendation)
+                session_id=session_id  # ✅ FIX: Pass session_id for session separation
             )
 
             return service
 
-        return await self._get_or_create_singleton_async("trading_persistence_service", _create)
+        # Get or create singleton
+        service = await self._get_or_create_singleton_async("trading_persistence_service", _create)
+        
+        # ✅ FIX: Update session_id on existing singleton
+        # This allows reusing connection pool while changing session context
+        if session_id is not None:
+            service.session_id = session_id
+            if self.logger:
+                self.logger.info("container.trading_persistence_session_updated", {
+                    "session_id": session_id
+                })
+        
+        return service
 
     async def create_risk_manager(self, initial_capital: float = 10000.0) -> RiskManager:
         """
@@ -530,6 +546,35 @@ class Container:
                 raise RuntimeError(f"Failed to create risk manager: {str(e)}") from e
 
         return await self._get_or_create_singleton_async("risk_manager", _create)
+
+    async def create_paper_trading_persistence_service(self):
+        """
+        Create paper trading persistence service for session management.
+        
+        This service manages paper_trading_sessions table and provides
+        session CRUD operations for the frontend.
+        
+        Returns:
+            PaperTradingPersistenceService singleton
+        """
+        async def _create():
+            from ..domain.services.paper_trading_persistence import PaperTradingPersistenceService
+            
+            service = PaperTradingPersistenceService(
+                host='127.0.0.1',
+                port=8812,
+                user='admin',
+                password='quest',
+                database='qdb',
+                logger=self.logger
+            )
+            
+            # Start the service (create connection pool)
+            await service.start()
+            
+            return service
+        
+        return await self._get_or_create_singleton_async("paper_trading_persistence_service", _create)
 
     async def create_backtest_order_manager(
         self,
@@ -1088,6 +1133,9 @@ class Container:
                 # ✅ AGENT 4: Create trading persistence service for signals/orders/positions
                 trading_persistence_service = await self.create_trading_persistence_service()
 
+                # ✅ FIX (2025-12-17): Create paper trading persistence for session management
+                paper_trading_persistence = await self.create_paper_trading_persistence_service()
+
                 # 🔧 FIX GAP #2: Create strategy manager for activation
                 strategy_manager = await self.create_strategy_manager()
 
@@ -1102,6 +1150,7 @@ class Container:
                 controller.trading_persistence_service = trading_persistence_service  # ✅ AGENT 4: Inject persistence
                 controller.strategy_manager = strategy_manager  # 🔧 FIX GAP #2: Inject strategy manager
                 controller.backtest_order_manager = backtest_order_manager  # ✅ FIX: Inject backtest manager
+                controller.paper_trading_persistence = paper_trading_persistence  # ✅ FIX: Inject session management
 
                 # Initialize the controller asynchronously
                 await controller.initialize()

@@ -32,7 +32,8 @@ class UnifiedTradingController:
                  indicator_engine = None,
                  trading_persistence_service = None,  # ✅ NEW: DI parameter for trading persistence
                  strategy_manager = None,  # 🔧 FIX GAP #2: DI parameter for strategy manager
-                 backtest_order_manager = None):  # ✅ FIX: DI parameter for backtest execution
+                 backtest_order_manager = None,  # ✅ FIX: DI parameter for backtest execution
+                 paper_trading_persistence = None):  # ✅ FIX (2025-12-17): DI for session visibility
 
         self.market_data_provider = market_data_provider
         self.event_bus = event_bus
@@ -53,6 +54,7 @@ class UnifiedTradingController:
         self.trading_persistence_service = trading_persistence_service
         self.strategy_manager = strategy_manager  # 🔧 FIX GAP #2: Strategy manager for activation
         self.backtest_order_manager = backtest_order_manager  # ✅ FIX: Backtest order manager
+        self.paper_trading_persistence = paper_trading_persistence  # ✅ FIX: Session creation
 
         # Execution mode
         self.execution_mode = "live"  # "live", "paper", "backtest"
@@ -321,6 +323,46 @@ class UnifiedTradingController:
 
             # ✅ NOTE: Strategy activation now happens via pre_start_callback BEFORE data replay
             # No need to call _activate_strategies_for_session here
+
+            # ✅ CRITICAL FIX (2025-12-17): Update TradingPersistenceService with session_id
+            # This ensures all signals/orders/positions are tagged with the backtest session
+            if self.trading_persistence_service:
+                self.trading_persistence_service.session_id = session_id
+                self.logger.info("unified_trading_controller.persistence_session_updated", {
+                    "session_id": session_id,
+                    "service": "TradingPersistenceService"
+                })
+
+            # ✅ CRITICAL FIX (2025-12-17): Create session record for frontend visibility
+            # Without this, backtest sessions don't appear in /api/paper-trading/sessions
+            if hasattr(self, 'paper_trading_persistence') and self.paper_trading_persistence:
+                try:
+                    # Get strategy info from parameters
+                    strategy_name = kwargs.get("strategy_name", "backtest_strategy")
+                    
+                    session_data = {
+                        "session_id": session_id,
+                        "strategy_id": strategy_name,
+                        "strategy_name": strategy_name,
+                        "symbols": symbols,
+                        "direction": kwargs.get("direction", "BOTH"),
+                        "leverage": kwargs.get("leverage", 1.0),
+                        "initial_balance": kwargs.get("initial_balance", 10000.0),
+                        "created_by": "backtest",
+                        "notes": f"Backtest session - acceleration: {acceleration_factor}x"
+                    }
+                    
+                    await self.paper_trading_persistence.create_session(session_data)
+                    self.logger.info("unified_trading_controller.backtest_session_created", {
+                        "session_id": session_id,
+                        "strategy_name": strategy_name
+                    })
+                except Exception as e:
+                    # Don't fail backtest if session creation fails
+                    self.logger.error("unified_trading_controller.backtest_session_creation_failed", {
+                        "session_id": session_id,
+                        "error": str(e)
+                    })
 
             self.logger.info("unified_trading_controller.backtest_started", {
                 "session_id": session_id,
