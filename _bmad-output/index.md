@@ -8,6 +8,7 @@
 | Document | Description | Status |
 |----------|-------------|--------|
 | [project-context.md](project-context.md) | Complete project analysis and context | Complete |
+| [product-backlog.md](product-backlog.md) | Consolidated ROADMAP + IDEAS (BMAD format) | **NEW** |
 | [bmm-workflow-status.yaml](bmm-workflow-status.yaml) | BMad Method workflow tracking | Active |
 | [project-scan-report.json](project-scan-report.json) | Scan workflow state | Complete |
 

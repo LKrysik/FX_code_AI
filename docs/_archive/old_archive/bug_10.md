@@ -1,2 +1,0 @@
-{"timestamp": "2025-09-30T14:35:10.283060+00:00", "level": "WARNING", "module": "logger", "funcName": "_log", "lineno": 141, "event_type": "Failed to recover state for key b'strategy:test_strategy:temporal:ETHUSDT:sequence_1': Expecting value: line 1 column 1 (char 0)", "data": {}}
-{"timestamp": "2025-09-30T14:35:10.270790+00:00", "level": "ERROR", "module": "logger", "funcName": "error", "lineno": 151, "event_type": "State persistence error", "data": {"error": "Object of type NonSerializable is not JSON serializable", "operation": "persist_temporal_state"}}
