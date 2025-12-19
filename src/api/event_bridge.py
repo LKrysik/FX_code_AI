@@ -413,7 +413,7 @@ class EventBridge(IEventBridge):
         # Signal processor
         signal_processor = StreamProcessor(
             stream_type="signals",
-            event_patterns=["signal.flash_pump_detected", "signal.reversal_detected", "signal.confluence_detected"],
+            event_patterns=["signal_generated", "signal.flash_pump_detected", "signal.reversal_detected", "signal.confluence_detected"],
             batch_aggregator=None
         )
         self.stream_processors["signals"] = signal_processor
@@ -634,6 +634,14 @@ class EventBridge(IEventBridge):
         self._subscribed_handlers.append(("signal.reversal_detected", handle_reversal_signal))
         await self.event_bus.subscribe("signal.confluence_detected", handle_confluence_signal)
         self._subscribed_handlers.append(("signal.confluence_detected", handle_confluence_signal))
+
+        # Generic signal_generated handler - forwards all signals from StrategyManager
+        async def handle_signal_generated(event_data: Dict[str, Any]):
+            """Forward signal_generated events from StrategyManager to WebSocket clients"""
+            await self._process_event("signal_generated", event_data)
+
+        await self.event_bus.subscribe("signal_generated", handle_signal_generated)
+        self._subscribed_handlers.append(("signal_generated", handle_signal_generated))
 
         # Execution events - only subscribe if execution processor is available
         if self.execution_processor:

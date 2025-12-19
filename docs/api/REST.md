@@ -10,7 +10,7 @@ Wspólna Envelope:
 ### GET /health
 - Opis: status komponentów backendu.
 - Odpowiedź 200:
-```
+```json
 {
   "type": "response",
   "status": "ok",
@@ -29,7 +29,7 @@ Wspólna Envelope:
 ### GET /strategies
 - Opis: lista dostępnych strategii i ich podstawowe atrybuty.
 - Odpowiedź 200:
-```
+```json
 {
   "type": "response",
   "status": "strategies_list",
@@ -46,7 +46,7 @@ Wspólna Envelope:
 ### GET /strategies/{name}
 - Opis: szczegółowy status danej strategii (opcjonalnie ?symbol=ALU_USDT).
 - Odpowiedź 200:
-```
+```json
 {
   "type": "response",
   "status": "strategy_status",
@@ -75,16 +75,16 @@ Wspólna Envelope:
 ### POST /sessions/start
 - **CSRF:** Required (`X-CSRF-Token` header)
 - Body:
-```
+```json
 {
-  "session_type": "backtest"|"live"|"paper",
+  "session_type": "backtest|live|paper",
   "strategy_config": {"flash_pump_detection": ["ALU_USDT", "BTC_USDT"]},
   "config": {"acceleration_factor": 10.0},
   "idempotent": true
 }
 ```
 - Odpowiedź 200:
-```
+```json
 {
   "type": "response",
   "status": "session_started",
@@ -108,7 +108,7 @@ Wspólna Envelope:
 
 ### GET /sessions/{id}
 - Odpowiedź 200:
-```
+```json
 {
   "type": "response",
   "status": "session_status",
@@ -119,7 +119,7 @@ Wspólna Envelope:
     "mode": "backtest",
     "status": "running",
     "symbols": ["ALU_USDT"],
-    "metrics": {"signals_detected": 2, "orders_placed": 1, ...}
+    "metrics": {"signals_detected": 2, "orders_placed": 1}
   }
 }
 ```

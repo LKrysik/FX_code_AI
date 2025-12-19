@@ -182,19 +182,41 @@ const DashboardContent = React.memo(function DashboardContent() {
           volume24h: data.volume24h,
         });
       },
-      onSignals: (data) => {
+      onSignals: (message) => {
         // Update active signals in real-time using store
+        // Signal data is nested inside message.data from WebSocket wrapper
+        const signalData = message.data || message;
+
+        // Map backend signal_type (S1, Z1, ZE1, E1) to frontend signalType (pump/dump)
+        // S1 = entry signal (pump detection), ZE1/E1 = exit signals (dump/close)
         const signalType: ActiveSignal['signalType'] =
-          data.type === 'pump_detection' ? 'pump' : 'dump';
+          signalData.signal_type === 'S1' || signalData.action === 'BUY' ? 'pump' : 'dump';
+
+        // Extract magnitude from indicator_values (pump_magnitude_pct is the key indicator)
+        const indicatorValues = signalData.indicator_values || {};
+        const magnitude = indicatorValues.pump_magnitude_pct ||
+                         indicatorValues.unrealized_pnl_pct ||
+                         signalData.magnitude ||
+                         0;
+
+        // Calculate confidence based on indicator strength
+        // Higher magnitude and volume surge = higher confidence
+        const volumeSurge = indicatorValues.volume_surge_ratio || 1;
+        const calculatedConfidence = Math.min(95, Math.max(50,
+          50 + (magnitude * 2) + (volumeSurge > 3 ? 15 : volumeSurge > 2 ? 10 : 5)
+        ));
+
         const newSignal: ActiveSignal = {
-          id: data.id || `signal_${Date.now()}`,
-          symbol: data.symbol || 'UNKNOWN',
+          id: signalData.signal_id || `signal_${Date.now()}`,
+          symbol: signalData.symbol || 'UNKNOWN',
           signalType,
-          magnitude: data.magnitude || data.value || 0,
-          confidence: data.confidence || 50,
-          timestamp: data.timestamp || new Date().toISOString(),
-          strategy: data.strategy || 'unknown'
+          magnitude: magnitude,
+          confidence: signalData.confidence || Math.round(calculatedConfidence),
+          timestamp: signalData.metadata?.timestamp || signalData.timestamp || new Date().toISOString(),
+          strategy: signalData.strategy_name || signalData.strategy || 'unknown'
         };
+
+        debugLog('Signal received from WebSocket', { signalData, indicatorValues, newSignal });
         useDashboardStore.getState().addSignal(newSignal);
       },
       onSessionUpdate: (data) => {
