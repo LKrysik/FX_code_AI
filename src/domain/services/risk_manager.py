@@ -16,9 +16,10 @@ Thread-safe for async operations.
 
 import asyncio
 import logging
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Dict, List, Optional, Any
 from enum import Enum
 
@@ -114,7 +115,8 @@ class RiskManager:
         self._allocated_budgets: Dict[str, Decimal] = {}
 
         # Thread safety
-        self._lock = asyncio.Lock()
+        self._lock = asyncio.Lock()  # For async methods
+        self._sync_lock = threading.Lock()  # ✅ EDGE CASE FIX: For synchronous budget methods
 
         logger.info(
             "RiskManager initialized",
@@ -161,6 +163,25 @@ class RiskManager:
             RiskCheckResult with can_proceed=True/False and reason
         """
         async with self._lock:
+            # ✅ EDGE CASE FIX: Validate input parameters
+            validation_error = self._validate_position_inputs(symbol, quantity, price)
+            if validation_error:
+                return RiskCheckResult(
+                    can_proceed=False,
+                    reason=validation_error,
+                    risk_score=100.0,
+                    failed_checks=["input_validation"]
+                )
+
+            # ✅ EDGE CASE FIX: Check for zero/negative capital
+            if self.current_capital <= Decimal('0'):
+                return RiskCheckResult(
+                    can_proceed=False,
+                    reason=f"Insufficient capital: {float(self.current_capital):.2f} USDT",
+                    risk_score=100.0,
+                    failed_checks=["insufficient_capital"]
+                )
+
             # Reset daily P&L if new day
             self._check_daily_reset()
 
@@ -397,6 +418,8 @@ class RiskManager:
         """
         Check 3: Position concentration (max % in one symbol).
 
+        ✅ EDGE CASE FIX: Handle positions with None notional_value.
+
         Returns:
             (passed, reason, risk_score)
         """
@@ -404,7 +427,14 @@ class RiskManager:
         existing_exposure = Decimal('0')
         for pos in current_positions:
             if pos.symbol == symbol and pos.is_open:
-                existing_exposure += pos.notional_value
+                # ✅ EDGE CASE FIX: Handle None notional_value
+                notional = pos.notional_value
+                if notional is not None:
+                    try:
+                        existing_exposure += Decimal(str(notional))
+                    except (InvalidOperation, ValueError, TypeError):
+                        logger.warning(f"Invalid notional_value for position: {notional}")
+                        continue
 
         total_exposure = existing_exposure + new_position_value
         max_exposure = self.current_capital * (self.risk_config.max_symbol_concentration_percent / 100)
@@ -514,12 +544,71 @@ class RiskManager:
 
     # === Helper Methods ===
 
+    def _validate_position_inputs(self, symbol: str, quantity: Decimal, price: Decimal) -> Optional[str]:
+        """
+        Validate position input parameters.
+
+        ✅ EDGE CASE FIX: Added validation for negative/zero values.
+
+        Args:
+            symbol: Trading symbol
+            quantity: Position quantity
+            price: Entry price
+
+        Returns:
+            Error message if validation fails, None if valid
+        """
+        if not symbol or not isinstance(symbol, str) or len(symbol.strip()) == 0:
+            return "Invalid symbol: symbol must be a non-empty string"
+
+        if quantity is None:
+            return "Invalid quantity: quantity cannot be None"
+
+        if price is None:
+            return "Invalid price: price cannot be None"
+
+        try:
+            qty_decimal = Decimal(str(quantity)) if not isinstance(quantity, Decimal) else quantity
+            price_decimal = Decimal(str(price)) if not isinstance(price, Decimal) else price
+        except (InvalidOperation, ValueError, TypeError) as e:
+            return f"Invalid numeric value: {e}"
+
+        if qty_decimal <= Decimal('0'):
+            return f"Invalid quantity: {float(qty_decimal)} - must be positive"
+
+        if price_decimal <= Decimal('0'):
+            return f"Invalid price: {float(price_decimal)} - must be positive"
+
+        # Check for extremely large values that could cause overflow
+        max_reasonable_value = Decimal('1e15')  # 1 quadrillion
+        if qty_decimal > max_reasonable_value:
+            return f"Invalid quantity: {float(qty_decimal)} - exceeds reasonable limit"
+
+        if price_decimal > max_reasonable_value:
+            return f"Invalid price: {float(price_decimal)} - exceeds reasonable limit"
+
+        return None
+
     def _calculate_drawdown_percent(self) -> float:
-        """Calculate current drawdown from equity peak."""
-        if self.equity_peak <= 0:
+        """
+        Calculate current drawdown from equity peak.
+
+        ✅ EDGE CASE FIX: Handle zero/negative equity_peak gracefully.
+        ✅ EDGE CASE FIX: Ensure equity_peak >= current_capital before calculation.
+        """
+        # Ensure equity_peak is never below current_capital
+        if self.current_capital > self.equity_peak:
+            self.equity_peak = self.current_capital
+
+        if self.equity_peak <= Decimal('0'):
             return 0.0
 
         drawdown = self.equity_peak - self.current_capital
+
+        # Drawdown should never be negative (equity_peak >= current_capital)
+        if drawdown < Decimal('0'):
+            return 0.0
+
         drawdown_pct = (drawdown / self.equity_peak) * 100
         return float(drawdown_pct)
 
@@ -600,6 +689,26 @@ class RiskManager:
         """
         warnings = []
         risk_score = 0.0
+
+        # ✅ EDGE CASE FIX: Validate input parameters
+        if volatility < 0:
+            volatility = abs(volatility)  # Use absolute value
+            warnings.append("Volatility was negative, using absolute value")
+
+        if max_drawdown < 0:
+            max_drawdown = abs(max_drawdown)
+
+        if position_size < 0:
+            warnings.append("Position size was negative")
+            return {
+                "risk_score": 1.0,
+                "position_ok": False,
+                "warnings": warnings,
+                "recommended_size": 0,
+                "volatility_adjusted": False,
+                "symbol": symbol,
+                "current_price": current_price
+            }
 
         # Check position size against max allowed
         max_position_pct = float(self.risk_config.max_position_size_percent) / 100.0
@@ -741,6 +850,8 @@ class RiskManager:
         This is a synchronous method for use in strategy evaluation flow.
         Checks if enough unallocated capital is available and reserves it.
 
+        ✅ EDGE CASE FIX: Now thread-safe with synchronous lock.
+
         Args:
             strategy_name: Name of the strategy requesting budget
             amount: Amount in USDT to reserve
@@ -748,47 +859,62 @@ class RiskManager:
         Returns:
             True if budget was successfully reserved, False if insufficient funds
         """
-        amount_decimal = Decimal(str(amount))
-
-        # Calculate available capital (total - already allocated)
-        total_allocated = sum(self._allocated_budgets.values())
-        available = self.current_capital - total_allocated
-
-        if amount_decimal > available:
+        # ✅ EDGE CASE FIX: Input validation
+        if amount <= 0:
             logger.warning(
-                "Budget allocation failed - insufficient funds",
-                extra={
-                    "strategy_name": strategy_name,
-                    "requested": float(amount_decimal),
-                    "available": float(available),
-                    "total_allocated": float(total_allocated),
-                    "current_capital": float(self.current_capital)
-                }
+                "Budget allocation failed - invalid amount",
+                extra={"strategy_name": strategy_name, "amount": amount}
             )
             return False
 
-        # Reserve the budget
-        if strategy_name in self._allocated_budgets:
-            self._allocated_budgets[strategy_name] += amount_decimal
-        else:
-            self._allocated_budgets[strategy_name] = amount_decimal
+        if not strategy_name or not isinstance(strategy_name, str):
+            logger.warning("Budget allocation failed - invalid strategy name")
+            return False
 
-        logger.info(
-            "Budget allocated for strategy",
-            extra={
-                "strategy_name": strategy_name,
-                "amount": float(amount_decimal),
-                "total_for_strategy": float(self._allocated_budgets[strategy_name]),
-                "remaining_available": float(available - amount_decimal)
-            }
-        )
-        return True
+        with self._sync_lock:  # ✅ EDGE CASE FIX: Thread-safe
+            amount_decimal = Decimal(str(amount))
+
+            # Calculate available capital (total - already allocated)
+            total_allocated = sum(self._allocated_budgets.values())
+            available = self.current_capital - total_allocated
+
+            if amount_decimal > available:
+                logger.warning(
+                    "Budget allocation failed - insufficient funds",
+                    extra={
+                        "strategy_name": strategy_name,
+                        "requested": float(amount_decimal),
+                        "available": float(available),
+                        "total_allocated": float(total_allocated),
+                        "current_capital": float(self.current_capital)
+                    }
+                )
+                return False
+
+            # Reserve the budget
+            if strategy_name in self._allocated_budgets:
+                self._allocated_budgets[strategy_name] += amount_decimal
+            else:
+                self._allocated_budgets[strategy_name] = amount_decimal
+
+            logger.info(
+                "Budget allocated for strategy",
+                extra={
+                    "strategy_name": strategy_name,
+                    "amount": float(amount_decimal),
+                    "total_for_strategy": float(self._allocated_budgets[strategy_name]),
+                    "remaining_available": float(available - amount_decimal)
+                }
+            )
+            return True
 
     def release_budget(self, strategy_name: str, amount: Optional[float] = None) -> bool:
         """
         Release previously allocated budget for a strategy.
 
         Called when a position is closed or cancelled.
+
+        ✅ EDGE CASE FIX: Now thread-safe with synchronous lock.
 
         Args:
             strategy_name: Name of the strategy releasing budget
@@ -797,44 +923,58 @@ class RiskManager:
         Returns:
             True if budget was released, False if strategy had no allocation
         """
-        if strategy_name not in self._allocated_budgets:
-            logger.warning(
-                "Cannot release budget - no allocation found",
-                extra={"strategy_name": strategy_name}
-            )
+        # ✅ EDGE CASE FIX: Input validation
+        if not strategy_name or not isinstance(strategy_name, str):
+            logger.warning("Cannot release budget - invalid strategy name")
             return False
 
-        if amount is None:
-            # Release all budget for this strategy
-            released = self._allocated_budgets.pop(strategy_name)
-            logger.info(
-                "All budget released for strategy",
-                extra={
-                    "strategy_name": strategy_name,
-                    "released": float(released)
-                }
-            )
-        else:
-            amount_decimal = Decimal(str(amount))
-            current = self._allocated_budgets[strategy_name]
+        with self._sync_lock:  # ✅ EDGE CASE FIX: Thread-safe
+            if strategy_name not in self._allocated_budgets:
+                logger.warning(
+                    "Cannot release budget - no allocation found",
+                    extra={"strategy_name": strategy_name}
+                )
+                return False
 
-            if amount_decimal >= current:
-                # Release all
+            if amount is None:
+                # Release all budget for this strategy
                 released = self._allocated_budgets.pop(strategy_name)
+                logger.info(
+                    "All budget released for strategy",
+                    extra={
+                        "strategy_name": strategy_name,
+                        "released": float(released)
+                    }
+                )
             else:
-                # Partial release
-                self._allocated_budgets[strategy_name] -= amount_decimal
-                released = amount_decimal
+                # ✅ EDGE CASE FIX: Validate amount
+                if amount < 0:
+                    logger.warning(
+                        "Cannot release negative budget amount",
+                        extra={"strategy_name": strategy_name, "amount": amount}
+                    )
+                    return False
 
-            logger.info(
-                "Budget partially released for strategy",
-                extra={
-                    "strategy_name": strategy_name,
-                    "released": float(released),
-                    "remaining": float(self._allocated_budgets.get(strategy_name, Decimal('0')))
-                }
-            )
-        return True
+                amount_decimal = Decimal(str(amount))
+                current = self._allocated_budgets[strategy_name]
+
+                if amount_decimal >= current:
+                    # Release all
+                    released = self._allocated_budgets.pop(strategy_name)
+                else:
+                    # Partial release
+                    self._allocated_budgets[strategy_name] -= amount_decimal
+                    released = amount_decimal
+
+                logger.info(
+                    "Budget partially released for strategy",
+                    extra={
+                        "strategy_name": strategy_name,
+                        "released": float(released),
+                        "remaining": float(self._allocated_budgets.get(strategy_name, Decimal('0')))
+                    }
+                )
+            return True
 
     def get_allocated_budget(self, strategy_name: str) -> float:
         """

@@ -36,15 +36,22 @@ export const useDashboardStore = create<DashboardState>()(
       ...initialState,
 
       // Actions
+      // ✅ EDGE CASE FIX: Added input validation to all setters
       setMarketData: (data: MarketData[]) => {
-        set({ marketData: data, marketDataLoading: false, marketDataError: null });
+        // Validate input - fallback to empty array if invalid
+        const validData = Array.isArray(data) ? data : [];
+        set({ marketData: validData, marketDataLoading: false, marketDataError: null });
       },
 
       setActiveSignals: (signals: ActiveSignal[]) => {
-        set({ activeSignals: signals, signalsLoading: false, signalsError: null });
+        // Validate input - fallback to empty array if invalid
+        const validSignals = Array.isArray(signals) ? signals : [];
+        set({ activeSignals: validSignals, signalsLoading: false, signalsError: null });
       },
 
       addSignal: (signal: ActiveSignal) => {
+        // Validate input - skip if null/undefined
+        if (!signal) return;
         const currentSignals = get().activeSignals;
         // Keep only latest 10 signals to prevent memory bloat
         const updatedSignals = [signal, ...currentSignals.slice(0, 9)];
@@ -52,14 +59,18 @@ export const useDashboardStore = create<DashboardState>()(
       },
 
       setIndicators: (indicators: IndicatorData[]) => {
-        set({ indicators, indicatorsLoading: false, indicatorsError: null });
+        // Validate input - fallback to empty array if invalid
+        const validIndicators = Array.isArray(indicators) ? indicators : [];
+        set({ indicators: validIndicators, indicatorsLoading: false, indicatorsError: null });
       },
 
       addIndicator: (indicator: IndicatorData) => {
+        // Validate input - skip if null/undefined
+        if (!indicator) return;
         const currentIndicators = get().indicators;
         // Update existing indicator or add new one
         const existingIndex = currentIndicators.findIndex(
-          ind => ind.symbol === indicator.symbol && ind.name === indicator.name
+          ind => ind?.symbol === indicator?.symbol && ind?.name === indicator?.name
         );
 
         if (existingIndex >= 0) {
@@ -74,20 +85,24 @@ export const useDashboardStore = create<DashboardState>()(
       },
 
       updateIndicator: (symbol: string, indicatorName: string, updates: Partial<IndicatorData>) => {
+        // Validate inputs
+        if (!symbol || !indicatorName) return;
         const currentIndicators = get().indicators;
         const updatedIndicators = currentIndicators.map(indicator =>
           indicator.symbol === symbol && indicator.name === indicatorName
-            ? { ...indicator, ...updates, timestamp: new Date().toISOString() }
+            ? { ...indicator, ...(updates || {}), timestamp: new Date().toISOString() }
             : indicator
         );
         set({ indicators: updatedIndicators });
       },
 
       updateMarketData: (symbol: string, updates: Partial<MarketData>) => {
+        // Validate inputs
+        if (!symbol) return;
         const currentData = get().marketData;
         const updatedData = currentData.map(item =>
           item.symbol === symbol
-            ? { ...item, ...updates, lastUpdate: new Date().toISOString() }
+            ? { ...item, ...(updates || {}), lastUpdate: new Date().toISOString() }
             : item
         );
         set({ marketData: updatedData });

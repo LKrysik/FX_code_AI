@@ -472,7 +472,12 @@ class WebSocketService {
   }
 
   // Public methods
+  // ✅ EDGE CASE FIX: Added input validation
   public setCallbacks(callbacks: WSCallbacks): void {
+    // Validate input - skip if null/undefined
+    if (!callbacks || typeof callbacks !== 'object') {
+      return;
+    }
     this.callbacks = { ...this.callbacks, ...callbacks };
   }
 
@@ -549,7 +554,14 @@ class WebSocketService {
 
   // Removed duplicate heartbeat method - using public one below
 
+  // ✅ EDGE CASE FIX: Added input validation
   public subscribe(stream: string, params: any = {}): void {
+    // Validate stream name
+    if (!stream || typeof stream !== 'string' || stream.trim().length === 0) {
+      debugLog('Invalid stream name for subscription, skipping');
+      return;
+    }
+
     console.log('🎧 [WebSocket] SUBSCRIBE REQUEST', {
       stream,
       params,
@@ -572,7 +584,13 @@ class WebSocketService {
     this.sendSubscription(stream, params);
   }
 
+  // ✅ EDGE CASE FIX: Added input validation
   public unsubscribe(stream: string): void {
+    // Validate stream name
+    if (!stream || typeof stream !== 'string') {
+      return;
+    }
+
     this.activeSubscriptions.delete(stream);
     this.pendingSubscriptions.delete(stream);
 
@@ -690,10 +708,17 @@ class WebSocketService {
 
 
 
+  // ✅ EDGE CASE FIX: Added input validation
   public addSessionUpdateListener(
     listener: (message: WSMessage) => void,
     componentName = 'unknown'
   ): () => void {
+    // Validate listener is a function
+    if (!listener || typeof listener !== 'function') {
+      // Return no-op cleanup function
+      return () => {};
+    }
+
     this.sessionUpdateListeners.add(listener);
     this.listenerMetadata.set(listener, {
       component: componentName,

@@ -108,10 +108,23 @@ class PositionRecord:
     def update_unrealized_pnl(self, current_price: float) -> None:
         """Update unrealized P&L based on current price
 
+        ✅ EDGE CASE FIX: Handle zero/invalid prices gracefully.
+
         Args:
             current_price: Current market price
         """
+        # ✅ EDGE CASE FIX: Handle invalid inputs
+        if current_price is None or current_price <= 0:
+            # Invalid current price - keep existing P&L
+            return
+
         if self.quantity == 0 or self.average_price == 0:
+            self.unrealized_pnl = 0.0
+            self.unrealized_pnl_pct = 0.0
+            return
+
+        # ✅ EDGE CASE FIX: Protect against division by zero
+        if self.average_price <= 0:
             self.unrealized_pnl = 0.0
             self.unrealized_pnl_pct = 0.0
             return
@@ -326,6 +339,50 @@ class OrderManager:
             # Example: entry=$100, leverage=3x → liq=$133.33
             return entry_price * (1 + 1 / leverage)
 
+    def _validate_order_inputs(
+        self,
+        symbol: str,
+        quantity: float,
+        price: float,
+        leverage: float,
+        max_slippage_pct: float
+    ) -> None:
+        """
+        Validate order input parameters.
+
+        ✅ EDGE CASE FIX: Added comprehensive input validation.
+
+        Raises:
+            ValueError: If any parameter is invalid
+        """
+        # Validate symbol
+        if not symbol or not isinstance(symbol, str) or len(symbol.strip()) == 0:
+            raise ValueError("Invalid symbol: must be a non-empty string")
+
+        # Validate quantity
+        if quantity is None or quantity <= 0:
+            raise ValueError(f"Invalid quantity: {quantity} - must be positive")
+
+        # Check for unreasonably large quantity
+        if quantity > 1e15:
+            raise ValueError(f"Invalid quantity: {quantity} - exceeds reasonable limit")
+
+        # Validate price
+        if price is None or price <= 0:
+            raise ValueError(f"Invalid price: {price} - must be positive")
+
+        # Check for unreasonably large price
+        if price > 1e15:
+            raise ValueError(f"Invalid price: {price} - exceeds reasonable limit")
+
+        # Validate leverage
+        if leverage < 1.0 or leverage > 10.0:
+            raise ValueError(f"Leverage must be between 1.0 and 10.0, got {leverage}")
+
+        # Validate slippage
+        if max_slippage_pct < 0:
+            raise ValueError(f"Invalid max_slippage_pct: {max_slippage_pct} - cannot be negative")
+
     async def submit_order(self,
                           symbol: str,
                           order_type: OrderType,
@@ -353,20 +410,12 @@ class OrderManager:
             Order ID
 
         Raises:
-            ValueError: If leverage is invalid (must be 1-10)
+            ValueError: If any parameter is invalid
         """
-        async with self._lock:  # Protect entire order submission
-            # TIER 3.1: Validate leverage before order submission
-            if leverage < 1.0 or leverage > 10.0:
-                error_msg = f"Leverage must be between 1.0 and 10.0, got {leverage}"
-                self.logger.error("order_manager.invalid_leverage", {
-                    "leverage": leverage,
-                    "symbol": symbol,
-                    "order_type": order_type.name,
-                    "strategy_name": strategy_name
-                })
-                raise ValueError(error_msg)
+        # ✅ EDGE CASE FIX: Validate all inputs before acquiring lock
+        self._validate_order_inputs(symbol, quantity, price, leverage, max_slippage_pct)
 
+        async with self._lock:  # Protect entire order submission
             # Log warning for high leverage (>5x)
             if leverage > 5.0:
                 self.logger.warning("order_manager.high_leverage_warning", {

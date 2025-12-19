@@ -73,6 +73,12 @@ class RateLimiter:
     - Clients exceeding limits receive 429 responses
     - Rate limit violations are logged for monitoring
     - Graceful degradation under attack conditions
+
+    ✅ EDGE CASE FIXES:
+    - Added input validation for IP addresses
+    - Added thread-safe locks for concurrent access
+    - Added validation for configuration parameters
+    - Added protection against double-start
     """
 
     def __init__(self,
@@ -82,6 +88,14 @@ class RateLimiter:
                  cleanup_interval_seconds: int = 300,
                  max_cache_size_connections: int = 10000,
                  max_cache_size_messages: int = 50000):
+        # ✅ EDGE CASE FIX: Validate configuration parameters
+        if max_connections_per_minute < 0:
+            raise ValueError(f"max_connections_per_minute must be >= 0, got {max_connections_per_minute}")
+        if max_messages_per_minute < 0:
+            raise ValueError(f"max_messages_per_minute must be >= 0, got {max_messages_per_minute}")
+        if block_duration_minutes < 0:
+            raise ValueError(f"block_duration_minutes must be >= 0, got {block_duration_minutes}")
+
         self.max_connections_per_minute = max_connections_per_minute
         self.max_messages_per_minute = max_messages_per_minute
         self.block_duration_minutes = block_duration_minutes
@@ -91,11 +105,21 @@ class RateLimiter:
         self.connection_attempts: LRUCache[str, RateLimitEntry] = LRUCache(capacity=max_cache_size_connections)
         self.message_counts: LRUCache[str, RateLimitEntry] = LRUCache(capacity=max_cache_size_messages)
 
+        # ✅ EDGE CASE FIX: Thread-safe locks for concurrent access
+        import threading
+        self._connection_lock = threading.Lock()
+        self._message_lock = threading.Lock()
+
         # Cleanup task
         self._cleanup_task: Optional[asyncio.Task] = None
+        self._started = False  # ✅ EDGE CASE FIX: Track start state
 
     async def start(self):
         """Start the rate limiter cleanup task"""
+        # ✅ EDGE CASE FIX: Prevent double-start
+        if self._started:
+            return
+        self._started = True
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
 
     async def stop(self):
@@ -106,6 +130,9 @@ class RateLimiter:
                 await self._cleanup_task
             except asyncio.CancelledError:
                 pass
+            self._cleanup_task = None
+        # ✅ EDGE CASE FIX: Reset started flag so can restart
+        self._started = False
 
     async def _cleanup_loop(self):
         """Periodic cleanup of expired rate limit entries"""
@@ -131,21 +158,53 @@ class RateLimiter:
         expired_connections = []
         expired_messages = []
 
-        for ip, entry in self.connection_attempts.items():
-            if entry.blocked_until and now > entry.blocked_until:
-                expired_connections.append(ip)
-            elif now - entry.window_start > timedelta(minutes=1):
-                expired_connections.append(ip)
+        # ✅ EDGE CASE FIX: Thread-safe cleanup with locks
+        # First, collect expired entries while holding the lock
+        with self._connection_lock:
+            # Create a snapshot of items to avoid dict changed size during iteration
+            connection_items = list(self.connection_attempts.items())
+            for ip, entry in connection_items:
+                if entry.blocked_until and now > entry.blocked_until:
+                    expired_connections.append(ip)
+                elif now - entry.window_start > timedelta(minutes=1):
+                    expired_connections.append(ip)
 
-        for ip, entry in self.message_counts.items():
-            if now - entry.window_start > timedelta(minutes=1):
-                expired_messages.append(ip)
+            # Remove expired entries
+            for ip in expired_connections:
+                self.connection_attempts.pop(ip, None)
 
-        for ip in expired_connections:
-            self.connection_attempts.pop(ip, None)
+        with self._message_lock:
+            # Create a snapshot of items to avoid dict changed size during iteration
+            message_items = list(self.message_counts.items())
+            for ip, entry in message_items:
+                if now - entry.window_start > timedelta(minutes=1):
+                    expired_messages.append(ip)
 
-        for ip in expired_messages:
-            self.message_counts.pop(ip, None)
+            # Remove expired entries
+            for ip in expired_messages:
+                self.message_counts.pop(ip, None)
+
+    def _validate_ip_address(self, ip_address: str) -> bool:
+        """
+        Validate IP address input.
+
+        ✅ EDGE CASE FIX: Validate IP to prevent issues with empty/invalid values
+
+        Returns:
+            True if valid, False otherwise
+        """
+        if ip_address is None:
+            return False
+        if not isinstance(ip_address, str):
+            return False
+        # Strip whitespace and check if empty
+        ip_stripped = ip_address.strip()
+        if len(ip_stripped) == 0:
+            return False
+        # Limit IP length to prevent memory issues (max reasonable: IPv6 with zone ID ~50 chars)
+        if len(ip_address) > 100:
+            return False
+        return True
 
     def check_connection_limit(self, ip_address: str) -> bool:
         """
@@ -154,34 +213,40 @@ class RateLimiter:
         Returns:
             True if connection is allowed, False if rate limited
         """
-        now = datetime.now()
-        entry = self.connection_attempts.get(ip_address)
+        # ✅ EDGE CASE FIX: Validate IP address
+        if not self._validate_ip_address(ip_address):
+            return False  # Reject invalid IPs
 
-        if entry:
-            # Check if currently blocked
-            if entry.blocked_until and now < entry.blocked_until:
-                return False
+        # ✅ EDGE CASE FIX: Thread-safe access
+        with self._connection_lock:
+            now = datetime.now()
+            entry = self.connection_attempts.get(ip_address)
 
-            # Check if within same minute window
-            if now - entry.window_start < timedelta(minutes=1):
-                if entry.count >= self.max_connections_per_minute:
-                    # Block this IP
-                    entry.blocked_until = now + timedelta(minutes=self.block_duration_minutes)
+            if entry:
+                # Check if currently blocked
+                if entry.blocked_until and now < entry.blocked_until:
                     return False
-                entry.count += 1
-            else:
-                # Reset window
-                entry.count = 1
-                entry.window_start = now
-                entry.blocked_until = None
-        else:
-            # First connection attempt
-            self.connection_attempts[ip_address] = RateLimitEntry(
-                count=1,
-                window_start=now
-            )
 
-        return True
+                # Check if within same minute window
+                if now - entry.window_start < timedelta(minutes=1):
+                    if entry.count >= self.max_connections_per_minute:
+                        # Block this IP
+                        entry.blocked_until = now + timedelta(minutes=self.block_duration_minutes)
+                        return False
+                    entry.count += 1
+                else:
+                    # Reset window
+                    entry.count = 1
+                    entry.window_start = now
+                    entry.blocked_until = None
+            else:
+                # First connection attempt
+                self.connection_attempts[ip_address] = RateLimitEntry(
+                    count=1,
+                    window_start=now
+                )
+
+            return True
 
     def check_message_limit(self, ip_address: str) -> bool:
         """
@@ -190,37 +255,52 @@ class RateLimiter:
         Returns:
             True if message is allowed, False if rate limited
         """
-        now = datetime.now()
-        entry = self.message_counts.get(ip_address)
+        # ✅ EDGE CASE FIX: Validate IP address
+        if not self._validate_ip_address(ip_address):
+            return False  # Reject invalid IPs
 
-        if entry:
-            # Check if within same minute window
-            if now - entry.window_start < timedelta(minutes=1):
-                if entry.count >= self.max_messages_per_minute:
-                    return False
-                entry.count += 1
+        # ✅ EDGE CASE FIX: Thread-safe access
+        with self._message_lock:
+            now = datetime.now()
+            entry = self.message_counts.get(ip_address)
+
+            if entry:
+                # Check if within same minute window
+                if now - entry.window_start < timedelta(minutes=1):
+                    if entry.count >= self.max_messages_per_minute:
+                        return False
+                    entry.count += 1
+                else:
+                    # Reset window
+                    entry.count = 1
+                    entry.window_start = now
             else:
-                # Reset window
-                entry.count = 1
-                entry.window_start = now
-        else:
-            # First message
-            self.message_counts[ip_address] = RateLimitEntry(
-                count=1,
-                window_start=now
-            )
+                # First message
+                self.message_counts[ip_address] = RateLimitEntry(
+                    count=1,
+                    window_start=now
+                )
 
-        return True
+            return True
 
     def get_stats(self) -> Dict[str, Any]:
         """Get rate limiter statistics"""
         now = datetime.now()
-        active_blocks = sum(1 for entry in self.connection_attempts.values()
-                          if entry.blocked_until and now < entry.blocked_until)
+
+        # ✅ EDGE CASE FIX: Thread-safe stats collection
+        with self._connection_lock:
+            connection_count = len(self.connection_attempts)
+            # Create snapshot to avoid dict changed size during iteration
+            connection_values = list(self.connection_attempts.values())
+            active_blocks = sum(1 for entry in connection_values
+                              if entry.blocked_until and now < entry.blocked_until)
+
+        with self._message_lock:
+            message_count = len(self.message_counts)
 
         return {
-            "connection_attempts_tracked": len(self.connection_attempts),
-            "message_counts_tracked": len(self.message_counts),
+            "connection_attempts_tracked": connection_count,
+            "message_counts_tracked": message_count,
             "currently_blocked_ips": active_blocks,
             "max_connections_per_minute": self.max_connections_per_minute,
             "max_messages_per_minute": self.max_messages_per_minute,
