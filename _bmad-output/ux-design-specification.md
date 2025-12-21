@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2, 3, 4]
+stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8]
 inputDocuments:
   - "_bmad-output/prd.md"
   - "_bmad-output/analysis/brainstorming-session-2025-12-18.md"
@@ -20,8 +20,10 @@ elicitationMethods:
   - "First Principles Analysis"
   - "SCAMPER Method"
   - "Pre-mortem Analysis"
+  - "Genre Mashup"
+  - "Comparative Analysis Matrix"
 workflowType: 'ux-design'
-lastStep: 4
+lastStep: 8
 project_name: 'FX Agent AI'
 user_name: 'Mr Lu'
 date: '2025-12-20'
@@ -426,6 +428,342 @@ Trading inherently triggers strong emotions that UX must actively manage:
    - Track user achievements (first signal, first profit, streak)
    - Show improvement over time
    - Celebrate milestones
+
+---
+
+## UX Pattern Analysis & Inspiration
+
+### Inspiration Sources
+
+| Source | Pattern | Application to FX Agent AI |
+|--------|---------|---------------------------|
+| **Spotify** | Now Playing Bar | Persistent footer showing active position |
+| **Video Games** | Health bars, celebrations | P&L visualization, profit animations |
+| **TradingView** | Information density | Chart layouts, indicator organization |
+| **Linear/Notion** | Keyboard-first design | Power user shortcuts |
+| **Slack/Discord** | Status badges | Connection/system status |
+| **Duolingo** | Streak counters | Trading session achievements |
+
+### Genre Mashup Discoveries
+
+| Mashup | Key Pattern | FX Agent AI Implementation |
+|--------|-------------|---------------------------|
+| **Trading + Racing Games** | Delta Display | "+$43 to target" format for P&L |
+| **Trading + ICU Monitors** | Trend Arrows | ↑↓→ on all numeric indicators |
+| **Trading + Video Editing** | Session Timeline | Visual trade history scrubber |
+| **Trading + ATC** | Voice Callouts | Optional audio state announcements |
+| **Trading + Kitchen** | Signal Tickets | Queue-style signal management |
+
+### Comparative Analysis Matrix
+
+**Evaluation Criteria (Weighted):**
+
+| Criterion | Weight | Description |
+|-----------|--------|-------------|
+| Clarity | 25% | Answers "What should I do now?" |
+| Speed | 20% | Comprehension in < 2 seconds |
+| Emotional Impact | 15% | Creates confidence/trust |
+| State Awareness | 20% | Adapts to trading state |
+| Implementation Effort | 10% | Low/Medium/High complexity |
+| Power User Fit | 10% | Works for advanced traders |
+
+**Pattern Scoring Results:**
+
+| Pattern | Source | Score | Tier |
+|---------|--------|:-----:|:----:|
+| Status Hero Component | Original | 9.1 | 🏆 T1 |
+| Journey Bar Navigation | Original | 8.9 | 🏆 T1 |
+| Delta Display | Racing | 8.8 | 🏆 T1 |
+| Human Vocabulary | Original | 8.8 | 🏆 T1 |
+| Now Playing Bar | Spotify | 8.5 | 🏆 T1 |
+| Sound Alerts | ATC | 8.4 | 🥈 T2 |
+| Condition Progress | Original | 8.3 | 🥈 T2 |
+| Trend Arrows | ICU | 8.2 | 🥈 T2 |
+| Health Bar P&L | Gaming | 7.9 | 🥈 T2 |
+| Hide-First Design | Original | 7.9 | 🥈 T2 |
+| Keyboard Shortcuts | Linear | 7.0 | 🥉 T3 |
+| Signal Tickets | Kitchen | 6.9 | 🥉 T3 |
+| Celebration Animation | Gaming | 6.5 | 🥉 T3 |
+| Session Timeline | Video Ed | 6.4 | 🥉 T3 |
+
+### Implementation Priority Order
+
+```
+PHASE 1: Core Clarity (Must Have)
+├── 1. Human Vocabulary        → Terminology transformation
+├── 2. Status Hero Component   → Dashboard centerpiece
+└── 3. Journey Bar Navigation  → Header/footer navigation
+
+PHASE 2: Position Experience (Should Have)
+├── 4. Now Playing Bar         → Persistent position footer
+├── 5. Delta Display           → "+$X to target" formatting
+└── 6. Condition Progress      → Visual progress bars
+
+PHASE 3: Polish & Power (Nice to Have)
+├── 7. Sound Alerts            → Optional audio feedback
+├── 8. Trend Arrows            → Indicator direction hints
+├── 9. Hide-First Design       → Expert mode toggle
+└── 10. Health Bar P&L         → Alternative P&L visualization
+```
+
+### Anti-Patterns to Avoid
+
+| Anti-Pattern | Why Avoid | Alternative |
+|--------------|-----------|-------------|
+| Robinhood confetti on every action | Desensitizes users | Reserve for significant wins |
+| Bloomberg Terminal density | Overwhelms intermediates | Progressive disclosure |
+| Mobile-first trading | Wrong platform for complexity | Desktop-first, mobile emergency |
+| Infinite scrolling logs | Buries critical info | Filtered, searchable, paginated |
+| Hidden error states | Users miss critical issues | Impossible-to-miss alerts |
+
+---
+
+## Design System Foundation
+
+### Design System Choice
+
+**Selected System:** Material UI (MUI) v5+ with Trading-Specific Customization
+
+**Decision Type:** Enhance existing system (brownfield optimization)
+
+### Rationale for Selection
+
+1. **Zero Migration Risk** - MUI already integrated in Next.js codebase
+2. **Component Coverage** - DataGrid, Charts, Dialogs cover trading dashboard needs
+3. **Theming Capability** - Can implement state-driven color schemes
+4. **Dark Mode Native** - Essential for trader eye comfort during long sessions
+5. **Accessibility Built-in** - WCAG 2.1 AA compliance out-of-box
+
+### Implementation Approach
+
+| Layer | Approach | Priority |
+|-------|----------|----------|
+| **Theme Layer** | Custom palette, typography, spacing | P1 |
+| **State Variants** | Mode-specific component styling | P1 |
+| **Custom Components** | StatusHero, JourneyBar, ConditionProgress | P1 |
+| **Animations** | Celebration effects, state transitions | P2 |
+| **Accessibility** | Keyboard nav, screen reader optimization | P2 |
+
+### Customization Strategy
+
+**Trading Color Palette:**
+
+| State | Primary Color | Usage |
+|-------|---------------|-------|
+| MONITORING | Slate/Muted Blue | Calm, low-attention |
+| SIGNAL_DETECTED | Amber/Orange | Alert, attention-rising |
+| POSITION_ACTIVE | Deep Blue | Focused, monitoring |
+| PROFIT | Green | Success, celebration |
+| LOSS | Red | Warning, learning |
+
+**Typography Scale:**
+
+| Element | Size | Weight | Use Case |
+|---------|------|--------|----------|
+| Hero Metric | 48-64px | Bold | P&L display |
+| State Badge | 24px | Semibold | Current state |
+| Label | 14px | Medium | Field labels |
+| Data | 16px | Regular | Values |
+| Caption | 12px | Regular | Secondary info |
+
+**Custom Components Required:**
+
+| Component | Purpose | Priority |
+|-----------|---------|----------|
+| **StatusHero** | Combined state + P&L display (largest element) | P1 |
+| **JourneyBar** | Visual trading flow navigation | P1 |
+| **ConditionProgress** | Visual progress bars for conditions | P1 |
+| **DeltaDisplay** | "+$X to target" formatted metrics | P2 |
+| **TransitionBadge** | Inline "why" explanations | P2 |
+
+---
+
+## Defining Core Experience
+
+### The Signature Interaction
+
+**Defining Experience:** The 60-second Signal-to-Entry Decision Window
+
+This is the moment that defines FX Agent AI - when the system detects a pump signal and the user watches conditions being evaluated in real-time, understanding exactly what the system sees and why it's making decisions.
+
+**User Narrative:** "I see a pump starting, I watch the conditions check off one by one, I understand why we're entering, and I trust the system to execute."
+
+### User Mental Model
+
+**Expectations:**
+- Transparency: "Show me what you see"
+- Control: "Let me override if needed"
+- Trust: "Explain why you did that"
+- Clarity: "Don't make me think"
+
+**Mental Model Mapping:**
+
+| User Thought | System Response |
+|--------------|-----------------|
+| "What's happening?" | StatusHero with current state |
+| "Why this signal?" | Inline "Why:" explanation |
+| "How close to entry?" | Condition progress bars |
+| "Can I stop it?" | Visible PAUSE/CANCEL buttons |
+| "Did it work?" | P&L display + exit reason |
+
+### Success Criteria
+
+| Criterion | Target |
+|-----------|--------|
+| State comprehension | < 2 seconds |
+| Signal explanation accessible | 100% visible |
+| Manual override time | < 1 second |
+| Trust achievement | After 5 trades |
+| Error detection | < 3 seconds |
+
+### Novel UX Patterns
+
+| Pattern | Innovation | Education |
+|---------|------------|-----------|
+| State Machine Visibility | Shows internal logic | First-time tooltip |
+| Inline Transition Reasons | No log-digging needed | "Why?" affordance |
+| Journey Bar Navigation | Trading flow awareness | Self-explanatory |
+| Condition Progress Bars | Familiar but new context | Intuitive |
+
+### Experience Mechanics
+
+**The Core Flow:**
+
+```
+DETECTION → EVALUATION → DECISION → EXECUTION → MONITORING
+    🔥          ████         ⏱️          🎯          📈
+```
+
+| Phase | User Action | System Response | Feedback |
+|-------|-------------|-----------------|----------|
+| Detection | None (auto) | Signal detected | 🔥 badge + sound + UI shift |
+| Evaluation | Watch | Progress updates | Bars fill, conditions check |
+| Decision | Override or wait | Enter or cancel | Countdown + action buttons |
+| Execution | (Auto or manual) | Position opened | State → POSITION_ACTIVE |
+| Monitoring | Watch P&L | Track progress | P&L hero + journey update |
+
+### Signal Detection UI Wireframe
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  🔥 FOUND! Signal Detected on BTCUSDT                       │
+│  ─────────────────────────────────────────────────────────  │
+│  Why: Volume spike 340% + RSI divergence + Pattern match    │
+├─────────────────────────────────────────────────────────────┤
+│  CONDITIONS FOR ENTRY:                    ⏱️ 47s remaining  │
+│  ████████████░░░░░░░░░ 60%                                  │
+│                                                             │
+│  ✅ Volume spike > 300%           340%                      │
+│  ✅ RSI divergence                Confirmed                 │
+│  ⏳ Price confirmation            Waiting... ($45,230)      │
+│  ○  Momentum check                Pending                   │
+│                                                             │
+│  ┌─────────────────┐  ┌─────────────────┐                   │
+│  │  ⏸️ PAUSE       │  │  ❌ CANCEL      │                   │
+│  └─────────────────┘  └─────────────────┘                   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Visual Design Foundation
+
+### Color System
+
+**Philosophy:** State-driven colors that communicate meaning, not just aesthetics.
+
+**State Colors:**
+
+| State | Color | Hex | Usage |
+|-------|-------|-----|-------|
+| Monitoring | Slate | `#64748B` | Calm, watching |
+| Signal Detected | Amber | `#F59E0B` | Alert, attention |
+| Position Active | Blue | `#3B82F6` | Focused monitoring |
+| Profit | Green | `#10B981` | Success, gains |
+| Loss | Red | `#EF4444` | Warning, losses |
+| Neutral | Gray | `#6B7280` | Inactive, disabled |
+
+**Semantic Tokens:**
+
+| Token | Light Mode | Dark Mode | Purpose |
+|-------|------------|-----------|---------|
+| `--bg-primary` | `#FFFFFF` | `#0F172A` | Main background |
+| `--bg-secondary` | `#F8FAFC` | `#1E293B` | Cards, panels |
+| `--text-primary` | `#0F172A` | `#F8FAFC` | Main text |
+| `--text-secondary` | `#64748B` | `#94A3B8` | Labels, hints |
+| `--border-default` | `#E2E8F0` | `#334155` | Dividers |
+
+**Theme Support:** Light and Dark modes with automatic switching preference.
+
+### Typography System
+
+**Font Stack:**
+
+| Role | Font | Fallback | Usage |
+|------|------|----------|-------|
+| Primary | Inter | system-ui, sans-serif | UI text |
+| Monospace | JetBrains Mono | monospace | Numbers, prices |
+
+**Type Scale:**
+
+| Token | Size | Weight | Usage |
+|-------|------|--------|-------|
+| Hero | 48px | 700 | P&L display |
+| H1 | 32px | 600 | Section headers |
+| H2 | 24px | 600 | Panel titles |
+| H3 | 20px | 500 | Card headers |
+| Body | 16px | 400 | Default text |
+| Label | 14px | 500 | Field labels |
+| Caption | 12px | 400 | Secondary info |
+
+**Numeric Display:** All prices and percentages use JetBrains Mono for alignment and clarity.
+
+### Spacing & Layout
+
+**Base Unit:** 4px
+
+**Spacing Scale:** 4px → 8px → 12px → 16px → 24px → 32px → 48px
+
+**Layout Structure:**
+
+```
+┌────────────────────────────────────────────────────────────┐
+│  HEADER: Journey Bar + Status Hero (Fixed, 64px)           │
+├──────────────────────┬─────────────────────────────────────┤
+│  SIDEBAR (280px)     │  MAIN CONTENT (Fluid)               │
+│  Navigation          │  State-driven panels                │
+├──────────────────────┴─────────────────────────────────────┤
+│  FOOTER: Now Playing Bar (56px, when position active)      │
+└────────────────────────────────────────────────────────────┘
+```
+
+**Breakpoints:**
+
+| Name | Width | Behavior |
+|------|-------|----------|
+| Desktop XL | ≥1920px | Full layout |
+| Desktop | ≥1440px | Standard |
+| Desktop SM | ≥1280px | Compact sidebar |
+| Emergency | <1280px | Mobile emergency only |
+
+### Accessibility
+
+| Requirement | Standard | Implementation |
+|-------------|----------|----------------|
+| Color Contrast | WCAG 2.1 AA | ≥4.5:1 for text |
+| Focus Indicators | WCAG 2.1 AA | 2px solid ring |
+| Keyboard Navigation | WCAG 2.1 AA | Full tab order |
+| Screen Readers | WCAG 2.1 AA | ARIA labels |
+| Reduced Motion | WCAG 2.1 AAA | Respects preference |
+| Color Independence | WCAG 2.1 AA | Icons supplement color |
+
+**Color-Blind Support:**
+
+| State | Color | Icon Backup |
+|-------|-------|-------------|
+| Profit | Green | ↑ arrow |
+| Loss | Red | ↓ arrow |
+| Signal | Amber | 🔥 icon |
 
 ---
 

@@ -52,6 +52,68 @@ Dodano również zwolnienie budżetu w `strategy_manager.py` przy zamykaniu pozy
 
 ---
 
+## Problemy Bezpieczeństwa (Red Team Analysis 2025-12-21)
+
+Zidentyfikowane przez analizę adversarialną Red Team vs Blue Team.
+
+### SEC-P0: Race Condition w Position Close/Modify
+**Severity:** 🔴 CRITICAL
+**Wektor:** Jednoczesne wysłanie dwóch requestów close na tę samą pozycję
+**Ryzyko:** Double-close pozycji, nieprawidłowe obliczenie P&L, osierocone ordery
+**Fix:** Dodać distributed locking na operacjach pozycji (mutex per position_id)
+**Status:** Do naprawy
+
+### SEC-P0: Strategy JSON Injection
+**Severity:** 🔴 CRITICAL
+**Wektor:** Malformed strategy JSON z visual buildera może zawierać złośliwe nazwy indykatorów
+**Ryzyko:** Wykonanie nieautoryzowanego kodu, crash systemu
+**Fix:** Implementacja allowlist dla nazw indykatorów/akcji, walidacja server-side
+**Status:** Do naprawy
+
+### SEC-P0: WebSocket State Desync
+**Severity:** 🔴 CRITICAL
+**Wektor:** Brak Redis = stan w pamięci. Disconnect/reconnect = stale data
+**Ryzyko:** Użytkownik widzi nieaktualne pozycje, podejmuje błędne decyzje tradingowe
+**Fix:** Protokół rekoncyliacji stanu przy WS reconnect
+**Status:** Do naprawy (powiązane z KI2)
+
+### SEC-P1: API Key Exposure w Logach/Błędach
+**Severity:** 🟠 HIGH
+**Wektor:** Błędy z MEXC adapter mogą zawierać API keys w stack trace
+**Ryzyko:** Kompromitacja konta exchange
+**Fix:** Sanityzacja wszystkich error messages, maskowanie credentials
+**Status:** Do naprawy
+
+### SEC-P1: Order Idempotency
+**Severity:** 🟠 HIGH
+**Wektor:** Brak idempotency keys na orderach
+**Ryzyko:** Duplikaty orderów przy retry/reconnect
+**Fix:** Dodać idempotency key do każdego order request
+**Status:** Do naprawy
+
+### SEC-P1: State Machine Transition Bypass
+**Severity:** 🟠 HIGH
+**Wektor:** Wymuszenie nieprawidłowych przejść stanów przez API
+**Ryzyko:** Korupcja lifecycle pozycji
+**Fix:** Server-side walidacja wszystkich state transitions
+**Status:** Do naprawy
+
+### SEC-P2: MEXC Adapter Circuit Breaker
+**Severity:** 🟡 MEDIUM
+**Wektor:** Kaskadowe awarie przy problemach z API MEXC
+**Ryzyko:** System hang, utrata responsywności
+**Fix:** Implementacja circuit breaker pattern
+**Status:** Do rozważenia
+
+### SEC-P2: Division by Zero w Indykatorach
+**Severity:** 🟡 MEDIUM
+**Wektor:** Edge cases w custom indicators (zero volume, zero price)
+**Ryzyko:** Crash kalkulacji, brak sygnałów
+**Fix:** Defensive math we wszystkich indykatorach
+**Status:** Do rozważenia
+
+---
+
 ## Ograniczenia Architektury
 
 ### OA1: Tylko MEXC Futures
