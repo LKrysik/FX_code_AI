@@ -47,11 +47,23 @@ axios.interceptors.request.use(
 // Cookie-based Authentication - HttpOnly cookies for security
 class CookieAuth {
   private refreshPromise: Promise<void> | null = null;
+  private _isAuthenticated: boolean = false;
+  private _lastAuthCheck: number = 0;
+  private static AUTH_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
   isAuthenticated(): boolean {
-    // Since cookies are HttpOnly, we can't check directly
-    // Assume authenticated if no recent 401
-    return true; // Will be validated by server
+    // Check localStorage for user info as proxy for auth state
+    // HttpOnly cookies can't be read directly, but we track login/logout state
+    if (typeof window !== 'undefined') {
+      const userStr = localStorage.getItem('current_user');
+      return !!userStr && this._isAuthenticated;
+    }
+    return this._isAuthenticated;
+  }
+
+  setAuthenticated(value: boolean): void {
+    this._isAuthenticated = value;
+    this._lastAuthCheck = Date.now();
   }
 
   async login(username: string, password: string): Promise<any> {
@@ -60,6 +72,9 @@ class CookieAuth {
         username,
         password
       });
+
+      // Mark as authenticated on successful login
+      this.setAuthenticated(true);
 
       // Fetch new CSRF token after successful login
       try {
@@ -70,6 +85,7 @@ class CookieAuth {
 
       return response.data;
     } catch (error: any) {
+      this.setAuthenticated(false);
       console.error('Login failed:', error);
       throw new Error(error.response?.data?.error_message || 'Login failed');
     }
@@ -81,6 +97,12 @@ class CookieAuth {
     } catch (error) {
       console.warn('Logout request failed:', error);
     } finally {
+      // Mark as not authenticated
+      this.setAuthenticated(false);
+      // Clear user from localStorage
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('current_user');
+      }
       // Clear CSRF token on logout
       csrfService.clearToken();
     }
@@ -331,7 +353,7 @@ class ApiService {
 
     return this.dedupedRequest(key, async () => {
       const response = await axios.get<ApiResponse<{ indicators: Indicator[] }>>(
-        `/indicators?${queryString}`
+        `/api/indicators/system?${queryString}`
       );
       return response.data.data?.indicators || [];
     });
@@ -339,8 +361,8 @@ class ApiService {
 
   async getIndicatorTypes(): Promise<string[]> {
     return this.dedupedRequest('getIndicatorTypes', async () => {
-      const response = await axios.get<ApiResponse<{ types: string[] }>>('/indicators/types');
-      return response.data.data?.types || [];
+      const response = await axios.get<ApiResponse<{ categories: string[] }>>('/api/indicators/system/categories');
+      return response.data.data?.categories || [];
     });
   }
 
@@ -393,7 +415,7 @@ class ApiService {
         ...arg1,
       };
     }
-    const response = await axios.post<ApiResponse>('/indicators', payload);
+    const response = await axios.post<ApiResponse>('/api/indicators/variants', payload);
     return response.data;
   }
 
@@ -406,12 +428,12 @@ class ApiService {
       timeframe: '1m',
       ...spec,
     };
-    const response = await axios.put<ApiResponse>(`/indicators/${key}`, payload);
+    const response = await axios.put<ApiResponse>(`/api/indicators/variants/${key}`, payload);
     return response.data;
   }
 
   async deleteIndicator(key: string): Promise<any> {
-    const response = await axios.delete<ApiResponse>(`/indicators/${key}`);
+    const response = await axios.delete<ApiResponse>(`/api/indicators/variants/${key}`);
     return response.data;
   }
 

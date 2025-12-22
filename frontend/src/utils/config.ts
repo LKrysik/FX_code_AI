@@ -15,9 +15,20 @@ export const getAppConfig = (): AppConfig => {
   const isProduction = process.env.NODE_ENV === 'production';
   const isSecure = typeof window !== 'undefined' && window.location.protocol === 'https:';
 
+  // API URL - must be set via environment variable in production
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+
+  // WebSocket URL - derive from API URL if not explicitly set
+  // Appends /ws path for WebSocket endpoint
+  let wsUrl = process.env.NEXT_PUBLIC_WS_URL;
+  if (!wsUrl) {
+    // Convert http(s) to ws(s) and append /ws path
+    wsUrl = apiUrl.replace(/^http/, 'ws') + '/ws';
+  }
+
   return {
-    apiUrl: process.env.NEXT_PUBLIC_API_URL || (isProduction || isSecure ? 'https://api.cryptotrading.com' : 'http://localhost:8080'),
-    wsUrl: process.env.NEXT_PUBLIC_WS_URL || (isProduction || isSecure ? 'wss://api.cryptotrading.com/ws' : 'ws://localhost:8080'),
+    apiUrl,
+    wsUrl,
     isProduction,
     isSecure,
     appName: process.env.NEXT_PUBLIC_APP_NAME || 'Crypto Trading Platform',

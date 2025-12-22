@@ -2987,6 +2987,90 @@ def create_unified_app():
         return _json_ok(performance)
 
     # =========================================================================
+    # Risk Management Endpoints
+    # =========================================================================
+    @app.get("/risk/budget")
+    async def get_risk_budget(current_user: UserSession = Depends(get_current_user)):
+        """Get budget summary for risk management"""
+        # Return stub data - integrate with actual risk service when available
+        return _json_ok({
+            "total_budget": 10000.0,
+            "allocated": 2500.0,
+            "available": 7500.0,
+            "allocations": {
+                "strategy_1": {"allocated": 1500.0, "used": 800.0},
+                "strategy_2": {"allocated": 1000.0, "used": 450.0}
+            },
+            "risk_limits": {
+                "max_position_size_pct": 5.0,
+                "max_daily_loss_pct": 2.0,
+                "max_drawdown_pct": 10.0
+            }
+        })
+
+    @app.post("/risk/budget/allocate")
+    async def allocate_risk_budget(
+        request: Request,
+        current_user: UserSession = Depends(get_current_user),
+        _csrf: None = Depends(verify_csrf_token)
+    ):
+        """Allocate budget to a strategy"""
+        body = await request.json()
+        strategy_name = body.get("strategy_name")
+        amount = body.get("amount", 0)
+        max_allocation_pct = body.get("max_allocation_pct", 5.0)
+
+        if not strategy_name:
+            return _json_error("validation_error", "strategy_name is required", status=400)
+
+        # Return stub response - integrate with actual risk service when available
+        return _json_ok({
+            "success": True,
+            "strategy_name": strategy_name,
+            "allocated_amount": amount,
+            "max_allocation_pct": max_allocation_pct,
+            "message": f"Allocated {amount} to {strategy_name}"
+        })
+
+    @app.post("/risk/assess-position")
+    async def assess_position_risk(
+        request: Request,
+        current_user: UserSession = Depends(get_current_user),
+        _csrf: None = Depends(verify_csrf_token)
+    ):
+        """Assess risk for a potential position"""
+        body = await request.json()
+        symbol = body.get("symbol")
+        position_size = body.get("position_size", 0)
+        current_price = body.get("current_price", 0)
+        volatility = body.get("volatility", 0.02)
+        max_drawdown = body.get("max_drawdown", 0.05)
+        sharpe_ratio = body.get("sharpe_ratio", 1.5)
+
+        if not symbol:
+            return _json_error("validation_error", "symbol is required", status=400)
+
+        # Calculate basic risk metrics
+        position_value = position_size * current_price
+        risk_amount = position_value * volatility
+        var_95 = position_value * volatility * 1.65  # 95% VaR approximation
+
+        return _json_ok({
+            "symbol": symbol,
+            "position_size": position_size,
+            "position_value": position_value,
+            "risk_metrics": {
+                "volatility": volatility,
+                "var_95": var_95,
+                "max_loss": position_value * max_drawdown,
+                "risk_reward_ratio": sharpe_ratio,
+                "risk_score": min(100, int((volatility / 0.05) * 100))
+            },
+            "recommendation": "acceptable" if volatility < 0.03 else "caution",
+            "warnings": [] if volatility < 0.05 else ["High volatility detected"]
+        })
+
+    # =========================================================================
     # /api/trades - Trader Journey Krok 7: Historia transakcji
     # =========================================================================
     @app.get("/api/trades")
