@@ -423,9 +423,14 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
     // TypeScript doesn't recognize setMarkers in v5, but it exists at runtime
     // Using 'as any' to bypass type checking
-    (candlestickSeriesRef.current as any).setMarkers(markers);
-
-    console.log(`[CandlestickChart] Applied ${markers.length} state machine markers to chart`);
+    // Safety check: verify setMarkers method exists before calling
+    const series = candlestickSeriesRef.current as any;
+    if (typeof series.setMarkers === 'function') {
+      series.setMarkers(markers);
+      console.log(`[CandlestickChart] Applied ${markers.length} state machine markers to chart`);
+    } else {
+      console.warn('[CandlestickChart] setMarkers not available on series - markers not applied');
+    }
   }, [stateTransitions]);
 
   // CH-03: Update Entry/SL/TP price lines when positionLines change

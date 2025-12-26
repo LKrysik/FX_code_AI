@@ -159,3 +159,16 @@ Claude Opus 4.5 (claude-opus-4-5-20251101)
 |------|--------|
 | `src/api/trading_routes.py` | Added PositionLockManager class (lines 31-117) and integrated locking |
 | `tests/integration/test_position_locking.py` | Created 14 comprehensive tests |
+| `src/core/exceptions.py` | NEW: Centralized exceptions (PositionAlreadyClosingError, etc.) |
+| `src/domain/services/position_lock_manager.py` | NEW: Enhanced singleton lock manager with context manager |
+| `frontend/src/utils/statusUtils.tsx` | Added HTTP 409 'conflict' error type handling |
+
+### Frontend HTTP 409 Handling (2025-12-26)
+
+Added support for position operation conflicts in frontend:
+- Added 'conflict' to ErrorType union type (line 293)
+- Added specific handling for HTTP 409 in categorizeError() (lines 366-379)
+- Added recovery strategy for conflict errors (lines 464-471)
+  - shouldRetry: true (after 3s delay)
+  - maxRetries: 2
+  - Message: "Wait a moment and try again - operation in progress"

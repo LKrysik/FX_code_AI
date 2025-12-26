@@ -600,6 +600,75 @@ class MexcPaperAdapter:
             reduce_only=True
         )
 
+    async def get_order_status(self, order_id: str, symbol: str = None) -> Optional[Dict[str, Any]]:
+        """
+        Get current status of an order (paper trading simulation).
+
+        Args:
+            order_id: Order ID to query
+            symbol: Trading symbol (optional, not used in paper trading)
+
+        Returns:
+            Order status dict or None if not found
+        """
+        order = self._orders.get(order_id)
+        if order:
+            self._logger.debug("mexc_paper_adapter.get_order_status", {
+                "order_id": order_id,
+                "status": order.get("status"),
+                "source": "paper_trading"
+            })
+            return order
+
+        self._logger.warning("mexc_paper_adapter.order_not_found", {
+            "order_id": order_id,
+            "symbol": symbol
+        })
+        return None
+
+    async def cancel_order(self, order_id: str, symbol: str = None) -> bool:
+        """
+        Cancel an existing order (paper trading simulation).
+
+        In paper trading, orders are filled immediately, so cancellation
+        is only possible if the order is somehow still pending.
+
+        Args:
+            order_id: Order ID to cancel
+            symbol: Trading symbol (optional, not used in paper trading)
+
+        Returns:
+            True if cancelled, False if order not found or already filled
+        """
+        order = self._orders.get(order_id)
+        if not order:
+            self._logger.warning("mexc_paper_adapter.cancel_order_not_found", {
+                "order_id": order_id,
+                "symbol": symbol
+            })
+            return False
+
+        current_status = order.get("status")
+        if current_status == "FILLED":
+            self._logger.warning("mexc_paper_adapter.cannot_cancel_filled_order", {
+                "order_id": order_id,
+                "status": current_status
+            })
+            return False
+
+        # Mark order as cancelled
+        order["status"] = "CANCELLED"
+        order["cancelled_at"] = datetime.utcnow().isoformat()
+
+        self._logger.info("mexc_paper_adapter.order_cancelled", {
+            "order_id": order_id,
+            "symbol": symbol,
+            "previous_status": current_status,
+            "source": "paper_trading"
+        })
+
+        return True
+
     def _generate_order_id(self) -> str:
         """Generate unique order ID."""
         self._order_sequence += 1

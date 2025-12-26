@@ -1,0 +1,16 @@
+{
+  "name": "Professional",
+  "colors": {
+    "component": "#e3f2fd",
+    "database": "#e8f5e9",
+    "service": "#fff3e0",
+    "external": "#fce4ec",
+    "border": "#1976d2",
+    "text": "#212121",
+    "arrow": "#424242",
+    "background": "#ffffff"
+  },
+  "strokeWidth": 2,
+  "fontSize": 16,
+  "fontFamily": 1
+}

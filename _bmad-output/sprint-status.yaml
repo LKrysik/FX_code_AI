@@ -58,7 +58,7 @@ development_status:
   # ============================================================
   epic-sec-0: in-progress
   sec-0-1-position-operation-locking: done  # Completed 2025-12-26 - PositionLockManager, 14 tests
-  sec-0-2-strategy-json-validation: ready-for-dev  # JSON injection prevention
+  sec-0-2-strategy-json-validation: done  # Completed 2025-12-26 - Allowlist validation, security logging
   sec-0-3-websocket-state-reconciliation: ready-for-dev  # State desync fix
 
   # ============================================================

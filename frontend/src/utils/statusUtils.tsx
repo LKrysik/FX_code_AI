@@ -290,7 +290,7 @@ export const getCategoryStatusColor = (category: CategoryType): 'default' | 'pri
 };
 
 // Error Handling Utilities
-export type ErrorType = 'network' | 'timeout' | 'auth' | 'server' | 'client' | 'unknown';
+export type ErrorType = 'network' | 'timeout' | 'auth' | 'server' | 'client' | 'conflict' | 'unknown';
 export type ErrorSeverity = 'low' | 'medium' | 'high' | 'critical';
 
 export interface UnifiedError {
@@ -363,12 +363,27 @@ export const categorizeError = (error: any, context?: string): UnifiedError => {
     };
   }
 
-  // Client errors
+  // SEC-0-1: Conflict errors (HTTP 409) - Race condition prevention
+  // Position already being modified/closed by another operation
+  if (error.response?.status === 409) {
+    return {
+      type: 'conflict',
+      severity: 'medium',
+      message: error.response?.data?.detail || 'Operation already in progress. Please wait and try again.',
+      originalError: error,
+      context,
+      timestamp,
+      recoverable: true,
+      retryable: true  // Can retry after a short delay
+    };
+  }
+
+  // Client errors (other 4xx)
   if (error.response?.status >= 400 && error.response?.status < 500) {
     return {
       type: 'client',
       severity: 'medium',
-      message: 'Client error',
+      message: error.response?.data?.detail || 'Client error',
       originalError: error,
       context,
       timestamp,
@@ -445,6 +460,14 @@ export const getErrorRecoveryStrategy = (error: UnifiedError): {
         retryDelay: 0,
         maxRetries: 0,
         fallbackAction: 'Check input data'
+      };
+    case 'conflict':
+      // SEC-0-1: Position operation conflict - wait and retry
+      return {
+        shouldRetry: true,
+        retryDelay: 3000,  // Wait 3 seconds before retry
+        maxRetries: 2,
+        fallbackAction: 'Wait a moment and try again - operation in progress'
       };
     default:
       return {

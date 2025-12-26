@@ -3047,6 +3047,85 @@ def create_unified_app():
         return _json_ok(performance)
 
     # =========================================================================
+    # SEC-0-3: State Snapshot Endpoint for WebSocket Reconnection Sync
+    # =========================================================================
+    @app.get("/api/state/snapshot")
+    async def get_state_snapshot(
+        session_id: Optional[str] = None,
+        current_user: UserSession = Depends(get_current_user)
+    ):
+        """
+        SEC-0-3: Get complete state snapshot for WebSocket reconnection sync.
+
+        Returns all current state data needed to synchronize the frontend
+        after a WebSocket reconnection:
+        - positions: All open positions
+        - signals: Active signals
+        - state_machine_state: Current trading state
+        - indicators: Latest indicator values
+        - pending_orders: Orders awaiting execution
+
+        Used by frontend to replace stale state after disconnect/reconnect.
+        """
+        try:
+            controller = await app.state.rest_service.get_controller()
+
+            # Get current session info
+            current_session = controller.get_current_session()
+            session_status = current_session.get("status", "IDLE") if current_session else "IDLE"
+
+            # Get positions
+            positions = controller.get_all_positions()
+
+            # Get signals from session status if available
+            signals = []
+            if current_session:
+                session_data = current_session.get("data", {})
+                signals = session_data.get("signals", [])
+
+            # Get indicator values for active symbols
+            indicator_values = {}
+            active_symbols = current_session.get("symbols", []) if current_session else []
+            for symbol in active_symbols[:5]:  # Limit to first 5 symbols for performance
+                try:
+                    indicators = controller.get_indicators_for_symbol(symbol)
+                    indicator_values[symbol] = {
+                        ind.get("indicator_id", "unknown"): ind.get("value", 0)
+                        for ind in indicators if isinstance(ind, dict)
+                    }
+                except Exception:
+                    pass  # Skip symbols with no indicators
+
+            # Build snapshot
+            snapshot = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "session_id": session_id or (current_session.get("id") if current_session else None),
+                "state_machine_state": session_status,
+                "positions": positions,
+                "active_signals": signals,
+                "indicator_values": indicator_values,
+                "pending_orders": [],  # TODO: Add when order queue is implemented
+                "connection_status": "connected"
+            }
+
+            logger.info("state_snapshot_generated", {
+                "session_id": snapshot["session_id"],
+                "positions_count": len(positions),
+                "signals_count": len(signals),
+                "state": session_status
+            })
+
+            return _json_ok(snapshot)
+
+        except Exception as e:
+            logger.error("state_snapshot_error", {"error": str(e)})
+            return _json_error(
+                "snapshot_error",
+                f"Failed to generate state snapshot: {str(e)}",
+                status=500
+            )
+
+    # =========================================================================
     # Risk Management Endpoints
     # =========================================================================
     @app.get("/risk/budget")

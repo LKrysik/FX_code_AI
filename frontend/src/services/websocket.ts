@@ -502,6 +502,12 @@ class WebSocketService {
       }, 'handshake response');
       this.flushSubscriptions();
       this.startHeartbeat(); // Start heartbeat after successful handshake
+
+      // SEC-0-3: Request state sync after reconnection
+      this.requestStateSync().catch(err => {
+        console.warn('[WS] State sync failed:', err);
+      });
+
       this.callbacks.onConnect?.();
     } else {
       errorLog('Handshake rejected', message);
@@ -510,6 +516,67 @@ class WebSocketService {
         useWebSocketStore.getState().setLastError('Handshake rejected');
       }, 'handshake rejected');
       this.socket?.close(1002, 'Handshake rejected');
+    }
+  }
+
+  /**
+   * SEC-0-3: Request state sync from backend after WebSocket reconnection.
+   * Fetches complete state snapshot and updates Zustand stores.
+   */
+  public async requestStateSync(): Promise<void> {
+    console.log('[WS] Requesting state sync...');
+
+    // Skip state sync during SSR - relative URLs don't work without browser context
+    if (typeof window === 'undefined') {
+      console.log('[WS] Skipping state sync - not in browser context');
+      return;
+    }
+
+    try {
+      // Fetch state snapshot via REST API using absolute URL
+      const baseUrl = window.location.origin;
+      const response = await fetch(`${baseUrl}/api/state/snapshot`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`State sync failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+      if (!result.success || !result.data) {
+        throw new Error('Invalid state snapshot response');
+      }
+
+      const snapshot = result.data;
+      console.log('[WS] State snapshot received:', {
+        timestamp: snapshot.timestamp,
+        positions: snapshot.positions?.length || 0,
+        signals: snapshot.active_signals?.length || 0,
+        state: snapshot.state_machine_state
+      });
+
+      // Update stores with snapshot data
+      this.safeStoreUpdate(() => {
+        // Update dashboard store with positions if available
+        const { useDashboardStore } = require('@/stores/dashboardStore');
+        if (useDashboardStore && snapshot.positions) {
+          useDashboardStore.getState().setPositions?.(snapshot.positions);
+        }
+
+        // Mark sync as complete
+        useWebSocketStore.getState().setLastSyncTime?.(new Date(snapshot.timestamp));
+      }, 'state sync');
+
+      console.log('[WS] State sync completed successfully');
+
+    } catch (error) {
+      console.error('[WS] State sync error:', error);
+      // Don't throw - state sync failure shouldn't break the connection
     }
   }
 

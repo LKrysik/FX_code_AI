@@ -94,6 +94,10 @@ export interface WebSocketState {
   connectionErrors: number;
   lastError: string | null;
 
+  // SEC-0-3: State Sync Tracking
+  lastSyncTime: Date | null;
+  syncStatus: 'idle' | 'syncing' | 'synced' | 'failed';
+
   // Actions
   setConnected: (connected: boolean) => void;
   setConnectionStatus: (status: WebSocketState['connectionStatus']) => void;
@@ -101,6 +105,10 @@ export interface WebSocketState {
   incrementMessagesSent: () => void;
   setLastError: (error: string | null) => void;
   resetStats: () => void;
+
+  // SEC-0-3: State sync actions
+  setLastSyncTime: (time: Date | null) => void;
+  setSyncStatus: (status: 'idle' | 'syncing' | 'synced' | 'failed') => void;
 }
 
 // Trading State

@@ -1,10 +1,156 @@
 """
 Strategy Schema Validation (5-Section Format)
 Lightweight validator for 5-section strategy JSON configs without extra dependencies.
+
+SEC-0-2: Enhanced with security validation to prevent JSON injection attacks.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List
+import hashlib
+import logging
+from typing import Any, Dict, List, Set, Optional
+
+# =============================================================================
+# SEC-0-2: Security Allowlists for Strategy Validation
+# =============================================================================
+
+# Import IndicatorType enum to build allowlist
+try:
+    from src.domain.services.streaming_indicator_engine.core.types import IndicatorType
+    ALLOWED_INDICATOR_TYPES: Set[str] = {t.value for t in IndicatorType}
+except ImportError:
+    # Fallback if import fails - define known indicator types explicitly
+    ALLOWED_INDICATOR_TYPES: Set[str] = {
+        "PRICE", "VOLUME", "BEST_BID", "BEST_ASK", "BID_QTY", "ASK_QTY",
+        "SPREAD_PCT", "VOLUME_24H", "LIQUIDITY_SCORE",
+        "SMA", "EMA", "RSI", "MACD", "BOLLINGER_BANDS",
+        "PUMP_MAGNITUDE_PCT", "VOLUME_SURGE_RATIO", "PRICE_VELOCITY",
+        "PRICE_MOMENTUM", "BASELINE_PRICE", "PUMP_PROBABILITY",
+        "SIGNAL_AGE_SECONDS", "CONFIDENCE_SCORE", "RISK_LEVEL", "VOLATILITY",
+        "MARKET_STRESS_INDICATOR", "POSITION_RISK_SCORE", "PORTFOLIO_EXPOSURE_PCT",
+        "UNREALIZED_PNL_PCT", "CLOSE_ORDER_PRICE",
+        "TWPA", "TWPA_RATIO", "LAST_PRICE", "FIRST_PRICE", "MAX_PRICE", "MIN_PRICE",
+        "VELOCITY", "VOLUME_SURGE", "AVG_BEST_BID", "AVG_BEST_ASK",
+        "AVG_BID_QTY", "AVG_ASK_QTY", "TW_MIDPRICE",
+        "SUM_VOLUME", "AVG_VOLUME", "COUNT_DEALS", "VWAP",
+        "VOLUME_CONCENTRATION", "VOLUME_ACCELERATION", "TRADE_FREQUENCY",
+        "AVERAGE_TRADE_SIZE", "BID_ASK_IMBALANCE", "SPREAD_PERCENTAGE",
+        "SPREAD_VOLATILITY", "VOLUME_PRICE_CORRELATION",
+        "MAX_TWPA", "MIN_TWPA", "VTWPA", "VELOCITY_CASCADE", "VELOCITY_ACCELERATION",
+        "MOMENTUM_REVERSAL_INDEX", "DUMP_EXHAUSTION_SCORE", "SUPPORT_LEVEL_PROXIMITY",
+        "VELOCITY_STABILIZATION_INDEX", "MOMENTUM_STREAK", "DIRECTION_CONSISTENCY",
+        "TRADE_SIZE_MOMENTUM", "MID_PRICE_VELOCITY", "TOTAL_LIQUIDITY",
+        "LIQUIDITY_RATIO", "LIQUIDITY_DRAIN_INDEX", "DEAL_VS_MID_DEVIATION",
+        "INTER_DEAL_INTERVALS", "DECISION_DENSITY_ACCELERATION",
+        "TRADE_CLUSTERING_COEFFICIENT", "PRICE_VOLATILITY", "DEAL_SIZE_VOLATILITY"
+    }
+
+ALLOWED_CONDITION_OPERATORS: Set[str] = {">", "<", ">=", "<=", "==", "!="}
+
+ALLOWED_POSITION_SIZE_TYPES: Set[str] = {"fixed", "percentage"}
+
+ALLOWED_CALCULATION_MODES: Set[str] = {"ABSOLUTE", "RELATIVE_TO_ENTRY"}
+
+# Security logger
+_security_logger = logging.getLogger("security.strategy_validation")
+
+
+class StrategySecurityError(Exception):
+    """Raised when strategy contains security-sensitive content."""
+
+    def __init__(self, field: str, value: str, reason: str):
+        self.field = field
+        self.value = value
+        self.reason = reason
+        super().__init__(f"{field}: {reason} (value: {value[:50]}...)" if len(str(value)) > 50 else f"{field}: {reason}")
+
+
+def _hash_payload(payload: Dict[str, Any]) -> str:
+    """Generate a short hash of payload for security logging."""
+    import json
+    try:
+        payload_str = json.dumps(payload, sort_keys=True, default=str)
+        return hashlib.sha256(payload_str.encode()).hexdigest()[:16]
+    except Exception:
+        return "hash_failed"
+
+
+def _log_security_rejection(
+    field: str,
+    value: str,
+    reason: str,
+    payload: Optional[Dict[str, Any]] = None,
+    client_ip: Optional[str] = None
+) -> None:
+    """Log security-related validation rejections."""
+    _security_logger.warning(
+        "SECURITY: Strategy validation rejected",
+        extra={
+            "event": "strategy_validation_security_reject",
+            "field": field,
+            "rejected_value": str(value)[:100],  # Truncate long values
+            "reason": reason,
+            "client_ip": client_ip or "unknown",
+            "payload_hash": _hash_payload(payload) if payload else "no_payload"
+        }
+    )
+
+
+def validate_indicator_id(indicator_id: str, field_path: str, errors: List[str], payload: Optional[Dict] = None) -> bool:
+    """
+    SEC-0-2: Validate indicator ID against allowlist.
+
+    Returns True if valid, False if rejected.
+    """
+    if not isinstance(indicator_id, str):
+        errors.append(f"{field_path} must be a string")
+        return False
+
+    # Normalize: strip whitespace and uppercase
+    normalized = indicator_id.strip().upper()
+
+    # Check against allowlist
+    if normalized not in ALLOWED_INDICATOR_TYPES:
+        errors.append(f"{field_path} contains unknown indicator type: '{indicator_id}'")
+        _log_security_rejection(field_path, indicator_id, "Unknown indicator type", payload)
+        return False
+
+    # Check for injection patterns (extra safety)
+    dangerous_patterns = ["<script", "javascript:", "eval(", "exec(", "__", "${", "{{"]
+    for pattern in dangerous_patterns:
+        if pattern.lower() in indicator_id.lower():
+            errors.append(f"{field_path} contains suspicious pattern")
+            _log_security_rejection(field_path, indicator_id, f"Dangerous pattern: {pattern}", payload)
+            return False
+
+    return True
+
+
+def validate_security_patterns(value: Any, field_path: str, errors: List[str], payload: Optional[Dict] = None) -> bool:
+    """
+    SEC-0-2: Check for common injection patterns in string values.
+    """
+    if not isinstance(value, str):
+        return True
+
+    # SQL injection patterns
+    sql_patterns = ["'; DROP", "1=1", "OR 1=1", "UNION SELECT", "--", "/*"]
+
+    # Script injection patterns
+    script_patterns = ["<script", "javascript:", "onerror=", "onclick=", "onload="]
+
+    # Command injection patterns
+    cmd_patterns = ["$(", "`", "| ", "; ", "&& ", "|| "]
+
+    value_lower = value.lower()
+
+    for pattern in sql_patterns + script_patterns + cmd_patterns:
+        if pattern.lower() in value_lower:
+            errors.append(f"{field_path} contains potentially dangerous pattern")
+            _log_security_rejection(field_path, value, f"Injection pattern: {pattern}", payload)
+            return False
+
+    return True
 
 
 def _is_number(x: Any) -> bool:
@@ -78,7 +224,7 @@ def validate_strategy_config(config: Dict[str, Any]) -> Dict[str, Any]:
         elif not isinstance(s1["conditions"], list):
             errors.append("s1_signal.conditions must be an array")
         else:
-            _validate_conditions_list("s1_signal.conditions", s1["conditions"], errors)
+            _validate_conditions_list("s1_signal.conditions", s1["conditions"], errors, config)
 
     # Validate Z1 Entry section
     if "z1_entry" in config and isinstance(config["z1_entry"], dict):
@@ -88,7 +234,7 @@ def validate_strategy_config(config: Dict[str, Any]) -> Dict[str, Any]:
         elif not isinstance(z1["conditions"], list):
             errors.append("z1_entry.conditions must be an array")
         else:
-            _validate_conditions_list("z1_entry.conditions", z1["conditions"], errors)
+            _validate_conditions_list("z1_entry.conditions", z1["conditions"], errors, config)
 
         if "positionSize" not in z1:
             errors.append("z1_entry.positionSize is required")
@@ -160,7 +306,7 @@ def validate_strategy_config(config: Dict[str, Any]) -> Dict[str, Any]:
        elif not isinstance(ze1["conditions"], list):
            errors.append("ze1_close.conditions must be an array")
        else:
-           _validate_conditions_list("ze1_close.conditions", ze1["conditions"], errors)
+           _validate_conditions_list("ze1_close.conditions", ze1["conditions"], errors, config)
 
        # Validate risk-adjusted pricing if present
        if "riskAdjustedPricing" in ze1 and isinstance(ze1["riskAdjustedPricing"], dict):
@@ -194,7 +340,7 @@ def validate_strategy_config(config: Dict[str, Any]) -> Dict[str, Any]:
         elif not isinstance(o1["conditions"], list):
             errors.append("o1_cancel.conditions must be an array")
         else:
-            _validate_conditions_list("o1_cancel.conditions", o1["conditions"], errors)
+            _validate_conditions_list("o1_cancel.conditions", o1["conditions"], errors, config)
 
     # Validate Emergency Exit section
     if "emergency_exit" in config and isinstance(config["emergency_exit"], dict):
@@ -204,7 +350,7 @@ def validate_strategy_config(config: Dict[str, Any]) -> Dict[str, Any]:
         elif not isinstance(emergency["conditions"], list):
             errors.append("emergency_exit.conditions must be an array")
         else:
-            _validate_conditions_list("emergency_exit.conditions", emergency["conditions"], errors)
+            _validate_conditions_list("emergency_exit.conditions", emergency["conditions"], errors, config)
 
         if "cooldownMinutes" not in emergency:
             errors.append("emergency_exit.cooldownMinutes is required")
@@ -258,8 +404,8 @@ def validate_strategy_config(config: Dict[str, Any]) -> Dict[str, Any]:
     return {"valid": len(errors) == 0, "errors": errors, "warnings": warnings}
 
 
-def _validate_conditions_list(path: str, conditions: List[Dict[str, Any]], errors: List[str]) -> None:
-    """Validate a list of conditions."""
+def _validate_conditions_list(path: str, conditions: List[Dict[str, Any]], errors: List[str], payload: Optional[Dict] = None) -> None:
+    """Validate a list of conditions with SEC-0-2 security checks."""
     for i, condition in enumerate(conditions):
         if not isinstance(condition, dict):
             errors.append(f"{path}[{i}] must be an object")
@@ -270,9 +416,20 @@ def _validate_conditions_list(path: str, conditions: List[Dict[str, Any]], error
             if field not in condition:
                 errors.append(f"{path}[{i}].{field} is required")
 
-        if "operator" in condition and condition["operator"] not in [">", "<", ">=", "<="]:
-            errors.append(f"{path}[{i}].operator must be one of: >, <, >=, <=")
+        # SEC-0-2: Validate indicatorId against allowlist (AC1)
+        if "indicatorId" in condition:
+            validate_indicator_id(condition["indicatorId"], f"{path}[{i}].indicatorId", errors, payload)
+
+        # SEC-0-2: Validate operator against allowlist (AC2)
+        if "operator" in condition and condition["operator"] not in ALLOWED_CONDITION_OPERATORS:
+            errors.append(f"{path}[{i}].operator must be one of: {', '.join(ALLOWED_CONDITION_OPERATORS)}")
+            _log_security_rejection(f"{path}[{i}].operator", condition["operator"], "Invalid operator", payload)
 
         if "value" in condition and not _is_number(condition["value"]):
             errors.append(f"{path}[{i}].value must be a number")
+
+        # SEC-0-2: Check for injection patterns in string fields
+        for field in ["id", "indicatorId", "label", "description"]:
+            if field in condition and isinstance(condition[field], str):
+                validate_security_patterns(condition[field], f"{path}[{i}].{field}", errors, payload)
 

@@ -3,7 +3,7 @@
 **Date:** 2025-12-26
 **Reporter:** mr lu (via Mary, Business Analyst)
 **Priority:** High
-**Status:** Ready for Development
+**Status:** COMPLETED
 
 ---
 
@@ -100,15 +100,15 @@ When backend fails (like BUG-001), agent should be able to:
 ## Acceptance Criteria
 
 ### Bug Fix (BUG-001)
-- [ ] Backend starts without `AttributeError`
-- [ ] `PaperTradingPersistenceService` has proper lifecycle methods
-- [ ] All services initialize correctly
+- [x] Backend starts without `AttributeError`
+- [x] `PaperTradingPersistenceService` has proper lifecycle methods
+- [x] All services initialize correctly
 
 ### Launch Mechanism
-- [ ] Agent can read backend startup output
-- [ ] Agent can read frontend startup output
-- [ ] Errors are captured and accessible
-- [ ] Existing functionality preserved
+- [x] Agent can read backend startup output (logs/backend.log)
+- [x] Agent can read frontend startup output (logs/frontend.log)
+- [x] Errors are captured and accessible (logs/backend_error.log)
+- [x] Existing functionality preserved
 
 ---
 

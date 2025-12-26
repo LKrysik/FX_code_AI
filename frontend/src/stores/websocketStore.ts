@@ -24,6 +24,10 @@ const initialState = {
   // Error Tracking
   connectionErrors: 0,
   lastError: null as string | null,
+
+  // SEC-0-3: State Sync Tracking
+  lastSyncTime: null as Date | null,
+  syncStatus: 'idle' as 'idle' | 'syncing' | 'synced' | 'failed',
 };
 
 export const useWebSocketStore = create<WebSocketState>()(
@@ -84,6 +88,18 @@ export const useWebSocketStore = create<WebSocketState>()(
             connectionErrors: 0,
             lastError: null,
           });
+        },
+
+        // SEC-0-3: State sync actions
+        setLastSyncTime: (time: Date | null) => {
+          set({
+            lastSyncTime: time,
+            syncStatus: time ? 'synced' : 'idle',
+          });
+        },
+
+        setSyncStatus: (status: 'idle' | 'syncing' | 'synced' | 'failed') => {
+          set({ syncStatus: status });
         },
       })
     ),

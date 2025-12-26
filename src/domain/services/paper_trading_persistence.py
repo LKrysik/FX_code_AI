@@ -81,6 +81,15 @@ class PaperTradingPersistenceService:
                 "event_bus_enabled": event_bus is not None
             })
 
+    async def start(self) -> None:
+        """
+        Start the persistence service.
+
+        Creates connection pool for QuestDB access.
+        Required by container lifecycle.
+        """
+        await self.initialize()
+
     async def initialize(self) -> None:
         """Initialize connection pool."""
         if self._pool is None:
