@@ -269,10 +269,12 @@ export default function StrategyBuilderPage() {
       
       if (isNewStrategy) {
         await apiService.saveStrategy(strategyAPIFormat);
-        showNotification('Strategy created successfully', 'success');
+        // ✅ UX FIX (2025-12-26): Updated message to reflect that strategy is now active
+        showNotification('Strategy created and activated for trading', 'success');
       } else if (editingStrategy?.id) {
         await apiService.update4SectionStrategy(editingStrategy.id, strategyAPIFormat);
-        showNotification('Strategy updated successfully', 'success');
+        // ✅ UX FIX (2025-12-26): Updated message to reflect that changes are now active
+        showNotification('Strategy updated - changes are now active', 'success');
       }
       
       // Return to strategies list

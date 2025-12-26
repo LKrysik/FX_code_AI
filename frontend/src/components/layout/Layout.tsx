@@ -35,6 +35,33 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { UserMenu } from '@/components/auth';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { useWebSocketConnection } from '@/stores/websocketStore';
+import { Alert, Button, Collapse } from '@mui/material';
+import { Refresh as RefreshIcon } from '@mui/icons-material';
+import dynamic from 'next/dynamic';
+
+// Debug panel - only loaded in development mode
+const DebugPanel = dynamic(
+  () => import('@/components/debug/DebugPanel').then(mod => mod.DebugPanel),
+  { ssr: false }
+);
+
+// Error display components (Story 0-5)
+const ErrorToastStack = dynamic(
+  () => import('@/components/errors').then(mod => mod.ErrorToastStack),
+  { ssr: false }
+);
+
+const CriticalErrorModal = dynamic(
+  () => import('@/components/errors').then(mod => mod.CriticalErrorModal),
+  { ssr: false }
+);
+
+// Connection Status Indicator (Story 0-6)
+const ConnectionStatusIndicator = dynamic(
+  () => import('@/components/common/ConnectionStatusIndicator').then(mod => mod.ConnectionStatusIndicator),
+  { ssr: false }
+);
 
 const drawerWidth = 280;
 
@@ -111,8 +138,39 @@ export default function Layout({ children }: LayoutProps) {
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const pathname = usePathname();
 
+  // AC2: WebSocket connection status from store
+  const { isConnected, connectionStatus } = useWebSocketConnection();
+
+  // Reconnection countdown state
+  const [reconnectCountdown, setReconnectCountdown] = useState<number | null>(null);
+
   // SY-01: Global keyboard shortcuts
   useKeyboardShortcuts();
+
+  // AC2: Reconnection countdown timer
+  React.useEffect(() => {
+    if (connectionStatus === 'disconnected' && !isConnected) {
+      setReconnectCountdown(5);
+      const interval = setInterval(() => {
+        setReconnectCountdown(prev => {
+          if (prev === null || prev <= 1) {
+            clearInterval(interval);
+            return null;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      return () => clearInterval(interval);
+    } else {
+      setReconnectCountdown(null);
+    }
+  }, [connectionStatus, isConnected]);
+
+  // Manual reconnect handler
+  const handleManualReconnect = () => {
+    // Trigger reconnect via websocket service
+    window.location.reload();
+  };
 
   const handleDrawerToggle = () => {
     setDrawerOpen(!drawerOpen);
@@ -215,22 +273,9 @@ export default function Layout({ children }: LayoutProps) {
             {menuItems.find(item => item.path === pathname)?.text || 'Market Analysis System'}
           </Typography>
 
-          {/* Status indicators */}
+          {/* Status indicators - Story 0-6: ConnectionStatusIndicator with popover */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Chip
-              label="Backend: Connected"
-              size="small"
-              color="success"
-              variant="outlined"
-              sx={{ fontSize: '0.7rem' }}
-            />
-            <Chip
-              label="WebSocket: Connected"
-              size="small"
-              color="success"
-              variant="outlined"
-              sx={{ fontSize: '0.7rem' }}
-            />
+            <ConnectionStatusIndicator />
             <UserMenu />
           </Box>
         </Toolbar>
@@ -291,11 +336,43 @@ export default function Layout({ children }: LayoutProps) {
         {/* Spacer for fixed AppBar */}
         <Toolbar />
 
+        {/* AC2: WebSocket Disconnection Banner */}
+        <Collapse in={!isConnected && connectionStatus !== 'connecting'}>
+          <Alert
+            severity="warning"
+            sx={{ borderRadius: 0 }}
+            action={
+              <Button
+                color="inherit"
+                size="small"
+                startIcon={<RefreshIcon />}
+                onClick={handleManualReconnect}
+              >
+                Reconnect Now
+              </Button>
+            }
+          >
+            Connection lost. {reconnectCountdown !== null
+              ? `Reconnecting in ${reconnectCountdown}s...`
+              : 'Click to reconnect manually.'}
+          </Alert>
+        </Collapse>
+
         {/* Page Content */}
         <Box sx={{ p: 3 }}>
           {children}
         </Box>
       </Box>
+
+      {/* Debug Panel - Development Only (AC5: Dev-only guard) */}
+      {process.env.NODE_ENV === 'development' && <DebugPanel />}
+
+      {/* Story 0-5: Error Display Components */}
+      {/* AC1: Toast notifications for API errors */}
+      <ErrorToastStack />
+
+      {/* AC3: Critical error modal (full-screen blocking) */}
+      <CriticalErrorModal />
     </Box>
   );
 }

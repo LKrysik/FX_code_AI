@@ -467,4 +467,38 @@ def test_potentially_slow():
 
 ---
 
+## Signal Flow E2E Verification (Story 0-2)
+
+### Quick Verification Script
+
+```bash
+# Run backend signal flow verification
+python scripts/verify_signal_flow_e2e.py
+```
+
+This script verifies:
+- EventBus -> EventBridge -> WebSocket broadcast flow
+- Latency < 500ms (AC1)
+- All signal types (S1, O1, Z1, ZE1, E1) are forwarded
+
+### Manual Frontend Verification
+
+1. Start backend: `python -m src.api.unified_server`
+2. Start frontend: `cd frontend && npm run dev`
+3. Open browser DevTools Console (F12)
+4. Filter by: `[SIGNAL-FLOW]`
+5. Trigger a backtest or strategy evaluation via UI
+6. Verify logs appear:
+   - `[SIGNAL-FLOW] Signal received: {...}` (websocket.ts)
+   - `[SIGNAL-FLOW] Signal added to store: {...}` (dashboardStore.ts)
+
+### Integration Tests
+
+```bash
+# Run signal flow integration tests
+pytest tests_e2e/integration/test_signal_flow.py -v -m unit
+```
+
+---
+
 *For questions about testing, see the architecture documentation or ask the team.*

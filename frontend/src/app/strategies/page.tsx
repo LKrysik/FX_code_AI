@@ -215,8 +215,9 @@ export default function StrategiesPage() {
     try {
       setLoading(true);
 
-      // Load strategies from backend
-      const backendStrategies = await apiService.getStrategies();
+      // Load strategies from backend (using 4-section API for consistency with Strategy Builder)
+      // FIX: Changed from getStrategies() to get4SectionStrategies() to match save flow
+      const backendStrategies = await apiService.get4SectionStrategies();
 
       // Transform backend data to frontend format
       const transformedStrategies: StrategyTemplate[] = backendStrategies.map(strategy => {
@@ -260,8 +261,9 @@ export default function StrategiesPage() {
 
   const loadUserStrategies = async () => {
     try {
-      // Load user-created strategies from backend
-      const userStrategiesData = await apiService.getStrategies();
+      // Load user-created strategies from backend (using 4-section API)
+      // FIX: Changed from getStrategies() to get4SectionStrategies() for consistency
+      const userStrategiesData = await apiService.get4SectionStrategies();
       setUserStrategies(userStrategiesData);
     } catch (error) {
       console.error('Failed to load user strategies:', error);
@@ -271,21 +273,36 @@ export default function StrategiesPage() {
 
   const mapStrategyToTemplate = (strategy: any): StrategyTemplate => {
     // Map backend strategy to frontend template format
+    // Supports both old format (config object) and new 4-section format (s1_signal, z1_entry, etc.)
     const config = strategy.config || {};
 
+    // Extract description from either config or 4-section format
+    const description = strategy.description || config.description || 'Trading strategy';
+
+    // Determine category from s1_signal section or config
+    const category = config.category ||
+                     (strategy.s1_signal?.conditions?.some((c: any) => c.indicator_type === 'pump') ? 'pump_detection' : 'pump_detection');
+
     return {
-      id: strategy.strategy_name || strategy.name,
-      name: strategy.strategy_name || strategy.name,
-      description: config.description || 'Trading strategy',
-      category: config.category || 'pump_detection',
+      id: strategy.id || strategy.strategy_name || strategy.name,
+      name: strategy.strategy_name || strategy.name || 'Unnamed Strategy',
+      description: description,
+      category: category,
       difficulty: config.difficulty || 'intermediate',
       riskLevel: config.risk_level || 'medium',
       expectedReturn: config.expected_return || '10-50%',
       winRate: config.win_rate || 70,
-      config: config,
-      icon: getCategoryIcon(config.category || 'pump_detection'),
-      color: getCategoryColor(config.category || 'pump_detection'),
-      isRunning: strategy.current_state === 'ACTIVE',
+      config: {
+        // Merge old config with 4-section data
+        ...config,
+        s1_signal: strategy.s1_signal,
+        z1_entry: strategy.z1_entry,
+        o1_cancel: strategy.o1_cancel,
+        emergency_exit: strategy.emergency_exit,
+      },
+      icon: getCategoryIcon(category),
+      color: getCategoryColor(category),
+      isRunning: strategy.current_state === 'ACTIVE' || strategy.enabled === true,
       performance: strategy.performance
     };
   };
@@ -565,16 +582,21 @@ export default function StrategiesPage() {
                     <Card>
                       <CardContent>
                         <Typography variant="h6">{strategy.strategy_name}</Typography>
-                        <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                        <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
+                          {/* ✅ UX FIX (2025-12-26): Show activation status */}
                           <Chip
-                            label={strategy.enabled ? "Enabled" : "Disabled"}
-                            color={strategy.enabled ? "primary" : "default"}
+                            label={strategy.enabled ? "Active" : "Inactive"}
+                            color={strategy.enabled ? "success" : "default"}
                             size="small"
+                            title={strategy.enabled
+                              ? "Strategy is loaded and will generate signals"
+                              : "Strategy is saved but not generating signals"}
                           />
                           <Chip
-                            label={strategy.current_state || "Unknown"}
+                            label={strategy.current_state || "Ready"}
                             size="small"
                             variant="outlined"
+                            color={strategy.current_state === 'MONITORING' ? 'info' : 'default'}
                           />
                         </Box>
                         {strategy.symbol && (

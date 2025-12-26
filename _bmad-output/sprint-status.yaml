@@ -43,14 +43,23 @@ development_status:
   # Epic 0: Foundation & Pipeline Unblock (P0 - foundation)
   # Goal: Establish solid foundation with verified signal flow
   # ============================================================
-  epic-0: in-progress
-  0-1-fix-eventbridge-signal-subscription: in-progress
-  0-2-e2e-signal-flow-verification: ready-for-dev
-  0-3-strategy-builder-audit: ready-for-dev
-  0-4-debug-panel-foundation: ready-for-dev
-  0-5-error-display-pattern: ready-for-dev
-  0-6-connection-status-indicator: ready-for-dev
+  epic-0: done  # ALL 6 stories completed 2025-12-26
+  0-1-fix-eventbridge-signal-subscription: done  # AI-Review items resolved 2025-12-26
+  0-2-e2e-signal-flow-verification: done  # AI-Review items resolved 2025-12-26
+  0-3-strategy-builder-audit: done  # Bug fixed, verified 2025-12-26
+  0-4-debug-panel-foundation: done  # Implemented 2025-12-26
+  0-5-error-display-pattern: done  # Implemented 2025-12-26
+  0-6-connection-status-indicator: done  # Implemented 2025-12-26
   epic-0-retrospective: optional
+
+  # ============================================================
+  # Epic SEC-0: Critical Security Fixes (P0 - BEFORE features!)
+  # Goal: Address SEC-P0 critical security vulnerabilities
+  # ============================================================
+  epic-sec-0: in-progress
+  sec-0-1-position-operation-locking: ready-for-dev  # Race condition fix
+  sec-0-2-strategy-json-validation: ready-for-dev  # JSON injection prevention
+  sec-0-3-websocket-state-reconciliation: ready-for-dev  # State desync fix
 
   # ============================================================
   # Epic 1A: First Signal Visible (P0)

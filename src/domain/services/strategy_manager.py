@@ -924,7 +924,12 @@ class StrategyManager:
             })
 
     def create_strategy_from_config(self, config: Dict[str, Any]) -> Strategy:
-        """Create a strategy from configuration dictionary"""
+        """Create a strategy from configuration dictionary
+
+        ✅ FIX (2025-12-26): Now supports BOTH old and new schema formats:
+        - Old format: signal_detection_conditions, signal_cancellation_conditions, etc.
+        - New 5-section format: s1_signal.conditions, o1_cancel.conditions, etc.
+        """
         strategy = Strategy(
             strategy_name=config.get("strategy_name", "unnamed_strategy"),
             enabled=config.get("enabled", True),
@@ -932,7 +937,60 @@ class StrategyManager:
             global_limits=config.get("global_limits", {})
         )
 
-        # Build S1 signal detection conditions
+        # ✅ FIX (2025-12-26): Helper to deserialize conditions from 5-section format
+        def deserialize_5section_conditions(condition_list: List[Dict[str, Any]]) -> List[Condition]:
+            """Deserialize conditions from 5-section format (REST API / Frontend)"""
+            conditions = []
+            for c in condition_list:
+                # Detect schema version by checking for 'id' or 'indicatorId' field (new format)
+                if "id" in c and "indicatorId" in c:
+                    # New 5-section schema format from frontend
+                    conditions.append(Condition(
+                        name=c.get("id", c.get("indicatorId", "unknown")),
+                        condition_type=c.get("indicatorId", "unknown"),
+                        operator=c.get("operator", "gte"),
+                        value=c.get("value", 0),
+                        description=c.get("description", "")
+                    ))
+                elif "name" in c and "condition_type" in c:
+                    # Standard backend format
+                    conditions.append(Condition(
+                        name=c.get("name", "unknown"),
+                        condition_type=c.get("condition_type", "unknown"),
+                        operator=c.get("operator", "gte"),
+                        value=c.get("value", 0),
+                        description=c.get("description", "")
+                    ))
+            return conditions
+
+        # ✅ FIX (2025-12-26): Check for 5-section format FIRST (REST API / Frontend saves this)
+        # S1: Signal detection (new format)
+        if "s1_signal" in config:
+            s1_conditions = config["s1_signal"].get("conditions", [])
+            strategy.signal_detection.conditions = deserialize_5section_conditions(s1_conditions)
+
+        # O1: Signal cancellation (new format)
+        if "o1_cancel" in config:
+            o1_conditions = config["o1_cancel"].get("conditions", [])
+            strategy.signal_cancellation.conditions = deserialize_5section_conditions(o1_conditions)
+
+        # Z1: Entry conditions (new format)
+        if "z1_entry" in config:
+            z1_conditions = config["z1_entry"].get("conditions", [])
+            strategy.entry_conditions.conditions = deserialize_5section_conditions(z1_conditions)
+
+        # ZE1: Close order detection (new format)
+        if "ze1_close" in config:
+            ze1_conditions = config["ze1_close"].get("conditions", [])
+            strategy.close_order_detection.conditions = deserialize_5section_conditions(ze1_conditions)
+
+        # E1: Emergency exit (new format - same key name)
+        if "emergency_exit" in config and isinstance(config["emergency_exit"], dict) and "conditions" in config["emergency_exit"]:
+            e1_conditions = config["emergency_exit"].get("conditions", [])
+            strategy.emergency_exit.conditions = deserialize_5section_conditions(e1_conditions)
+
+        # ✅ FALLBACK: Old format support (for backwards compatibility)
+        # Build S1 signal detection conditions (old format)
         if "signal_detection_conditions" in config:
             for key, condition_config in config["signal_detection_conditions"].items():
                 if isinstance(condition_config, dict):

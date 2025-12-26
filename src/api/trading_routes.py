@@ -17,10 +17,108 @@ from fastapi import APIRouter, HTTPException, Query, Path, Depends
 from pydantic import BaseModel, Field
 from datetime import datetime, timezone
 import json
+import asyncio
+import time
 
 from src.core.logger import get_logger
 from src.data_feed.questdb_provider import QuestDBProvider
 from src.api.auth_handler import UserSession
+
+
+# =============================================================================
+# SEC-0-1: Position Lock Manager - Prevents race conditions on position operations
+# =============================================================================
+class PositionLockManager:
+    """
+    Manages locks for position operations to prevent race conditions.
+
+    SEC-P0 Fix: Prevents double-close bugs, incorrect P&L calculations,
+    and orphaned orders by ensuring only one operation per position at a time.
+    """
+
+    def __init__(self, lock_timeout: float = 30.0):
+        self._locks: Dict[str, asyncio.Lock] = {}
+        self._lock_times: Dict[str, float] = {}
+        self._lock_owners: Dict[str, str] = {}  # position_id -> operation type
+        self._manager_lock = asyncio.Lock()  # Protects the locks dict itself
+        self._timeout = lock_timeout
+        self._logger = get_logger(__name__)
+
+    async def acquire(self, position_id: str, operation: str = "unknown") -> bool:
+        """
+        Acquire a lock for a position operation.
+
+        Args:
+            position_id: The position ID to lock
+            operation: Description of the operation (for logging)
+
+        Returns:
+            True if lock acquired, False if timeout or already locked
+        """
+        async with self._manager_lock:
+            if position_id not in self._locks:
+                self._locks[position_id] = asyncio.Lock()
+
+        lock = self._locks[position_id]
+
+        # Check if already locked by another operation
+        if lock.locked():
+            existing_op = self._lock_owners.get(position_id, "unknown")
+            self._logger.warning("position_lock.already_locked", {
+                "position_id": position_id,
+                "requested_operation": operation,
+                "existing_operation": existing_op,
+                "lock_time": self._lock_times.get(position_id)
+            })
+            return False
+
+        try:
+            await asyncio.wait_for(lock.acquire(), timeout=self._timeout)
+            self._lock_times[position_id] = time.time()
+            self._lock_owners[position_id] = operation
+            self._logger.info("position_lock.acquired", {
+                "position_id": position_id,
+                "operation": operation
+            })
+            return True
+        except asyncio.TimeoutError:
+            self._logger.error("position_lock.timeout", {
+                "position_id": position_id,
+                "operation": operation,
+                "timeout": self._timeout
+            })
+            return False
+
+    def release(self, position_id: str) -> None:
+        """Release a lock for a position."""
+        if position_id in self._locks and self._locks[position_id].locked():
+            operation = self._lock_owners.pop(position_id, "unknown")
+            lock_duration = time.time() - self._lock_times.pop(position_id, time.time())
+            self._locks[position_id].release()
+            self._logger.info("position_lock.released", {
+                "position_id": position_id,
+                "operation": operation,
+                "duration_seconds": round(lock_duration, 3)
+            })
+
+    def is_locked(self, position_id: str) -> bool:
+        """Check if a position is currently locked."""
+        return position_id in self._locks and self._locks[position_id].locked()
+
+    def get_lock_info(self, position_id: str) -> Optional[Dict[str, Any]]:
+        """Get information about a position lock."""
+        if not self.is_locked(position_id):
+            return None
+        return {
+            "position_id": position_id,
+            "operation": self._lock_owners.get(position_id),
+            "locked_at": self._lock_times.get(position_id),
+            "locked_for_seconds": time.time() - self._lock_times.get(position_id, time.time())
+        }
+
+
+# Global position lock manager instance
+_position_lock_manager = PositionLockManager()
 
 # Create router
 router = APIRouter(prefix="/api/trading", tags=["live-trading"])
@@ -329,10 +427,12 @@ async def close_position(
     Position ID format: "session_id:symbol" (e.g., "live_20251107_abc123:BTC_USDT")
 
     This endpoint:
-    1. Fetches the position from live_positions table
-    2. Creates a reverse order (LONG → SELL, SHORT → BUY)
-    3. Submits the order via LiveOrderManager
-    4. Returns order ID and estimated P&L
+    1. Acquires position lock (SEC-0-1: prevents race conditions)
+    2. Fetches the position from live_positions table
+    3. Creates a reverse order (LONG → SELL, SHORT → BUY)
+    4. Submits the order via LiveOrderManager
+    5. Returns order ID and estimated P&L
+    6. Releases position lock
 
     Args:
         position_id: Position identifier (session_id:symbol)
@@ -340,7 +440,23 @@ async def close_position(
 
     Returns:
         Close position response with order ID and P&L
+
+    Raises:
+        HTTPException 409: If position is already being closed (race condition prevented)
     """
+    # SEC-0-1: Acquire position lock to prevent race conditions
+    lock_acquired = await _position_lock_manager.acquire(position_id, "close")
+    if not lock_acquired:
+        lock_info = _position_lock_manager.get_lock_info(position_id)
+        logger.warning("trading_api.close_position.race_condition_prevented", {
+            "position_id": position_id,
+            "lock_info": lock_info
+        })
+        raise HTTPException(
+            status_code=409,
+            detail=f"Position {position_id} is already being closed by another operation. Please wait and try again."
+        )
+
     try:
         live_order_manager = get_live_order_manager()
         provider = get_questdb_provider()

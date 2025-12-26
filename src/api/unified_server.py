@@ -895,6 +895,26 @@ def create_unified_app():
             app.state._strategies_list_cache = None
             app.state._strategies_list_cache_ts = 0.0
 
+            # ✅ BUG FIX (2025-12-26): Sync strategy to StrategyManager for runtime execution
+            # Previously, strategies saved via REST API were only persisted to storage
+            # but NOT loaded into StrategyManager, so they didn't generate signals.
+            # This fix ensures user-created strategies are immediately available for trading.
+            ws_server = getattr(app.state, 'websocket_api_server', None)
+            if ws_server and hasattr(ws_server, 'strategy_manager') and ws_server.strategy_manager:
+                try:
+                    sync_result = await ws_server.strategy_manager.upsert_strategy_from_config(strategy_data)
+                    logger.info("api.strategy_synced_to_manager", {
+                        "strategy_name": strategy_data["strategy_name"],
+                        "strategy_id": strategy_id,
+                        "sync_result": sync_result.get("action", "unknown") if sync_result else "no_result"
+                    })
+                except Exception as sync_error:
+                    # Log but don't fail - strategy is saved, just not live yet
+                    logger.warning("api.strategy_sync_failed", {
+                        "strategy_name": strategy_data["strategy_name"],
+                        "error": str(sync_error)
+                    })
+
             return _json_ok({
                 "strategy": {
                     "id": strategy_id,
@@ -1044,6 +1064,24 @@ def create_unified_app():
             # Read back updated strategy for response
             updated_strategy = await strategy_storage.read_strategy(strategy_id)
 
+            # ✅ BUG FIX (2025-12-26): Sync updated strategy to StrategyManager
+            # Ensures changes to strategy config are immediately reflected in runtime
+            ws_server = getattr(app.state, 'websocket_api_server', None)
+            if ws_server and hasattr(ws_server, 'strategy_manager') and ws_server.strategy_manager:
+                try:
+                    # Use updated_strategy which has full data from storage
+                    sync_result = await ws_server.strategy_manager.upsert_strategy_from_config(updated_strategy)
+                    logger.info("api.strategy_update_synced_to_manager", {
+                        "strategy_name": updated_strategy["strategy_name"],
+                        "strategy_id": strategy_id,
+                        "sync_result": sync_result.get("action", "unknown") if sync_result else "no_result"
+                    })
+                except Exception as sync_error:
+                    logger.warning("api.strategy_update_sync_failed", {
+                        "strategy_name": updated_strategy.get("strategy_name"),
+                        "error": str(sync_error)
+                    })
+
             return _json_ok({
                 "strategy": {
                     "id": strategy_id,
@@ -1098,14 +1136,36 @@ def create_unified_app():
 
             # Read strategy first to get name for response
             deleted_strategy = await strategy_storage.read_strategy(strategy_id)
+            strategy_name = deleted_strategy["strategy_name"]
 
             # Use StrategyStorage to delete strategy
             await strategy_storage.delete_strategy(strategy_id)
 
+            # ✅ BUG FIX (2025-12-26): Remove strategy from StrategyManager
+            # Ensures deleted strategies stop generating signals immediately
+            ws_server = getattr(app.state, 'websocket_api_server', None)
+            if ws_server and hasattr(ws_server, 'strategy_manager') and ws_server.strategy_manager:
+                try:
+                    removed = await ws_server.strategy_manager.remove_strategy(strategy_name)
+                    logger.info("api.strategy_removed_from_manager", {
+                        "strategy_name": strategy_name,
+                        "strategy_id": strategy_id,
+                        "removed": removed
+                    })
+                except Exception as sync_error:
+                    logger.warning("api.strategy_removal_sync_failed", {
+                        "strategy_name": strategy_name,
+                        "error": str(sync_error)
+                    })
+
+            # ✅ Invalidate strategies list cache
+            app.state._strategies_list_cache = None
+            app.state._strategies_list_cache_ts = 0.0
+
             return _json_ok({
                 "message": "Strategy deleted successfully",
                 "strategy_id": strategy_id,
-                "strategy_name": deleted_strategy["strategy_name"]
+                "strategy_name": strategy_name
             })
 
         except StrategyNotFoundError as e:

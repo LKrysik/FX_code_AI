@@ -8,7 +8,27 @@
 | Document | Description | Status |
 |----------|-------------|--------|
 | [project-context.md](project-context.md) | Complete project analysis and context | Complete |
-| [product-backlog.md](product-backlog.md) | Consolidated ROADMAP + IDEAS (BMAD format) | **NEW** |
+| [product-backlog.md](product-backlog.md) | Consolidated ROADMAP + IDEAS (BMAD format) | Complete |
+| [prd.md](prd.md) | Product Requirements Document | Complete |
+| [architecture.md](architecture.md) | System Architecture | Complete |
+| [epics.md](epics.md) | Epic and Story Breakdown | Complete |
+| [ux-design-specification.md](ux-design-specification.md) | UX/UI Design Spec | Complete |
+| [implementation-readiness-report.md](implementation-readiness-report.md) | Implementation Readiness Assessment | Complete |
+| [sprint-status.yaml](sprint-status.yaml) | Sprint Status Tracking | Active |
+
+## Process Documents (NEW 2025-12-26)
+
+| Document | Description | Status |
+|----------|-------------|--------|
+| [definition-of-done.md](definition-of-done.md) | When is work "done"? | **NEW** |
+| [risk-register.md](risk-register.md) | Risk identification and tracking | **NEW** |
+| [sprint-cadence.md](sprint-cadence.md) | Sprint ceremonies and workflow | **NEW** |
+| [release-criteria-m1.md](release-criteria-m1.md) | M1 Milestone criteria | **NEW** |
+
+## Analysis Documents
+
+| Document | Description | Status |
+|----------|-------------|--------|
 | [bmm-workflow-status.yaml](bmm-workflow-status.yaml) | BMad Method workflow tracking | Active |
 | [project-scan-report.json](project-scan-report.json) | Scan workflow state | Complete |
 

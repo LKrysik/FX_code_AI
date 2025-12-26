@@ -1,14 +1,19 @@
 ---
-stepsCompleted: [1, 2, 3]
+stepsCompleted: [1, 2, 3, 4]
 inputDocuments:
   - "_bmad-output/prd.md"
   - "_bmad-output/architecture.md"
   - "_bmad-output/ux-design-specification.md"
 workflowType: 'epics-and-stories'
-lastStep: 1
+lastStep: 4
 project_name: 'FX Agent AI'
 user_name: 'Mr Lu'
 date: '2025-12-21'
+validation_date: '2025-12-26'
+validation_status: 'PASSED'
+mvp_story_count: 57
+deferred_story_count: 14
+total_story_count: 71
 ---
 
 # FX Agent AI - Epic Breakdown
@@ -882,6 +887,41 @@ Based on User Persona Focus Group feedback, these features are valuable but not 
 
 **Goal:** Trader sees their FIRST signal appear on the dashboard - the "aha!" moment.
 
+### Story 1A.0: Create Shared Utilities
+
+**As a** developer,
+**I want** shared utility modules for vocabulary, colors, and formatters,
+**So that** all dashboard components use consistent transformations.
+
+**Acceptance Criteria:**
+
+**Given** the vocabulary utility exists
+**When** I import from `/frontend/src/utils/vocabulary.ts`
+**Then** I can use: `getHumanLabel()`, `getIcon()`, `getTechnicalCode()`
+**And** all signal types (S1, O1, Z1, ZE1, E1) are mapped
+
+**Given** the colors utility exists
+**When** I import from `/frontend/src/utils/signalColors.ts`
+**Then** I can use: `getSignalColor()`, `getStateColor()`
+**And** colors match UX spec (Amber, Blue, Green, Red, Slate)
+
+**Given** the formatters utility exists
+**When** I import from `/frontend/src/utils/formatters.ts`
+**Then** I can use: `formatPnL()`, `formatPercent()`, `formatTimestamp()`
+**And** formatting is consistent across all components
+
+**Given** these utilities are created first
+**When** other Epic 1A stories are implemented
+**Then** they can import and use these shared utilities
+**And** no circular dependencies exist
+
+**Technical Notes:**
+- Bootstrap Paradox resolution: Create shared deps FIRST
+- These utilities enable Stories 1A.1-1A.8
+- Export from index.ts for clean imports
+
+---
+
 ### Story 1A.1: Signal Display on Dashboard
 
 **As a** trader,
@@ -1145,45 +1185,22 @@ Based on User Persona Focus Group feedback, these features are valuable but not 
 
 ---
 
-### Story 1A.7: First-Visit Onboarding Tooltip
+### Story 1A.7: First-Visit Onboarding Tooltip [DEFERRED - POST-MVP]
+
+**Status:** DEFERRED per Braess Paradox analysis - adds complexity for single-user MVP
 
 **As a** new trader (Trader A persona),
 **I want** a helpful tooltip explaining the dashboard when I first visit,
 **So that** I understand what I'm looking at without reading documentation.
 
 **Acceptance Criteria:**
-
-**Given** a user visits the dashboard for the first time
-**When** the dashboard loads
-**Then** a friendly tooltip/popover appears near the StatusHero component
-**And** the tooltip says something like: "Welcome! This is your trading dashboard. Signals will appear here when detected."
-
-**Given** the onboarding tooltip is displayed
-**When** I click "Got it" or click outside the tooltip
-**Then** the tooltip dismisses
-**And** a localStorage flag is set to prevent showing it again
-
-**Given** the onboarding has been dismissed previously
-**When** I return to the dashboard
-**Then** the tooltip does NOT appear again
-**And** the user experience is clean without repeated interruptions
-
-**Given** the user wants to see the onboarding again
-**When** they access Settings or Help menu
-**Then** there is an option to "Reset Onboarding Tips"
-**And** clicking it clears the localStorage flag
-
-**Given** the tooltip is displayed
-**When** viewing on different screen sizes
-**Then** the tooltip is positioned appropriately (not off-screen)
-**And** it does not overlap critical UI elements
+- Tooltip appears on first visit near StatusHero
+- Dismisses on click, persists preference in localStorage
+- Can be reset from Settings
 
 **Technical Notes:**
-- Trader A persona feature (first-time user experience)
-- Use MUI Popover or Tooltip component
-- localStorage key: `fx_agent_onboarding_seen`
-- Keep text concise (max 2 sentences)
-- Consider: future expansion to multi-step tour
+- DEFERRED: Developer is the user for MVP
+- Move to Phase 2 when onboarding new users
 
 ---
 
@@ -1233,16 +1250,1733 @@ Based on User Persona Focus Group feedback, these features are valuable but not 
 
 ### Epic 1A Summary
 
+| Story | Title | Type | FRs/UX | Status |
+|-------|-------|------|--------|--------|
+| 1A.0 | Create Shared Utilities | Foundation | - | MVP |
+| 1A.1 | Signal Display on Dashboard | Feature | FR18 | MVP |
+| 1A.2 | State Machine State Badge | Feature | FR19, UX-7-13 | MVP |
+| 1A.3 | Indicator Values Panel | Feature | FR20 | MVP |
+| 1A.4 | Human Vocabulary Labels | Feature | UX-7-13 | MVP |
+| 1A.5 | StatusHero Component | Feature | UX-1, UX-14-16, UX-19-20 | MVP |
+| 1A.6 | Signal Type Color Coding | Feature | FR22, UX-17, UX-28 | MVP |
+| 1A.7 | First-Visit Onboarding Tooltip | Feature | Trader A | DEFERRED |
+| 1A.8 | Quick Start Option | Feature | Trader A | MVP |
+
+**Total: 9 stories (8 MVP + 1 Deferred)** | **Epic 1A Complete**
+
+---
+
+## Epic 1B: First Successful Backtest
+
+**Goal:** Trader runs a complete backtest and sees P&L results.
+
+### Story 1B.1: Backtest Session Setup
+
+**As a** trader,
+**I want** to configure and start a backtest session,
+**So that** I can test my strategy against historical data.
+
+**Acceptance Criteria:**
+
+**Given** I navigate to the backtest setup page/modal
+**When** I view the setup form
+**Then** I can select a strategy from my saved strategies
+**And** I can select a trading symbol (e.g., BTCUSDT, ETHUSDT)
+**And** I can select a date range for historical data
+
+**Given** I am selecting a date range
+**When** I use the date picker
+**Then** I can select start date and end date
+**And** the system validates that historical data exists for that range
+**And** a warning shows if data is incomplete or missing
+
+**Given** I have configured all required fields
+**When** I click "Start Backtest"
+**Then** the backtest session begins
+**And** I am redirected to the dashboard to watch progress
+**And** the setup form validates all fields before starting
+
+**Given** required fields are missing
+**When** I try to start the backtest
+**Then** validation errors highlight the missing fields
+**And** the start button is disabled until all required fields are filled
+
+**Technical Notes:**
+- FR25 (start backtest), FR26 (select period), FR27 (select symbol)
+- Use MUI DatePicker for date range selection
+- API: POST /api/backtest/start with strategy_id, symbol, start_date, end_date
+
+---
+
+### Story 1B.2: Backtest Execution
+
+**As a** trader,
+**I want** the system to simulate trading on historical data,
+**So that** I can see how my strategy would have performed.
+
+**Acceptance Criteria:**
+
+**Given** a backtest session has been started
+**When** the backend processes historical data
+**Then** the StrategyManager evaluates conditions against each data point
+**And** signals are generated when conditions are met
+**And** simulated trades are executed based on signals
+
+**Given** the backtest is running
+**When** a simulated trade is executed
+**Then** entry price, exit price, and P&L are recorded
+**And** the trade is added to the session's trade history
+
+**Given** the backtest encounters an error
+**When** the error is non-fatal (e.g., missing data point)
+**Then** the backtest continues with a warning logged
+**And** the error is reported in the final summary
+
+**Given** the backtest encounters a fatal error
+**When** the error prevents continuation
+**Then** the backtest stops gracefully
+**And** partial results are preserved
+**And** the error is displayed to the user
+
+**Technical Notes:**
+- FR28 (simulate trading execution)
+- Backend: BacktestEngine processes data in batches
+- Signals sent via WebSocket to frontend for real-time display
+- NFR4: Must process 10x faster than real-time
+
+---
+
+### Story 1B.3: Progress Display
+
+**As a** trader,
+**I want** to see the backtest progress in real-time,
+**So that** I know how much longer it will take and can follow along.
+
+**Acceptance Criteria:**
+
+**Given** a backtest is running
+**When** I view the dashboard
+**Then** I see a progress indicator (percentage or progress bar)
+**And** I see the current simulation timestamp
+**And** I see estimated time remaining
+
+**Given** the backtest is processing data
+**When** progress updates are received via WebSocket
+**Then** the progress bar updates smoothly
+**And** updates occur at least every 1 second
+
+**Given** the backtest progress is displayed
+**When** I look at the progress section
+**Then** I see: X% complete, current date being processed, signals found so far
+**And** the display is compact but informative
+
+**Given** the backtest completes
+**When** 100% is reached
+**Then** the progress indicator shows "Complete"
+**And** the P&L summary automatically appears
+
+**Technical Notes:**
+- FR29 (view backtest progress)
+- WebSocket message: { type: "backtest_progress", percent: 45, current_time: "2024-01-15T10:30:00" }
+- Use MUI LinearProgress component
+
+---
+
+### Story 1B.4: P&L Summary
+
+**As a** trader,
+**I want** to see a clear summary of my backtest results,
+**So that** I can evaluate my strategy's performance.
+
+**Acceptance Criteria:**
+
+**Given** a backtest has completed
+**When** the results are displayed
+**Then** I see total P&L (profit or loss) prominently displayed
+**And** P&L is color-coded (green for profit, red for loss)
+**And** P&L shows both absolute value ($) and percentage (%)
+
+**Given** the P&L summary is displayed
+**When** I review the statistics
+**Then** I see: total trades, winning trades, losing trades, win rate
+**And** I see: largest win, largest loss, average trade
+**And** I see: total signals generated per type (S1, Z1, ZE1, E1)
+
+**Given** I want more details
+**When** I click "View Trade History"
+**Then** I see a table of all simulated trades
+**And** each trade shows: timestamp, signal type, entry price, exit price, P&L
+
+**Given** the backtest had no trades
+**When** results are displayed
+**Then** a message explains "No trades executed - consider adjusting thresholds"
+**And** diagnostic info shows closest threshold approaches
+
+**Technical Notes:**
+- FR30 (view backtest results P&L)
+- Hero P&L display: 48-64px font size per UX spec
+- Consider: export to CSV option (deferred to Epic 3)
+
+---
+
+### Story 1B.5: JourneyBar Component
+
+**As a** trader,
+**I want** to see a visual representation of the trading flow,
+**So that** I can understand where I am in the trading cycle.
+
+**Acceptance Criteria:**
+
+**Given** the JourneyBar is displayed on the dashboard
+**When** I view it
+**Then** I see the trading flow as connected steps: Watch → Found → Enter → Monitor → Exit
+**And** each step is represented by an icon and label
+
+**Given** the state machine is in a specific state
+**When** that state corresponds to a journey step
+**Then** the current step is highlighted (bold, colored, or glowing)
+**And** completed steps show a checkmark
+**And** future steps are dimmed/grayed
+
+**Given** the state machine transitions
+**When** a new state is entered
+**Then** the JourneyBar animates to the new position
+**And** the animation is smooth (300ms transition)
+
+**Given** the journey has multiple possible outcomes
+**When** displaying exit states
+**Then** "Exit" step shows the specific outcome (Profit/Loss)
+**And** color reflects outcome (green for profit, red for loss)
+
+**Technical Notes:**
+- UX-2 (JourneyBar Navigation)
+- Horizontal layout for desktop, consider vertical for mobile
+- Use MUI Stepper component as base, customize styling
+
+---
+
+### Story 1B.6: Signal Timeline on Chart
+
+**As a** trader,
+**I want** to see where signals occurred on a price chart,
+**So that** I can visualize the strategy's behavior over time.
+
+**Acceptance Criteria:**
+
+**Given** a backtest has completed or is running
+**When** I view the chart section
+**Then** the price chart shows the historical price data
+**And** signal markers appear at the corresponding timestamps
+
+**Given** signals are displayed on the chart
+**When** I look at a marker
+**Then** each signal type has a distinct icon/color
+**And** S1 signals show as amber diamonds
+**And** Z1 (entry) shows as blue arrows pointing up
+**And** ZE1/E1 (exit) shows as green/red arrows pointing down
+
+**Given** I hover over a signal marker
+**When** the tooltip appears
+**Then** I see: signal type, timestamp, indicator values at that moment
+**And** for exits: entry price, exit price, P&L
+
+**Given** multiple signals are close together
+**When** zoomed out on the chart
+**Then** signals cluster visually without overlapping
+**And** I can zoom in to see individual signals
+
+**Technical Notes:**
+- Consider: lightweight-charts library or existing chart component
+- Markers overlay on price candles
+- Performance: limit to 1000 markers visible at once
+
+---
+
+### Story 1B.7: State Overview Table
+
+**As a** trader running multiple symbols (Trader B),
+**I want** to see all active sessions in a single table view,
+**So that** I can monitor multiple instruments at once.
+
+**Acceptance Criteria:**
+
+**Given** I have one or more active sessions
+**When** I view the State Overview Table
+**Then** I see a row for each active symbol/session
+**And** each row shows: symbol, current state, last signal, P&L
+
+**Given** a session updates
+**When** new data arrives via WebSocket
+**Then** the corresponding row updates in real-time
+**And** changed values briefly highlight
+
+**Given** I want to focus on one session
+**When** I click on a row
+**Then** the main dashboard focuses on that session
+**And** StatusHero and other components show that session's details
+
+**Given** no sessions are active
+**When** I view the table
+**Then** an empty state message appears: "No active sessions. Start a backtest to begin."
+
+**Technical Notes:**
+- Trader B persona feature
+- Use MUI DataGrid or Table component
+- Support 1-10 simultaneous sessions
+- Consider: collapsible when single session active
+
+---
+
+### Story 1B.8: Emergency Stop Button + Esc Shortcut
+
+**As a** trader,
+**I want** to immediately stop any running backtest or trading session,
+**So that** I can halt operations quickly in an emergency.
+
+**Acceptance Criteria:**
+
+**Given** a session is running (backtest or live)
+**When** I look for the stop control
+**Then** a prominent red "STOP" button is always visible
+**And** the button is labeled clearly (not just an icon)
+
+**Given** I press the Esc key
+**When** a session is active
+**Then** a confirmation dialog appears: "Stop session? This cannot be undone."
+**And** I can confirm with Enter or cancel with Esc again
+
+**Given** I click the STOP button or confirm the dialog
+**When** the stop command is sent
+**Then** the session stops within 1 second
+**And** any open simulated positions are closed at current price
+**And** the final P&L is calculated and displayed
+
+**Given** the session has stopped
+**When** viewing the dashboard
+**Then** the status shows "Stopped by user"
+**And** partial results are preserved and viewable
+
+**Given** I want to disable the Esc shortcut
+**When** I access Settings
+**Then** I can toggle "Esc to stop session" on/off
+
+**Technical Notes:**
+- FR31 (stop running backtest)
+- UX-21 (Esc keyboard shortcut)
+- UX-22 (emergency close < 1 second)
+- Trader B, C persona features
+- API: POST /api/session/stop
+
+---
+
+### Story 1B.9: Multi-Symbol Session Support [DEFERRED - POST-MVP]
+
+**Status:** DEFERRED per Braess Paradox analysis - adds WebSocket routing complexity
+
+**As a** trader (Trader B),
+**I want** to run backtests on multiple symbols simultaneously,
+**So that** I can test my strategy across different markets.
+
+**Acceptance Criteria:**
+- Select 1-3 symbols for simultaneous backtesting
+- State Overview Table shows all active sessions
+- WebSocket handles messages for all sessions
+
+**Technical Notes:**
+- DEFERRED: Start with single symbol for MVP
+- Adds session_id routing complexity
+- Move to Phase 2 after single-symbol is stable
+
+---
+
+### Epic 1B Summary
+
+| Story | Title | Type | FRs/UX | Status |
+|-------|-------|------|--------|--------|
+| 1B.1 | Backtest Session Setup | Feature | FR25, FR26, FR27 | MVP |
+| 1B.2 | Backtest Execution | Feature | FR28 | MVP |
+| 1B.3 | Progress Display | Feature | FR29 | MVP |
+| 1B.4 | P&L Summary | Feature | FR30 | MVP |
+| 1B.5 | JourneyBar Component | Feature | UX-2 | MVP |
+| 1B.6 | Signal Timeline on Chart | Feature | - | MVP |
+| 1B.7 | State Overview Table | Feature | Trader B | MVP |
+| 1B.8 | Emergency Stop Button + Esc | Feature | FR31, UX-21, UX-22 | MVP |
+| 1B.9 | Multi-Symbol Session Support | Feature | Trader B | DEFERRED |
+
+**Total: 9 stories (8 MVP + 1 Deferred)** | **Epic 1B Complete**
+
+---
+
+## Epic 2: Complete Strategy Configuration
+
+**Goal:** Trader can create, customize, and save their own pump detection strategies with all 5 sections.
+
+### Story 2.1: Create New Strategy
+
+**As a** trader,
+**I want** to create a new strategy from scratch,
+**So that** I can build a custom trading approach tailored to my needs.
+
+**Acceptance Criteria:**
+
+**Given** I navigate to the Strategy Builder
+**When** I click "Create New Strategy"
+**Then** a new empty strategy is initialized
+**And** I am prompted to enter a strategy name
+**And** all 5 sections (S1, O1, Z1, ZE1, E1) are shown as unconfigured
+
+**Given** I am creating a new strategy
+**When** I enter a name and click "Create"
+**Then** the strategy is created with default/empty conditions
+**And** I can immediately begin configuring sections
+
+**Given** a strategy with that name already exists
+**When** I try to create with a duplicate name
+**Then** a validation error shows "Strategy name already exists"
+**And** I must choose a different name
+
+**Technical Notes:**
+- FR1 requirement
+- API: POST /api/strategies with { name, sections: {} }
+- Default state: all sections empty, strategy not yet valid
+
+---
+
+### Story 2.2: Configure S1 (Signal Detection)
+
+**As a** trader,
+**I want** to configure the S1 (Signal Detection) section,
+**So that** I can define when a pump is initially detected.
+
+**Acceptance Criteria:**
+
+**Given** I am editing a strategy's S1 section
+**When** I view the configuration form
+**Then** I see available indicators (TWPA, pump_magnitude_pct, volume_surge_ratio, price_velocity, spread_pct)
+**And** I can set threshold values for each indicator
+**And** I can set comparison operators (>, <, >=, <=, ==)
+
+**Given** I am configuring a condition
+**When** I set an indicator and threshold
+**Then** I can combine multiple conditions with AND/OR logic
+**And** the UI shows a visual representation of the condition tree
+
+**Given** I have configured S1 conditions
+**When** I save the section
+**Then** the conditions are validated for completeness
+**And** invalid conditions show specific error messages
+**And** valid conditions are persisted to the strategy
+
+**Technical Notes:**
+- FR2 requirement
+- S1 triggers transition from MONITORING to SIGNAL_DETECTED
+- UI: condition builder with drag-drop or form-based approach
+
+---
+
+### Story 2.3: Configure O1 (Cancellation)
+
+**As a** trader,
+**I want** to configure the O1 (Cancellation) section,
+**So that** I can filter out false signals before entering a position.
+
+**Acceptance Criteria:**
+
+**Given** I am editing a strategy's O1 section
+**When** I view the configuration form
+**Then** I see the same indicators available as S1
+**And** I can define conditions that would cancel the signal
+
+**Given** O1 conditions are configured
+**When** a signal is detected (S1 fires)
+**Then** O1 conditions are evaluated
+**And** if O1 triggers, the signal is cancelled (False Alarm)
+**And** the state returns to MONITORING
+
+**Given** O1 is optional
+**When** I leave O1 unconfigured
+**Then** the strategy is still valid
+**And** signals proceed directly from S1 to Z1 evaluation
+
+**Technical Notes:**
+- FR3 requirement
+- O1 is optional - strategies work without it
+- O1 triggers transition from SIGNAL_DETECTED back to MONITORING
+
+---
+
+### Story 2.4: Configure Z1 (Entry Confirmation)
+
+**As a** trader,
+**I want** to configure the Z1 (Entry Confirmation) section,
+**So that** I can define when to actually enter a position.
+
+**Acceptance Criteria:**
+
+**Given** I am editing a strategy's Z1 section
+**When** I view the configuration form
+**Then** I can set entry confirmation conditions
+**And** these conditions must be met after S1 fires (and O1 doesn't cancel)
+
+**Given** Z1 conditions are configured
+**When** S1 fires and O1 doesn't cancel
+**Then** Z1 conditions are continuously evaluated
+**And** when Z1 triggers, a position is entered
+**And** the state transitions to POSITION_ACTIVE
+
+**Given** Z1 conditions include timing
+**When** configuring Z1
+**Then** I can set a timeout (e.g., "confirm within 30 seconds of S1")
+**And** if timeout expires without Z1, signal is cancelled
+
+**Technical Notes:**
+- FR4 requirement
+- Z1 triggers position entry
+- Consider: position sizing configuration (future epic)
+
+---
+
+### Story 2.5: Configure ZE1 (Exit with Profit)
+
+**As a** trader,
+**I want** to configure the ZE1 (Exit with Profit) section,
+**So that** I can define my profit-taking conditions.
+
+**Acceptance Criteria:**
+
+**Given** I am editing a strategy's ZE1 section
+**When** I view the configuration form
+**Then** I can set profit target conditions
+**And** I can use unrealized_pnl_pct as an indicator
+**And** I can set absolute profit targets (e.g., +5%)
+
+**Given** ZE1 conditions are configured
+**When** a position is active
+**Then** ZE1 conditions are continuously evaluated
+**And** when ZE1 triggers, the position is closed with profit
+**And** the state transitions to exit and then MONITORING
+
+**Given** I want multiple profit targets
+**When** configuring ZE1
+**Then** I can set tiered targets (e.g., 50% at +3%, rest at +5%)
+**And** partial exits are supported (future enhancement flag)
+
+**Technical Notes:**
+- FR5 requirement
+- ZE1 = happy path exit
+- Consider: trailing stop configuration (future)
+
+---
+
+### Story 2.6: Configure E1 (Emergency Exit)
+
+**As a** trader,
+**I want** to configure the E1 (Emergency Exit) section,
+**So that** I can define stop-loss and emergency exit conditions.
+
+**Acceptance Criteria:**
+
+**Given** I am editing a strategy's E1 section
+**When** I view the configuration form
+**Then** I can set stop-loss conditions
+**And** I can use unrealized_pnl_pct (negative) as an indicator
+**And** I can set absolute loss limits (e.g., -3%)
+
+**Given** E1 conditions are configured
+**When** a position is active
+**Then** E1 conditions are continuously evaluated
+**And** when E1 triggers, the position is closed immediately
+**And** the state transitions to exit and then MONITORING
+
+**Given** E1 is critical for risk management
+**When** a strategy has no E1 configured
+**Then** a warning is shown: "No stop-loss configured - high risk"
+**And** the user must acknowledge the warning to save
+
+**Technical Notes:**
+- FR6 requirement
+- E1 = unhappy path exit (stop loss)
+- E1 should be evaluated with highest priority
+
+---
+
+### Story 2.7: Indicator Selection
+
+**As a** trader,
+**I want** to select which indicators to use in my conditions,
+**So that** I can build conditions using relevant market data.
+
+**Acceptance Criteria:**
+
+**Given** I am building a condition in any section
+**When** I need to select an indicator
+**Then** I see a list of available MVP indicators:
+- TWPA (Time-Weighted Price Average)
+- pump_magnitude_pct
+- volume_surge_ratio
+- price_velocity
+- spread_pct
+- unrealized_pnl_pct (only in ZE1/E1 when position active)
+
+**Given** I select an indicator
+**When** viewing its details
+**Then** I see a description of what the indicator measures
+**And** I see typical value ranges
+**And** I see suggested thresholds for common strategies
+
+**Given** an indicator is not applicable to a section
+**When** viewing indicator options
+**Then** the indicator is disabled or hidden
+**And** a tooltip explains why it's not available
+
+**Technical Notes:**
+- FR7 requirement
+- unrealized_pnl_pct only available when position exists
+- Consider: indicator preview showing current/recent values
+
+---
+
+### Story 2.8: View Strategy Configuration
+
+**As a** trader,
+**I want** to view my strategy configuration in a readable format,
+**So that** I can review and understand my complete strategy.
+
+**Acceptance Criteria:**
+
+**Given** I have a configured strategy
+**When** I view the strategy summary
+**Then** I see all 5 sections displayed clearly
+**And** each section shows its conditions in human-readable format
+
+**Given** the strategy summary is displayed
+**When** I review a section
+**Then** conditions read like sentences (e.g., "When pump_magnitude_pct > 5%")
+**And** AND/OR logic is clearly shown
+**And** empty sections are marked as "Not configured"
+
+**Given** I want a quick overview
+**When** I view the strategy card/tile
+**Then** I see: strategy name, creation date, last modified
+**And** I see a summary badge showing configured sections (e.g., "S1 ✓ O1 ✓ Z1 ✓ ZE1 ✓ E1 ✓")
+
+**Technical Notes:**
+- FR9 requirement
+- Consider: export strategy as JSON/YAML for backup
+- Human-readable format uses vocabulary transformation
+
+---
+
+### Story 2.9: Strategy Validation
+
+**As a** trader,
+**I want** my strategy to be validated before saving,
+**So that** I don't accidentally create an invalid or broken strategy.
+
+**Acceptance Criteria:**
+
+**Given** I attempt to save a strategy
+**When** validation runs
+**Then** all sections are checked for completeness
+**And** condition logic is verified (no circular references, valid operators)
+**And** indicator references are verified (indicators exist)
+
+**Given** validation fails
+**When** errors are found
+**Then** specific error messages indicate what's wrong
+**And** the problematic section/field is highlighted
+**And** the save is prevented until errors are fixed
+
+**Given** validation passes on frontend
+**When** the strategy is sent to backend
+**Then** the backend re-validates before persisting
+**And** any backend validation errors are returned to frontend
+**And** consistency between frontend and backend validation is maintained
+
+**Given** a strategy lacks minimum requirements
+**When** I try to save
+**Then** I'm warned: "At least S1 and one exit (ZE1 or E1) must be configured"
+
+**Technical Notes:**
+- FR37 (frontend validation), FR38 (backend validation)
+- Validation schema shared between frontend and backend
+- Consider: JSON Schema for strategy definition
+
+---
+
+### Story 2.10: Starter Strategy Template (Simplified)
+
+**As a** new trader (Trader A),
+**I want** a pre-built strategy template,
+**So that** I can start with a proven configuration and customize from there.
+
+**Acceptance Criteria:**
+
+**Given** I access the Strategy Builder
+**When** I choose to create from template
+**Then** I see one "Default Template" option (balanced/moderate settings)
+
+**Given** I select the template
+**When** the template loads
+**Then** all 5 sections are pre-configured with sensible defaults:
+- S1: pump_magnitude_pct > 3%, volume_surge_ratio > 2.0
+- O1: (optional, not configured by default)
+- Z1: price_velocity > 0.5%
+- ZE1: unrealized_pnl_pct > 5%
+- E1: unrealized_pnl_pct < -3%
+**And** I can immediately use the strategy or customize it
+
+**Given** I want to customize the template
+**When** I modify any section
+**Then** changes are applied to my copy
+**And** the original template remains unchanged
+
+**Technical Notes:**
+- SIMPLIFIED per Braess Paradox: One template instead of three
+- Template stored as JSON in /data/templates/default.json
+- Conservative/Aggressive templates deferred to Phase 2
+
+---
+
+### Story 2.11: Expert Mode Toggle
+
+**As an** experienced trader (Trader C),
+**I want** to see technical signal names (S1/Z1/E1) instead of human labels,
+**So that** I can work with the system using precise technical terminology.
+
+**Acceptance Criteria:**
+
+**Given** Expert Mode is disabled (default)
+**When** viewing signals and states
+**Then** human vocabulary is used ("Found!", "Taking Profit", etc.)
+
+**Given** I enable Expert Mode in settings
+**When** viewing signals and states
+**Then** technical codes are shown (S1, O1, Z1, ZE1, E1)
+**And** the UI layout remains the same (only labels change)
+
+**Given** Expert Mode preference is set
+**When** I close and reopen the application
+**Then** my preference is persisted
+**And** the chosen vocabulary mode is applied immediately
+
+**Given** I'm in a mixed team environment
+**When** sharing screenshots
+**Then** I can quickly toggle between modes for communication
+
+**Technical Notes:**
+- Trader C persona feature
+- localStorage: `fx_agent_expert_mode: boolean`
+- Toggle in Settings page or quick-access menu
+
+---
+
+### Epic 2 Summary
+
+| Story | Title | Type | FRs |
+|-------|-------|------|-----|
+| 2.1 | Create New Strategy | Feature | FR1 |
+| 2.2 | Configure S1 (Signal Detection) | Feature | FR2 |
+| 2.3 | Configure O1 (Cancellation) | Feature | FR3 |
+| 2.4 | Configure Z1 (Entry Confirmation) | Feature | FR4 |
+| 2.5 | Configure ZE1 (Exit with Profit) | Feature | FR5 |
+| 2.6 | Configure E1 (Emergency Exit) | Feature | FR6 |
+| 2.7 | Indicator Selection | Feature | FR7 |
+| 2.8 | View Strategy Configuration | Feature | FR9 |
+| 2.9 | Strategy Validation | Feature | FR37, FR38 |
+| 2.10 | Starter Strategy Templates | Feature | Trader A |
+| 2.11 | Expert Mode Toggle | Feature | Trader C |
+
+**Total: 11 stories** | **Epic 2 Complete**
+
+---
+
+## Epic 3: Transparency & Diagnostics
+
+**Goal:** Trader understands WHY every signal fired or didn't fire - complete transparency into system decisions.
+
+### Story 3.1: Signal History Panel
+
+**As a** trader,
+**I want** to see a chronological list of all signals during my session,
+**So that** I can review what happened and when.
+
+**Acceptance Criteria:**
+
+**Given** a session is active or completed
+**When** I view the Signal History Panel
+**Then** I see all signals in reverse chronological order (newest first)
+**And** each entry shows: timestamp, signal type (human vocab), symbol
+
+**Given** signals are displayed
+**When** I click on a signal entry
+**Then** I see expanded details: indicator values at that moment, trigger reason
+
+**Given** the session has many signals
+**When** viewing the history
+**Then** the list is scrollable and paginated (or virtual scroll)
+**And** I can filter by signal type (S1 only, exits only, etc.)
+
+**Technical Notes:**
+- FR21 requirement
+- Store signals in session store, limit to last 1000
+- Consider: grouping by trade cycle (S1→Z1→exit as one group)
+
+---
+
+### Story 3.2: State Machine Transition History
+
+**As a** trader,
+**I want** to see a log of all state changes with their triggers,
+**So that** I can understand the complete state machine journey.
+
+**Acceptance Criteria:**
+
+**Given** I access the Transition History
+**When** viewing the log
+**Then** I see all state transitions: from_state → to_state, timestamp, trigger
+
+**Given** a transition entry is displayed
+**When** I look at the trigger
+**Then** I see which signal or condition caused the transition
+**And** for timeouts/cancellations, the reason is shown
+
+**Given** I want to trace a specific journey
+**When** I filter by trade cycle
+**Then** I see only transitions for that cycle (S1→...→exit)
+**And** the complete path is visible as a connected sequence
+
+**Technical Notes:**
+- FR23 requirement
+- Log format: { from, to, trigger, timestamp, details }
+- Consider: visual timeline view (like git log)
+
+---
+
+### Story 3.3: "Why No Signal" Diagnostics
+
+**As a** trader,
+**I want** to see why no signal is firing when I expect one,
+**So that** I can debug my strategy thresholds.
+
+**Acceptance Criteria:**
+
+**Given** the system is monitoring but no S1 has fired
+**When** I access "Why No Signal" diagnostics
+**Then** I see each S1 condition and its current progress
+**And** progress shows: current_value vs threshold, percentage to trigger
+
+**Given** the diagnostics are displayed
+**When** viewing a condition's progress
+**Then** I see: "pump_magnitude_pct: 3.2% (64% of 5% threshold)"
+**And** the closest-to-triggering condition is highlighted
+
+**Given** conditions use AND logic
+**When** some conditions pass but others don't
+**Then** passing conditions show ✓ green
+**And** blocking conditions show ✗ red with gap amount
+
+**Given** I want real-time updates
+**When** market data changes
+**Then** the diagnostics update in real-time
+**And** I can watch conditions approach thresholds
+
+**Technical Notes:**
+- FR32 requirement
+- Calculate: (current_value / threshold) * 100 for progress
+- For > comparisons: show % of way there
+- For < comparisons: show how far below
+
+---
+
+### Story 3.4: Continuous Indicator Values
+
+**As a** trader,
+**I want** to see indicator values even when no signals are firing,
+**So that** I can monitor market conditions continuously.
+
+**Acceptance Criteria:**
+
+**Given** a session is active
+**When** I view the indicator panel
+**Then** all MVP indicators show current values at all times
+**And** values update in real-time (every tick or every second)
+
+**Given** indicators are updating
+**When** a value changes significantly
+**Then** the change is visually indicated (brief highlight)
+**And** I can see trend direction (↑↓→)
+
+**Given** no signals are firing
+**When** I monitor indicators
+**Then** I can still see all values and trends
+**And** the display is not blank or hidden
+
+**Given** historical context is useful
+**When** viewing an indicator
+**Then** I can see a mini sparkline showing recent values
+**And** sparkline covers last 1-5 minutes (configurable)
+
+**Technical Notes:**
+- FR33 requirement
+- WebSocket: continuous indicator stream, not just signal-triggered
+- Consider: throttle updates to prevent UI lag (max 10/second)
+
+---
+
+### Story 3.5: Condition Pass/Fail Display
+
+**As a** trader,
+**I want** to see which conditions passed or failed during signal evaluation,
+**So that** I can understand exactly why a signal did or didn't fire.
+
+**Acceptance Criteria:**
+
+**Given** a signal is being evaluated
+**When** I view the condition status
+**Then** each condition in the section shows pass ✓ or fail ✗
+**And** the overall result (AND/OR logic) is shown
+
+**Given** a condition fails
+**When** viewing the fail details
+**Then** I see: condition definition, current value, threshold, gap
+**And** the display is color-coded (green=pass, red=fail)
+
+**Given** a signal fires
+**When** I view why it fired
+**Then** I see all conditions that were evaluated
+**And** I can see which conditions were critical (AND) vs optional (OR)
+
+**Technical Notes:**
+- FR35 requirement
+- Display alongside signal in history and real-time
+- Consider: collapsible section for condition details
+
+---
+
+### Story 3.6: Transition Tracing
+
+**As a** trader,
+**I want** to trace exactly why each signal or transition occurred,
+**So that** I can fully understand my strategy's behavior.
+
+**Acceptance Criteria:**
+
+**Given** a state transition has occurred
+**When** I click "Why?" on the transition
+**Then** I see a detailed breakdown:
+- Which conditions triggered
+- Exact indicator values at trigger time
+- Time elapsed since previous state
+
+**Given** a signal led to a trade
+**When** I trace the complete journey
+**Then** I see the chain: S1 trigger → Z1 confirm → entry → ZE1/E1 exit
+**And** each step shows its trigger conditions
+
+**Given** I want to compare to expectations
+**When** viewing a trace
+**Then** I can see threshold vs actual for each condition
+**And** I can identify if the trigger was marginal or strong
+
+**Technical Notes:**
+- FR36 requirement
+- Store indicator snapshots at each transition
+- Consider: export trace as JSON for offline analysis
+
+---
+
+### Story 3.7: TransitionBadge Component
+
+**As a** trader,
+**I want** to see inline explanations for every state change,
+**So that** transitions are self-documenting and understandable.
+
+**Acceptance Criteria:**
+
+**Given** a state transition occurs on the dashboard
+**When** the transition is displayed
+**Then** a TransitionBadge appears showing "Why: [reason]"
+**And** the badge is positioned near the state indicator
+
+**Given** the TransitionBadge is displayed
+**When** I read the reason
+**Then** it's human-readable (e.g., "Why: pump_magnitude exceeded 5%")
+**And** technical details are available on hover/click
+
+**Given** multiple transitions happen quickly
+**When** badges would overlap
+**Then** only the most recent badge is shown prominently
+**And** older transitions are available in history
+
+**Technical Notes:**
+- UX-5 requirement
+- Badge auto-dismisses after 5 seconds or on next transition
+- Use MUI Chip or custom badge component
+
+---
+
+### Story 3.8: Enhanced ConditionProgress
+
+**As a** trader,
+**I want** to see visual progress bars for each condition,
+**So that** I can quickly gauge how close conditions are to triggering.
+
+**Acceptance Criteria:**
+
+**Given** the dashboard shows condition progress
+**When** I view a condition
+**Then** I see a horizontal progress bar
+**And** the bar shows current value as percentage of threshold
+
+**Given** a condition is close to triggering (>80%)
+**When** viewing the progress bar
+**Then** the bar color changes to amber/warning
+**And** a subtle pulse animation indicates "almost there"
+
+**Given** a condition triggers (100%)
+**When** the threshold is crossed
+**Then** the bar fills completely and flashes green
+**And** the transition occurs
+
+**Given** conditions are displayed
+**When** I want to see details
+**Then** hovering shows: current value, threshold, percentage
+**And** click expands to show historical trend
+
+**Technical Notes:**
+- UX-3 (ConditionProgress enhanced)
+- Progress = min(current/threshold * 100, 100)
+- Handle inverse conditions (< threshold) appropriately
+
+---
+
+### Story 3.9: Raw Data Export (CSV)
+
+**As an** experienced trader (Trader C),
+**I want** to export my trade history and signals to CSV,
+**So that** I can analyze data in my own tools (Excel, Python, etc.).
+
+**Acceptance Criteria:**
+
+**Given** a session has completed
+**When** I click "Export to CSV"
+**Then** a CSV file is generated and downloaded
+**And** the filename includes session date and symbol
+
+**Given** the CSV export
+**When** I open it
+**Then** it contains columns: timestamp, signal_type, symbol, indicator values, P&L
+**And** each row is a signal or trade event
+
+**Given** I want to export trade history
+**When** I select "Trades Only" option
+**Then** the CSV contains only completed trades
+**And** each trade shows: entry_time, exit_time, entry_price, exit_price, P&L
+
+**Given** I want raw signal data
+**When** I select "All Signals" option
+**Then** the CSV contains every signal including cancelled ones
+**And** O1 cancellations are marked with reason
+
+**Technical Notes:**
+- Trader C persona feature (CSV export)
+- Use browser download API
+- Consider: JSON export option for programmatic access
+
+---
+
+### Epic 3 Summary
+
 | Story | Title | Type | FRs/UX |
 |-------|-------|------|--------|
-| 1A.1 | Signal Display on Dashboard | Feature | FR18 |
-| 1A.2 | State Machine State Badge | Feature | FR19, UX-7-13 |
-| 1A.3 | Indicator Values Panel | Feature | FR20 |
-| 1A.4 | Human Vocabulary Labels | Feature | UX-7-13 |
-| 1A.5 | StatusHero Component | Feature | UX-1, UX-14-16, UX-19-20 |
-| 1A.6 | Signal Type Color Coding | Feature | FR22, UX-17, UX-28 |
-| 1A.7 | First-Visit Onboarding Tooltip | Feature | Trader A |
-| 1A.8 | Quick Start Option | Feature | Trader A |
+| 3.1 | Signal History Panel | Feature | FR21 |
+| 3.2 | State Machine Transition History | Feature | FR23 |
+| 3.3 | "Why No Signal" Diagnostics | Feature | FR32 |
+| 3.4 | Continuous Indicator Values | Feature | FR33 |
+| 3.5 | Condition Pass/Fail Display | Feature | FR35 |
+| 3.6 | Transition Tracing | Feature | FR36 |
+| 3.7 | TransitionBadge Component | Feature | UX-5 |
+| 3.8 | Enhanced ConditionProgress | Feature | UX-3 |
+| 3.9 | Raw Data Export (CSV) | Feature | Trader C |
 
-**Total: 8 stories** | **Epic 1A Complete**
+**Total: 9 stories** | **Epic 3 Complete**
+
+---
+
+## Epic 4: Production Reliability
+
+**Goal:** System is production-ready with verified signal generation, proper error handling, and graceful recovery.
+
+### Story 4.1: Verify S1 Signal Generation
+
+**As a** developer,
+**I want** comprehensive tests verifying S1 signals generate correctly,
+**So that** pump detection works reliably in production.
+
+**Acceptance Criteria:**
+
+**Given** the StrategyManager evaluates S1 conditions
+**When** all S1 conditions are met
+**Then** an S1 signal is generated with correct payload
+**And** the signal includes: type, timestamp, symbol, indicator_values
+
+**Given** S1 conditions are partially met
+**When** evaluation runs
+**Then** no S1 signal is generated
+**And** diagnostics show which conditions failed
+
+**Given** edge cases exist (boundary values)
+**When** values are exactly at threshold
+**Then** >= and > operators behave correctly
+**And** tests verify boundary behavior
+
+**Technical Notes:**
+- FR11 requirement (verification)
+- Create: /tests/unit/test_s1_signal_generation.py
+- Test cases: all pass, some pass, none pass, edge cases
+
+---
+
+### Story 4.2: Verify O1 Signal Generation
+
+**As a** developer,
+**I want** tests verifying O1 cancellation signals work correctly,
+**So that** false signal filtering is reliable.
+
+**Acceptance Criteria:**
+
+**Given** S1 has fired and O1 is configured
+**When** O1 conditions are met
+**Then** an O1 signal is generated
+**And** the state returns to MONITORING
+**And** the S1 signal is marked as cancelled
+
+**Given** O1 conditions are not met
+**When** evaluation continues
+**Then** no O1 fires
+**And** Z1 evaluation proceeds
+
+**Given** O1 is not configured
+**When** S1 fires
+**Then** O1 evaluation is skipped
+**And** processing proceeds to Z1 directly
+
+**Technical Notes:**
+- FR12 requirement (verification)
+- Create: /tests/unit/test_o1_signal_generation.py
+
+---
+
+### Story 4.3: Verify Z1 Signal Generation
+
+**As a** developer,
+**I want** tests verifying Z1 entry signals work correctly,
+**So that** position entries are reliable.
+
+**Acceptance Criteria:**
+
+**Given** S1 has fired and O1 hasn't cancelled
+**When** Z1 conditions are met
+**Then** a Z1 signal is generated
+**And** a position entry is triggered
+**And** the state transitions to POSITION_ACTIVE
+
+**Given** Z1 has a timeout configured
+**When** timeout expires without Z1 triggering
+**Then** the signal is cancelled
+**And** the state returns to MONITORING
+
+**Technical Notes:**
+- FR13 requirement (verification)
+- Create: /tests/unit/test_z1_signal_generation.py
+- Test: timeout scenarios, rapid confirmation
+
+---
+
+### Story 4.4: Verify ZE1 Signal Generation
+
+**As a** developer,
+**I want** tests verifying ZE1 exit signals work correctly,
+**So that** profit-taking is reliable.
+
+**Acceptance Criteria:**
+
+**Given** a position is active
+**When** ZE1 conditions are met (profit target reached)
+**Then** a ZE1 signal is generated
+**And** the position is closed
+**And** P&L is calculated and recorded
+
+**Given** ZE1 uses unrealized_pnl_pct
+**When** calculating P&L percentage
+**Then** the calculation is accurate to 2 decimal places
+**And** matches expected values in test cases
+
+**Technical Notes:**
+- FR14 requirement (verification)
+- Create: /tests/unit/test_ze1_signal_generation.py
+- Test: various profit levels, edge cases
+
+---
+
+### Story 4.5: Verify E1 Signal Generation
+
+**As a** developer,
+**I want** tests verifying E1 emergency exit signals work correctly,
+**So that** stop-losses are reliable.
+
+**Acceptance Criteria:**
+
+**Given** a position is active
+**When** E1 conditions are met (stop-loss triggered)
+**Then** an E1 signal is generated immediately
+**And** the position is closed
+**And** P&L (negative) is calculated and recorded
+
+**Given** both ZE1 and E1 could trigger
+**When** evaluating exit conditions
+**Then** E1 is evaluated with higher priority
+**And** if both trigger simultaneously, E1 takes precedence
+
+**Technical Notes:**
+- FR15 requirement (verification)
+- Create: /tests/unit/test_e1_signal_generation.py
+- Test: E1 priority over ZE1
+
+---
+
+### Story 4.6: Verify Indicator Calculations
+
+**As a** developer,
+**I want** tests verifying all MVP indicators calculate accurately,
+**So that** strategy conditions use correct values.
+
+**Acceptance Criteria:**
+
+**Given** market data input
+**When** TWPA is calculated
+**Then** the result matches expected time-weighted average
+**And** calculation handles edge cases (missing data, gaps)
+
+**Given** market data input
+**When** all MVP indicators are calculated
+**Then** each indicator produces accurate results:
+- pump_magnitude_pct: actual vs baseline price change
+- volume_surge_ratio: current vs average volume
+- price_velocity: rate of price change
+- spread_pct: bid-ask spread percentage
+- unrealized_pnl_pct: position P&L percentage
+
+**Technical Notes:**
+- FR16 requirement (verification)
+- Create: /tests/unit/test_indicator_calculations.py
+- Use known test data with pre-calculated expected results
+
+---
+
+### Story 4.7: Verify State Machine Transitions
+
+**As a** developer,
+**I want** tests verifying all state transitions follow correct logic,
+**So that** the trading workflow is reliable.
+
+**Acceptance Criteria:**
+
+**Given** the state machine is in any state
+**When** a valid transition trigger occurs
+**Then** the state transitions correctly
+**And** the transition is logged with details
+
+**Given** an invalid transition is attempted
+**When** (e.g., ZE1 from MONITORING)
+**Then** the transition is rejected
+**And** an error is logged (but not user-facing)
+
+**Given** the complete happy path
+**When** MONITORING → S1 → Z1 → POSITION_ACTIVE → ZE1 → MONITORING
+**Then** all transitions occur correctly in sequence
+**And** P&L is positive and recorded
+
+**Technical Notes:**
+- FR17 requirement (verification)
+- Create: /tests/unit/test_state_machine.py
+- Test: all valid paths, invalid transitions, edge cases
+
+---
+
+### Story 4.8: Condition Evaluation Testing
+
+**As a** developer,
+**I want** comprehensive tests for condition evaluation,
+**So that** strategy conditions behave predictably.
+
+**Acceptance Criteria:**
+
+**Given** conditions with various operators (>, <, >=, <=, ==)
+**When** evaluated against test data
+**Then** each operator produces correct boolean result
+
+**Given** conditions with AND logic
+**When** all conditions pass
+**Then** the overall result is TRUE
+**And** if any condition fails, the result is FALSE
+
+**Given** conditions with OR logic
+**When** any condition passes
+**Then** the overall result is TRUE
+**And** only if all fail is the result FALSE
+
+**Given** nested logic (AND + OR combinations)
+**When** evaluated
+**Then** the logic tree is processed correctly
+**And** results match expected outcomes
+
+**Technical Notes:**
+- FR10 requirement (comprehensive testing)
+- Create: /tests/unit/test_condition_evaluation.py
+
+---
+
+### Story 4.9: Pre-flight Check Before Backtest
+
+**As a** trader,
+**I want** the system to verify readiness before starting a backtest,
+**So that** I don't waste time on a backtest that will fail.
+
+**Acceptance Criteria:**
+
+**Given** I start a backtest
+**When** the pre-flight check runs
+**Then** it verifies: historical data exists, strategy is valid, connection is healthy
+
+**Given** historical data is missing
+**When** pre-flight check runs
+**Then** a clear error shows: "Missing data for [date range]"
+**And** the backtest does not start
+
+**Given** the strategy is invalid
+**When** pre-flight check runs
+**Then** validation errors are shown
+**And** the user is directed to fix the strategy
+
+**Given** all checks pass
+**When** pre-flight completes
+**Then** a brief "Ready to start" confirmation is shown
+**And** the backtest begins
+
+**Technical Notes:**
+- FR39 requirement
+- API: GET /api/backtest/preflight with strategy_id, symbol, date_range
+- Return: { ready: boolean, issues: [] }
+
+---
+
+### Story 4.10: Auto-reconnect on Disconnect
+
+**As a** trader,
+**I want** the WebSocket to automatically reconnect if disconnected,
+**So that** I don't lose signal updates during temporary network issues.
+
+**Acceptance Criteria:**
+
+**Given** the WebSocket connection drops
+**When** the disconnect is detected
+**Then** reconnection attempts begin immediately
+**And** the connection status shows "Reconnecting..."
+
+**Given** reconnection is in progress
+**When** attempts are made
+**Then** exponential backoff is used (1s, 2s, 4s, max 30s)
+**And** attempt count is shown to user
+
+**Given** reconnection succeeds
+**When** connection is restored
+**Then** the status returns to "Connected"
+**And** a success toast confirms "Connection restored"
+**And** any missed signals are requested (if supported)
+
+**Given** reconnection fails after max attempts
+**When** 10 attempts have failed
+**Then** a persistent error banner appears
+**And** manual retry button is available
+
+**Technical Notes:**
+- FR41, NFR8 requirements
+- Use existing WebSocket service reconnect logic
+- Target: reconnect within 2 seconds for brief disconnects
+
+---
+
+### Story 4.11: Recovery Options on Error
+
+**As a** trader,
+**I want** clear recovery options when errors occur,
+**So that** I can resume trading without losing progress.
+
+**Acceptance Criteria:**
+
+**Given** a recoverable error occurs (e.g., network timeout)
+**When** the error is displayed
+**Then** recovery options are shown: "Retry", "Resume", "Restart"
+**And** the most appropriate option is highlighted
+
+**Given** a backtest was interrupted
+**When** I return to the application
+**Then** I see: "Previous session was interrupted. Resume?"
+**And** I can choose to resume from last known state or start over
+
+**Given** I choose to resume
+**When** the session restarts
+**Then** it continues from the last saved checkpoint
+**And** no signals or trades are duplicated or lost
+
+**Given** resume is not possible
+**When** data is corrupted or incompatible
+**Then** a clear message explains why
+**And** only "Start Fresh" option is available
+
+**Technical Notes:**
+- FR42 requirement
+- Checkpoint storage: save state every N signals or M seconds
+- Consider: localStorage for client state, backend for session state
+
+---
+
+### Story 4.12: Full-Screen Critical Errors
+
+**As a** trader,
+**I want** critical errors to be impossible to miss,
+**So that** I never accidentally trade with a broken system.
+
+**Acceptance Criteria:**
+
+**Given** a critical error occurs (connection lost during active position)
+**When** the error is displayed
+**Then** a full-screen overlay appears
+**And** the error message is large and clear
+**And** all other interactions are blocked
+
+**Given** the full-screen error is shown
+**When** I read the message
+**Then** it explains: what happened, what it means, what to do
+**And** action buttons are prominent (e.g., "Reconnect Now")
+
+**Given** the error is resolved
+**When** I take the recovery action
+**Then** the overlay dismisses
+**And** normal operation resumes
+
+**Given** sound is enabled
+**When** a critical error occurs
+**Then** an alert sound plays
+**And** the sound is attention-grabbing but not jarring
+
+**Technical Notes:**
+- UX-30 requirement
+- Use MUI Dialog with disableEscapeKeyDown
+- Critical errors: connection lost during trade, backend crash
+
+---
+
+### Story 4.13: Reconnect Banner
+
+**As a** trader,
+**I want** to see a visible status during reconnection,
+**So that** I know the system is trying to restore connection.
+
+**Acceptance Criteria:**
+
+**Given** the WebSocket is reconnecting
+**When** the status is displayed
+**Then** a non-intrusive banner appears at the top of the screen
+**And** the banner shows: "Reconnecting... Attempt X"
+
+**Given** the banner is shown
+**When** reconnection is in progress
+**Then** a spinner or pulsing indicator shows activity
+**And** the banner is amber/yellow colored
+
+**Given** reconnection takes longer than 3 seconds
+**When** the banner is still visible
+**Then** estimated time or "This may take a moment" is shown
+
+**Given** reconnection succeeds
+**When** connection is restored
+**Then** the banner briefly shows "Connected!" in green
+**And** auto-dismisses after 2 seconds
+
+**Technical Notes:**
+- UX-32 requirement
+- Banner position: fixed to top, below header
+- Should not block critical UI elements
+
+---
+
+### Epic 4 Summary
+
+| Story | Title | Type | FRs/NFRs |
+|-------|-------|------|----------|
+| 4.1 | Verify S1 Signal Generation | Verification | FR11 |
+| 4.2 | Verify O1 Signal Generation | Verification | FR12 |
+| 4.3 | Verify Z1 Signal Generation | Verification | FR13 |
+| 4.4 | Verify ZE1 Signal Generation | Verification | FR14 |
+| 4.5 | Verify E1 Signal Generation | Verification | FR15 |
+| 4.6 | Verify Indicator Calculations | Verification | FR16 |
+| 4.7 | Verify State Machine Transitions | Verification | FR17 |
+| 4.8 | Condition Evaluation Testing | Verification | FR10 |
+| 4.9 | Pre-flight Check Before Backtest | Feature | FR39 |
+| 4.10 | Auto-reconnect on Disconnect | Feature | FR41, NFR8 |
+| 4.11 | Recovery Options on Error | Feature | FR42 |
+| 4.12 | Full-Screen Critical Errors | Feature | UX-30 |
+| 4.13 | Reconnect Banner | Feature | UX-32 |
+
+**Total: 13 stories** | **Epic 4 Complete**
+
+---
+
+## Epic 5: Dashboard Experience Polish [DEFERRED - POST-MVP]
+
+**Status:** ENTIRE EPIC DEFERRED per Theseus Paradox - not core to MVP definition
+
+**Goal:** Beautiful, state-driven UI with custom components that create confidence and delight.
+
+*Note: All 12 stories in this epic are deferred to Phase 2. Core functionality works without polish.*
+
+### Story 5.1: State-Driven Layout - Minimal Focus (MONITORING)
+
+**As a** trader in monitoring state,
+**I want** a calm, minimal dashboard layout,
+**So that** I'm not distracted while waiting for signals.
+
+**Acceptance Criteria:**
+- When in MONITORING state, layout shows only 3-4 key metrics
+- Large empty space with subtle "Watching..." indicator
+- Colors are muted (slate/gray tones)
+- Layout transitions smoothly when state changes
+
+**Technical Notes:** UX-14 requirement
+
+---
+
+### Story 5.2: State-Driven Layout - Command Center (SIGNAL_DETECTED)
+
+**As a** trader when a signal is detected,
+**I want** maximum information density,
+**So that** I can quickly assess the situation.
+
+**Acceptance Criteria:**
+- When in SIGNAL_DETECTED, layout expands to show all relevant data
+- Indicator panel, condition progress, signal details all visible
+- Colors shift to alert mode (amber background)
+- Information hierarchy guides eye to most important elements
+
+**Technical Notes:** UX-15 requirement
+
+---
+
+### Story 5.3: State-Driven Layout - Split Focus (POSITION_ACTIVE)
+
+**As a** trader with an active position,
+**I want** P&L prominently displayed with supporting context,
+**So that** I can monitor my position without hunting for information.
+
+**Acceptance Criteria:**
+- When in POSITION_ACTIVE, P&L is hero element (largest)
+- Supporting info (entry price, duration, exit conditions) visible
+- Color reflects profit/loss state (green/red)
+- Less visual noise than Command Center mode
+
+**Technical Notes:** UX-16 requirement
+
+---
+
+### Story 5.4: Typography System Implementation
+
+**As a** trader,
+**I want** consistent, readable typography,
+**So that** information is easy to scan and understand.
+
+**Acceptance Criteria:**
+- Inter font for UI text (labels, descriptions)
+- JetBrains Mono for numbers/prices
+- Hero metrics at 48-64px
+- Proper font weight hierarchy
+
+**Technical Notes:** UX-18 requirement
+
+---
+
+### Story 5.5: Keyboard Shortcuts (Full Set)
+
+**As a** power user,
+**I want** keyboard shortcuts for common actions,
+**So that** I can navigate and act quickly.
+
+**Acceptance Criteria:**
+- Esc = emergency close (already in 1B.8)
+- Space = pause/resume session
+- D = focus dashboard
+- H = open history
+- S = open settings
+- Shortcuts displayed in help menu
+
+**Technical Notes:** UX-21 requirement (full implementation)
+
+---
+
+### Story 5.6: Sound Alerts for State Changes
+
+**As a** trader multitasking,
+**I want** optional sound alerts for important events,
+**So that** I can be notified even when not looking at the screen.
+
+**Acceptance Criteria:**
+- Sound plays on: S1 detected, position entered, exit (profit or loss)
+- Different sounds for different events
+- Volume and enable/disable in settings
+- Muted by default (opt-in)
+
+**Technical Notes:** UX-23 requirement
+
+---
+
+### Story 5.7: Celebration Animation on Profitable Exit
+
+**As a** trader,
+**I want** a celebration when I exit with profit,
+**So that** wins feel rewarding and memorable.
+
+**Acceptance Criteria:**
+- Confetti animation on ZE1 exit
+- P&L displayed in celebratory style (larger, animated)
+- Sound effect (if sound enabled)
+- Animation is brief (2-3 seconds) and dismissible
+
+**Technical Notes:** UX-24 requirement
+
+---
+
+### Story 5.8: No-Blame Loss Display
+
+**As a** trader who just took a loss,
+**I want** neutral, objective loss explanations,
+**So that** I can learn without feeling blamed.
+
+**Acceptance Criteria:**
+- Losses displayed neutrally: "Position closed at -X%"
+- No red alarm styling (subdued red or gray)
+- Explanation shows what triggered E1
+- Focus on learning: "Market moved X% against position"
+
+**Technical Notes:** UX-25 requirement
+
+---
+
+### Story 5.9: Dark Mode Support
+
+**As a** trader working at night,
+**I want** a dark mode option,
+**So that** I can reduce eye strain.
+
+**Acceptance Criteria:**
+- Dark mode toggle in settings
+- All components support dark theme
+- Colors adjusted for dark backgrounds
+- Preference persisted
+
+**Technical Notes:** UX requirement (dark mode support)
+
+---
+
+### Story 5.10: Accessibility Compliance
+
+**As a** user with accessibility needs,
+**I want** the application to be accessible,
+**So that** I can use it effectively.
+
+**Acceptance Criteria:**
+- WCAG 2.1 AA compliance
+- Focus indicators on all interactive elements (2px solid ring)
+- Screen reader compatible labels
+- Keyboard navigation works throughout
+
+**Technical Notes:** UX-27, UX-29 requirements
+
+---
+
+### Story 5.11: NowPlayingBar Component
+
+**As a** trader with an active position,
+**I want** a persistent footer showing position status,
+**So that** I can see my position from any page.
+
+**Acceptance Criteria:**
+- When position is active, footer bar appears (Spotify-style)
+- Shows: symbol, P&L, duration, state
+- Persists even when navigating to other pages
+- Click expands to full dashboard
+
+**Technical Notes:** UX-6 requirement
+
+---
+
+### Story 5.12: DeltaDisplay Component
+
+**As a** trader,
+**I want** "+$X to target" formatted metrics,
+**So that** I can quickly see distance to goals.
+
+**Acceptance Criteria:**
+- DeltaDisplay shows: current value, target value, delta
+- Formatted as "+$123 to target" or "-2.3% to stop"
+- Trend arrows show direction
+- Color reflects positive (green) or negative (red) delta
+
+**Technical Notes:** UX-4 requirement
+
+---
+
+### Epic 5 Summary
+
+| Story | Title | Type | UX Req |
+|-------|-------|------|--------|
+| 5.1 | State-Driven Layout - Minimal | Polish | UX-14 |
+| 5.2 | State-Driven Layout - Command Center | Polish | UX-15 |
+| 5.3 | State-Driven Layout - Split Focus | Polish | UX-16 |
+| 5.4 | Typography System | Polish | UX-18 |
+| 5.5 | Keyboard Shortcuts (Full) | Polish | UX-21 |
+| 5.6 | Sound Alerts | Polish | UX-23 |
+| 5.7 | Celebration Animation | Polish | UX-24 |
+| 5.8 | No-Blame Loss Display | Polish | UX-25 |
+| 5.9 | Dark Mode Support | Polish | - |
+| 5.10 | Accessibility Compliance | Polish | UX-27, UX-29 |
+| 5.11 | NowPlayingBar Component | Polish | UX-6 |
+| 5.12 | DeltaDisplay Component | Polish | UX-4 |
+
+**Total: 12 stories** | **Epic 5 Complete**
+
+---
+
+## Final Story Count Summary
+
+| Epic | Name | MVP Stories | Deferred | Total |
+|------|------|-------------|----------|-------|
+| 0 | Foundation & Pipeline Unblock | 8 | 0 | 8 |
+| 1A | First Signal Visible | 8 | 1 | 9 |
+| 1B | First Successful Backtest | 8 | 1 | 9 |
+| 2 | Complete Strategy Configuration | 11 | 0 | 11 |
+| 3 | Transparency & Diagnostics | 9 | 0 | 9 |
+| 4 | Production Reliability | 13 | 0 | 13 |
+| 5 | Dashboard Experience Polish | 0 | 12 | 12 |
+
+**MVP Total: 57 stories** | **Deferred: 14 stories** | **Grand Total: 71 stories**
+
+### Deferred Stories (Post-MVP)
+
+| Story | Title | Reason |
+|-------|-------|--------|
+| 1A.7 | First-Visit Onboarding Tooltip | Complexity vs MVP value |
+| 1B.9 | Multi-Symbol Session Support | Requires session_id routing complexity |
+| 5.1-5.12 | All Epic 5 stories | Polish features after core functionality stable |
 

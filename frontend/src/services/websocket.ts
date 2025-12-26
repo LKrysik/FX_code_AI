@@ -3,6 +3,7 @@ import { useWebSocketStore } from '@/stores/websocketStore';
 import { authService } from '@/services/authService'; // Import the new auth service
 import { recordWebSocketMessage } from '@/hooks/usePerformanceMonitor';
 import { categorizeError, logUnifiedError, getErrorRecoveryStrategy, type UnifiedError } from '@/utils/statusUtils';
+import { useDebugStore } from '@/stores/debugStore';
 
 export interface WSMessage {
   type: string;
@@ -222,6 +223,20 @@ class WebSocketService {
   }
 
   private handleMessage(message: WSMessage): void {
+    // [DEBUG] Capture message for debug panel (dev mode only)
+    if (process.env.NODE_ENV === 'development') {
+      try {
+        useDebugStore.getState().addMessage({
+          type: message.type,
+          stream: message.stream,
+          timestamp: new Date().toISOString(),
+          payload: message,
+        });
+      } catch {
+        // Silently ignore debug store errors
+      }
+    }
+
     // Handle handshake response first (backend sends 'status: connected')
     if (message.type === 'status' && message.status === 'connected') {
       this.handleHandshakeResponse(message);
@@ -276,6 +291,16 @@ class WebSocketService {
         break;
       case 'signal':
       case 'signals':
+        // [SIGNAL-FLOW] Debug logging for E2E verification (Story 0-2)
+        console.log('[SIGNAL-FLOW] Signal received:', {
+          type: message.type,
+          signal_type: message.data?.signal_type,
+          symbol: message.data?.symbol,
+          section: message.data?.section,
+          timestamp: message.timestamp,
+          latency_ms: message.timestamp ? Date.now() - new Date(message.timestamp).getTime() : 'N/A',
+          indicators: message.data?.indicators,
+        });
         // Update connection status when receiving signal messages
         if (!this.isConnected) {
           console.log('🔗 [WebSocket] Connection confirmed via signals');
@@ -391,6 +416,23 @@ class WebSocketService {
     } else if (stream === 'indicators') {
       this.callbacks.onIndicators?.(message);
     } else if (stream === 'signals') {
+      // [SIGNAL-FLOW] Debug logging for data stream signals (Story 0-2)
+      const signalData = message.data || message;
+      const messageTimestamp = message.timestamp || signalData.timestamp;
+      const latencyMs = messageTimestamp
+        ? Date.now() - new Date(messageTimestamp).getTime()
+        : null;
+      console.log('[SIGNAL-FLOW] Signal received (data stream):', {
+        type: message.type,
+        stream: message.stream,
+        signal_type: signalData.signal_type,
+        symbol: signalData.symbol,
+        section: signalData.section || signalData.signal_type,
+        timestamp: messageTimestamp,
+        latency_ms: latencyMs,
+        indicators: signalData.indicators || signalData.indicator_values,
+        received_at: new Date().toISOString()
+      });
       this.callbacks.onSignals?.(message);
     } else if (stream === 'strategy_status' || stream === 'strategy_update') {
       this.callbacks.onStrategyUpdate?.(message);
