@@ -18,14 +18,14 @@ import pytest
 import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List
 
 # Test fixtures for signal data
 VALID_SIGNAL_EVENT = {
     "signal_type": "S1",
     "symbol": "BTCUSDT",
-    "timestamp": datetime.utcnow().isoformat(),
+    "timestamp": datetime.now(timezone.utc).isoformat(),
     "section": "S1",
     "indicators": {
         "pump_magnitude_pct": 7.5,
@@ -41,7 +41,7 @@ VALID_SIGNAL_EVENT = {
 MINIMAL_SIGNAL_EVENT = {
     "signal_type": "Z1",
     "symbol": "ETHUSDT",
-    "timestamp": datetime.utcnow().isoformat()
+    "timestamp": datetime.now(timezone.utc).isoformat()
 }
 
 INVALID_SIGNAL_EVENT_MISSING_FIELDS = {
@@ -50,70 +50,75 @@ INVALID_SIGNAL_EVENT_MISSING_FIELDS = {
 }
 
 
+# Module-level fixtures for all test classes
+@pytest.fixture
+def mock_event_bus():
+    """Create a mock EventBus that tracks subscriptions and publications."""
+    event_bus = MagicMock()
+    event_bus.subscriptions = {}
+
+    async def mock_subscribe(event_name: str, handler):
+        if event_name not in event_bus.subscriptions:
+            event_bus.subscriptions[event_name] = []
+        event_bus.subscriptions[event_name].append(handler)
+
+    async def mock_publish(event_name: str, data: Dict[str, Any]):
+        if event_name in event_bus.subscriptions:
+            for handler in event_bus.subscriptions[event_name]:
+                await handler(data)
+
+    event_bus.subscribe = mock_subscribe
+    event_bus.publish = mock_publish
+    return event_bus
+
+
+@pytest.fixture
+def mock_websocket_server():
+    """Create a mock WebSocket server that tracks broadcasts."""
+    server = MagicMock()
+    server.broadcasts = []
+
+    async def mock_broadcast(subscription_type: str, data: dict, exclude_client: str = None):
+        server.broadcasts.append({
+            "subscription_type": subscription_type,
+            "data": data,
+            "exclude_client": exclude_client,
+            "timestamp": time.time()
+        })
+        return 1  # Return number of clients notified
+
+    server.broadcast_to_subscribers = mock_broadcast
+    return server
+
+
+@pytest.fixture
+def mock_logger():
+    """Create a mock StructuredLogger."""
+    logger = MagicMock()
+    logger.logs = {"debug": [], "warning": [], "error": [], "info": []}
+
+    def log_debug(event, data=None):
+        logger.logs["debug"].append({"event": event, "data": data})
+
+    def log_warning(event, data=None):
+        logger.logs["warning"].append({"event": event, "data": data})
+
+    def log_error(event, data=None):
+        logger.logs["error"].append({"event": event, "data": data})
+
+    def log_info(event, data=None):
+        logger.logs["info"].append({"event": event, "data": data})
+
+    logger.debug = log_debug
+    logger.warning = log_warning
+    logger.error = log_error
+    logger.info = log_info
+    return logger
+
+
 class TestSignalFlowE2E:
     """End-to-end tests for signal flow from EventBus to WebSocket."""
-
-    @pytest.fixture
-    def mock_event_bus(self):
-        """Create a mock EventBus that tracks subscriptions and publications."""
-        event_bus = MagicMock()
-        event_bus.subscriptions = {}
-
-        async def mock_subscribe(event_name: str, handler):
-            if event_name not in event_bus.subscriptions:
-                event_bus.subscriptions[event_name] = []
-            event_bus.subscriptions[event_name].append(handler)
-
-        async def mock_publish(event_name: str, data: Dict[str, Any]):
-            if event_name in event_bus.subscriptions:
-                for handler in event_bus.subscriptions[event_name]:
-                    await handler(data)
-
-        event_bus.subscribe = mock_subscribe
-        event_bus.publish = mock_publish
-        return event_bus
-
-    @pytest.fixture
-    def mock_websocket_server(self):
-        """Create a mock WebSocket server that tracks broadcasts."""
-        server = MagicMock()
-        server.broadcasts = []
-
-        async def mock_broadcast(subscription_type: str, data: dict, exclude_client: str = None):
-            server.broadcasts.append({
-                "subscription_type": subscription_type,
-                "data": data,
-                "exclude_client": exclude_client,
-                "timestamp": time.time()
-            })
-            return 1  # Return number of clients notified
-
-        server.broadcast_to_subscribers = mock_broadcast
-        return server
-
-    @pytest.fixture
-    def mock_logger(self):
-        """Create a mock StructuredLogger."""
-        logger = MagicMock()
-        logger.logs = {"debug": [], "warning": [], "error": [], "info": []}
-
-        def log_debug(event, data=None):
-            logger.logs["debug"].append({"event": event, "data": data})
-
-        def log_warning(event, data=None):
-            logger.logs["warning"].append({"event": event, "data": data})
-
-        def log_error(event, data=None):
-            logger.logs["error"].append({"event": event, "data": data})
-
-        def log_info(event, data=None):
-            logger.logs["info"].append({"event": event, "data": data})
-
-        logger.debug = log_debug
-        logger.warning = log_warning
-        logger.error = log_error
-        logger.info = log_info
-        return logger
+    pass
 
 
 class TestAC1_SignalForwarding:
@@ -276,11 +281,11 @@ class TestAC4_ErrorHandling:
         assert log_entry["data"]["error_type"] == "ValueError"
 
 
-class TestAC5_DeadCodeDocumented:
-    """AC5: Dead code is documented with TODO comments."""
+class TestAC5_DeadCodeRemoved:
+    """AC5: Dead code has been properly removed."""
 
-    def test_dead_code_has_todo_comment(self):
-        """Verify that dead code handlers have TODO documentation."""
+    def test_legacy_handlers_removed(self):
+        """Verify that legacy dead code handlers have been removed."""
         import os
 
         event_bridge_path = os.path.join(
@@ -295,13 +300,21 @@ class TestAC5_DeadCodeDocumented:
             with open(event_bridge_path, "r") as f:
                 content = f.read()
 
-            # Check for TODO comment about dead code
-            assert "TODO:" in content and "DEAD CODE" in content, \
-                "Dead code handlers should have TODO: [DEAD CODE] comment"
+            # Verify legacy handlers were removed
+            assert "handle_flash_pump_signal" not in content, \
+                "Legacy handle_flash_pump_signal should be removed"
+            assert "handle_reversal_signal" not in content, \
+                "Legacy handle_reversal_signal should be removed"
+            assert "handle_confluence_signal" not in content, \
+                "Legacy handle_confluence_signal should be removed"
 
-            # Check for context about StrategyManager
+            # Verify primary handler exists
+            assert "handle_signal_generated" in content, \
+                "Primary signal_generated handler should exist"
+
+            # Verify StrategyManager context is documented
             assert "StrategyManager" in content, \
-                "TODO should mention StrategyManager as the actual publisher"
+                "Handler should document StrategyManager as the signal publisher"
 
 
 # Run with: pytest tests/integration/test_signal_flow.py -v

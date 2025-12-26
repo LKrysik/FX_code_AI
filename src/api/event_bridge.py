@@ -601,28 +601,6 @@ class EventBridge(IEventBridge):
         async def handle_indicator_event(event_data: Dict[str, Any]):
             await self._process_event("indicator.updated", event_data)
 
-        # Signal events
-        # TODO: [DEAD CODE] These handlers subscribe to events that StrategyManager never publishes.
-        # StrategyManager publishes "signal_generated" instead. These remain for potential future
-        # use with specialized signal processors. See Story 0-1 for context.
-        # Consider removing if not used by 2025-Q2.
-        async def handle_flash_pump_signal(event_data: Dict[str, Any]):
-            processed_signal = await self.signal_processor.process_flash_pump_signal(event_data)
-            if processed_signal:
-                await self._process_event("signal.flash_pump_detected", processed_signal)
-
-        async def handle_reversal_signal(event_data: Dict[str, Any]):
-            processed_signal = await self.signal_processor.process_reversal_signal(event_data)
-            if processed_signal:
-                await self._process_event("signal.reversal_detected", processed_signal)
-
-        async def handle_confluence_signal(event_data: Dict[str, Any]):
-            processed_signal = await self.signal_processor.process_confluence_signal(event_data)
-            if processed_signal:
-                await self._process_event("signal.confluence_detected", processed_signal)
-
-
-
         # Subscribe to events
         await self.event_bus.subscribe("market.price_update", handle_market_event)
         self._subscribed_handlers.append(("market.price_update", handle_market_event))
@@ -632,14 +610,8 @@ class EventBridge(IEventBridge):
         self._subscribed_handlers.append(("indicator.updated", handle_indicator_event))
         await self.event_bus.subscribe("streaming_indicator.updated", handle_indicator_event)
         self._subscribed_handlers.append(("streaming_indicator.updated", handle_indicator_event))
-        await self.event_bus.subscribe("signal.flash_pump_detected", handle_flash_pump_signal)
-        self._subscribed_handlers.append(("signal.flash_pump_detected", handle_flash_pump_signal))
-        await self.event_bus.subscribe("signal.reversal_detected", handle_reversal_signal)
-        self._subscribed_handlers.append(("signal.reversal_detected", handle_reversal_signal))
-        await self.event_bus.subscribe("signal.confluence_detected", handle_confluence_signal)
-        self._subscribed_handlers.append(("signal.confluence_detected", handle_confluence_signal))
 
-        # Generic signal_generated handler - forwards all signals from StrategyManager
+        # Primary signal handler - forwards all signals from StrategyManager
         async def handle_signal_generated(event_data: Dict[str, Any]):
             """Forward signal_generated events from StrategyManager to WebSocket clients.
 

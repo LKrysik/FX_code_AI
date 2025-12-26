@@ -491,6 +491,208 @@ class MexcFuturesAdapter:
             })
             raise
 
+    async def place_stop_order(
+        self,
+        symbol: str,
+        side: Literal["BUY", "SELL"],
+        position_side: Literal["LONG", "SHORT"],
+        stop_price: float,
+        quantity: float,
+        order_type: Literal["STOP_MARKET", "TAKE_PROFIT_MARKET", "STOP", "TAKE_PROFIT"] = "STOP_MARKET",
+        price: Optional[float] = None,
+        working_type: Literal["MARK_PRICE", "CONTRACT_PRICE"] = "MARK_PRICE"
+    ) -> Dict[str, Any]:
+        """
+        Place a stop/trigger order on MEXC Futures.
+
+        This is the proper implementation of stop-loss and take-profit orders
+        using MEXC's trigger order endpoint.
+
+        Args:
+            symbol: Trading symbol (e.g., 'BTC_USDT')
+            side: Order side when triggered (BUY or SELL)
+                - For stop-loss on LONG: SELL
+                - For stop-loss on SHORT: BUY
+                - For take-profit on LONG: SELL
+                - For take-profit on SHORT: BUY
+            position_side: Position this stop order protects (LONG or SHORT)
+            stop_price: Trigger price that activates the order
+            quantity: Order quantity when triggered
+            order_type: Type of stop order
+                - STOP_MARKET: Stop loss that executes as market order
+                - TAKE_PROFIT_MARKET: Take profit that executes as market order
+                - STOP: Stop loss that executes as limit order (requires price)
+                - TAKE_PROFIT: Take profit that executes as limit order (requires price)
+            price: Limit price (required for STOP and TAKE_PROFIT types)
+            working_type: Price type to use for trigger
+                - MARK_PRICE: Use mark price (recommended, less manipulation)
+                - CONTRACT_PRICE: Use last traded price
+
+        Returns:
+            Order response with order_id, status, etc.
+
+        Raises:
+            ValueError: If limit order types missing price
+            Exception: If order placement fails
+
+        Example (Stop-loss for LONG position):
+            # If holding LONG, set stop-loss to sell if price drops to 48000
+            order = await adapter.place_stop_order(
+                symbol="BTC_USDT",
+                side="SELL",
+                position_side="LONG",
+                stop_price=48000.0,
+                quantity=0.001,
+                order_type="STOP_MARKET"
+            )
+
+        Example (Take-profit for SHORT position):
+            # If holding SHORT, set take-profit to buy if price drops to 45000
+            order = await adapter.place_stop_order(
+                symbol="BTC_USDT",
+                side="BUY",
+                position_side="SHORT",
+                stop_price=45000.0,
+                quantity=0.001,
+                order_type="TAKE_PROFIT_MARKET"
+            )
+        """
+        # Validate limit order has price
+        if order_type in ["STOP", "TAKE_PROFIT"] and price is None:
+            raise ValueError(f"Price required for {order_type} orders")
+
+        params = {
+            "symbol": symbol.upper(),
+            "side": side.upper(),
+            "positionSide": position_side.upper(),
+            "type": order_type.upper(),
+            "stopPrice": str(stop_price),
+            "quantity": str(quantity),
+            "workingType": working_type
+        }
+
+        if price is not None:
+            params["price"] = str(price)
+
+        try:
+            self.logger.info("mexc_futures_adapter.place_stop_order", {
+                "symbol": symbol,
+                "side": side,
+                "position_side": position_side,
+                "order_type": order_type,
+                "stop_price": stop_price,
+                "quantity": quantity,
+                "price": price,
+                "working_type": working_type
+            })
+
+            # Use trigger order endpoint for stop orders
+            response = await self._make_request("POST", "/fapi/v1/order", params, signed=True)
+
+            result = {
+                "order_id": response.get("orderId"),
+                "status": response.get("status", "NEW"),
+                "symbol": response.get("symbol"),
+                "side": response.get("side"),
+                "position_side": response.get("positionSide"),
+                "type": response.get("type"),
+                "stop_price": stop_price,
+                "quantity": float(response.get("origQty", quantity)),
+                "price": float(response.get("price", 0)) if response.get("price") else None,
+                "working_type": working_type,
+                "source": "mexc_futures_api",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+
+            self.logger.info("mexc_futures_adapter.stop_order_placed", result)
+            return result
+
+        except Exception as e:
+            self.logger.error("mexc_futures_adapter.place_stop_order_error", {
+                "symbol": symbol,
+                "side": side,
+                "position_side": position_side,
+                "stop_price": stop_price,
+                "error": str(e)
+            })
+            raise
+
+    async def place_stop_loss(
+        self,
+        symbol: str,
+        position_side: Literal["LONG", "SHORT"],
+        stop_price: float,
+        quantity: float
+    ) -> Dict[str, Any]:
+        """
+        Convenience method to place a stop-loss order.
+
+        Automatically determines the correct side based on position_side.
+
+        Args:
+            symbol: Trading symbol
+            position_side: Position to protect (LONG or SHORT)
+            stop_price: Price at which to trigger stop-loss
+            quantity: Quantity to close
+
+        Returns:
+            Order response
+
+        Example:
+            # Protect LONG position with stop-loss at 48000
+            await adapter.place_stop_loss("BTC_USDT", "LONG", 48000.0, 0.001)
+        """
+        # For LONG position, stop-loss = SELL when price drops
+        # For SHORT position, stop-loss = BUY when price rises
+        side = "SELL" if position_side == "LONG" else "BUY"
+
+        return await self.place_stop_order(
+            symbol=symbol,
+            side=side,
+            position_side=position_side,
+            stop_price=stop_price,
+            quantity=quantity,
+            order_type="STOP_MARKET"
+        )
+
+    async def place_take_profit(
+        self,
+        symbol: str,
+        position_side: Literal["LONG", "SHORT"],
+        take_profit_price: float,
+        quantity: float
+    ) -> Dict[str, Any]:
+        """
+        Convenience method to place a take-profit order.
+
+        Automatically determines the correct side based on position_side.
+
+        Args:
+            symbol: Trading symbol
+            position_side: Position to take profit on (LONG or SHORT)
+            take_profit_price: Price at which to trigger take-profit
+            quantity: Quantity to close
+
+        Returns:
+            Order response
+
+        Example:
+            # Take profit on LONG position at 55000
+            await adapter.place_take_profit("BTC_USDT", "LONG", 55000.0, 0.001)
+        """
+        # For LONG position, take-profit = SELL when price rises
+        # For SHORT position, take-profit = BUY when price drops
+        side = "SELL" if position_side == "LONG" else "BUY"
+
+        return await self.place_stop_order(
+            symbol=symbol,
+            side=side,
+            position_side=position_side,
+            stop_price=take_profit_price,
+            quantity=quantity,
+            order_type="TAKE_PROFIT_MARKET"
+        )
+
     async def close_position(self,
                             symbol: str,
                             position_side: Literal["LONG", "SHORT"],

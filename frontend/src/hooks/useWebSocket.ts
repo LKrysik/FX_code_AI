@@ -33,11 +33,21 @@ export interface UseWebSocketOptions {
   onMessage?: (message: WebSocketMessage) => void;
 }
 
+export interface HeartbeatMetrics {
+  lastPingSent: number;
+  lastPongReceived: number;
+  rttMs: number;
+  avgRttMs: number;
+  missedPongs: number;
+  isHealthy: boolean;
+}
+
 export interface UseWebSocketReturn {
   isConnected: boolean;
   lastMessage: WebSocketMessage | null;
   connectionState: 'connecting' | 'connected' | 'disconnected' | 'error';
   reconnectAttempt: number;
+  heartbeat: HeartbeatMetrics;
   sendMessage: (message: any) => void;
   sendJsonMessage: (data: any, type?: string) => void;
   close: () => void;
@@ -84,12 +94,23 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null);
   const [connectionState, setConnectionState] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('disconnected');
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
+  const [heartbeat, setHeartbeat] = useState<HeartbeatMetrics>({
+    lastPingSent: 0,
+    lastPongReceived: 0,
+    rttMs: 0,
+    avgRttMs: 0,
+    missedPongs: 0,
+    isHealthy: true
+  });
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const pongTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const messageQueueRef = useRef<any[]>([]);
   const shouldReconnectRef = useRef(true);
+  const rttHistoryRef = useRef<number[]>([]);
+  const lastPingSentRef = useRef<number>(0);
 
   // Clear all timers
   const clearTimers = useCallback(() => {
@@ -101,21 +122,98 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       clearInterval(heartbeatIntervalRef.current);
       heartbeatIntervalRef.current = null;
     }
+    if (pongTimeoutRef.current) {
+      clearTimeout(pongTimeoutRef.current);
+      pongTimeoutRef.current = null;
+    }
+  }, []);
+
+  // Handle pong response - calculate RTT and update health
+  const handlePong = useCallback((serverTime?: number) => {
+    const now = Date.now();
+    const rttMs = now - lastPingSentRef.current;
+
+    // Update RTT history (keep last 10)
+    rttHistoryRef.current.push(rttMs);
+    if (rttHistoryRef.current.length > 10) {
+      rttHistoryRef.current.shift();
+    }
+
+    // Calculate average RTT
+    const avgRttMs = rttHistoryRef.current.reduce((a, b) => a + b, 0) / rttHistoryRef.current.length;
+
+    // Clear pong timeout
+    if (pongTimeoutRef.current) {
+      clearTimeout(pongTimeoutRef.current);
+      pongTimeoutRef.current = null;
+    }
+
+    setHeartbeat({
+      lastPingSent: lastPingSentRef.current,
+      lastPongReceived: now,
+      rttMs,
+      avgRttMs,
+      missedPongs: 0,
+      isHealthy: true
+    });
+
+    console.debug(`[useWebSocket] Pong received - RTT: ${rttMs}ms, Avg: ${avgRttMs.toFixed(1)}ms`);
+  }, []);
+
+  // Handle missed pong
+  const handleMissedPong = useCallback(() => {
+    setHeartbeat(prev => {
+      const missedPongs = prev.missedPongs + 1;
+      const isHealthy = missedPongs < 3;
+
+      console.warn(`[useWebSocket] Missed pong #${missedPongs}${isHealthy ? '' : ' - connection unhealthy'}`);
+
+      // If too many missed pongs, force reconnect
+      if (missedPongs >= 3 && wsRef.current) {
+        console.error('[useWebSocket] Too many missed pongs, forcing reconnect');
+        wsRef.current.close();
+      }
+
+      return {
+        ...prev,
+        missedPongs,
+        isHealthy
+      };
+    });
   }, []);
 
   // Start heartbeat to detect silent disconnects
   const startHeartbeat = useCallback(() => {
     clearTimers();
+    rttHistoryRef.current = []; // Reset RTT history on new connection
+
     heartbeatIntervalRef.current = setInterval(() => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         try {
-          wsRef.current.send(JSON.stringify({ type: 'ping' }));
+          lastPingSentRef.current = Date.now();
+          wsRef.current.send(JSON.stringify({
+            type: 'ping',
+            timestamp: new Date().toISOString(),
+            client_time: lastPingSentRef.current
+          }));
+
+          setHeartbeat(prev => ({
+            ...prev,
+            lastPingSent: lastPingSentRef.current
+          }));
+
+          // Set pong timeout (expect response within 10 seconds)
+          pongTimeoutRef.current = setTimeout(() => {
+            handleMissedPong();
+          }, 10000);
+
         } catch (error) {
           console.error('[useWebSocket] Heartbeat failed:', error);
+          handleMissedPong();
         }
       }
     }, opts.heartbeatInterval);
-  }, [opts.heartbeatInterval, clearTimers]);
+  }, [opts.heartbeatInterval, clearTimers, handleMissedPong]);
 
   // Send message (raw)
   const sendMessage = useCallback((message: any) => {
@@ -211,6 +309,24 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       ws.onmessage = (event) => {
         try {
           const message: WebSocketMessage = JSON.parse(event.data);
+
+          // Handle pong response (from server ping or our ping)
+          if (message.type === 'pong' || message.type === 'status' && (message.data as any)?.status === 'pong') {
+            handlePong((message.data as any)?.server_time);
+            return; // Don't propagate internal heartbeat messages
+          }
+
+          // Handle server-initiated ping (respond with pong)
+          if (message.type === 'ping') {
+            wsRef.current?.send(JSON.stringify({
+              type: 'pong',
+              timestamp: new Date().toISOString(),
+              client_time: Date.now(),
+              server_time: (message.data as any)?.server_time
+            }));
+            return;
+          }
+
           setLastMessage(message);
           options.onMessage?.(message);
         } catch (error) {
@@ -223,7 +339,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       console.error('[useWebSocket] Connection error:', error);
       setConnectionState('error');
     }
-  }, [opts, reconnectAttempt, startHeartbeat, processQueue, clearTimers, options]);
+  }, [opts, reconnectAttempt, startHeartbeat, processQueue, clearTimers, handlePong, options]);
 
   // Close connection
   const close = useCallback(() => {
@@ -266,6 +382,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     lastMessage,
     connectionState,
     reconnectAttempt,
+    heartbeat,
     sendMessage,
     sendJsonMessage,
     close,

@@ -184,20 +184,174 @@ class MexcFuturesOrderExecutor(IOrderExecutor):
         stop_price: Decimal,
         client_order_id: Optional[str] = None
     ) -> Order:
-        """Place a stop loss order on MEXC Futures"""
-        # MEXC Futures uses different endpoint for stop orders
-        # For now, implement as a limit order at stop price
-        # TODO: Implement proper stop order when MEXC API supports it
-        self.logger.warning("mexc_futures_order_executor.stop_loss_as_limit", {
-            "symbol": symbol,
-            "note": "Stop loss implemented as limit order - monitor position manually"
-        })
-        return await self.place_limit_order(
+        """
+        Place a stop loss order on MEXC Futures.
+
+        Uses MEXC's native STOP_MARKET order type for proper trigger-based
+        stop-loss execution. The order will be triggered when the mark price
+        reaches the stop_price, then executes as a market order.
+
+        Args:
+            symbol: Trading symbol (e.g., 'BTCUSDT')
+            side: Order side when triggered
+                - SELL for stop-loss protecting a LONG position
+                - BUY for stop-loss protecting a SHORT position
+            quantity: Order quantity
+            stop_price: Trigger price for the stop-loss
+            client_order_id: Optional client order ID
+
+        Returns:
+            Order object with order details
+        """
+        try:
+            # Determine position side based on order side
+            # SELL stop-loss protects LONG position
+            # BUY stop-loss protects SHORT position
+            position_side = "LONG" if side == OrderSide.SELL else "SHORT"
+
+            self.logger.info("mexc_futures_order_executor.placing_stop_loss", {
+                "symbol": symbol,
+                "side": side.value,
+                "position_side": position_side,
+                "quantity": str(quantity),
+                "stop_price": str(stop_price)
+            })
+
+            # Use the proper stop order method from adapter
+            response = await self.mexc_adapter.place_stop_order(
+                symbol=symbol,
+                side=side.value.upper(),
+                position_side=position_side,
+                stop_price=float(stop_price),
+                quantity=float(quantity),
+                order_type="STOP_MARKET",
+                working_type="MARK_PRICE"  # Use mark price to avoid manipulation
+            )
+
+            # Convert to domain Order model
+            order = self._stop_response_to_order(response, symbol, side, quantity, stop_price)
+            self._order_cache[order.order_id] = order
+
+            self.logger.info("mexc_futures_order_executor.stop_loss_placed", {
+                "order_id": order.order_id,
+                "symbol": symbol,
+                "stop_price": str(stop_price),
+                "status": order.status.value
+            })
+
+            return order
+
+        except Exception as e:
+            self.logger.error("mexc_futures_order_executor.stop_loss_order_failed", {
+                "symbol": symbol,
+                "side": side.value,
+                "stop_price": str(stop_price),
+                "error": str(e)
+            })
+            raise
+
+    async def place_take_profit_order(
+        self,
+        symbol: str,
+        side: OrderSide,
+        quantity: Decimal,
+        take_profit_price: Decimal,
+        client_order_id: Optional[str] = None
+    ) -> Order:
+        """
+        Place a take profit order on MEXC Futures.
+
+        Uses MEXC's native TAKE_PROFIT_MARKET order type for proper trigger-based
+        take-profit execution.
+
+        Args:
+            symbol: Trading symbol
+            side: Order side when triggered
+            quantity: Order quantity
+            take_profit_price: Trigger price for take-profit
+            client_order_id: Optional client order ID
+
+        Returns:
+            Order object with order details
+        """
+        try:
+            position_side = "LONG" if side == OrderSide.SELL else "SHORT"
+
+            self.logger.info("mexc_futures_order_executor.placing_take_profit", {
+                "symbol": symbol,
+                "side": side.value,
+                "position_side": position_side,
+                "quantity": str(quantity),
+                "take_profit_price": str(take_profit_price)
+            })
+
+            response = await self.mexc_adapter.place_stop_order(
+                symbol=symbol,
+                side=side.value.upper(),
+                position_side=position_side,
+                stop_price=float(take_profit_price),
+                quantity=float(quantity),
+                order_type="TAKE_PROFIT_MARKET",
+                working_type="MARK_PRICE"
+            )
+
+            order = self._stop_response_to_order(response, symbol, side, quantity, take_profit_price)
+            self._order_cache[order.order_id] = order
+
+            self.logger.info("mexc_futures_order_executor.take_profit_placed", {
+                "order_id": order.order_id,
+                "symbol": symbol,
+                "take_profit_price": str(take_profit_price),
+                "status": order.status.value
+            })
+
+            return order
+
+        except Exception as e:
+            self.logger.error("mexc_futures_order_executor.take_profit_order_failed", {
+                "symbol": symbol,
+                "error": str(e)
+            })
+            raise
+
+    def _stop_response_to_order(
+        self,
+        response: Dict[str, Any],
+        symbol: str,
+        side: OrderSide,
+        quantity: Decimal,
+        stop_price: Decimal
+    ) -> Order:
+        """Convert MEXC stop order response to domain Order model"""
+        from ...domain.models.trading import Order as DomainOrder
+
+        order_id = str(response.get("order_id", response.get("orderId", "")))
+        status_str = response.get("status", "NEW")
+
+        status_map = {
+            "NEW": OrderStatus.PENDING,
+            "PARTIALLY_FILLED": OrderStatus.PARTIALLY_FILLED,
+            "FILLED": OrderStatus.FILLED,
+            "CANCELED": OrderStatus.CANCELLED,
+            "REJECTED": OrderStatus.REJECTED,
+            "EXPIRED": OrderStatus.CANCELLED
+        }
+        status = status_map.get(status_str, OrderStatus.PENDING)
+
+        return DomainOrder(
+            order_id=order_id,
             symbol=symbol,
             side=side,
+            order_type=OrderType.STOP_LOSS,
             quantity=quantity,
-            price=stop_price,
-            client_order_id=client_order_id
+            price=stop_price,  # Store stop price as price
+            status=status,
+            filled_quantity=Decimal("0"),
+            average_price=None,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+            exchange="MEXC_FUTURES",
+            exchange_order_id=order_id
         )
 
     async def cancel_order(self, order_id: str, symbol: str) -> bool:
