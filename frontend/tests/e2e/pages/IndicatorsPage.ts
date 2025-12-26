@@ -48,11 +48,14 @@ export class IndicatorsPage extends BasePage {
   constructor(page: Page) {
     super(page);
 
-    // Tabs
-    this.tabs = page.getByRole('tablist');
-    this.catalogTab = page.getByRole('tab', { name: /Catalog/i });
-    this.variantManagerTab = page.getByRole('tab', { name: /Variant|Manager/i });
-    this.activeIndicatorsTab = page.getByRole('tab', { name: /Active/i });
+    // Tabs - use first() to handle multiple tab groups, and flexible matching
+    this.tabs = page.getByRole('tablist').first();
+    this.catalogTab = page.getByRole('tab', { name: /Catalog/i }).first();
+    // Try exact match first, fallback to partial match
+    this.variantManagerTab = page.getByRole('tab', { name: 'Variant Manager' }).or(
+      page.getByRole('tab', { name: /^Variant Manager$/i })
+    ).first();
+    this.activeIndicatorsTab = page.getByRole('tab', { name: /Active/i }).first();
 
     // Indicator list
     this.indicatorList = page.locator('[data-testid="indicator-list"]');

@@ -221,8 +221,8 @@ test.describe('Dashboard Components - Edge Cases', () => {
       await dashboard.goto();
       await dashboard.waitForPageLoad();
 
-      // Find P&L displays
-      const pnlElements = page.locator('[data-testid*="pnl"], [class*="pnl"], text=/[+-]?\\$?\\d+\\.\\d{2}/');
+      // Find P&L displays (CSS selectors only - text patterns aren't valid CSS)
+      const pnlElements = page.locator('[data-testid*="pnl"], [class*="pnl"]');
       const count = await pnlElements.count();
 
       if (count > 0) {

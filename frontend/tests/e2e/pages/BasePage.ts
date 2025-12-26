@@ -24,7 +24,7 @@ export abstract class BasePage {
   abstract get path(): string;
 
   async goto(): Promise<void> {
-    await this.page.goto(`${this.baseURL}${this.path}`);
+    await this.page.goto(`${this.baseURL}${this.path}`, { waitUntil: 'domcontentloaded' });
     await this.waitForPageLoad();
   }
 

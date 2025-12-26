@@ -139,16 +139,16 @@ export default defineConfig({
     },
 
     // ============================================
-    // CROSS-BROWSER - Firefox
+    // CROSS-BROWSER - Firefox (disabled - run 'npx playwright install firefox' to enable)
     // ============================================
-    {
-      name: 'firefox',
-      use: {
-        ...devices['Desktop Firefox'],
-      },
-      testMatch: /.*\.e2e\.spec\.ts/,
-      dependencies: ['setup'],
-    },
+    // {
+    //   name: 'firefox',
+    //   use: {
+    //     ...devices['Desktop Firefox'],
+    //   },
+    //   testMatch: /.*\.e2e\.spec\.ts/,
+    //   dependencies: ['setup'],
+    // },
 
     // ============================================
     // MOBILE - Responsive testing
