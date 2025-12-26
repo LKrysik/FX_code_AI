@@ -157,8 +157,8 @@ test.describe('Dashboard Components - Edge Cases', () => {
         console.log(`State badge styling detected: ${hasColorClass}`);
       }
 
-      // Test should pass - we're just verifying no crashes
-      expect(true).toBeTruthy();
+      // Verify page stability - no errors after state badge interaction
+      await expect(page).not.toHaveURL(/error/);
     });
 
     test('EDGE-D05: State badge handles unknown/null state gracefully', async ({ page }) => {
@@ -244,7 +244,7 @@ test.describe('Dashboard Components - Edge Cases', () => {
       }
 
       // Page remains functional
-      expect(true).toBeTruthy();
+      await expect(page).not.toHaveURL(/error/);
     });
 
     test('EDGE-D08: Price display handles very large numbers', async ({ page }) => {
@@ -268,7 +268,7 @@ test.describe('Dashboard Components - Edge Cases', () => {
         });
       }
 
-      expect(true).toBeTruthy();
+      await expect(page).not.toHaveURL(/error/);
     });
 
     test('EDGE-D09: Display handles connection loss gracefully', async ({ page, context }) => {
@@ -331,9 +331,9 @@ test.describe('Dashboard Components - Edge Cases', () => {
       const hasNoPositionMessage = await noPosition.count() > 0;
       const hasPositionBanner = await positionBanner.isVisible();
 
-      // Either has position banner OR no position message
+      // Either has position banner OR no position message - verify page stable
       console.log(`Position state: banner=${hasPositionBanner}, noPosition=${hasNoPositionMessage}`);
-      expect(true).toBeTruthy();
+      await expect(page).not.toHaveURL(/error/);
     });
 
     test('EDGE-D11: Position updates handle rapid price changes', async ({ page }) => {
@@ -387,7 +387,7 @@ test.describe('Dashboard Components - Edge Cases', () => {
       }
 
       // Page performance check - should render within timeout
-      expect(true).toBeTruthy();
+      await expect(page).not.toHaveURL(/error/);
     });
   });
 });

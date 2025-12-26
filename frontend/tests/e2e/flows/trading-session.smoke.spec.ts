@@ -12,7 +12,8 @@ import { test, expect } from '../fixtures/base.fixture';
 import { DashboardPage, TradingSessionPage } from '../pages';
 
 test.describe('Trading Session - Smoke Tests', () => {
-  test.describe.configure({ mode: 'serial' });
+  // Removed 'serial' mode - each smoke test should run independently
+  // This allows CI to see which specific tests fail without cascading skips
 
   // ============================================
   // SMOKE-01: Dashboard loads without errors
@@ -107,10 +108,9 @@ test.describe('Trading Session - Smoke Tests', () => {
     const apiReachable = strategiesReachable || indicatorsReachable;
     console.log(`Backend API reachable: ${apiReachable}`);
 
-    // Mark as skip if backend is not available - this is informational, not a failure
-    if (!apiReachable) {
-      test.skip(true, 'Backend API not available - skipping API connectivity test');
-    }
+    // API connectivity is informational in CI - use soft assertion
+    // This reports the failure but doesn't fail the test suite
+    expect.soft(apiReachable, 'Backend API should be reachable for full functionality').toBeTruthy();
   });
 
   // ============================================

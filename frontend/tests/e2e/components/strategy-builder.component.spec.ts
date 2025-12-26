@@ -188,7 +188,8 @@ test.describe('Strategy Builder Components - Edge Cases', () => {
         }
       }
 
-      expect(true).toBeTruthy();
+      // Verify page stability after validation test
+      await expect(page).not.toHaveURL(/error/);
     });
 
     test('EDGE-SB06: Condition block deletion with confirmation', async ({ page }) => {
@@ -342,7 +343,8 @@ test.describe('Strategy Builder Components - Edge Cases', () => {
         }
       }
 
-      expect(true).toBeTruthy();
+      // Verify page stability after cross-reference test
+      await expect(page).not.toHaveURL(/error/);
     });
   });
 
@@ -375,7 +377,8 @@ test.describe('Strategy Builder Components - Edge Cases', () => {
         }
       }
 
-      expect(true).toBeTruthy();
+      // Verify page stability after state machine update
+      await expect(page).not.toHaveURL(/error/);
     });
 
     test('EDGE-SB11: State machine handles complex transitions', async ({ page }) => {
@@ -465,7 +468,8 @@ test.describe('Strategy Builder Components - Edge Cases', () => {
         }
       }
 
-      expect(true).toBeTruthy();
+      // Verify page stability after zoom/pan operations
+      await expect(page).not.toHaveURL(/error/);
     });
   });
 

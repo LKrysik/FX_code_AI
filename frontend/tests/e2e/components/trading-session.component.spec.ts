@@ -91,7 +91,8 @@ test.describe('Trading Session Components - Edge Cases', () => {
         console.log(`Live mode confirmation dialog: ${hasDialog}`);
       }
 
-      expect(true).toBeTruthy();
+      // Verify page stability after live mode selection
+      await expect(page).not.toHaveURL(/error/);
     });
 
     test('EDGE-TS03: Mode buttons handle double-click correctly', async ({ page }) => {
@@ -220,7 +221,8 @@ test.describe('Trading Session Components - Edge Cases', () => {
         });
       }
 
-      expect(true).toBeTruthy();
+      // Verify page stability after symbol search
+      await expect(page).not.toHaveURL(/error/);
     });
 
     test('EDGE-TS08: Symbol selection handles invalid symbol input', async ({ page }) => {
@@ -309,7 +311,8 @@ test.describe('Trading Session Components - Edge Cases', () => {
         console.log(`Negative risk: value=${negativeValue}, hasError=${hasNegativeError}`);
       }
 
-      expect(true).toBeTruthy();
+      // Verify page stability after risk validation tests
+      await expect(page).not.toHaveURL(/error/);
     });
 
     test('EDGE-TS11: Position size accepts decimal values', async ({ page }) => {
@@ -398,7 +401,8 @@ test.describe('Trading Session Components - Edge Cases', () => {
       const currentUrl = page.url();
 
       console.log(`After navigation attempt: ${currentUrl}`);
-      expect(true).toBeTruthy();
+      // Verify page navigated or stayed - no crash occurred
+      await expect(page).not.toHaveURL(/error/);
     });
 
     test('EDGE-TS14: Form resets to defaults correctly', async ({ page }) => {

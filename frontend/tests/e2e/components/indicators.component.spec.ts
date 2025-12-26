@@ -75,7 +75,8 @@ test.describe('Indicators Components - Edge Cases', () => {
         await expect(page).toHaveURL(/indicators/);
       }
 
-      expect(true).toBeTruthy();
+      // Verify page stability after pagination
+      await expect(page).not.toHaveURL(/error/);
     });
 
     test('EDGE-IND03: Catalog category filter shows correct indicators', async ({ page }) => {
@@ -105,7 +106,8 @@ test.describe('Indicators Components - Edge Cases', () => {
         }
       }
 
-      expect(true).toBeTruthy();
+      // Verify page stability after category filter
+      await expect(page).not.toHaveURL(/error/);
     });
   });
 
@@ -147,7 +149,8 @@ test.describe('Indicators Components - Edge Cases', () => {
         }
       }
 
-      expect(true).toBeTruthy();
+      // Verify page stability after table scroll
+      await expect(page).not.toHaveURL(/error/);
     });
 
     test('EDGE-IND05: Variant creation validates unique names', async ({ page }) => {
@@ -205,8 +208,8 @@ test.describe('Indicators Components - Edge Cases', () => {
         console.log('Variant Manager tab not visible - skipping test');
       }
 
-      // Test passes if no crash
-      expect(true).toBeTruthy();
+      // Verify page stability after variant operations
+      await expect(page).not.toHaveURL(/error/);
     });
 
     test('EDGE-IND06: Variant deletion cascades correctly', async ({ page }) => {
@@ -286,7 +289,8 @@ test.describe('Indicators Components - Edge Cases', () => {
         }
       }
 
-      expect(true).toBeTruthy();
+      // Verify page stability after parameter validation tests
+      await expect(page).not.toHaveURL(/error/);
     });
 
     test('EDGE-IND08: Apply button enables only when form is valid', async ({ page }) => {
@@ -395,7 +399,8 @@ test.describe('Indicators Components - Edge Cases', () => {
         }
       }
 
-      expect(true).toBeTruthy();
+      // Verify page stability after preview update
+      await expect(page).not.toHaveURL(/error/);
     });
 
     test('EDGE-IND11: Preview handles missing data gracefully', async ({ page }) => {
@@ -463,7 +468,8 @@ test.describe('Indicators Components - Edge Cases', () => {
         }
       }
 
-      expect(true).toBeTruthy();
+      // Verify page stability after tooltip interaction
+      await expect(page).not.toHaveURL(/error/);
     });
   });
 
@@ -503,7 +509,8 @@ test.describe('Indicators Components - Edge Cases', () => {
         }
       }
 
-      expect(true).toBeTruthy();
+      // Verify page stability after tab navigation
+      await expect(page).not.toHaveURL(/error/);
     });
 
     test('EDGE-IND14: Active tab highlights correctly', async ({ page }) => {
@@ -519,7 +526,7 @@ test.describe('Indicators Components - Edge Cases', () => {
       // Only test if we have tabs in this group
       if (tabCount === 0) {
         console.log('No tabs found in first tablist, skipping');
-        expect(true).toBeTruthy();
+        await expect(page).not.toHaveURL(/error/);
         return;
       }
 
