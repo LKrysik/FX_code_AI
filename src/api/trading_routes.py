@@ -544,10 +544,12 @@ async def modify_sl_tp(
     Position ID format: "session_id:symbol" (e.g., "live_20251107_abc123:BTC_USDT")
 
     This endpoint:
-    1. Validates the position exists and is OPEN
-    2. Validates SL/TP values (SL below entry for SHORT, above for LONG, etc.)
-    3. Updates SL/TP in live_positions table
-    4. Optionally creates/modifies conditional orders on exchange
+    1. Acquires position lock (SEC-0-1: prevents race conditions)
+    2. Validates the position exists and is OPEN
+    3. Validates SL/TP values (SL below entry for SHORT, above for LONG, etc.)
+    4. Updates SL/TP in live_positions table
+    5. Optionally creates/modifies conditional orders on exchange
+    6. Releases position lock
 
     Args:
         position_id: Position identifier (session_id:symbol)
@@ -555,7 +557,23 @@ async def modify_sl_tp(
 
     Returns:
         Updated SL/TP values with timestamp
+
+    Raises:
+        HTTPException 409: If position is being modified by another operation
     """
+    # SEC-0-1: Acquire position lock to prevent race conditions
+    lock_acquired = await _position_lock_manager.acquire(position_id, "modify_sl_tp")
+    if not lock_acquired:
+        lock_info = _position_lock_manager.get_lock_info(position_id)
+        logger.warning("trading_api.modify_sl_tp.race_condition_prevented", {
+            "position_id": position_id,
+            "lock_info": lock_info
+        })
+        raise HTTPException(
+            status_code=409,
+            detail=f"Position {position_id} is being modified by another operation. Please wait and try again."
+        )
+
     try:
         provider = get_questdb_provider()
 
