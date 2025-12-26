@@ -698,8 +698,13 @@ class EventBridge(IEventBridge):
             self._subscribed_handlers.append(("execution.session_failed", handle_execution_failed))
 
         # Subscribe to execution updates published back by ExecutionProcessor
-        progress_handler = lambda event_data: self._handle_execution_progress_websocket_update(event_data)
-        result_handler = lambda event_data: self._handle_execution_result_websocket_update(event_data)
+        # ✅ BUGFIX: Use proper async functions instead of lambdas to ensure coroutines are awaited
+        async def progress_handler(event_data: Dict[str, Any]):
+            await self._handle_execution_progress_websocket_update(event_data)
+
+        async def result_handler(event_data: Dict[str, Any]):
+            await self._handle_execution_result_websocket_update(event_data)
+
         self._handler_refs.append(progress_handler)
         self._handler_refs.append(result_handler)
         await self.event_bus.subscribe("execution.progress_websocket_update", progress_handler)

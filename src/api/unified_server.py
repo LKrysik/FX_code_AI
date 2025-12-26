@@ -2145,12 +2145,16 @@ def create_unified_app():
             mexc_logger = get_logger("mexc_rest_fallback")
             mexc_rest = MexcRestFallback(logger=mexc_logger)
 
-            # Get ticker data for all configured symbols
-            logger.info("api.exchange_symbols.fetching_tickers", {
-                "symbols_count": len(symbols_list)
-            })
+            try:
+                # Get ticker data for all configured symbols
+                logger.info("api.exchange_symbols.fetching_tickers", {
+                    "symbols_count": len(symbols_list)
+                })
 
-            tickers = await mexc_rest.get_multiple_tickers(symbols_list)
+                tickers = await mexc_rest.get_multiple_tickers(symbols_list)
+            finally:
+                # ✅ BUGFIX: Properly close aiohttp session to prevent resource leak
+                await mexc_rest.stop()
 
             # Build response with symbol metadata
             symbols_with_data = []
