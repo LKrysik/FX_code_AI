@@ -526,6 +526,9 @@ async def close_position(
             "error": str(e)
         })
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # SEC-0-1: Always release the position lock
+        _position_lock_manager.release(position_id)
 
 
 @router.patch("/positions/{position_id}/sl-tp", response_model=ModifySlTpResponse)

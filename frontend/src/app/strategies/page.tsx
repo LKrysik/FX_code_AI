@@ -486,7 +486,8 @@ export default function StrategiesPage() {
       await loadUserStrategies();
       setSnackbar({
         open: true,
-        message: `Strategy "${strategy.strategy_name}" deleted successfully`,
+        // ✅ UX FIX (2025-12-26): Updated message to reflect that strategy is removed from trading engine
+        message: `Strategy "${strategy.strategy_name}" deleted and removed from trading engine`,
         severity: 'success'
       });
     } catch (error) {
@@ -508,7 +509,8 @@ export default function StrategiesPage() {
       await loadUserStrategies();
       setSnackbar({
         open: true,
-        message: 'Strategy saved successfully',
+        // ✅ UX FIX (2025-12-26): Updated message to reflect that strategy is now active
+        message: 'Strategy saved and activated for trading',
         severity: 'success'
       });
     } catch (error) {
