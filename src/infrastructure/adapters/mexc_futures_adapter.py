@@ -51,7 +51,7 @@ from datetime import datetime
 from urllib.parse import urlencode
 
 from ...core.logger import StructuredLogger
-from ...core.circuit_breaker import ResilientService
+from ...core.circuit_breaker import ResilientService, CircuitBreakerConfig
 
 
 class MexcFuturesAdapter:
@@ -100,10 +100,14 @@ class MexcFuturesAdapter:
         }
 
         # Circuit breaker for resilience
-        self.resilient_service = ResilientService(
+        circuit_config = CircuitBreakerConfig(
             failure_threshold=5,
-            recovery_timeout=60,
-            logger=logger
+            recovery_timeout=60.0,
+            name="mexc_futures"
+        )
+        self.resilient_service = ResilientService(
+            name="mexc_futures",
+            circuit_config=circuit_config
         )
 
         # Track leverage settings per symbol

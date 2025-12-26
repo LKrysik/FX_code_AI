@@ -29,7 +29,20 @@ export abstract class BasePage {
   }
 
   async waitForPageLoad(): Promise<void> {
-    await this.page.waitForLoadState('networkidle');
+    // Use domcontentloaded instead of networkidle to avoid hanging on WebSocket connections
+    await this.page.waitForLoadState('domcontentloaded');
+    // Wait for animations with timeout to prevent hanging on infinite animations
+    await this.page.evaluate(() => {
+      const animations = document.getAnimations();
+      if (animations.length === 0) return Promise.resolve();
+      // Wait max 2 seconds for animations, then proceed anyway
+      return Promise.race([
+        Promise.all(animations.map((a) => a.finished)),
+        new Promise((resolve) => setTimeout(resolve, 2000)),
+      ]);
+    }).catch(() => {
+      // Ignore errors from aborted animations or navigation
+    });
   }
 
   // ============================================
@@ -133,7 +146,7 @@ export abstract class BasePage {
   }
 
   async waitForNavigation(): Promise<void> {
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('domcontentloaded');
   }
 
   // ============================================

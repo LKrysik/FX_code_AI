@@ -1,3 +1,9 @@
+# Product Roadmap
+
+> Last reviewed: 2025-11-02 — Sprint 16 status synchronized; time window semantics problem marked as resolved; database migration status updated.
+
+---
+
 ## Automated Updates (2025-11-02)
 
 ### Current Sprint Section
@@ -5,11 +11,6 @@
 **Benefits**: Improves visibility of resolved issues, accurate status tracking
 **Consistency improvements**: Ensures roadmap reflects actual implementation status
 **Quality enhancements**: Better prioritization prevents duplication of completed work
-
----
-
-# Product Roadmap
-> Last reviewed: 2025-11-02 — Sprint 16 status synchronized; time window semantics problem marked as resolved; database migration status updated.
 
 
 

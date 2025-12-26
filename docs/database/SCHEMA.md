@@ -7,7 +7,7 @@ QuestDB schema for the FX Cryptocurrency Trading System.
 ### tick_prices
 Real-time market price data (1-second resolution).
 
-\`\`\`sql
+```sql
 CREATE TABLE tick_prices (
     session_id SYMBOL capacity 256 CACHE,
     symbol SYMBOL capacity 256 CACHE,
@@ -16,12 +16,12 @@ CREATE TABLE tick_prices (
     volume DOUBLE,
     quote_volume DOUBLE
 ) timestamp(timestamp) PARTITION BY DAY WAL;
-\`\`\`
+```
 
 ### indicators
 Calculated indicator values.
 
-\`\`\`sql
+```sql
 CREATE TABLE indicators (
     symbol SYMBOL capacity 256 CACHE,
     indicator_id SYMBOL capacity 1024 CACHE,
@@ -30,14 +30,14 @@ CREATE TABLE indicators (
     confidence DOUBLE,
     metadata STRING
 ) timestamp(timestamp) PARTITION BY DAY WAL;
-\`\`\`
+```
 
 ## Relational Tables
 
 ### data_collection_sessions
 Session metadata and statistics.
 
-\`\`\`sql
+```sql
 CREATE TABLE data_collection_sessions (
     session_id STRING,
     symbols STRING,
@@ -49,7 +49,7 @@ CREATE TABLE data_collection_sessions (
     prices_count INT,
     orderbook_count INT
 );
-\`\`\`
+```
 
 ---
 

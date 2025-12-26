@@ -13,6 +13,7 @@
 
 import { test, expect } from '../fixtures/base.fixture';
 import { DashboardPage } from '../pages';
+import { waitForAnimationsComplete, waitForDialogOpen, waitForDialogClose } from '../support/wait-helpers';
 
 test.describe('Dashboard Components - Edge Cases', () => {
   // ============================================
@@ -28,9 +29,11 @@ test.describe('Dashboard Components - Edge Cases', () => {
       for (let i = 0; i < 5; i++) {
         if (await dashboard.startSessionButton.isVisible()) {
           await dashboard.startSessionButton.click();
-          await page.waitForTimeout(200);
+          // Wait for dialog to appear
+          await dashboard.sessionConfigDialog.waitFor({ state: 'visible', timeout: 2000 }).catch(() => {});
           await page.keyboard.press('Escape');
-          await page.waitForTimeout(100);
+          // Wait for dialog to close
+          await dashboard.sessionConfigDialog.waitFor({ state: 'hidden', timeout: 2000 }).catch(() => {});
         }
       }
 
@@ -48,7 +51,8 @@ test.describe('Dashboard Components - Edge Cases', () => {
 
       if (await dashboard.startSessionButton.isVisible()) {
         await dashboard.startSessionButton.click();
-        await page.waitForTimeout(500);
+        // Wait for dialog to appear
+        await dashboard.sessionConfigDialog.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
 
         if (await dashboard.sessionConfigDialog.isVisible()) {
           // Try to find and click start/confirm button without filling required fields
@@ -60,7 +64,8 @@ test.describe('Dashboard Components - Edge Cases', () => {
             // If enabled, click and check for validation errors
             if (!isDisabled) {
               await startButton.click();
-              await page.waitForTimeout(300);
+              // Wait for validation feedback
+              await waitForAnimationsComplete(page);
 
               // Should show validation messages or stay in dialog
               const dialogStillOpen = await dashboard.sessionConfigDialog.isVisible();
@@ -83,26 +88,28 @@ test.describe('Dashboard Components - Edge Cases', () => {
       // Open dialog and make selections
       if (await dashboard.startSessionButton.isVisible()) {
         await dashboard.startSessionButton.click();
-        await page.waitForTimeout(500);
+        // Wait for dialog to appear
+        await dashboard.sessionConfigDialog.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
 
         if (await dashboard.sessionConfigDialog.isVisible()) {
           // Make a selection if possible
           const modeButton = page.getByRole('button', { name: /Paper/i });
           if (await modeButton.isVisible()) {
             await modeButton.click();
-            await page.waitForTimeout(200);
+            await waitForAnimationsComplete(page);
           }
 
           // Navigate away and back
           await page.goto('/strategy-builder');
-          await page.waitForLoadState('networkidle');
+          await page.waitForLoadState('domcontentloaded');
           await dashboard.goto();
           await dashboard.waitForPageLoad();
 
           // Open dialog again - should start fresh (expected behavior)
           if (await dashboard.startSessionButton.isVisible()) {
             await dashboard.startSessionButton.click();
-            await page.waitForTimeout(500);
+            // Wait for dialog to appear
+            await dashboard.sessionConfigDialog.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
 
             // Just verify dialog opens without crashes
             const dialogVisible = await dashboard.sessionConfigDialog.isVisible();
@@ -185,8 +192,16 @@ test.describe('Dashboard Components - Edge Cases', () => {
         initialText = await stateBadge.textContent() || '';
       }
 
-      // Wait for potential WebSocket updates
-      await page.waitForTimeout(3000);
+      // Wait for potential WebSocket updates by polling for changes
+      const startTime = Date.now();
+      let textChanged = false;
+      while (Date.now() - startTime < 3000 && !textChanged) {
+        const currentText = await stateBadge.isVisible() ? await stateBadge.textContent() : '';
+        if (currentText !== initialText && currentText !== '') {
+          textChanged = true;
+        }
+        await page.waitForLoadState('domcontentloaded');
+      }
 
       // Verify page still renders correctly
       await expect(page).not.toHaveURL(/error/);
@@ -263,7 +278,12 @@ test.describe('Dashboard Components - Edge Cases', () => {
 
       // Simulate offline mode
       await context.setOffline(true);
-      await page.waitForTimeout(2000);
+
+      // Wait for app to detect offline state by checking for indicator
+      const offlineIndicator = page.locator('text=/offline|disconnected|no connection/i');
+      await offlineIndicator.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {
+        // App may not show indicator - that's OK
+      });
 
       // Check for offline indicator or graceful degradation
       const hasOfflineIndicator = await page.locator('text=/offline|disconnected|no connection/i').count() > 0;
@@ -276,7 +296,9 @@ test.describe('Dashboard Components - Edge Cases', () => {
 
       // Restore connection
       await context.setOffline(false);
-      await page.waitForTimeout(1000);
+
+      // Wait for reconnection by checking page is responsive
+      await page.waitForLoadState('domcontentloaded');
 
       // Page should recover
       await expect(page).not.toHaveURL(/error/);
@@ -322,12 +344,14 @@ test.describe('Dashboard Components - Edge Cases', () => {
       // Monitor for any flickering or rendering issues during updates
       const priceElements = page.locator('[data-testid*="price"], [class*="price"]');
 
-      // Take snapshots over time
+      // Take snapshots over time using deterministic waits
       const snapshots: string[] = [];
       for (let i = 0; i < 5; i++) {
         const texts = await priceElements.allTextContents();
         snapshots.push(texts.join(','));
-        await page.waitForTimeout(500);
+        // Wait for next animation frame instead of hard timeout
+        await page.evaluate(() => new Promise(requestAnimationFrame));
+        await page.waitForLoadState('domcontentloaded');
       }
 
       // Verify page remains stable

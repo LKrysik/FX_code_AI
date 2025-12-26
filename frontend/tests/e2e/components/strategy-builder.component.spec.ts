@@ -13,6 +13,7 @@
 
 import { test, expect } from '../fixtures/base.fixture';
 import { StrategyBuilderPage } from '../pages';
+import { waitForAnimationsComplete } from '../support/wait-helpers';
 
 test.describe('Strategy Builder Components - Edge Cases', () => {
   // ============================================
@@ -48,7 +49,7 @@ test.describe('Strategy Builder Components - Edge Cases', () => {
       if (await tabs[0].isVisible()) {
         await tabs[0].click();
         await page.keyboard.press('ArrowRight');
-        await page.waitForTimeout(200);
+        await waitForAnimationsComplete(page);
 
         // Next tab should be focused/selected
         const activeTab = await strategyBuilder.getActiveSection();
@@ -64,22 +65,22 @@ test.describe('Strategy Builder Components - Edge Cases', () => {
       // Add condition in S1 section
       if (await strategyBuilder.s1Tab.isVisible()) {
         await strategyBuilder.selectSection('S1');
-        await page.waitForTimeout(300);
+        await waitForAnimationsComplete(page);
 
         // Try to add a condition
         if (await strategyBuilder.addConditionButton.isVisible()) {
           await strategyBuilder.addCondition();
-          await page.waitForTimeout(300);
+          await waitForAnimationsComplete(page);
 
           const initialCount = await strategyBuilder.getConditionCount();
 
           // Switch to another section and back
           if (await strategyBuilder.o1Tab.isVisible()) {
             await strategyBuilder.selectSection('O1');
-            await page.waitForTimeout(300);
+            await waitForAnimationsComplete(page);
 
             await strategyBuilder.selectSection('S1');
-            await page.waitForTimeout(300);
+            await waitForAnimationsComplete(page);
 
             // Condition should still be there
             const finalCount = await strategyBuilder.getConditionCount();
@@ -102,7 +103,7 @@ test.describe('Strategy Builder Components - Edge Cases', () => {
 
         if (await tab.isVisible()) {
           await tab.click();
-          await page.waitForTimeout(300);
+          await waitForAnimationsComplete(page);
 
           // Check for empty state or instructions
           const emptyState = page.locator(
@@ -132,9 +133,9 @@ test.describe('Strategy Builder Components - Edge Cases', () => {
       // Need at least 2 conditions to test reordering
       if (await strategyBuilder.addConditionButton.isVisible()) {
         await strategyBuilder.addCondition();
-        await page.waitForTimeout(200);
+        await waitForAnimationsComplete(page);
         await strategyBuilder.addCondition();
-        await page.waitForTimeout(200);
+        await waitForAnimationsComplete(page);
 
         const blocks = strategyBuilder.conditionBlocks;
         const count = await blocks.count();
@@ -153,7 +154,7 @@ test.describe('Strategy Builder Components - Edge Cases', () => {
             await page.mouse.move(secondBox.x + secondBox.width / 2, secondBox.y + secondBox.height + 10);
             await page.mouse.up();
 
-            await page.waitForTimeout(300);
+            await waitForAnimationsComplete(page);
             console.log('Drag-drop operation completed');
           }
         }
@@ -170,12 +171,12 @@ test.describe('Strategy Builder Components - Edge Cases', () => {
 
       if (await strategyBuilder.addConditionButton.isVisible()) {
         await strategyBuilder.addCondition();
-        await page.waitForTimeout(300);
+        await waitForAnimationsComplete(page);
 
         // Try to save without configuring condition
         if (await strategyBuilder.saveButton.isVisible()) {
           await strategyBuilder.saveButton.click();
-          await page.waitForTimeout(500);
+          await page.waitForLoadState('domcontentloaded');
 
           // Should show validation error
           const validationError = page.locator(
@@ -197,7 +198,7 @@ test.describe('Strategy Builder Components - Edge Cases', () => {
 
       if (await strategyBuilder.addConditionButton.isVisible()) {
         await strategyBuilder.addCondition();
-        await page.waitForTimeout(300);
+        await waitForAnimationsComplete(page);
 
         const initialCount = await strategyBuilder.getConditionCount();
 
@@ -210,17 +211,18 @@ test.describe('Strategy Builder Components - Edge Cases', () => {
 
         if (await deleteButton.isVisible()) {
           await deleteButton.click();
-          await page.waitForTimeout(300);
+          await page.waitForLoadState('domcontentloaded');
 
           // Check for confirmation dialog
           const confirmDialog = page.locator('[role="dialog"], [role="alertdialog"]');
+          await confirmDialog.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
           const hasConfirm = await confirmDialog.isVisible();
 
           if (hasConfirm) {
             const confirmButton = page.getByRole('button', { name: /yes|confirm|delete/i });
             if (await confirmButton.isVisible()) {
               await confirmButton.click();
-              await page.waitForTimeout(300);
+              await waitForAnimationsComplete(page);
             }
           }
 
@@ -242,25 +244,25 @@ test.describe('Strategy Builder Components - Edge Cases', () => {
 
       if (await strategyBuilder.addConditionButton.isVisible()) {
         await strategyBuilder.addCondition();
-        await page.waitForTimeout(300);
+        await waitForAnimationsComplete(page);
 
         // Open indicator select
         const indicatorSelect = page.locator('[data-testid="indicator-select"]').first();
         if (await indicatorSelect.isVisible()) {
           await indicatorSelect.click();
-          await page.waitForTimeout(300);
+          await waitForAnimationsComplete(page);
 
           // Select first indicator
           const firstOption = page.locator('[role="option"]').first();
           if (await firstOption.isVisible()) {
             await firstOption.click();
-            await page.waitForTimeout(300);
+            await waitForAnimationsComplete(page);
 
             // Now check operator options
             const operatorSelect = page.locator('[data-testid="operator-select"]').first();
             if (await operatorSelect.isVisible()) {
               await operatorSelect.click();
-              await page.waitForTimeout(300);
+              await waitForAnimationsComplete(page);
 
               const options = page.locator('[role="option"]');
               const optionCount = await options.count();
@@ -282,28 +284,28 @@ test.describe('Strategy Builder Components - Edge Cases', () => {
 
       if (await strategyBuilder.addConditionButton.isVisible()) {
         await strategyBuilder.addCondition();
-        await page.waitForTimeout(300);
+        await waitForAnimationsComplete(page);
 
         const valueInput = page.locator('[data-testid="value-input"]').first();
 
         if (await valueInput.isVisible()) {
           // Test extreme values
           await valueInput.fill('999999999999999');
-          await page.waitForTimeout(200);
+          await page.waitForLoadState('domcontentloaded');
 
           const largeValue = await valueInput.inputValue();
           console.log(`Large value input: ${largeValue}`);
 
           // Test negative
           await valueInput.fill('-50');
-          await page.waitForTimeout(200);
+          await page.waitForLoadState('domcontentloaded');
 
           const negativeValue = await valueInput.inputValue();
           console.log(`Negative value input: ${negativeValue}`);
 
           // Test scientific notation
           await valueInput.fill('1e10');
-          await page.waitForTimeout(200);
+          await page.waitForLoadState('domcontentloaded');
 
           const scientificValue = await valueInput.inputValue();
           console.log(`Scientific notation input: ${scientificValue}`);
@@ -321,7 +323,7 @@ test.describe('Strategy Builder Components - Edge Cases', () => {
 
       if (await strategyBuilder.addConditionButton.isVisible()) {
         await strategyBuilder.addCondition();
-        await page.waitForTimeout(300);
+        await waitForAnimationsComplete(page);
 
         // Look for "Compare to" or similar dropdown
         const compareSelect = page.locator(
@@ -330,7 +332,7 @@ test.describe('Strategy Builder Components - Edge Cases', () => {
 
         if (await compareSelect.isVisible()) {
           await compareSelect.click();
-          await page.waitForTimeout(300);
+          await waitForAnimationsComplete(page);
 
           // Should show other indicators as options
           const indicatorOptions = page.locator('[role="option"]').filter({ hasText: /RSI|SMA|EMA|MACD/i });
@@ -363,7 +365,7 @@ test.describe('Strategy Builder Components - Edge Cases', () => {
         // Add a condition
         if (await strategyBuilder.addConditionButton.isVisible()) {
           await strategyBuilder.addCondition();
-          await page.waitForTimeout(500);
+          await waitForAnimationsComplete(page);
 
           // Check if diagram updated
           const updatedContent = await diagram.innerHTML();
@@ -386,11 +388,11 @@ test.describe('Strategy Builder Components - Edge Cases', () => {
 
       for (const section of sectionsToTest) {
         await strategyBuilder.selectSection(section);
-        await page.waitForTimeout(200);
+        await waitForAnimationsComplete(page);
 
         if (await strategyBuilder.addConditionButton.isVisible()) {
           await strategyBuilder.addCondition();
-          await page.waitForTimeout(200);
+          await waitForAnimationsComplete(page);
         }
       }
 
@@ -424,19 +426,19 @@ test.describe('Strategy Builder Components - Edge Cases', () => {
 
         if (await zoomInButton.isVisible()) {
           await zoomInButton.click();
-          await page.waitForTimeout(200);
+          await waitForAnimationsComplete(page);
           console.log('Zoom in clicked');
         }
 
         if (await zoomOutButton.isVisible()) {
           await zoomOutButton.click();
-          await page.waitForTimeout(200);
+          await waitForAnimationsComplete(page);
           console.log('Zoom out clicked');
         }
 
         if (await resetButton.isVisible()) {
           await resetButton.click();
-          await page.waitForTimeout(200);
+          await waitForAnimationsComplete(page);
           console.log('Reset zoom clicked');
         }
 
@@ -445,7 +447,7 @@ test.describe('Strategy Builder Components - Edge Cases', () => {
         if (box) {
           await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
           await page.mouse.wheel(0, -100); // Scroll up to zoom in
-          await page.waitForTimeout(200);
+          await waitForAnimationsComplete(page);
         }
       }
 
@@ -464,7 +466,7 @@ test.describe('Strategy Builder Components - Edge Cases', () => {
 
       if (await strategyBuilder.createStrategyButton.isVisible()) {
         await strategyBuilder.createNewStrategy();
-        await page.waitForTimeout(300);
+        await page.waitForLoadState('domcontentloaded');
 
         if (await strategyBuilder.strategyNameInput.isVisible()) {
           // Test special characters
@@ -477,7 +479,7 @@ test.describe('Strategy Builder Components - Edge Cases', () => {
 
           for (const name of testNames) {
             await strategyBuilder.setStrategyName(name);
-            await page.waitForTimeout(200);
+            await page.waitForLoadState('domcontentloaded');
 
             const value = await strategyBuilder.strategyNameInput.inputValue();
 
@@ -503,13 +505,13 @@ test.describe('Strategy Builder Components - Edge Cases', () => {
 
       if (rowCount > 0) {
         await strategyRows.first().click();
-        await page.waitForTimeout(300);
+        await waitForAnimationsComplete(page);
 
         if (await strategyBuilder.duplicateButton.isVisible()) {
           const originalNames = await strategyBuilder.getStrategyNames();
 
           await strategyBuilder.duplicateStrategy();
-          await page.waitForTimeout(500);
+          await page.waitForLoadState('domcontentloaded');
 
           const newNames = await strategyBuilder.getStrategyNames();
 
@@ -531,14 +533,15 @@ test.describe('Strategy Builder Components - Edge Cases', () => {
 
       if (rowCount > 0) {
         await strategyRows.first().click();
-        await page.waitForTimeout(300);
+        await waitForAnimationsComplete(page);
 
         if (await strategyBuilder.deleteButton.isVisible()) {
           await strategyBuilder.deleteButton.click();
-          await page.waitForTimeout(300);
+          await page.waitForLoadState('domcontentloaded');
 
           // Should show confirmation dialog
           const confirmDialog = page.locator('[role="dialog"], [role="alertdialog"]');
+          await confirmDialog.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
           const hasConfirm = await confirmDialog.isVisible();
 
           expect(hasConfirm).toBeTruthy();

@@ -156,8 +156,16 @@ export class StrategyBuilderPage extends BasePage {
   }
 
   async saveStrategy(): Promise<void> {
+    // Wait for save API response
+    const savePromise = this.page.waitForResponse(
+      (resp) => resp.url().includes('/api/strategies') && resp.request().method() === 'POST'
+    ).catch(() => null);
+
     await this.saveButton.click();
-    await this.page.waitForTimeout(1000); // Wait for save
+    await savePromise;
+
+    // Wait for success feedback
+    await this.page.waitForLoadState('domcontentloaded');
   }
 
   async deleteStrategy(): Promise<void> {

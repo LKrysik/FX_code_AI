@@ -13,6 +13,7 @@
 
 import { test, expect } from '../fixtures/base.fixture';
 import { IndicatorsPage } from '../pages';
+import { waitForAnimationsComplete } from '../support/wait-helpers';
 
 test.describe('Indicators Components - Edge Cases', () => {
   // ============================================
@@ -30,7 +31,7 @@ test.describe('Indicators Components - Edge Cases', () => {
 
         for (const term of searchTerms) {
           await indicatorsPage.searchIndicator(term);
-          await page.waitForTimeout(300);
+          await waitForAnimationsComplete(page);
 
           // Should not crash
           const hasError = await page.locator('[class*="error-boundary"]').count();
@@ -57,16 +58,16 @@ test.describe('Indicators Components - Edge Cases', () => {
         // Rapid clicks
         for (let i = 0; i < 5; i++) {
           await nextButton.click();
-          await page.waitForTimeout(50); // Minimal delay
+          await page.waitForLoadState('domcontentloaded');
         }
 
-        await page.waitForTimeout(500);
+        await waitForAnimationsComplete(page);
 
         // Go back rapidly
         if (await prevButton.isVisible()) {
           for (let i = 0; i < 5; i++) {
             await prevButton.click();
-            await page.waitForTimeout(50);
+            await page.waitForLoadState('domcontentloaded');
           }
         }
 
@@ -85,7 +86,7 @@ test.describe('Indicators Components - Edge Cases', () => {
       // Find category filter
       if (await indicatorsPage.categoryFilter.isVisible()) {
         await indicatorsPage.categoryFilter.click();
-        await page.waitForTimeout(300);
+        await waitForAnimationsComplete(page);
 
         // Select a category
         const categoryOptions = page.locator('[role="option"]');
@@ -94,7 +95,7 @@ test.describe('Indicators Components - Edge Cases', () => {
         if (optionCount > 0) {
           const firstCategory = await categoryOptions.first().textContent();
           await categoryOptions.first().click();
-          await page.waitForTimeout(500);
+          await waitForAnimationsComplete(page);
 
           // Verify filtered results
           const cards = indicatorsPage.indicatorCards;
@@ -120,7 +121,7 @@ test.describe('Indicators Components - Edge Cases', () => {
       // Navigate to Variant Manager tab
       if (await indicatorsPage.variantManagerTab.isVisible()) {
         await indicatorsPage.selectTab('Variant Manager');
-        await page.waitForTimeout(500);
+        await waitForAnimationsComplete(page);
 
         const variantCount = await indicatorsPage.getVariantCount();
 
@@ -138,7 +139,7 @@ test.describe('Indicators Components - Edge Cases', () => {
           await table.evaluate((el) => {
             el.scrollTop = el.scrollHeight;
           });
-          await page.waitForTimeout(200);
+          await waitForAnimationsComplete(page);
 
           await table.evaluate((el) => {
             el.scrollTop = 0;
@@ -156,7 +157,7 @@ test.describe('Indicators Components - Edge Cases', () => {
 
       if (await indicatorsPage.variantManagerTab.isVisible()) {
         await indicatorsPage.selectTab('Variant Manager');
-        await page.waitForTimeout(300);
+        await waitForAnimationsComplete(page);
 
         // Get existing variant names
         const existingVariants = indicatorsPage.variantRows;
@@ -165,19 +166,20 @@ test.describe('Indicators Components - Edge Cases', () => {
         // Try to create variant with same name
         if (await indicatorsPage.createVariantButton.isVisible()) {
           await indicatorsPage.createVariant();
-          await page.waitForTimeout(300);
+          const dialog = page.locator('[role="dialog"], [role="alertdialog"]');
+          await dialog.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
 
           // Find name input in dialog
           const nameInput = page.locator('input[name="name"], input[placeholder*="name"]').first();
           if (await nameInput.isVisible() && firstVariantName) {
             await nameInput.fill(firstVariantName.trim());
-            await page.waitForTimeout(200);
+            await waitForAnimationsComplete(page);
 
             // Try to save
             const saveButton = page.getByRole('button', { name: /save|create|confirm/i });
             if (await saveButton.isVisible()) {
               await saveButton.click();
-              await page.waitForTimeout(300);
+              await waitForAnimationsComplete(page);
 
               // Should show duplicate error
               const duplicateError = page.locator('text=/already.*exist|duplicate|unique/i');
@@ -200,7 +202,7 @@ test.describe('Indicators Components - Edge Cases', () => {
 
       if (await indicatorsPage.variantManagerTab.isVisible()) {
         await indicatorsPage.selectTab('Variant Manager');
-        await page.waitForTimeout(300);
+        await waitForAnimationsComplete(page);
 
         const variantRows = indicatorsPage.variantRows;
         const initialCount = await variantRows.count();
@@ -208,16 +210,15 @@ test.describe('Indicators Components - Edge Cases', () => {
         if (initialCount > 0) {
           // Select first variant
           await variantRows.first().click();
-          await page.waitForTimeout(200);
+          await waitForAnimationsComplete(page);
 
           // Check if delete is available and what warning it shows
           if (await indicatorsPage.deleteVariantButton.isVisible()) {
             await indicatorsPage.deleteVariantButton.click();
-            await page.waitForTimeout(300);
+            const warningDialog = page.locator('[role="dialog"], [role="alertdialog"]');
+            await warningDialog.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
 
             // Should show warning about cascade effects
-            const warningDialog = page.locator('[role="dialog"], [role="alertdialog"]');
-
             if (await warningDialog.isVisible()) {
               const warningText = await warningDialog.textContent();
               const mentionsCascade = /strategies|affected|impact|using this/i.test(warningText || '');
@@ -246,7 +247,7 @@ test.describe('Indicators Components - Edge Cases', () => {
       const cards = indicatorsPage.indicatorCards;
       if ((await cards.count()) > 0) {
         await cards.first().click();
-        await page.waitForTimeout(500);
+        await waitForAnimationsComplete(page);
 
         // Find parameter inputs
         const paramInputs = page.locator('[data-testid*="param"], input[type="number"]');
@@ -257,13 +258,13 @@ test.describe('Indicators Components - Edge Cases', () => {
 
           // Test out of range values
           await firstInput.fill('0');
-          await page.waitForTimeout(200);
+          await waitForAnimationsComplete(page);
 
           await firstInput.fill('-1');
-          await page.waitForTimeout(200);
+          await waitForAnimationsComplete(page);
 
           await firstInput.fill('10000');
-          await page.waitForTimeout(200);
+          await waitForAnimationsComplete(page);
 
           // Check for validation messages
           const hasValidation = await page.locator('[class*="error"], [role="alert"]').count() > 0;
@@ -283,7 +284,7 @@ test.describe('Indicators Components - Edge Cases', () => {
       const cards = indicatorsPage.indicatorCards;
       if ((await cards.count()) > 0) {
         await cards.first().click();
-        await page.waitForTimeout(500);
+        await waitForAnimationsComplete(page);
 
         // Check apply button state
         const applyButton = indicatorsPage.applyButton;
@@ -297,7 +298,7 @@ test.describe('Indicators Components - Edge Cases', () => {
           if (await paramInputs.isVisible()) {
             const currentValue = await paramInputs.inputValue();
             await paramInputs.fill(String(Number(currentValue || '0') + 1));
-            await page.waitForTimeout(200);
+            await waitForAnimationsComplete(page);
 
             const afterChangeDisabled = await applyButton.isDisabled();
             console.log(`Apply button after change disabled: ${afterChangeDisabled}`);
@@ -314,7 +315,7 @@ test.describe('Indicators Components - Edge Cases', () => {
       const cards = indicatorsPage.indicatorCards;
       if ((await cards.count()) > 0) {
         await cards.first().click();
-        await page.waitForTimeout(500);
+        await waitForAnimationsComplete(page);
 
         const paramInput = page.locator('input[type="number"]').first();
 
@@ -324,14 +325,14 @@ test.describe('Indicators Components - Edge Cases', () => {
 
           // Change value
           await paramInput.fill('999');
-          await page.waitForTimeout(200);
+          await waitForAnimationsComplete(page);
 
           const changedValue = await paramInput.inputValue();
 
           // Click reset
           if (await indicatorsPage.resetButton.isVisible()) {
             await indicatorsPage.resetConfiguration();
-            await page.waitForTimeout(300);
+            await waitForAnimationsComplete(page);
 
             const resetValue = await paramInput.inputValue();
             console.log(`Values: original=${originalValue}, changed=${changedValue}, reset=${resetValue}`);
@@ -356,7 +357,7 @@ test.describe('Indicators Components - Edge Cases', () => {
       const cards = indicatorsPage.indicatorCards;
       if ((await cards.count()) > 0) {
         await cards.first().click();
-        await page.waitForTimeout(500);
+        await waitForAnimationsComplete(page);
 
         const preview = indicatorsPage.previewChart;
 
@@ -369,7 +370,7 @@ test.describe('Indicators Components - Edge Cases', () => {
           if (await paramInput.isVisible()) {
             const currentValue = await paramInput.inputValue();
             await paramInput.fill(String(Number(currentValue || '0') + 5));
-            await page.waitForTimeout(1000);
+            await waitForAnimationsComplete(page);
 
             // Check if preview updated
             const updatedContent = await preview.innerHTML();
@@ -391,7 +392,7 @@ test.describe('Indicators Components - Edge Cases', () => {
       const cards = indicatorsPage.indicatorCards;
       if ((await cards.count()) > 0) {
         await cards.first().click();
-        await page.waitForTimeout(500);
+        await waitForAnimationsComplete(page);
 
         const preview = indicatorsPage.previewChart;
 
@@ -420,7 +421,7 @@ test.describe('Indicators Components - Edge Cases', () => {
       const cards = indicatorsPage.indicatorCards;
       if ((await cards.count()) > 0) {
         await cards.first().click();
-        await page.waitForTimeout(500);
+        await waitForAnimationsComplete(page);
 
         const preview = indicatorsPage.previewChart;
 
@@ -430,7 +431,7 @@ test.describe('Indicators Components - Edge Cases', () => {
           if (box) {
             // Hover over chart to trigger tooltip
             await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-            await page.waitForTimeout(500);
+            await waitForAnimationsComplete(page);
 
             // Look for tooltip
             const tooltip = page.locator('[class*="tooltip"], [role="tooltip"]');
@@ -479,7 +480,7 @@ test.describe('Indicators Components - Edge Cases', () => {
           const requestsBefore = networkRequests.length;
 
           await tabButton.click();
-          await page.waitForTimeout(500);
+          await waitForAnimationsComplete(page);
 
           const requestsAfter = networkRequests.length;
           const newRequests = requestsAfter - requestsBefore;
@@ -502,7 +503,7 @@ test.describe('Indicators Components - Edge Cases', () => {
       for (let i = 0; i < tabCount; i++) {
         const tab = tabs.nth(i);
         await tab.click();
-        await page.waitForTimeout(300);
+        await waitForAnimationsComplete(page);
 
         // Check aria-selected attribute
         const isSelected = await tab.getAttribute('aria-selected');
@@ -530,11 +531,11 @@ test.describe('Indicators Components - Edge Cases', () => {
       if (tabCount > 1) {
         // Focus first tab
         await tabs.first().focus();
-        await page.waitForTimeout(100);
+        await page.waitForLoadState('domcontentloaded');
 
         // Press right arrow to navigate
         await page.keyboard.press('ArrowRight');
-        await page.waitForTimeout(200);
+        await waitForAnimationsComplete(page);
 
         // Second tab should now be focused
         const focusedElement = await page.evaluate(() => {
@@ -545,7 +546,7 @@ test.describe('Indicators Components - Edge Cases', () => {
 
         // Press Enter to select
         await page.keyboard.press('Enter');
-        await page.waitForTimeout(200);
+        await waitForAnimationsComplete(page);
 
         const activeTab = await indicatorsPage.getActiveTabName();
         console.log(`Active tab after keyboard selection: ${activeTab}`);

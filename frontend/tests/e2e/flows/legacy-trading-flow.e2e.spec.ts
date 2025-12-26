@@ -18,6 +18,7 @@
 
 import { test, expect } from '../fixtures/base.fixture';
 import { DashboardPage, TradingSessionPage, StrategyBuilderPage } from '../pages';
+import { waitForAnimationsComplete, waitForNetworkSettled } from '../support/wait-helpers';
 
 test.describe('Legacy Trading Flow - Migrated', () => {
   test.setTimeout(300000); // 5 minutes for full flow
@@ -71,7 +72,7 @@ test.describe('Legacy Trading Flow - Migrated', () => {
 
     if (paperVisible) {
       await tradingSession.selectMode('Paper');
-      await page.waitForTimeout(500);
+      await waitForAnimationsComplete(page);
       console.log('✓ Paper mode selected');
     }
 
@@ -84,7 +85,7 @@ test.describe('Legacy Trading Flow - Migrated', () => {
 
     if (checkboxCount > 0) {
       await strategyCheckboxes.first().check();
-      await page.waitForTimeout(300);
+      await waitForAnimationsComplete(page);
       console.log('✓ First strategy selected');
     }
 
@@ -173,8 +174,8 @@ test.describe('Legacy Trading Flow - Migrated', () => {
 
     console.log(`Charts: ${chartCount}, P&L displays: ${pnlCount}`);
 
-    // Wait and check for updates
-    await page.waitForTimeout(3000);
+    // Wait for network to settle and data to load
+    await waitForNetworkSettled(page);
 
     // Dashboard should remain stable
     await expect(page).not.toHaveURL(/error/);

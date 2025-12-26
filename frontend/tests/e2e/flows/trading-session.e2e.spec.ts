@@ -14,6 +14,7 @@
 
 import { test, expect } from '../fixtures/base.fixture';
 import { DashboardPage, TradingSessionPage } from '../pages';
+import { waitForAnimationsComplete, waitForModeSwitch } from '../support/wait-helpers';
 
 test.describe('Trading Session - E2E Flows', () => {
   // ============================================
@@ -35,9 +36,12 @@ test.describe('Trading Session - E2E Flows', () => {
     if (await tradingSession.paperButton.isVisible()) {
       await tradingSession.selectMode('Paper');
 
-      // Verify mode selected
-      // Note: Using class or aria attribute to verify selection
-      await page.waitForTimeout(500);
+      // Verify mode selected - wait for mode switch to complete
+      await waitForAnimationsComplete(page);
+      await expect(tradingSession.paperButton).toHaveClass(/selected|active/i).catch(() => {
+        // Fallback: just verify button is still visible
+        return expect(tradingSession.paperButton).toBeVisible();
+      });
     }
 
     // Step 4: Check if strategies are available
@@ -47,7 +51,8 @@ test.describe('Trading Session - E2E Flows', () => {
     if (checkboxCount > 0) {
       // Select first available strategy
       await strategyCheckboxes.first().check();
-      await page.waitForTimeout(300);
+      // Wait for checkbox state to update
+      await expect(strategyCheckboxes.first()).toBeChecked();
     }
 
     // Step 5: Navigate back to dashboard and verify state
@@ -85,7 +90,8 @@ test.describe('Trading Session - E2E Flows', () => {
       if (count > 0) {
         const firstElement = selectionElements.first();
         await firstElement.click();
-        await page.waitForTimeout(300);
+        // Wait for interaction to complete
+        await waitForAnimationsComplete(page);
       }
     }
 
@@ -111,7 +117,8 @@ test.describe('Trading Session - E2E Flows', () => {
     for (const mode of modes) {
       if (await mode.button.isVisible()) {
         await mode.button.click();
-        await page.waitForTimeout(500);
+        // Wait for mode switch animation to complete
+        await waitForAnimationsComplete(page);
         console.log(`✓ Switched to ${mode.name} mode`);
       }
     }
@@ -141,7 +148,10 @@ test.describe('Trading Session - E2E Flows', () => {
     // If there's a config dialog trigger, test it
     if (hasStartButton) {
       await dashboard.startSessionButton.click();
-      await page.waitForTimeout(1000);
+
+      // Wait for dialog to appear or navigation to complete
+      const dialogPromise = dashboard.sessionConfigDialog.waitFor({ state: 'visible', timeout: 5000 }).catch(() => null);
+      await dialogPromise;
 
       // Check if dialog or navigation happened
       const dialogVisible = await dashboard.sessionConfigDialog.isVisible();
@@ -188,7 +198,7 @@ test.describe('Trading Session - E2E Flows', () => {
   // ============================================
   test('E2E-06: User can access session history', async ({ page }) => {
     await page.goto('/session-history');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
 
     // Should show history page content
     const historyContent = page.locator(
@@ -238,7 +248,7 @@ test.describe('Trading Session - E2E Flows', () => {
   // ============================================
   test('E2E-08: WebSocket connection can be established', async ({ page }) => {
     await page.goto('/dashboard');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
 
     // Test WebSocket connectivity
     const wsConnected = await page.evaluate(() => {

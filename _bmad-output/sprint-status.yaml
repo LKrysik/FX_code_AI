@@ -1,0 +1,146 @@
+# Sprint Status - FX Agent AI
+# generated: 2025-12-25
+# project: FX Agent AI
+# tracking_system: file-system
+# story_location: _bmad-output/stories
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2025-12-25
+project: FX Agent AI
+tracking_system: file-system
+story_location: _bmad-output/stories
+
+development_status:
+  # ============================================================
+  # Epic 0: Foundation & Pipeline Unblock (P0 - foundation)
+  # Goal: Establish solid foundation with verified signal flow
+  # ============================================================
+  epic-0: in-progress
+  0-1-fix-eventbridge-signal-subscription: in-progress
+  0-2-e2e-signal-flow-verification: ready-for-dev
+  0-3-strategy-builder-audit: ready-for-dev
+  0-4-debug-panel-foundation: ready-for-dev
+  0-5-error-display-pattern: ready-for-dev
+  0-6-connection-status-indicator: ready-for-dev
+  epic-0-retrospective: optional
+
+  # ============================================================
+  # Epic 1A: First Signal Visible (P0)
+  # Goal: Trader sees their FIRST signal appear on dashboard
+  # ============================================================
+  epic-1a: backlog
+  1a-1-signal-display-on-dashboard: ready-for-dev
+  1a-2-state-machine-state-badge: ready-for-dev
+  1a-3-indicator-values-panel: ready-for-dev
+  1a-4-human-vocabulary-labels: ready-for-dev
+  1a-5-statushero-component: ready-for-dev
+  1a-6-signal-type-color-coding: ready-for-dev
+  1a-7-first-visit-onboarding-tooltip: ready-for-dev
+  1a-8-quick-start-option: ready-for-dev
+  epic-1a-retrospective: optional
+
+  # ============================================================
+  # Epic 1B: First Successful Backtest (P0)
+  # Goal: Trader runs a complete backtest and sees P&L results
+  # ============================================================
+  epic-1b: backlog
+  1b-1-backtest-session-setup: backlog
+  1b-2-backtest-execution: backlog
+  1b-3-progress-display: backlog
+  1b-4-pnl-summary: backlog
+  1b-5-journeybar-component: backlog
+  1b-6-signal-timeline-on-chart: backlog
+  1b-7-state-overview-table: backlog
+  1b-8-emergency-stop-button-esc-shortcut: backlog
+  1b-9-multi-symbol-session-support: backlog
+  epic-1b-retrospective: optional
+
+  # ============================================================
+  # Epic 2: Complete Strategy Configuration (P1)
+  # Goal: Trader can create, customize, and save strategies
+  # ============================================================
+  epic-2: backlog
+  2-1-create-new-strategy: backlog
+  2-2-configure-s1-signal-detection: backlog
+  2-3-configure-o1-cancellation: backlog
+  2-4-configure-z1-entry-confirmation: backlog
+  2-5-configure-ze1-exit-with-profit: backlog
+  2-6-configure-e1-emergency-exit: backlog
+  2-7-indicator-selection: backlog
+  2-8-view-strategy-configuration: backlog
+  2-9-strategy-validation: backlog
+  2-10-starter-strategy-templates: backlog
+  2-11-expert-mode-toggle: backlog
+  epic-2-retrospective: optional
+
+  # ============================================================
+  # Epic 3: Transparency & Diagnostics (P1)
+  # Goal: Trader understands WHY every signal fired or didn't fire
+  # ============================================================
+  epic-3: backlog
+  3-1-signal-history-panel: backlog
+  3-2-state-machine-transition-history: backlog
+  3-3-why-no-signal-diagnostics: backlog
+  3-4-continuous-indicator-values: backlog
+  3-5-condition-pass-fail-display: backlog
+  3-6-transition-tracing: backlog
+  3-7-transitionbadge-component: backlog
+  3-8-enhanced-conditionprogress: backlog
+  3-9-raw-data-export-csv: backlog
+  epic-3-retrospective: optional
+
+  # ============================================================
+  # Epic 4: Production Reliability (P2)
+  # Goal: System is production-ready with no silent failures
+  # ============================================================
+  epic-4: backlog
+  4-1-verify-s1-signal-generation: backlog
+  4-2-verify-o1-signal-generation: backlog
+  4-3-verify-z1-signal-generation: backlog
+  4-4-verify-ze1-signal-generation: backlog
+  4-5-verify-e1-signal-generation: backlog
+  4-6-verify-indicator-calculations: backlog
+  4-7-verify-state-machine-transitions: backlog
+  4-8-condition-evaluation-testing: backlog
+  4-9-pre-flight-check-before-backtest: backlog
+  4-10-auto-reconnect-on-disconnect: backlog
+  4-11-recovery-options-on-error: backlog
+  4-12-full-screen-critical-errors: backlog
+  4-13-reconnect-banner: backlog
+  epic-4-retrospective: optional
+
+  # ============================================================
+  # Epic 5: Dashboard Experience Polish (P3)
+  # Goal: Beautiful, state-driven UI with custom components
+  # Note: UX polish epic - stories to be broken down when active
+  # ============================================================
+  epic-5: backlog
+  epic-5-retrospective: optional

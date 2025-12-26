@@ -1,304 +1,367 @@
 """
-Unit Tests for MEXC Adapter - Phase 1 Live Trading
-===================================================
-⚠️ ORPHANED TEST FILE - NO IMPLEMENTATION EXISTS
+Unit Tests for MEXC Futures Adapter
+===================================
+Tests for MexcFuturesAdapter - the actual MEXC Futures API integration.
 
-This test file tests MexcRealAdapter, OrderStatus, and OrderStatusResponse classes
-which DO NOT exist in the codebase. These were never implemented or were removed.
+Tests cover:
+- Initialization and configuration
+- Leverage management (1-10x safety limits)
+- Order placement (LONG/SHORT positions)
+- Position retrieval
+- Funding rate queries
+- Circuit breaker integration
+- Compatibility methods (for backward compatibility with Spot interface)
 
-Current implementation uses:
-- MexcFuturesAdapter (src.infrastructure.adapters.mexc_futures_adapter)
-- MexcPaperAdapter (src.infrastructure.adapters.mexc_paper_adapter)
-
-Both return Dict[str, Any] instead of response objects.
-
-STATUS: Disabled - all tests skipped until implementation exists
+Updated: 2025-12-22 - Fixed orphaned tests that were testing non-existent MexcRealAdapter
 """
 
 import pytest
 
-# Skip entire module since implementation doesn't exist
-pytestmark = pytest.mark.skip(reason="MexcRealAdapter not implemented - orphaned test file")
+# Mark all tests in this module as unit tests (no database required)
+pytestmark = [pytest.mark.unit, pytest.mark.fast]
+import asyncio
+import time
+from unittest.mock import Mock, MagicMock, AsyncMock, patch
+from decimal import Decimal
+
+from src.infrastructure.adapters.mexc_futures_adapter import MexcFuturesAdapter
+from src.core.logger import StructuredLogger
 
 
-class TestMexcAdapterOrderSubmission:
-    """Test order submission methods"""
+# ============================================================================
+# Test Fixtures
+# ============================================================================
 
-    @pytest.fixture
-    def logger(self):
-        """Mock logger"""
-        return MagicMock(spec=StructuredLogger)
+@pytest.fixture
+def logger():
+    """Mock structured logger"""
+    mock_logger = MagicMock(spec=StructuredLogger)
+    mock_logger.info = MagicMock()
+    mock_logger.error = MagicMock()
+    mock_logger.warning = MagicMock()
+    mock_logger.debug = MagicMock()
+    return mock_logger
 
-    @pytest.fixture
-    def adapter(self, logger):
-        """Create MEXC adapter instance"""
-        return MexcRealAdapter(
-            api_key="test_api_key",
-            api_secret="test_api_secret",
+
+@pytest.fixture
+def adapter(logger):
+    """Create MEXC Futures adapter instance with mocked dependencies"""
+    adapter = MexcFuturesAdapter(
+        api_key="test_api_key",
+        api_secret="test_api_secret",
+        logger=logger
+    )
+    return adapter
+
+
+@pytest.fixture
+def mock_resilient_service():
+    """Mock resilient service for circuit breaker"""
+    mock_service = MagicMock()
+    mock_service.call_async = AsyncMock()
+    mock_service.get_status = MagicMock(return_value={
+        "circuit_breaker": {
+            "state": "closed",
+            "metrics": {
+                "success_rate_percent": 100,
+                "total_requests": 10,
+                "failed_requests": 0
+            }
+        }
+    })
+    return mock_service
+
+
+# ============================================================================
+# Test: Initialization
+# ============================================================================
+
+class TestMexcFuturesAdapterInit:
+    """Test adapter initialization"""
+
+    def test_initialization_with_defaults(self, logger):
+        """Test adapter initializes with correct defaults"""
+        adapter = MexcFuturesAdapter(
+            api_key="test_key",
+            api_secret="test_secret",
             logger=logger
         )
 
+        assert adapter.api_key == "test_key"
+        assert adapter.api_secret == "test_secret"
+        assert adapter.base_url == "https://contract.mexc.com"
+        assert adapter.rate_limiter["requests_per_second"] == 100
+        assert adapter._leverage_cache == {}
+
+    def test_initialization_with_custom_base_url(self, logger):
+        """Test adapter accepts custom base URL"""
+        adapter = MexcFuturesAdapter(
+            api_key="test_key",
+            api_secret="test_secret",
+            logger=logger,
+            base_url="https://custom.mexc.com"
+        )
+
+        assert adapter.base_url == "https://custom.mexc.com"
+
+
+# ============================================================================
+# Test: Leverage Management
+# ============================================================================
+
+class TestMexcFuturesAdapterLeverage:
+    """Test leverage configuration with safety limits"""
+
     @pytest.mark.asyncio
-    async def test_create_market_order_success(self, adapter):
-        """Test successful market order creation"""
-        # Mock API response
-        mock_response = {
-            "orderId": "12345678",
-            "status": "NEW",
-            "symbol": "BTCUSDT",
-            "side": "BUY",
-            "type": "MARKET"
-        }
+    async def test_set_leverage_success(self, adapter):
+        """Test successful leverage setting within safe range"""
+        mock_response = {"success": True, "leverage": 3}
 
         with patch.object(adapter, '_make_request', new_callable=AsyncMock) as mock_request:
             mock_request.return_value = mock_response
 
-            # Execute
-            order_id = await adapter.create_market_order(
-                symbol="BTC_USDT",
-                side="buy",
-                quantity=0.1
-            )
+            result = await adapter.set_leverage("BTC_USDT", 3)
 
-            # Verify
-            assert order_id == "12345678"
+            assert result["success"] is True
+            assert result["leverage"] == 3
+            assert result["symbol"] == "BTC_USDT"
+            assert adapter._leverage_cache["BTC_USDT"] == 3
+
             mock_request.assert_called_once()
             call_args = mock_request.call_args
             assert call_args[0][0] == "POST"
-            assert call_args[0][1] == "/api/v3/order"
-            assert call_args[1]["signed"] is True
-
-            # Verify params
-            params = call_args[0][2]
-            assert params["symbol"] == "BTCUSDT"
-            assert params["side"] == "BUY"
-            assert params["type"] == "MARKET"
-            assert params["quantity"] == "0.1"
+            assert call_args[0][1] == "/fapi/v1/leverage"
 
     @pytest.mark.asyncio
-    async def test_create_limit_order_success(self, adapter):
-        """Test successful limit order creation"""
+    async def test_set_leverage_rejects_above_10x(self, adapter):
+        """Test that leverage above 10x is rejected for safety"""
+        with pytest.raises(ValueError) as exc_info:
+            await adapter.set_leverage("BTC_USDT", 15)
+
+        assert "Leverage must be between 1 and 10" in str(exc_info.value)
+        assert "extreme liquidation risk" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_set_leverage_rejects_below_1x(self, adapter):
+        """Test that leverage below 1x is rejected"""
+        with pytest.raises(ValueError) as exc_info:
+            await adapter.set_leverage("BTC_USDT", 0)
+
+        assert "Leverage must be between 1 and 10" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_get_leverage_from_cache(self, adapter):
+        """Test leverage retrieval from cache"""
+        adapter._leverage_cache["ETH_USDT"] = 5
+
+        leverage = await adapter.get_leverage("ETH_USDT")
+
+        assert leverage == 5
+
+    @pytest.mark.asyncio
+    async def test_get_leverage_with_fallback(self, adapter):
+        """Test leverage fallback when circuit breaker is open"""
+        with patch.object(adapter, 'is_circuit_breaker_healthy', return_value=False):
+            leverage = await adapter.get_leverage_with_fallback("BTC_USDT", default_leverage=3)
+
+            assert leverage == 3
+
+
+# ============================================================================
+# Test: Order Placement
+# ============================================================================
+
+class TestMexcFuturesAdapterOrders:
+    """Test order placement methods"""
+
+    @pytest.mark.asyncio
+    async def test_place_futures_order_long_market(self, adapter):
+        """Test placing a LONG market order"""
         mock_response = {
-            "orderId": "87654321",
-            "status": "NEW",
-            "symbol": "ETHUSDT",
-            "side": "SELL",
-            "type": "LIMIT",
-            "price": "2000.50"
+            "orderId": "12345678",
+            "status": "FILLED",
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "positionSide": "LONG",
+            "type": "MARKET",
+            "origQty": "0.001",
+            "avgPrice": "50000.00"
         }
 
         with patch.object(adapter, '_make_request', new_callable=AsyncMock) as mock_request:
             mock_request.return_value = mock_response
 
-            # Execute
-            order_id = await adapter.create_limit_order(
-                symbol="ETH_USDT",
-                side="sell",
-                quantity=1.0,
-                price=2000.50
+            result = await adapter.place_futures_order(
+                symbol="BTC_USDT",
+                side="BUY",
+                position_side="LONG",
+                order_type="MARKET",
+                quantity=0.001
             )
 
-            # Verify
-            assert order_id == "87654321"
+            assert result["order_id"] == "12345678"
+            assert result["status"] == "FILLED"
+            assert result["side"] == "BUY"
+            assert result["position_side"] == "LONG"
+            assert result["source"] == "mexc_futures_api"
 
-            # Verify params
-            params = mock_request.call_args[0][2]
-            assert params["symbol"] == "ETHUSDT"
-            assert params["side"] == "SELL"
-            assert params["type"] == "LIMIT"
-            assert params["quantity"] == "1.0"
-            assert params["price"] == "2000.5"
+    @pytest.mark.asyncio
+    async def test_place_futures_order_short_market(self, adapter):
+        """Test placing a SHORT market order (open short position)"""
+        mock_response = {
+            "orderId": "87654321",
+            "status": "FILLED",
+            "symbol": "BTCUSDT",
+            "side": "SELL",
+            "positionSide": "SHORT",
+            "type": "MARKET",
+            "origQty": "0.001",
+            "avgPrice": "50000.00"
+        }
+
+        with patch.object(adapter, '_make_request', new_callable=AsyncMock) as mock_request:
+            mock_request.return_value = mock_response
+
+            result = await adapter.place_futures_order(
+                symbol="BTC_USDT",
+                side="SELL",
+                position_side="SHORT",
+                order_type="MARKET",
+                quantity=0.001
+            )
+
+            assert result["order_id"] == "87654321"
+            assert result["side"] == "SELL"
+            assert result["position_side"] == "SHORT"
+
+    @pytest.mark.asyncio
+    async def test_place_futures_order_limit_requires_price(self, adapter):
+        """Test that LIMIT orders require price parameter"""
+        with pytest.raises(ValueError) as exc_info:
+            await adapter.place_futures_order(
+                symbol="BTC_USDT",
+                side="BUY",
+                position_side="LONG",
+                order_type="LIMIT",
+                quantity=0.001
+                # Missing price parameter
+            )
+
+        assert "Price required for LIMIT orders" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_place_futures_order_limit_with_price(self, adapter):
+        """Test placing a LIMIT order with price"""
+        mock_response = {
+            "orderId": "11111111",
+            "status": "NEW",
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "positionSide": "LONG",
+            "type": "LIMIT",
+            "origQty": "0.001",
+            "price": "48000.00"
+        }
+
+        with patch.object(adapter, '_make_request', new_callable=AsyncMock) as mock_request:
+            mock_request.return_value = mock_response
+
+            result = await adapter.place_futures_order(
+                symbol="BTC_USDT",
+                side="BUY",
+                position_side="LONG",
+                order_type="LIMIT",
+                quantity=0.001,
+                price=48000.0
+            )
+
+            assert result["order_id"] == "11111111"
+            assert result["type"] == "LIMIT"
+
+            # Verify params include price and timeInForce
+            call_args = mock_request.call_args
+            params = call_args[0][2]
+            assert params["price"] == "48000.0"
             assert params["timeInForce"] == "GTC"
 
     @pytest.mark.asyncio
-    async def test_create_market_order_api_error(self, adapter):
-        """Test market order creation with API error"""
+    async def test_place_futures_order_api_error(self, adapter):
+        """Test order placement with API error"""
         with patch.object(adapter, '_make_request', new_callable=AsyncMock) as mock_request:
             mock_request.side_effect = Exception("MEXC API Error: Insufficient balance")
 
-            # Execute and verify exception
             with pytest.raises(Exception) as exc_info:
-                await adapter.create_market_order(
+                await adapter.place_futures_order(
                     symbol="BTC_USDT",
-                    side="buy",
-                    quantity=100.0  # Unrealistic quantity
+                    side="BUY",
+                    position_side="LONG",
+                    order_type="MARKET",
+                    quantity=100.0
                 )
 
             assert "Insufficient balance" in str(exc_info.value)
 
+
+# ============================================================================
+# Test: Position Management
+# ============================================================================
+
+class TestMexcFuturesAdapterPositions:
+    """Test position retrieval methods"""
+
     @pytest.mark.asyncio
-    async def test_cancel_order_success(self, adapter):
-        """Test successful order cancellation"""
-        mock_response = {
-            "orderId": "12345678",
-            "symbol": "BTCUSDT"
-        }
+    async def test_get_position_long(self, adapter):
+        """Test retrieving LONG position"""
+        mock_response = [
+            {
+                "symbol": "BTCUSDT",
+                "positionSide": "LONG",
+                "positionAmt": "0.001",
+                "entryPrice": "50000.00",
+                "leverage": "3",
+                "liquidationPrice": "40000.00",
+                "unRealizedProfit": "10.00",
+                "marginType": "ISOLATED"
+            }
+        ]
 
         with patch.object(adapter, '_make_request', new_callable=AsyncMock) as mock_request:
             mock_request.return_value = mock_response
 
-            # Execute
-            success = await adapter.cancel_order(
-                symbol="BTC_USDT",
-                exchange_order_id="12345678"
-            )
+            position = await adapter.get_position("BTC_USDT")
 
-            # Verify
-            assert success is True
-            mock_request.assert_called_once()
-            call_args = mock_request.call_args
-            assert call_args[0][0] == "DELETE"
-            assert call_args[0][1] == "/api/v3/order"
+            assert position is not None
+            assert position["symbol"] == "BTCUSDT"
+            assert position["position_side"] == "LONG"
+            assert position["position_amount"] == 0.001
+            assert position["entry_price"] == 50000.0
+            assert position["leverage"] == 3
+            assert position["liquidation_price"] == 40000.0
+            assert position["unrealized_pnl"] == 10.0
 
     @pytest.mark.asyncio
-    async def test_cancel_order_not_found(self, adapter):
-        """Test order cancellation when order not found"""
-        with patch.object(adapter, '_make_request', new_callable=AsyncMock) as mock_request:
-            mock_request.side_effect = Exception("MEXC API Error: Order not found")
-
-            # Execute
-            success = await adapter.cancel_order(
-                symbol="BTC_USDT",
-                exchange_order_id="999999"
-            )
-
-            # Verify - should return False, not raise exception
-            assert success is False
-
-    @pytest.mark.asyncio
-    async def test_cancel_order_unknown_order(self, adapter):
-        """Test order cancellation with 'unknown order' error"""
-        with patch.object(adapter, '_make_request', new_callable=AsyncMock) as mock_request:
-            mock_request.side_effect = Exception("Unknown order sent")
-
-            # Execute
-            success = await adapter.cancel_order(
-                symbol="BTC_USDT",
-                exchange_order_id="888888"
-            )
-
-            # Verify
-            assert success is False
-
-
-class TestMexcAdapterOrderStatus:
-    """Test order status retrieval"""
-
-    @pytest.fixture
-    def logger(self):
-        return MagicMock(spec=StructuredLogger)
-
-    @pytest.fixture
-    def adapter(self, logger):
-        return MexcRealAdapter(
-            api_key="test_api_key",
-            api_secret="test_api_secret",
-            logger=logger
-        )
-
-    @pytest.mark.asyncio
-    async def test_get_order_status_success(self, adapter):
-        """Test successful order status retrieval"""
-        mock_response = {
-            "orderId": "12345678",
-            "symbol": "BTCUSDT",
-            "side": "BUY",
-            "type": "MARKET",
-            "origQty": "0.1",
-            "price": "0",
-            "status": "FILLED",
-            "executedQty": "0.1",
-            "avgPrice": "50000.50",
-            "time": 1699372800000,
-            "updateTime": 1699372801000
-        }
+    async def test_get_position_no_position(self, adapter):
+        """Test get_position when no active position"""
+        mock_response = [
+            {
+                "symbol": "BTCUSDT",
+                "positionSide": "LONG",
+                "positionAmt": "0",  # Zero position
+                "entryPrice": "0",
+                "leverage": "1"
+            }
+        ]
 
         with patch.object(adapter, '_make_request', new_callable=AsyncMock) as mock_request:
             mock_request.return_value = mock_response
 
-            # Execute
-            order_status = await adapter.get_order_status(
-                symbol="BTC_USDT",
-                exchange_order_id="12345678"
-            )
+            position = await adapter.get_position("BTC_USDT")
 
-            # Verify
-            assert isinstance(order_status, OrderStatusResponse)
-            assert order_status.exchange_order_id == "12345678"
-            assert order_status.symbol == "BTCUSDT"
-            assert order_status.side == "BUY"
-            assert order_status.order_type == "MARKET"
-            assert order_status.quantity == 0.1
-            assert order_status.status == OrderStatus.FILLED
-            assert order_status.filled_quantity == 0.1
-            assert order_status.average_fill_price == 50000.50
+            assert position is None
 
     @pytest.mark.asyncio
-    async def test_get_order_status_partially_filled(self, adapter):
-        """Test order status for partially filled order"""
-        mock_response = {
-            "orderId": "87654321",
-            "symbol": "ETHUSDT",
-            "side": "SELL",
-            "type": "LIMIT",
-            "origQty": "2.0",
-            "price": "2000.00",
-            "status": "PARTIALLY_FILLED",
-            "executedQty": "1.0",
-            "avgPrice": "2001.25",
-            "time": 1699372800000,
-            "updateTime": 1699372900000
-        }
-
-        with patch.object(adapter, '_make_request', new_callable=AsyncMock) as mock_request:
-            mock_request.return_value = mock_response
-
-            # Execute
-            order_status = await adapter.get_order_status(
-                symbol="ETH_USDT",
-                exchange_order_id="87654321"
-            )
-
-            # Verify
-            assert order_status.status == OrderStatus.PARTIALLY_FILLED
-            assert order_status.quantity == 2.0
-            assert order_status.filled_quantity == 1.0
-            assert order_status.average_fill_price == 2001.25
-
-    @pytest.mark.asyncio
-    async def test_get_order_status_not_found(self, adapter):
-        """Test order status when order not found"""
-        with patch.object(adapter, '_make_request', new_callable=AsyncMock) as mock_request:
-            mock_request.side_effect = Exception("MEXC API Error: Order does not exist")
-
-            # Execute and verify exception
-            with pytest.raises(Exception) as exc_info:
-                await adapter.get_order_status(
-                    symbol="BTC_USDT",
-                    exchange_order_id="999999"
-                )
-
-            assert "Order does not exist" in str(exc_info.value)
-
-
-class TestMexcAdapterPositions:
-    """Test position fetching"""
-
-    @pytest.fixture
-    def logger(self):
-        return MagicMock(spec=StructuredLogger)
-
-    @pytest.fixture
-    def adapter(self, logger):
-        return MexcRealAdapter(
-            api_key="test_api_key",
-            api_secret="test_api_secret",
-            logger=logger
-        )
-
-    @pytest.mark.asyncio
-    async def test_get_positions_success(self, adapter):
-        """Test successful position retrieval"""
+    async def test_get_positions_multiple(self, adapter):
+        """Test retrieving multiple positions via compatibility method"""
         mock_response = {
             "data": [
                 {
@@ -312,7 +375,7 @@ class TestMexcAdapterPositions:
                     "maintenanceMargin": "250.00",
                     "liquidatePrice": "45000.00",
                     "leverage": "10",
-                    "holdFee": "100.00"
+                    "positionMargin": "500.00"
                 },
                 {
                     "symbol": "ETH_USDT",
@@ -325,7 +388,7 @@ class TestMexcAdapterPositions:
                     "maintenanceMargin": "100.00",
                     "liquidatePrice": "2200.00",
                     "leverage": "5",
-                    "holdFee": "50.00"
+                    "positionMargin": "400.00"
                 }
             ]
         }
@@ -333,45 +396,23 @@ class TestMexcAdapterPositions:
         with patch.object(adapter, '_make_request', new_callable=AsyncMock) as mock_request:
             mock_request.return_value = mock_response
 
-            # Execute
             positions = await adapter.get_positions()
 
-            # Verify
             assert len(positions) == 2
 
             # Verify BTC position
             btc_pos = positions[0]
-            assert isinstance(btc_pos, PositionResponse)
-            assert btc_pos.symbol == "BTC_USDT"
-            assert btc_pos.side == "LONG"
-            assert btc_pos.quantity == 0.5
-            assert btc_pos.entry_price == 50000.00
-            assert btc_pos.current_price == 51000.00
-            assert btc_pos.unrealized_pnl == 500.00
-            assert btc_pos.margin_ratio == 2000.0  # (5000 / 250) * 100
-            assert btc_pos.liquidation_price == 45000.00
-            assert btc_pos.leverage == 10.0
+            assert btc_pos["symbol"] == "BTC_USDT"
+            assert btc_pos["side"] == "LONG"
+            assert btc_pos["quantity"] == 0.5
+            assert btc_pos["entry_price"] == 50000.0
+            assert btc_pos["leverage"] == 10.0
 
             # Verify ETH position
             eth_pos = positions[1]
-            assert eth_pos.symbol == "ETH_USDT"
-            assert eth_pos.side == "SHORT"
-            assert eth_pos.quantity == 2.0
-            assert eth_pos.margin_ratio == 2000.0  # (2000 / 100) * 100
-
-    @pytest.mark.asyncio
-    async def test_get_positions_empty(self, adapter):
-        """Test position retrieval when no positions"""
-        mock_response = {"data": []}
-
-        with patch.object(adapter, '_make_request', new_callable=AsyncMock) as mock_request:
-            mock_request.return_value = mock_response
-
-            # Execute
-            positions = await adapter.get_positions()
-
-            # Verify
-            assert len(positions) == 0
+            assert eth_pos["symbol"] == "ETH_USDT"
+            assert eth_pos["side"] == "SHORT"
+            assert eth_pos["quantity"] == 2.0
 
     @pytest.mark.asyncio
     async def test_get_positions_filters_zero_quantity(self, adapter):
@@ -389,7 +430,7 @@ class TestMexcAdapterPositions:
                     "maintenanceMargin": "250.00",
                     "liquidatePrice": "45000.00",
                     "leverage": "10",
-                    "holdFee": "100.00"
+                    "positionMargin": "500.00"
                 },
                 {
                     "symbol": "ETH_USDT",
@@ -402,7 +443,7 @@ class TestMexcAdapterPositions:
                     "maintenanceMargin": "0.00",
                     "liquidatePrice": "0.00",
                     "leverage": "1",
-                    "holdFee": "0.00"
+                    "positionMargin": "0.00"
                 }
             ]
         }
@@ -410,74 +451,253 @@ class TestMexcAdapterPositions:
         with patch.object(adapter, '_make_request', new_callable=AsyncMock) as mock_request:
             mock_request.return_value = mock_response
 
-            # Execute
             positions = await adapter.get_positions()
 
-            # Verify - only BTC position should be returned
+            # Only BTC position should be returned
             assert len(positions) == 1
-            assert positions[0].symbol == "BTC_USDT"
+            assert positions[0]["symbol"] == "BTC_USDT"
+
+
+# ============================================================================
+# Test: Funding Rate
+# ============================================================================
+
+class TestMexcFuturesAdapterFundingRate:
+    """Test funding rate methods"""
 
     @pytest.mark.asyncio
-    async def test_get_positions_api_error(self, adapter):
-        """Test position retrieval with API error"""
+    async def test_get_funding_rate_success(self, adapter):
+        """Test successful funding rate retrieval"""
+        mock_response = [
+            {
+                "symbol": "BTCUSDT",
+                "fundingRate": "0.0001",
+                "fundingTime": 1699372800000,
+                "markPrice": "50000.00"
+            }
+        ]
+
         with patch.object(adapter, '_make_request', new_callable=AsyncMock) as mock_request:
-            mock_request.side_effect = Exception("MEXC API Error: Unauthorized")
+            mock_request.return_value = mock_response
 
-            # Execute and verify exception
-            with pytest.raises(Exception) as exc_info:
-                await adapter.get_positions()
+            result = await adapter.get_funding_rate("BTC_USDT")
 
-            assert "Unauthorized" in str(exc_info.value)
-
-
-class TestMexcAdapterErrorHandling:
-    """Test error handling and retry logic"""
-
-    @pytest.fixture
-    def logger(self):
-        return MagicMock(spec=StructuredLogger)
-
-    @pytest.fixture
-    def adapter(self, logger):
-        return MexcRealAdapter(
-            api_key="test_api_key",
-            api_secret="test_api_secret",
-            logger=logger
-        )
+            assert result["symbol"] == "BTCUSDT"
+            assert result["funding_rate"] == 0.0001
+            assert result["mark_price"] == 50000.0
+            assert result["source"] == "mexc_futures_api"
 
     @pytest.mark.asyncio
-    async def test_retry_logic_on_api_500(self, adapter):
-        """Test retry logic on HTTP 500 error (handled by ResilientService)"""
-        # Note: Retry logic is handled by ResilientService in _make_request
-        # This test verifies that errors propagate correctly
+    async def test_get_funding_rate_with_fallback_circuit_breaker_open(self, adapter):
+        """Test funding rate fallback when circuit breaker is open"""
+        with patch.object(adapter, 'is_circuit_breaker_healthy', return_value=False):
+            result = await adapter.get_funding_rate_with_fallback("BTC_USDT")
+
+            assert result["funding_rate"] == 0.0
+            assert result["source"] == "fallback_circuit_breaker_open"
+
+    @pytest.mark.asyncio
+    async def test_calculate_funding_cost(self, adapter):
+        """Test funding cost calculation"""
+        mock_funding = {
+            "symbol": "BTCUSDT",
+            "funding_rate": 0.0001,
+            "mark_price": 50000.0
+        }
+
+        with patch.object(adapter, 'get_funding_rate', new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_funding
+
+            # Calculate for 24 hours (3 funding intervals)
+            cost = await adapter.calculate_funding_cost("BTC_USDT", -0.001, 24)
+
+            # Expected: position_amount * mark_price * funding_rate * intervals
+            # -(-0.001 * 50000 * 0.0001 * 3) = -(-0.015) = 0.015
+            # Note: negative cost means you earn, positive means you pay
+            assert abs(cost - 0.015) < 0.001
+
+
+# ============================================================================
+# Test: Circuit Breaker
+# ============================================================================
+
+class TestMexcFuturesAdapterCircuitBreaker:
+    """Test circuit breaker integration"""
+
+    def test_is_circuit_breaker_healthy_closed(self, adapter, mock_resilient_service):
+        """Test circuit breaker health check when CLOSED"""
+        adapter.resilient_service = mock_resilient_service
+
+        result = adapter.is_circuit_breaker_healthy()
+
+        assert result is True
+
+    def test_is_circuit_breaker_healthy_open(self, adapter):
+        """Test circuit breaker health check when OPEN"""
+        mock_service = MagicMock()
+        mock_service.get_status = MagicMock(return_value={
+            "circuit_breaker": {"state": "open"}
+        })
+        adapter.resilient_service = mock_service
+
+        result = adapter.is_circuit_breaker_healthy()
+
+        assert result is False
+
+    def test_get_circuit_breaker_state(self, adapter, mock_resilient_service):
+        """Test getting circuit breaker state"""
+        adapter.resilient_service = mock_resilient_service
+
+        state = adapter.get_circuit_breaker_state()
+
+        assert state == "closed"
+
+
+# ============================================================================
+# Test: Compatibility Methods
+# ============================================================================
+
+class TestMexcFuturesAdapterCompatibility:
+    """Test backward compatibility methods matching Spot adapter interface"""
+
+    @pytest.mark.asyncio
+    async def test_create_market_order_wrapper(self, adapter):
+        """Test create_market_order compatibility wrapper"""
+        mock_response = {
+            "orderId": "12345",
+            "status": "FILLED"
+        }
+
+        with patch.object(adapter, 'place_futures_order', new_callable=AsyncMock) as mock_place:
+            mock_place.return_value = mock_response
+
+            order_id = await adapter.create_market_order(
+                symbol="BTC_USDT",
+                side="BUY",
+                quantity=0.001
+            )
+
+            assert order_id == "12345"
+
+            # Verify it called place_futures_order with correct params
+            mock_place.assert_called_once_with(
+                symbol="BTC_USDT",
+                side="BUY",
+                position_side="LONG",  # BUY -> LONG
+                order_type="MARKET",
+                quantity=0.001
+            )
+
+    @pytest.mark.asyncio
+    async def test_create_market_order_short(self, adapter):
+        """Test create_market_order for SHORT position"""
+        mock_response = {
+            "orderId": "67890",
+            "status": "FILLED"
+        }
+
+        with patch.object(adapter, 'place_futures_order', new_callable=AsyncMock) as mock_place:
+            mock_place.return_value = mock_response
+
+            order_id = await adapter.create_market_order(
+                symbol="BTC_USDT",
+                side="SELL",
+                quantity=0.001
+            )
+
+            # Verify SELL -> SHORT
+            mock_place.assert_called_once_with(
+                symbol="BTC_USDT",
+                side="SELL",
+                position_side="SHORT",
+                order_type="MARKET",
+                quantity=0.001
+            )
+
+    @pytest.mark.asyncio
+    async def test_create_limit_order_wrapper(self, adapter):
+        """Test create_limit_order compatibility wrapper"""
+        mock_response = {
+            "orderId": "99999",
+            "status": "NEW"
+        }
+
+        with patch.object(adapter, 'place_futures_order', new_callable=AsyncMock) as mock_place:
+            mock_place.return_value = mock_response
+
+            order_id = await adapter.create_limit_order(
+                symbol="ETH_USDT",
+                side="BUY",
+                quantity=1.0,
+                price=2000.0
+            )
+
+            assert order_id == "99999"
+
+            mock_place.assert_called_once_with(
+                symbol="ETH_USDT",
+                side="BUY",
+                position_side="LONG",
+                order_type="LIMIT",
+                quantity=1.0,
+                price=2000.0
+            )
+
+    @pytest.mark.asyncio
+    async def test_get_balances(self, adapter):
+        """Test get_balances compatibility method"""
+        mock_response = {
+            "data": {
+                "assets": [
+                    {"asset": "USDT", "availableBalance": "10000.00", "frozenBalance": "500.00"},
+                    {"asset": "BTC", "availableBalance": "0.5", "frozenBalance": "0.1"}
+                ]
+            }
+        }
+
+        with patch.object(adapter, '_make_request', new_callable=AsyncMock) as mock_request:
+            mock_request.return_value = mock_response
+
+            result = await adapter.get_balances()
+
+            assert "assets" in result
+            assert result["assets"]["USDT"]["free"] == 10000.0
+            assert result["assets"]["USDT"]["locked"] == 500.0
+            assert result["assets"]["BTC"]["free"] == 0.5
+            assert result["source"] == "mexc_futures_api"
+
+    @pytest.mark.asyncio
+    async def test_deprecated_place_order_raises(self, adapter):
+        """Test that deprecated place_order raises NotImplementedError"""
+        with pytest.raises(NotImplementedError) as exc_info:
+            await adapter.place_order(symbol="BTC_USDT", side="BUY", quantity=0.001)
+
+        assert "place_futures_order" in str(exc_info.value)
+
+
+# ============================================================================
+# Test: Error Handling
+# ============================================================================
+
+class TestMexcFuturesAdapterErrorHandling:
+    """Test error handling and resilience"""
+
+    @pytest.mark.asyncio
+    async def test_api_error_propagates(self, adapter):
+        """Test that API errors propagate correctly"""
         with patch.object(adapter, '_make_request', new_callable=AsyncMock) as mock_request:
             mock_request.side_effect = Exception("MEXC API Error: HTTP 500: Internal Server Error")
 
-            # Execute and verify exception
             with pytest.raises(Exception) as exc_info:
-                await adapter.create_market_order(
+                await adapter.place_futures_order(
                     symbol="BTC_USDT",
-                    side="buy",
+                    side="BUY",
+                    position_side="LONG",
+                    order_type="MARKET",
                     quantity=0.1
                 )
 
             assert "500" in str(exc_info.value)
-
-    @pytest.mark.asyncio
-    async def test_retry_logic_on_api_418_rate_limit(self, adapter):
-        """Test retry logic on HTTP 418 rate limit (handled by ResilientService)"""
-        with patch.object(adapter, '_make_request', new_callable=AsyncMock) as mock_request:
-            mock_request.side_effect = Exception("MEXC API Error: HTTP 418: Rate limit exceeded")
-
-            # Execute and verify exception
-            with pytest.raises(Exception) as exc_info:
-                await adapter.create_market_order(
-                    symbol="BTC_USDT",
-                    side="buy",
-                    quantity=0.1
-                )
-
-            assert "418" in str(exc_info.value) or "Rate limit" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_network_timeout(self, adapter):
@@ -485,70 +705,33 @@ class TestMexcAdapterErrorHandling:
         with patch.object(adapter, '_make_request', new_callable=AsyncMock) as mock_request:
             mock_request.side_effect = asyncio.TimeoutError("Request timeout")
 
-            # Execute and verify exception
             with pytest.raises(asyncio.TimeoutError):
-                await adapter.create_market_order(
+                await adapter.place_futures_order(
                     symbol="BTC_USDT",
-                    side="buy",
+                    side="BUY",
+                    position_side="LONG",
+                    order_type="MARKET",
                     quantity=0.1
                 )
 
-    @pytest.mark.asyncio
-    async def test_rate_limiting_enforcement(self, adapter):
-        """Test rate limiting (10 requests/sec)"""
-        # Mock _make_request to return immediately
-        with patch.object(adapter, '_make_request', new_callable=AsyncMock) as mock_request:
-            mock_request.return_value = {"orderId": "12345"}
 
-            # Record start time
-            start_time = time.time()
+# ============================================================================
+# Test: Signature Generation
+# ============================================================================
 
-            # Make 15 requests (exceeds 10 req/sec limit)
-            for i in range(15):
-                await adapter.create_market_order(
-                    symbol="BTC_USDT",
-                    side="buy",
-                    quantity=0.01
-                )
+class TestMexcFuturesAdapterSignature:
+    """Test HMAC signature generation"""
 
-            # Record end time
-            end_time = time.time()
-            elapsed = end_time - start_time
+    def test_generate_signature(self, adapter):
+        """Test signature generation for authenticated requests"""
+        params = {"symbol": "BTCUSDT", "leverage": 3}
+        timestamp = 1699372800000
 
-            # Should take at least 1 second due to rate limiting
-            # (10 requests in first second, then wait for next second for remaining 5)
-            assert elapsed >= 1.0, f"Rate limiting not enforced: took only {elapsed}s"
+        signature = adapter._generate_signature(params, timestamp)
 
-
-class TestMexcAdapterCancellation:
-    """Test order cancellation edge cases"""
-
-    @pytest.fixture
-    def logger(self):
-        return MagicMock(spec=StructuredLogger)
-
-    @pytest.fixture
-    def adapter(self, logger):
-        return MexcRealAdapter(
-            api_key="test_api_key",
-            api_secret="test_api_secret",
-            logger=logger
-        )
-
-    @pytest.mark.asyncio
-    async def test_cancel_order_api_error_propagates(self, adapter):
-        """Test that non-'not found' errors propagate"""
-        with patch.object(adapter, '_make_request', new_callable=AsyncMock) as mock_request:
-            mock_request.side_effect = Exception("MEXC API Error: Unauthorized")
-
-            # Execute and verify exception
-            with pytest.raises(Exception) as exc_info:
-                await adapter.cancel_order(
-                    symbol="BTC_USDT",
-                    exchange_order_id="12345"
-                )
-
-            assert "Unauthorized" in str(exc_info.value)
+        # Signature should be a hex string
+        assert isinstance(signature, str)
+        assert len(signature) == 64  # SHA256 hex digest length
 
 
 if __name__ == "__main__":

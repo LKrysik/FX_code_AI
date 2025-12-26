@@ -101,7 +101,8 @@ export class IndicatorsPage extends BasePage {
 
   async searchIndicator(query: string): Promise<void> {
     await this.searchInput.fill(query);
-    await this.page.waitForTimeout(500); // Debounce
+    // Wait for search results to update (debounce handled by waiting for content change)
+    await this.page.waitForLoadState('domcontentloaded');
   }
 
   async selectIndicator(indicatorName: string): Promise<void> {

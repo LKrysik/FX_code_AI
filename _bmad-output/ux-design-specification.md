@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8]
+stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
 inputDocuments:
   - "_bmad-output/prd.md"
   - "_bmad-output/analysis/brainstorming-session-2025-12-18.md"
@@ -23,7 +23,8 @@ elicitationMethods:
   - "Genre Mashup"
   - "Comparative Analysis Matrix"
 workflowType: 'ux-design'
-lastStep: 8
+lastStep: 14
+status: complete
 project_name: 'FX Agent AI'
 user_name: 'Mr Lu'
 date: '2025-12-20'
@@ -767,4 +768,460 @@ DETECTION → EVALUATION → DECISION → EXECUTION → MONITORING
 
 ---
 
-<!-- Next sections will be added in subsequent workflow steps -->
+## Design Direction Decision
+
+### Design Directions Explored
+
+Four primary layout approaches were evaluated:
+
+| Direction | Description | Best For |
+|-----------|-------------|----------|
+| **Command Center** | Hero-centric, full-width, horizontal | Power users, multi-tasking |
+| **Split Focus** | Left sidebar hero, wide content area | Intermediate users, clarity |
+| **Dashboard Grid** | Modular card grid, equal weight | Customization, flexibility |
+| **Minimal Focus** | Centered, maximum focus, minimal chrome | Critical moments, beginners |
+
+### Chosen Direction
+
+**Hybrid State-Driven Layout**
+
+The UI adapts its layout based on the current trading state:
+
+| State | Layout | Rationale |
+|-------|--------|-----------|
+| MONITORING | Minimal Focus | Low cognitive load when waiting |
+| SIGNAL_DETECTED | Command Center | Maximum information when deciding |
+| POSITION_ACTIVE | Split Focus | P&L hero with context |
+
+### Design Rationale
+
+1. **Matches attention needs** - More info when needed, less when not
+2. **Reduces cognitive load** - Calm UI during calm moments
+3. **Maintains consistency** - Same components, different arrangement
+4. **Supports all personas** - Beginners see simple, experts get density
+
+### Layout Wireframes
+
+**MONITORING State (Minimal Focus):**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         👀 WATCHING                             │
+│                        24 pairs active                          │
+│                                                                 │
+│                   No signals detected yet                       │
+│                                                                 │
+│ ○──○──○──○──○                                      Session: $0  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**SIGNAL_DETECTED State (Command Center):**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ 🔥 FOUND! BTCUSDT          [○──●──○──○──○]              ⚙️ 👤  │
+├─────────────────────────────────────────────────────────────────┤
+│   ┌─────────────────────────────────────────────────────────┐   │
+│   │     🔥 Signal Detected  •  +$0.00  •  ⏱️ 47s remaining  │   │
+│   └─────────────────────────────────────────────────────────┘   │
+│   ┌──────────────────────┐  ┌──────────────────────┐           │
+│   │   CONDITIONS ████░░  │  │   INDICATORS          │           │
+│   │   ✅ Volume  ⏳ Price │  │   RSI: 72 ↑  Vol: 340%│           │
+│   └──────────────────────┘  └──────────────────────┘           │
+│        [⏸️ PAUSE]                    [❌ CANCEL]                │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**POSITION_ACTIVE State (Split Focus):**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ FX Agent AI    [○──○──●──○──○]                          ⚙️ 👤  │
+├────────────────────┬────────────────────────────────────────────┤
+│  📈 MONITORING     │   POSITION DETAILS                         │
+│  ┌──────────────┐  │   Entry: $45,230  •  Current: $45,180     │
+│  │   +$127.50   │  │   Target: $44,800  •  Stop: $45,400       │
+│  │    +0.28%    │  │                                            │
+│  │              │  │   Time in position: 2m 34s                 │
+│  │  🎯 Target:  │  │   Progress to target: ████████░░ 78%      │
+│  │  +$43 away   │  │                                            │
+│  └──────────────┘  │   [🛑 EMERGENCY CLOSE]                     │
+├────────────────────┴────────────────────────────────────────────┤
+│ 📈 BTCUSDT Short  •  +$127.50 (+0.28%)  •  Target: +$43 away   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Implementation Approach
+
+| Phase | Task | Components |
+|-------|------|------------|
+| 1 | Build component library | StatusHero, JourneyBar, ConditionProgress |
+| 2 | Create layout variants | Minimal, CommandCenter, SplitFocus |
+| 3 | Implement state transitions | Smooth animations between layouts |
+| 4 | User testing | Validate across all three states |
+
+---
+
+## User Journey Flows
+
+### Journey 1: First Session Setup
+
+```mermaid
+flowchart TD
+    A[Launch App] --> B{First time?}
+    B -->|Yes| C[Welcome Screen]
+    B -->|No| D[Dashboard]
+    C --> E[Quick Setup Wizard]
+    E --> F[Connect Exchange API]
+    F --> G{API Valid?}
+    G -->|No| H[Show Error + Help]
+    H --> F
+    G -->|Yes| I[Connection Success]
+    I --> J[Choose Strategy Template]
+    J --> K[Review Settings]
+    K --> L[Start First Session]
+    L --> M[MONITORING State]
+```
+
+**Target:** < 5 minutes from launch to first session
+
+### Journey 2: The Trading Loop
+
+```mermaid
+flowchart TD
+    A[WATCHING] --> B{Signal?}
+    B -->|Yes| C[SIGNAL DETECTED]
+    C --> D[Check Conditions]
+    D --> E{All Met?}
+    E -->|Yes| F[ENTER POSITION]
+    E -->|Timeout| A
+    F --> G[MONITOR P&L]
+    G --> H{Exit Trigger?}
+    H -->|Target| I[Take Profit]
+    H -->|Stop| J[Stop Loss]
+    H -->|Manual| K[Manual Close]
+    I --> A
+    J --> A
+    K --> A
+```
+
+**Core Loop:** Watch → Detect → Enter → Monitor → Exit → Watch
+
+### Journey 3: Signal Response (60-Second Window)
+
+| Phase | Duration | User Action | System Response |
+|-------|----------|-------------|-----------------|
+| Alert | 0s | None | Sound + UI shift |
+| Observe | 0-60s | Watch/Override | Progress bars fill |
+| Decide | Auto | Pause/Cancel/Wait | Countdown visible |
+| Execute | 60s or conditions met | None | Auto-entry |
+
+**Critical Elements:**
+- "Why:" explanation always visible
+- Pause/Cancel buttons accessible
+- Progress bar shows condition status
+- Countdown impossible to miss
+
+### Journey 4: Position Exit
+
+| Exit Type | Color | Animation | Follow-up |
+|-----------|-------|-----------|-----------|
+| Target Hit | 💚 Green | Celebration | Profit summary |
+| Stop Loss | 🔴 Red | Calm transition | Loss explanation |
+| Manual Close | 🟡 Yellow | Neutral | Session stats |
+| Emergency | 🟡 Yellow | Immediate | Confirmation |
+
+**Design Rule:** Losses get explanation, never blame.
+
+### Journey 5: Error Recovery
+
+| Scenario | Detection | Response | Recovery |
+|----------|-----------|----------|----------|
+| Brief disconnect (<3s) | Auto | Silent reconnect | Resume |
+| Medium disconnect (3-10s) | Banner | Auto-reconnect | Toast confirmation |
+| Extended disconnect (>10s) | Full warning | Manual options | Emergency close available |
+| Position at risk | Impossible to miss | Critical alert | Backup close channel |
+
+### Journey Patterns
+
+| Pattern | Description | Usage |
+|---------|-------------|-------|
+| **State Transition** | Inline reason + animation | All state changes |
+| **Progressive Disclosure** | Level 1 → 2 → 3 | Complex information |
+| **Confirmation Gateway** | Single confirm dialog | Destructive actions only |
+| **Auto-Recovery** | Silent if fast, toast if slow | Connection issues |
+| **Celebration Moment** | Confetti + stats | Profitable exits |
+| **Learning Moment** | Explanation, no blame | Losses |
+
+### Flow Optimization Principles
+
+1. **One click to start** - Session begins with single action
+2. **Auto-progress when safe** - Conditions check without user
+3. **Override always available** - Pause, Cancel, Close accessible
+4. **Failures teach** - Every loss explains what happened
+5. **Recovery is automatic** - Reconnect without user intervention
+
+---
+
+## Component Strategy
+
+### Design System Components (MUI v5)
+
+| Category | Components Used |
+|----------|----------------|
+| Layout | Box, Container, Grid, Stack |
+| Inputs | TextField, Select, Switch, Slider |
+| Display | Typography, Badge, Chip, Tooltip |
+| Feedback | Alert, Snackbar, Dialog, Progress |
+| Navigation | Tabs, Drawer, Menu |
+| Data | DataGrid, Table (MUI X) |
+
+### Custom Components
+
+#### StatusHero
+
+**Purpose:** Central dashboard element combining state + P&L.
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `state` | enum | MONITORING, SIGNAL_DETECTED, POSITION_ACTIVE |
+| `pnl` | number | Current P&L value |
+| `symbol` | string | Trading pair |
+| `countdown` | number | Seconds remaining |
+
+**States:** Slate (watching), Amber (signal), Blue (position)
+
+#### JourneyBar
+
+**Purpose:** Visual trading flow progress indicator.
+
+```
+○──●──○──○──○
+👀   🔥   🎯   📈   💰
+```
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `currentStep` | number | 0-4 position |
+| `steps` | array | Labels and icons |
+
+**Variants:** Compact (icons), Full (icons + labels), Mini (dots)
+
+#### ConditionProgress
+
+**Purpose:** Multi-condition tracker with visual progress.
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `conditions` | array | Condition objects |
+| `overallProgress` | number | 0-100 percentage |
+| `countdown` | number | Seconds remaining |
+
+**Condition States:** ○ Pending, ⏳ Checking, ✅ Met, ❌ Failed
+
+#### DeltaDisplay
+
+**Purpose:** Formatted change metrics with trend arrows.
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `value` | number | Current value |
+| `target` | number | Target (optional) |
+| `format` | enum | absolute, percentage, toTarget |
+
+**Variants:** Hero (48px), Standard (24px), Compact (16px)
+
+#### TransitionBadge
+
+**Purpose:** Inline explanation of state transitions.
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `type` | enum | SIGNAL, PROFIT, LOSS, CANCEL, MANUAL |
+| `reason` | string | Human-readable explanation |
+| `expandable` | boolean | Show details on click |
+
+#### NowPlayingBar
+
+**Purpose:** Persistent footer showing active position.
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `position` | object | Active position details |
+| `visible` | boolean | Only when position active |
+| `onClose` | function | Emergency close callback |
+
+### Component Implementation Strategy
+
+| Category | Strategy |
+|----------|----------|
+| Foundation | Use MUI directly |
+| Layout | Extend MUI with custom tokens |
+| Data Display | MUI X + custom styling |
+| Trading-Specific | Build custom with MUI styled() |
+
+### Implementation Roadmap
+
+| Phase | Components | Priority |
+|-------|------------|----------|
+| **Phase 1** | StatusHero, JourneyBar, ConditionProgress | Must ship |
+| **Phase 2** | DeltaDisplay, TransitionBadge, NowPlayingBar | Position experience |
+| **Phase 3** | Sound alerts, Celebrations, Expert variants | Enhancement |
+
+---
+
+## UX Consistency Patterns
+
+### Button Hierarchy
+
+| Level | Style | Usage | Example |
+|-------|-------|-------|---------|
+| **Primary** | Filled, prominent | Main action per screen | Start Session, Enter Position |
+| **Secondary** | Outlined | Supporting actions | Pause, Cancel, Settings |
+| **Tertiary** | Text only | Minor actions | View Details, Reset, Skip |
+| **Destructive** | Red, requires confirm | Irreversible actions | Close Position, Delete |
+
+**Rules:**
+- Only ONE primary action per screen
+- Destructive actions require confirmation modal
+- Keyboard shortcuts shown in tooltips
+
+### State Transition Patterns
+
+Every state transition displays:
+1. **Icon** - Visual state indicator
+2. **Human Label** - Not technical jargon
+3. **Why** - Reason for transition
+4. **Timestamp** - When it occurred
+
+| Transition | Icon | Color | Animation |
+|------------|------|-------|-----------|
+| → SIGNAL_DETECTED | 🔥 | Amber | Pulse glow |
+| → POSITION_ACTIVE | 🎯 | Blue | Slide in |
+| → TAKE_PROFIT | 💰 | Green | Confetti |
+| → STOP_LOSS | 🛑 | Red | Calm fade |
+| → MONITORING | 👀 | Slate | Fade out |
+
+### Feedback Patterns
+
+| Type | Icon | Color | Duration | Sound |
+|------|------|-------|----------|-------|
+| Success | ✅ | Green | Auto 3s | Optional chime |
+| Error | ❌ | Red | Persist | Alert tone |
+| Warning | ⚠️ | Amber | While true | None |
+| Info | ℹ️ | Blue | Auto 5s | None |
+
+**Error Pattern:** Always show recovery action button.
+
+### Loading States
+
+| State | Visual | Behavior |
+|-------|--------|----------|
+| Data loading | Skeleton | Show what's loading |
+| Connection | 🟢🟡🔴 | Always visible |
+| Action pending | Spinner | Disable button |
+
+### Modal Patterns
+
+**Confirmation (Destructive):**
+- Clear title stating action
+- Consequence explanation
+- Cancel left, Action right
+- Destructive button in red
+
+**Settings:**
+- Title + close button
+- Scrollable form content
+- Footer: Reset, Cancel, Save
+
+### Empty States
+
+| State | Content |
+|-------|---------|
+| No signals | Friendly icon + "Watching for..." + scan status |
+| No history | Icon + "No trades yet" + next step hint |
+| No data | Icon + explanation + action if available |
+
+### Navigation Patterns
+
+**Keyboard Shortcuts:**
+
+| Action | Key |
+|--------|-----|
+| Emergency Close | `Esc` |
+| Pause/Resume | `Space` |
+| Dashboard | `D` |
+| History | `H` |
+| Settings | `S` |
+| Logs | `L` |
+| Toggle Sidebar | `[` |
+
+---
+
+## Responsive Design & Accessibility
+
+### Responsive Strategy
+
+**Platform Priority:**
+
+| Platform | Priority | Use Case |
+|----------|----------|----------|
+| Desktop XL (≥1920px) | Primary | Full trading experience |
+| Desktop (≥1440px) | Secondary | Standard layout |
+| Desktop SM (≥1280px) | Tertiary | Compact sidebar |
+| Mobile (<1280px) | Emergency | Close position only |
+
+**Approach:** Desktop-first. Mobile serves only as emergency fallback for position management.
+
+### Breakpoint Strategy
+
+| Breakpoint | Layout | Features |
+|------------|--------|----------|
+| ≥1920px | Full multi-panel | All features, expanded |
+| ≥1440px | Standard | Full features |
+| ≥1280px | Compact | Collapsible sidebar |
+| <1280px | Emergency | Status + close only |
+
+### Accessibility Strategy
+
+**Target:** WCAG 2.1 Level AA
+
+| Requirement | Implementation |
+|-------------|----------------|
+| Color Contrast | 4.5:1 text, 3:1 large text |
+| Focus Indicators | 2px solid ring on all interactive |
+| Keyboard Navigation | Full tab order + shortcuts |
+| Screen Readers | ARIA labels on all controls |
+| Touch Targets | 44x44px minimum |
+| Reduced Motion | Respect `prefers-reduced-motion` |
+
+**Color-Blind Support:**
+
+| State | Color | Icon Backup |
+|-------|-------|-------------|
+| Profit | Green | ↑ arrow |
+| Loss | Red | ↓ arrow |
+| Signal | Amber | 🔥 + pulse |
+
+### Testing Strategy
+
+| Category | Approach | Frequency |
+|----------|----------|-----------|
+| Responsive | Chrome DevTools + real devices | Every feature |
+| Accessibility | axe-core automated + manual | Every PR |
+| Screen Reader | NVDA, VoiceOver | Weekly |
+| Keyboard | Manual navigation test | Every feature |
+| Performance | 1000+ ticks/sec load test | Pre-release |
+
+### Implementation Guidelines
+
+**Responsive:**
+- Use relative units (rem, %, vw)
+- Desktop-first media queries
+- Test all breakpoints
+
+**Accessibility:**
+- Semantic HTML structure
+- ARIA labels on icons
+- `aria-live` for state changes
+- Focus trapping in modals
+- Skip links for navigation
+
+---

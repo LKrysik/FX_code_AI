@@ -8,28 +8,37 @@ This framework provides comprehensive end-to-end testing for the FX Agent Tradin
 
 ```
 tests/e2e/
-├── fixtures/           # Playwright fixtures and test setup
-│   ├── base.fixture.ts # Extended test with API client, mocks, error tracking
-│   ├── global-setup.ts # Pre-test environment setup
-│   └── global-teardown.ts # Post-test cleanup
-├── pages/              # Page Object Models
-│   ├── BasePage.ts     # Abstract base class with common methods
+├── support/                    # NEW: Shared test infrastructure
+│   ├── fixtures/               # Composable fixtures (mergeTests pattern)
+│   │   ├── index.ts            # Merged fixtures export
+│   │   ├── api.fixture.ts      # Typed HTTP client
+│   │   ├── cleanup.fixture.ts  # Auto-cleanup tracking
+│   │   ├── network.fixture.ts  # Network mocking
+│   │   └── console.fixture.ts  # Console error tracking
+│   ├── factories/              # Faker-based test data factories
+│   │   ├── index.ts            # Factory exports
+│   │   ├── strategy.factory.ts # Strategy + conditions
+│   │   ├── indicator.factory.ts # Indicators + variants
+│   │   └── trading-session.factory.ts # Session config
+│   └── helpers/                # Pure utility functions
+│       ├── wait-helpers.ts     # Deterministic waiting
+│       └── seed-helpers.ts     # API-first data seeding
+├── fixtures/                   # LEGACY: Old fixture location
+│   └── base.fixture.ts         # Extended test (being replaced)
+├── pages/                      # Page Object Models
+│   ├── BasePage.ts
 │   ├── DashboardPage.ts
 │   ├── TradingSessionPage.ts
 │   ├── StrategyBuilderPage.ts
 │   ├── IndicatorsPage.ts
-│   └── index.ts        # Exports all page objects
-├── flows/              # End-to-end user journey tests
-│   ├── trading-session.smoke.spec.ts
-│   ├── trading-session.e2e.spec.ts
-│   └── legacy-trading-flow.e2e.spec.ts
-├── components/         # Component-specific tests (edge cases)
-│   ├── dashboard.component.spec.ts
-│   ├── trading-session.component.spec.ts
-│   ├── strategy-builder.component.spec.ts
-│   └── indicators.component.spec.ts
-└── api/                # Backend API tests
-    └── backend.api.spec.ts
+│   └── index.ts
+├── flows/                      # E2E user journey tests
+├── components/                 # Component edge case tests
+├── api/                        # Backend API tests
+├── examples/                   # NEW: Example tests showing patterns
+│   └── new-patterns.example.spec.ts
+├── global-setup.ts
+└── global-teardown.ts
 ```
 
 ## Test Categories
@@ -119,37 +128,134 @@ async expectStrategyVisible(name: string): Promise<void> {}
 async getStrategyNames(): Promise<string[]> {}
 ```
 
-## Fixtures
+## Fixtures (NEW Architecture)
+
+Import from `support/fixtures` for the new composable fixture system:
+
+```typescript
+import { test, expect } from '../support/fixtures';
+```
 
 ### apiClient
-HTTP client for direct API calls:
+Typed HTTP client for backend API calls:
 ```typescript
 test('my test', async ({ apiClient }) => {
-  const response = await apiClient.get('/api/strategies');
+  const strategies = await apiClient.get<Strategy[]>('/api/strategies');
+  await apiClient.post('/api/strategies', { name: 'New Strategy' });
 });
 ```
 
-### consoleErrors
-Collects JavaScript console errors:
+### cleanup
+Automatic resource cleanup after test completion:
+```typescript
+test('my test', async ({ apiClient, cleanup }) => {
+  const strategy = createStrategy();
+  await apiClient.post('/api/strategies', strategy);
+  cleanup.track('strategies', strategy.id); // Auto-deleted after test
+});
+```
+
+### network
+Network interception and mocking:
+```typescript
+test('my test', async ({ page, network }) => {
+  // Mock API before navigation (network-first!)
+  await network.mock({
+    method: 'GET',
+    urlPattern: '**/api/strategies',
+    response: [{ id: '1', name: 'Mocked' }],
+  });
+  await page.goto('/strategies');
+});
+```
+
+### console
+Console error tracking and assertions:
+```typescript
+test('my test', async ({ page, console: consoleManager }) => {
+  await page.goto('/dashboard');
+  expect(consoleManager.hasNoCriticalErrors()).toBe(true);
+});
+```
+
+### consoleErrors (Legacy)
+String array of errors for backward compatibility:
 ```typescript
 test('my test', async ({ consoleErrors }) => {
   expect(consoleErrors).toHaveLength(0);
 });
 ```
 
-### testConfig
-Environment configuration:
+## Data Factories
+
+Import from `support/factories` for test data generation:
+
 ```typescript
-test('my test', async ({ testConfig }) => {
-  console.log(testConfig.apiUrl);
+import { createStrategy, createPaperSession, createSymbols } from '../support/factories';
+```
+
+### Strategy Factory
+```typescript
+// Default strategy with random values
+const strategy = createStrategy();
+
+// Override specific fields
+const customStrategy = createStrategy({
+  name: 'My Strategy',
+  isActive: false,
+});
+
+// Specialized factories
+const rsiStrategy = createRsiStrategy();
+const pumpStrategy = createPumpStrategy();
+```
+
+### Trading Session Factory
+```typescript
+// Paper trading session
+const session = createPaperSession();
+
+// With custom config
+const session = createPaperSession({
+  config: { symbols: ['BTCUSDT'], leverage: 5 },
 });
 ```
 
-### mockedWebSocket
-Mock WebSocket for testing real-time updates:
+### Indicator Factory
 ```typescript
-test('my test', async ({ mockedWebSocket }) => {
-  mockedWebSocket.send({ type: 'price_update', data: {...} });
+const indicator = createIndicator();
+const rsi = createRsiIndicator();
+const variant = createIndicatorVariant(indicator.id);
+```
+
+## Seed Helpers
+
+Import from `support/helpers` for API-first data setup:
+
+```typescript
+import { seedStrategy, seedTradingSetup } from '../support/helpers';
+```
+
+### API-First Pattern
+```typescript
+test('my test', async ({ apiClient, cleanup, page }) => {
+  // Seed via API (fast!)
+  const strategy = await seedStrategy(apiClient, cleanup, { name: 'Test' });
+
+  // Then test UI
+  await page.goto('/strategies');
+  await expect(page.getByText(strategy.name)).toBeVisible();
+
+  // Cleanup is automatic!
+});
+```
+
+### Complete Setup
+```typescript
+const { strategies, session } = await seedTradingSetup(apiClient, cleanup, {
+  strategyCount: 2,
+  symbols: ['BTCUSDT', 'ETHUSDT'],
+  mode: 'Paper',
 });
 ```
 

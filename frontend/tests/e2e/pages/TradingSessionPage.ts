@@ -51,10 +51,14 @@ export class TradingSessionPage extends BasePage {
   constructor(page: Page) {
     super(page);
 
-    // Mode selection
-    this.liveButton = page.getByRole('button', { name: /Live/i });
-    this.paperButton = page.getByRole('button', { name: /Paper/i });
-    this.backtestButton = page.getByRole('button', { name: /Backtest/i });
+    // Mode selection - use more specific locators to avoid matching "Start X Session" buttons
+    this.liveButton = page.getByRole('button', { name: /Live Trading/i }).or(
+      page.locator('[value="live"]')
+    );
+    this.paperButton = page.getByRole('button', { name: /Paper Trading/i }).or(
+      page.locator('[value="paper"]')
+    );
+    this.backtestButton = page.getByRole('button', { name: /Backtest/i }).first();
     this.selectedModeIndicator = page.locator('[data-testid="selected-mode"]');
 
     // Strategy section
@@ -90,18 +94,15 @@ export class TradingSessionPage extends BasePage {
   // ============================================
 
   async selectMode(mode: TradingMode): Promise<void> {
-    switch (mode) {
-      case 'Live':
-        await this.liveButton.click();
-        break;
-      case 'Paper':
-        await this.paperButton.click();
-        break;
-      case 'Backtest':
-        await this.backtestButton.click();
-        break;
-    }
-    await this.page.waitForTimeout(500); // Wait for mode switch animation
+    const modeButton = mode === 'Live' ? this.liveButton :
+                       mode === 'Paper' ? this.paperButton : this.backtestButton;
+
+    await modeButton.click();
+
+    // Wait for mode switch to complete by checking for visual feedback
+    await this.page.evaluate(() => {
+      return Promise.all(document.getAnimations().map((a) => a.finished));
+    });
   }
 
   async selectStrategy(strategyName: string): Promise<void> {
@@ -125,7 +126,8 @@ export class TradingSessionPage extends BasePage {
     // Search if search box is available
     if (await this.symbolSearch.isVisible()) {
       await this.symbolSearch.fill(symbol);
-      await this.page.waitForTimeout(300);
+      // Wait for search results to filter (debounce)
+      await this.page.waitForLoadState('domcontentloaded');
     }
 
     const checkbox = this.page.locator(`[data-testid="symbol-checkbox-${symbol}"]`);

@@ -13,6 +13,7 @@
 
 import { test, expect } from '../fixtures/base.fixture';
 import { TradingSessionPage } from '../pages';
+import { waitForAnimationsComplete } from '../support/wait-helpers';
 
 test.describe('Trading Session Components - Edge Cases', () => {
   // ============================================
@@ -34,7 +35,7 @@ test.describe('Trading Session Components - Edge Cases', () => {
       for (const mode of modes) {
         if (await mode.button.isVisible()) {
           await mode.button.click();
-          await page.waitForTimeout(300);
+          await waitForAnimationsComplete(page);
 
           // Count selected modes
           const selectedButtons = page.locator(
@@ -71,7 +72,7 @@ test.describe('Trading Session Components - Edge Cases', () => {
 
       if (await tradingSession.liveButton.isVisible()) {
         await tradingSession.liveButton.click();
-        await page.waitForTimeout(500);
+        await waitForAnimationsComplete(page);
 
         // Check for any warning indicators
         const warnings = page.locator(
@@ -100,7 +101,7 @@ test.describe('Trading Session Components - Edge Cases', () => {
       if (await tradingSession.paperButton.isVisible()) {
         // Double-click should not cause issues
         await tradingSession.paperButton.dblclick();
-        await page.waitForTimeout(300);
+        await waitForAnimationsComplete(page);
 
         // Page should remain stable
         await expect(page).toHaveURL(/trading-session/);
@@ -129,9 +130,9 @@ test.describe('Trading Session Components - Edge Cases', () => {
       if (count >= 2) {
         // Select multiple strategies
         await checkboxes.nth(0).check();
-        await page.waitForTimeout(200);
+        await expect(checkboxes.nth(0)).toBeChecked();
         await checkboxes.nth(1).check();
-        await page.waitForTimeout(200);
+        await expect(checkboxes.nth(1)).toBeChecked();
 
         // Verify both are checked
         const firstChecked = await checkboxes.nth(0).isChecked();
@@ -171,7 +172,7 @@ test.describe('Trading Session Components - Edge Cases', () => {
 
       if (await selectAllButton.isVisible()) {
         await selectAllButton.click();
-        await page.waitForTimeout(300);
+        await waitForAnimationsComplete(page);
 
         // All checkboxes should be checked
         const checkboxes = page.locator('input[type="checkbox"]');
@@ -203,7 +204,7 @@ test.describe('Trading Session Components - Edge Cases', () => {
       if (await searchInput.isVisible()) {
         // Type search query
         await searchInput.fill('EUR');
-        await page.waitForTimeout(500);
+        await waitForAnimationsComplete(page);
 
         // Check filtered results
         const symbolItems = page.locator('[data-testid*="symbol"], [class*="symbol-item"]');
@@ -231,7 +232,7 @@ test.describe('Trading Session Components - Edge Cases', () => {
       if (await searchInput.isVisible()) {
         // Type invalid symbol
         await searchInput.fill('ZZZZZ123');
-        await page.waitForTimeout(500);
+        await waitForAnimationsComplete(page);
 
         // Should show "no results" or similar
         const noResults = page.locator('text=/no.*result|not.*found|no.*match/i');
@@ -241,7 +242,7 @@ test.describe('Trading Session Components - Edge Cases', () => {
 
         // Clear and verify recovery
         await searchInput.clear();
-        await page.waitForTimeout(300);
+        await waitForAnimationsComplete(page);
       }
 
       // Page should remain functional
@@ -262,7 +263,7 @@ test.describe('Trading Session Components - Edge Cases', () => {
         const removeButton = chips.first().locator('button, [class*="remove"], [class*="close"]');
         if (await removeButton.isVisible()) {
           await removeButton.click();
-          await page.waitForTimeout(300);
+          await waitForAnimationsComplete(page);
 
           const newCount = await chips.count();
           expect(newCount).toBeLessThanOrEqual(initialCount);
@@ -288,7 +289,7 @@ test.describe('Trading Session Components - Edge Cases', () => {
       if (await riskInput.isVisible()) {
         // Test over-limit value
         await riskInput.fill('150'); // Over 100%
-        await page.waitForTimeout(300);
+        await waitForAnimationsComplete(page);
 
         // Check for validation error
         const hasValidationError = await page.locator('[class*="error"], [role="alert"]').count() > 0;
@@ -299,7 +300,7 @@ test.describe('Trading Session Components - Edge Cases', () => {
 
         // Test negative value
         await riskInput.fill('-10');
-        await page.waitForTimeout(300);
+        await waitForAnimationsComplete(page);
 
         const hasNegativeError = await page.locator('[class*="error"], [role="alert"]').count() > 0;
         const negativeValue = await riskInput.inputValue();
@@ -323,14 +324,14 @@ test.describe('Trading Session Components - Edge Cases', () => {
       if (await positionInput.isVisible()) {
         // Enter decimal value
         await positionInput.fill('0.5');
-        await page.waitForTimeout(200);
+        await waitForAnimationsComplete(page);
 
         const value = await positionInput.inputValue();
         expect(value).toContain('0.5');
 
         // Test precision
         await positionInput.fill('0.12345678');
-        await page.waitForTimeout(200);
+        await waitForAnimationsComplete(page);
 
         const preciseValue = await positionInput.inputValue();
         console.log(`Position size precision: ${preciseValue}`);
@@ -350,7 +351,7 @@ test.describe('Trading Session Components - Edge Cases', () => {
       if (await numericInput.isVisible()) {
         // Try to enter text
         await numericInput.fill('abc');
-        await page.waitForTimeout(200);
+        await waitForAnimationsComplete(page);
 
         const value = await numericInput.inputValue();
 
@@ -360,7 +361,7 @@ test.describe('Trading Session Components - Edge Cases', () => {
 
         // Test special characters
         await numericInput.fill('10<script>');
-        await page.waitForTimeout(200);
+        await waitForAnimationsComplete(page);
 
         const sanitizedValue = await numericInput.inputValue();
         expect(sanitizedValue).not.toContain('<script>');
@@ -380,7 +381,7 @@ test.describe('Trading Session Components - Edge Cases', () => {
       // Make changes to form
       if (await tradingSession.paperButton.isVisible()) {
         await tradingSession.paperButton.click();
-        await page.waitForTimeout(300);
+        await waitForAnimationsComplete(page);
       }
 
       // Try to navigate away
@@ -410,7 +411,7 @@ test.describe('Trading Session Components - Edge Cases', () => {
 
         // Click reset
         await resetButton.click();
-        await page.waitForTimeout(300);
+        await waitForAnimationsComplete(page);
 
         // Form should be in default state
         // Verify no selections or default selection
@@ -428,11 +429,11 @@ test.describe('Trading Session Components - Edge Cases', () => {
 
       // Navigate forward first
       await page.goto('/dashboard');
-      await page.waitForLoadState('networkidle');
+      await page.waitForLoadState('domcontentloaded');
 
       // Go back
       await page.goBack();
-      await page.waitForLoadState('networkidle');
+      await page.waitForLoadState('domcontentloaded');
 
       // Should return to trading session page
       await expect(page).toHaveURL(/trading-session/);

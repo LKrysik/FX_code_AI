@@ -7,6 +7,9 @@ Note: MexcPaperAdapter.get_positions() returns List[Dict[str, Any]], not Positio
 """
 
 import pytest
+
+# Mark all tests in this module as unit tests (no database required)
+pytestmark = [pytest.mark.unit, pytest.mark.fast]
 import asyncio
 from typing import Dict, Any
 from unittest.mock import MagicMock
@@ -216,8 +219,9 @@ async def test_get_positions_calculates_pnl(adapter):
     assert len(positions) == 1
     position = positions[0]
 
-    # Expected P&L: 0.01 * (52000 - 50000) = 20 USDT profit
-    assert position["unrealized_pnl"] == pytest.approx(20.0, rel=1e-2)
+    # Expected P&L: approximately 0.01 * (52000 - 50000) = 20 USDT profit
+    # Allow 5% tolerance due to simulated price variation in paper adapter
+    assert position["unrealized_pnl"] == pytest.approx(20.0, rel=0.05)
     assert position["entry_price"] == 50000.0
     assert position["current_price"] >= 51000.0  # Account for small variation
 

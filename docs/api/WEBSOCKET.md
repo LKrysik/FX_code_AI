@@ -23,7 +23,7 @@ Niniejszy dokument odzwierciedla aktualne zachowanie serwera (`src/api/websocket
 ## Strumienie i subskrypcje
 - `subscribe`: `{ type: "subscribe", stream: "market_data"|"indicators"|"signals", params: {...}, id? }`
 - Potwierdzenie: `response/subscribed` z `session_id` (jeÅ›li dostÄ™pny)
-- Serwer â€seedujeâ€ 5 wiadomoÅ›ci na start dla wygody klienta/testÃ³w (wszystkie zawierajÄ… `session_id`):
+- Serwer â€seeduje" 5 wiadomoÅ›ci na start dla wygody klienta/testÃ³w (wszystkie zawierajÄ… `session_id`):
   - market_data: `{ type: "data", stream: "market_data", session_id, market_data: {...} }`
   - indicators: `{ type: "data", stream: "indicators", session_id, indicators: [...], data: {...} }`
   - signals: `{ type: "signal", session_id, signal: {...} }`
@@ -49,48 +49,45 @@ Niniejszy dokument odzwierciedla aktualne zachowanie serwera (`src/api/websocket
 
 Uwaga: metryki sesji normalizowane konserwatywnie do sum per-symbol; docelowo bÄ™dzie uÅ¼yty jeden autorytatywny licznik w ExecutionController.
 
-
 ## Dodatki (MVP_v2)
 
-- validate_strategy_config › response/strategy_validation (valid, errors, warnings)
+- `validate_strategy_config` â†’ `response/strategy_validation` (valid, errors, warnings)
+- `upsert_strategy` â†’ `response/strategy_upserted` (bÅ‚Ä™dy: validation_error, command_failed)
 
-- upsert_strategy › response/strategy_upserted (b³êdy: validation_error, command_failed)
-
-
-Uwaga: metryki sesji normalizowane s¹ wg aktywnych symboli bie¿¹cej sesji (priorytet: session_strategy_map, nastêpnie symbols ze statusu) dla spójnoœci z sum¹ wyników per-symbol. W dev, jeœli token nie ma formatu JWT (header.payload.signature), jest akceptowany jako prosty token testowy.
+Uwaga: metryki sesji normalizowane sÄ… wg aktywnych symboli bieÅ¼Ä…cej sesji (priorytet: session_strategy_map, nastÄ™pnie symbols ze statusu) dla spÃ³jnoÅ›ci z sumÄ… wynikÃ³w per-symbol. W dev, jeÅ›li token nie ma formatu JWT (header.payload.signature), jest akceptowany jako prosty token testowy.
 
 ## Dodatki (v1+)
 
 ### Strategy Lifecycle (nowe akcje)
-- alidate_strategy_config — walidacja konfiguracji strategii; odpowiedŸ: strategy_validation (alid, errors, warnings).
-- upsert_strategy — zapis strategii do config/strategies/{name}.json i odœwie¿enie StrategyManager; odpowiedŸ: strategy_upserted.
-- get_strategies / get_strategy_status — lista/status strategii.
-- ctivate_strategy / deactivate_strategy — aktywacja/dezaktywacja strategii dla symbolu.
+- `validate_strategy_config` â†’ walidacja konfiguracji strategii; odpowiedÅº: strategy_validation (valid, errors, warnings).
+- `upsert_strategy` â†’ zapis strategii do config/strategies/{name}.json i odÅ›wieÅ¼enie StrategyManager; odpowiedÅº: strategy_upserted.
+- `get_strategies` / `get_strategy_status` â†’ lista/status strategii.
+- `activate_strategy` / `deactivate_strategy` â†’ aktywacja/dezaktywacja strategii dla symbolu.
 
-### Sessions (idempotencja i bud¿et)
-- session_start — rozwi¹zywanie konfliktów, idempotency key: (mode, sorted(symbols), sha256(strategy_config)).
-- Walidacja bud¿etu analogicznie do REST (global_cap, llocations), w przypadku naruszenia: error z kodem udget_cap_exceeded.
+### Sessions (idempotencja i budÅ¼et)
+- `session_start` â†’ rozwiÄ…zywanie konfliktÃ³w, idempotency key: (mode, sorted(symbols), sha256(strategy_config)).
+- Walidacja budÅ¼etu analogicznie do REST (global_cap, allocations), w przypadku naruszenia: error z kodem budget_cap_exceeded.
 
 ### Data Collection
-- collection_start — uruchamia zrzut danych w strukturze sesji (data/session_*), odpowiedŸ: collection_started z collection_id.
-- collection_stop / collection_status — zarz¹dzanie kolekcj¹ danych.
+- `collection_start` â†’ uruchamia zrzut danych w strukturze sesji (data/session_*), odpowiedÅº: collection_started z collection_id.
+- `collection_stop` / `collection_status` â†’ zarzÄ…dzanie kolekcjÄ… danych.
 
-### Results (spójnoœæ envelope)
-- esults_request — session_results|symbol_results|strategy_results;
-  - Metryki sesji centralizowane w ExecutionController (spójne REST/WS).
+### Results (spÃ³jnoÅ›Ä‡ envelope)
+- `results_request` â†’ session_results|symbol_results|strategy_results;
+  - Metryki sesji centralizowane w ExecutionController (spÃ³jne REST/WS).
 
 ## Zastosowania UI
-- Walidacja/publikacja strategii bezpoœrednio z edytora (canvas) — alidate_strategy_config, upsert_strategy.
-- Utrzymanie listy i statusów (WS lub REST) — szybkie odœwie¿anie w UI.
-- Start sesji (backtest/live/paper) z cap bud¿etu — session_start; monitorowanie — session_status.
-- Podgl¹d strumieni: market_data, indicators, signals (seed 5 wiadomoœci na subskrypcjê).
-- Kolekcja danych do póŸniejszego backtestu — collection_start/stop/status.
+- Walidacja/publikacja strategii bezpoÅ›rednio z edytora (canvas) â†’ validate_strategy_config, upsert_strategy.
+- Utrzymanie listy i statusÃ³w (WS lub REST) â†’ szybkie odÅ›wieÅ¼anie w UI.
+- Start sesji (backtest/live/paper) z cap budÅ¼etu â†’ session_start; monitorowanie â†’ session_status.
+- PodglÄ…d strumieni: market_data, indicators, signals (seed 5 wiadomoÅ›ci na subskrypcjÄ™).
+- Kolekcja danych do pÃ³Åºniejszego backtestu â†’ collection_start/stop/status.
 
 ---
 
 ## Completeness Note
 
-**Last Updated:** 2025-11-02
+**Last Updated:** 2025-12-25
 
 All message types handled by `MessageRouter` in `src/api/message_router.py` are documented above. For detailed implementation, see:
 - `src/api/websocket_server.py` - WebSocket server implementation

@@ -602,6 +602,10 @@ class EventBridge(IEventBridge):
             await self._process_event("indicator.updated", event_data)
 
         # Signal events
+        # TODO: [DEAD CODE] These handlers subscribe to events that StrategyManager never publishes.
+        # StrategyManager publishes "signal_generated" instead. These remain for potential future
+        # use with specialized signal processors. See Story 0-1 for context.
+        # Consider removing if not used by 2025-Q2.
         async def handle_flash_pump_signal(event_data: Dict[str, Any]):
             processed_signal = await self.signal_processor.process_flash_pump_signal(event_data)
             if processed_signal:
@@ -637,8 +641,44 @@ class EventBridge(IEventBridge):
 
         # Generic signal_generated handler - forwards all signals from StrategyManager
         async def handle_signal_generated(event_data: Dict[str, Any]):
-            """Forward signal_generated events from StrategyManager to WebSocket clients"""
-            await self._process_event("signal_generated", event_data)
+            """Forward signal_generated events from StrategyManager to WebSocket clients.
+
+            This is the primary signal handler. StrategyManager publishes "signal_generated"
+            events which this handler forwards to all subscribed WebSocket clients.
+
+            Expected event_data schema:
+                - signal_type: str (S1, O1, Z1, ZE1, E1)
+                - symbol: str (e.g., "BTCUSDT")
+                - timestamp: str (ISO8601)
+                - section: str (same as signal_type)
+                - indicators: dict (indicator values at signal time)
+                - metadata: dict (additional context)
+            """
+            try:
+                # Validate required fields
+                required_fields = ["signal_type", "symbol", "timestamp"]
+                missing_fields = [f for f in required_fields if f not in event_data]
+                if missing_fields:
+                    self.logger.warning("event_bridge.signal_generated.missing_fields", {
+                        "missing": missing_fields,
+                        "received_keys": list(event_data.keys())
+                    })
+
+                await self._process_event("signal_generated", event_data)
+
+                self.logger.debug("event_bridge.signal_generated.forwarded", {
+                    "signal_type": event_data.get("signal_type"),
+                    "symbol": event_data.get("symbol"),
+                    "timestamp": event_data.get("timestamp")
+                })
+            except Exception as e:
+                self.logger.error("event_bridge.signal_generated.error", {
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "event_data_keys": list(event_data.keys()) if event_data else None
+                })
+                # Re-raise to allow upstream handling if needed
+                raise
 
         await self.event_bus.subscribe("signal_generated", handle_signal_generated)
         self._subscribed_handlers.append(("signal_generated", handle_signal_generated))

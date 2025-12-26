@@ -16,11 +16,18 @@ import { test as base, expect, Page, APIRequestContext } from '@playwright/test'
 // TYPE DEFINITIONS
 // ============================================
 
+export interface ApiResponse {
+  ok: boolean;
+  status: number;
+  json: () => Promise<any>;
+  text: () => Promise<string>;
+}
+
 export interface ApiClient {
-  get: (endpoint: string) => Promise<any>;
-  post: (endpoint: string, data?: any) => Promise<any>;
-  put: (endpoint: string, data?: any) => Promise<any>;
-  delete: (endpoint: string) => Promise<any>;
+  get: (endpoint: string) => Promise<ApiResponse>;
+  post: (endpoint: string, data?: any) => Promise<ApiResponse>;
+  put: (endpoint: string, data?: any) => Promise<ApiResponse>;
+  delete: (endpoint: string) => Promise<ApiResponse>;
 }
 
 export interface TestConfig {
@@ -75,42 +82,38 @@ export const test = base.extend<TestFixtures>({
   },
 
   // ----------------------------------------
-  // API Client
+  // API Client (returns raw response for status checking)
   // ----------------------------------------
   apiClient: async ({ request, testConfig }, use) => {
     const apiURL = testConfig.apiURL;
 
+    // Wrapper to normalize Playwright response to our ApiResponse interface
+    const wrapResponse = (response: Awaited<ReturnType<typeof request.get>>): ApiResponse => ({
+      ok: response.ok(),
+      status: response.status(),
+      json: () => response.json(),
+      text: () => response.text(),
+    });
+
     const client: ApiClient = {
       get: async (endpoint: string) => {
         const response = await request.get(`${apiURL}${endpoint}`);
-        if (!response.ok()) {
-          throw new Error(`API GET ${endpoint} failed: ${response.status()}`);
-        }
-        return response.json();
+        return wrapResponse(response);
       },
 
       post: async (endpoint: string, data?: any) => {
         const response = await request.post(`${apiURL}${endpoint}`, { data });
-        if (!response.ok()) {
-          throw new Error(`API POST ${endpoint} failed: ${response.status()}`);
-        }
-        return response.json();
+        return wrapResponse(response);
       },
 
       put: async (endpoint: string, data?: any) => {
         const response = await request.put(`${apiURL}${endpoint}`, { data });
-        if (!response.ok()) {
-          throw new Error(`API PUT ${endpoint} failed: ${response.status()}`);
-        }
-        return response.json();
+        return wrapResponse(response);
       },
 
       delete: async (endpoint: string) => {
         const response = await request.delete(`${apiURL}${endpoint}`);
-        if (!response.ok()) {
-          throw new Error(`API DELETE ${endpoint} failed: ${response.status()}`);
-        }
-        return response.json();
+        return wrapResponse(response);
       },
     };
 
