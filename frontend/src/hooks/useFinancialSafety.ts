@@ -156,7 +156,7 @@ export const useFinancialSafety = () => {
 
   // Emergency stop function
   const emergencyStop = useCallback(() => {
-    Logger.warn('useFinancialSafety.emergency_stop', 'Emergency stop activated');
+    Logger.warn('useFinancialSafety.emergency_stop', { message: 'Emergency stop activated' });
 
     addNotification({
       type: 'error',
@@ -173,7 +173,7 @@ export const useFinancialSafety = () => {
   // Auto-safety mode based on connection status
   useEffect(() => {
     if (!isConnected && !readOnlyMode) {
-      Logger.warn('useFinancialSafety.auto_readonly', 'Auto-entering read-only mode due to connection loss');
+      Logger.warn('useFinancialSafety.auto_readonly', { message: 'Auto-entering read-only mode due to connection loss' });
       // Note: In real implementation, this would update the UI store
     }
   }, [isConnected, readOnlyMode]);

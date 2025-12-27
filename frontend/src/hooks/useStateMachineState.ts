@@ -173,7 +173,7 @@ export function useStateMachineState(): UseStateMachineStateReturn {
     // Subscribe to WebSocket session updates
     if (wsService && typeof wsService.addSessionUpdateListener === 'function') {
       cleanupRef.current = wsService.addSessionUpdateListener(handleWebSocketMessage, 'StateMachineState');
-      Logger.debug('useStateMachineState.subscribed', 'Subscribed to WebSocket updates');
+      Logger.debug('useStateMachineState.subscribed', { message: 'Subscribed to WebSocket updates' });
     }
 
     return () => {
@@ -181,7 +181,7 @@ export function useStateMachineState(): UseStateMachineStateReturn {
       if (cleanupRef.current) {
         cleanupRef.current();
         cleanupRef.current = null;
-        Logger.debug('useStateMachineState.unsubscribed', 'Unsubscribed from WebSocket updates');
+        Logger.debug('useStateMachineState.unsubscribed', { message: 'Unsubscribed from WebSocket updates' });
       }
     };
   }, [fetchInitialState, handleWebSocketMessage]);

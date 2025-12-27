@@ -162,7 +162,7 @@ function DashboardContent() {
     if (dashboardData?.symbols && dashboardData.symbols.length > 0) {
       const firstSymbol = dashboardData.symbols[0]?.symbol;
       if (firstSymbol && firstSymbol !== selectedSymbol) {
-        Logger.debug('DashboardPage.autoSelectSymbol', 'Auto-selecting first symbol from session', { symbol: firstSymbol });
+        Logger.debug('DashboardPage.autoSelectSymbol', { message: 'Auto-selecting first symbol from session', symbol: firstSymbol });
         setSelectedSymbol(firstSymbol);
       }
     }
@@ -238,13 +238,13 @@ function DashboardContent() {
    * FIX: Proper AbortController usage with cleanup
    */
   const loadDashboardData = useCallback(async (signal?: AbortSignal, isBackgroundRefresh = false) => {
-    Logger.debug('DashboardPage.loadDashboardData', 'Called', { sessionId, isBackgroundRefresh });
+    Logger.debug('DashboardPage.loadDashboardData', { message: 'Called', sessionId, isBackgroundRefresh });
     if (!sessionId) {
-      Logger.debug('DashboardPage.loadDashboardData', 'SKIPPED - no sessionId');
+      Logger.debug('DashboardPage.loadDashboardData', { message: 'SKIPPED - no sessionId' });
       return;
     }
 
-    Logger.debug('DashboardPage.loadDashboardData', 'STARTING fetch');
+    Logger.debug('DashboardPage.loadDashboardData', { message: 'STARTING fetch' });
     // ✅ FIX (BUG-003-7): Only show loading on initial load, not on background refreshes
     // This prevents UI flickering during periodic updates
     const shouldShowLoading = !isBackgroundRefresh;
@@ -258,7 +258,7 @@ function DashboardContent() {
         { signal }
       );
 
-      Logger.debug('DashboardPage.loadDashboardData', 'Fetch response', { ok: response.ok, status: response.status });
+      Logger.debug('DashboardPage.loadDashboardData', { message: 'Fetch response', ok: response.ok, status: response.status });
 
       if (!response.ok) {
         throw new Error(`Dashboard API error: ${response.status}`);
@@ -279,7 +279,7 @@ function DashboardContent() {
         const seen = new Set<string>();
         data.symbols = data.symbols.filter((s: { symbol: string }) => {
           if (seen.has(s.symbol)) {
-            Logger.debug('DashboardPage.loadDashboardData', 'Removed duplicate symbol', { symbol: s.symbol });
+            Logger.debug('DashboardPage.loadDashboardData', { message: 'Removed duplicate symbol', symbol: s.symbol });
             return false;
           }
           seen.add(s.symbol);
@@ -287,16 +287,16 @@ function DashboardContent() {
         });
       }
 
-      Logger.debug('DashboardPage.loadDashboardData', 'SUCCESS', { symbolCount: data.symbols?.length });
+      Logger.debug('DashboardPage.loadDashboardData', { message: 'SUCCESS', symbolCount: data.symbols?.length });
       setDashboardData(data);
     } catch (error) {
       // Don't show error for aborted requests
       if (error instanceof Error && error.name === 'AbortError') {
-        Logger.debug('DashboardPage.loadDashboardData', 'ABORTED');
+        Logger.debug('DashboardPage.loadDashboardData', { message: 'ABORTED' });
         return;
       }
 
-      Logger.error('DashboardPage.loadDashboardData', 'Failed to load dashboard data', { error });
+      Logger.error('DashboardPage.loadDashboardData', { message: 'Failed to load dashboard data', error });
 
       // Type-safe error message
       const errorMessage = error instanceof Error
@@ -311,7 +311,7 @@ function DashboardContent() {
     } finally {
       // ✅ FIX (BUG-003-7): Only clear loading if we set it (not on background refresh)
       if (!isBackgroundRefresh) {
-        Logger.debug('DashboardPage.loadDashboardData', 'FINALLY - setLoading(false)');
+        Logger.debug('DashboardPage.loadDashboardData', { message: 'FINALLY - setLoading(false)' });
         setLoading(false);
       }
     }
@@ -345,7 +345,7 @@ function DashboardContent() {
       // Don't log aborted requests
       if (error instanceof Error && error.name === 'AbortError') return;
 
-      Logger.error('DashboardPage.loadAvailableSessions', 'Failed to load available sessions', { error });
+      Logger.error('DashboardPage.loadAvailableSessions', { message: 'Failed to load available sessions', error });
     }
   }, [mode, backtestSessionId]);
 
@@ -375,7 +375,7 @@ function DashboardContent() {
       }
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') return;
-      Logger.error('DashboardPage.loadEquityCurveData', 'Failed to load equity curve', { error });
+      Logger.error('DashboardPage.loadEquityCurveData', { message: 'Failed to load equity curve', error });
     }
   }, [sessionId]);
 
@@ -410,7 +410,7 @@ function DashboardContent() {
       }
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') return;
-      Logger.error('DashboardPage.loadTradeMarkers', 'Failed to load trade markers', { error });
+      Logger.error('DashboardPage.loadTradeMarkers', { message: 'Failed to load trade markers', error });
     }
   }, [sessionId]);
 
@@ -435,7 +435,7 @@ function DashboardContent() {
         setIsSessionRunning(false);
       }
     } catch (error) {
-      Logger.error('DashboardPage.checkExecutionStatus', 'Failed to check execution status', { error });
+      Logger.error('DashboardPage.checkExecutionStatus', { message: 'Failed to check execution status', error });
     }
   }, []);
 
@@ -466,13 +466,13 @@ function DashboardContent() {
   // FIX: Load dashboard data when sessionId exists, regardless of isSessionRunning state
   // FIX: Include loadDashboardData in deps to avoid stale closure (React exhaustive-deps rule)
   useEffect(() => {
-    Logger.debug('DashboardPage.useEffect', 'Session data effect triggered', { sessionId });
+    Logger.debug('DashboardPage.useEffect', { message: 'Session data effect triggered', sessionId });
     if (!sessionId) {
-      Logger.debug('DashboardPage.useEffect', 'SKIPPED - no sessionId');
+      Logger.debug('DashboardPage.useEffect', { message: 'SKIPPED - no sessionId' });
       return;
     }
 
-    Logger.debug('DashboardPage.useEffect', 'CALLING loadDashboardData');
+    Logger.debug('DashboardPage.useEffect', { message: 'CALLING loadDashboardData' });
     const abortController = new AbortController();
 
     loadDashboardData(abortController.signal);
@@ -481,7 +481,7 @@ function DashboardContent() {
 
     // Cleanup: abort fetch on unmount or when sessionId changes
     return () => {
-      Logger.debug('DashboardPage.useEffect', 'CLEANUP - aborting');
+      Logger.debug('DashboardPage.useEffect', { message: 'CLEANUP - aborting' });
       abortController.abort();
     };
   }, [sessionId, loadDashboardData, loadEquityCurveData, loadTradeMarkers]);
@@ -492,16 +492,16 @@ function DashboardContent() {
 
   useVisibilityAwareInterval(
     () => {
-      Logger.debug('DashboardPage.interval', 'TICK', { isSessionRunning, sessionId });
+      Logger.debug('DashboardPage.interval', { message: 'TICK', isSessionRunning, sessionId });
       if (isSessionRunning && sessionId) {
         // Cancel previous fetch if still in progress
         if (abortControllerRef.current) {
-          Logger.debug('DashboardPage.interval', 'ABORTING previous fetch');
+          Logger.debug('DashboardPage.interval', { message: 'ABORTING previous fetch' });
           abortControllerRef.current.abort();
         }
 
         // Create new abort controller for this fetch
-        Logger.debug('DashboardPage.interval', 'CALLING loadDashboardData');
+        Logger.debug('DashboardPage.interval', { message: 'CALLING loadDashboardData' });
         abortControllerRef.current = new AbortController();
         // ✅ FIX (BUG-003-7): Pass isBackgroundRefresh=true to prevent flickering
         loadDashboardData(abortControllerRef.current.signal, true);
@@ -538,27 +538,28 @@ function DashboardContent() {
   };
 
   const handleSessionConfigSubmit = async (config: SessionConfig) => {
-    Logger.debug('DashboardPage.handleSessionConfigSubmit', 'START', { config });
+    Logger.debug('DashboardPage.handleSessionConfigSubmit', { message: 'START', config });
     // FIX ERROR 45: Add loading state for better UX
     setSessionActionLoading(true);
     setConfigDialogOpen(false);
 
     try {
-      Logger.debug('DashboardPage.handleSessionConfigSubmit', 'Calling apiService.startSession');
+      Logger.debug('DashboardPage.handleSessionConfigSubmit', { message: 'Calling apiService.startSession' });
       const response = await apiService.startSession(config);
-      Logger.debug('DashboardPage.handleSessionConfigSubmit', 'Response received', { response });
+      Logger.debug('DashboardPage.handleSessionConfigSubmit', { message: 'Response received', response });
 
       // Type-safe null checks
       if (!response || !response.data) {
         throw new Error('Invalid response from startSession API');
       }
 
-      Logger.debug('DashboardPage.handleSessionConfigSubmit', 'Setting sessionId and isSessionRunning', {
+      Logger.debug('DashboardPage.handleSessionConfigSubmit', {
+        message: 'Setting sessionId and isSessionRunning',
         sessionId: response.data.session_id
       });
       setSessionId(response.data.session_id || null);
       setIsSessionRunning(true);
-      Logger.debug('DashboardPage.handleSessionConfigSubmit', 'State set - sessionId and isSessionRunning');
+      Logger.debug('DashboardPage.handleSessionConfigSubmit', { message: 'State set - sessionId and isSessionRunning' });
 
       setSnackbar({
         open: true,
@@ -566,7 +567,7 @@ function DashboardContent() {
         severity: 'success',
       });
     } catch (error) {
-      Logger.error('DashboardPage.handleSessionConfigSubmit', 'Failed to start session', { error });
+      Logger.error('DashboardPage.handleSessionConfigSubmit', { message: 'Failed to start session', error });
 
       // Type-safe error message
       const errorMessage = error instanceof Error
@@ -579,7 +580,7 @@ function DashboardContent() {
         severity: 'error',
       });
     } finally {
-      Logger.debug('DashboardPage.handleSessionConfigSubmit', 'FINALLY');
+      Logger.debug('DashboardPage.handleSessionConfigSubmit', { message: 'FINALLY' });
       setSessionActionLoading(false);
     }
   };
@@ -604,7 +605,8 @@ function DashboardContent() {
       });
     } catch (error) {
       // Enhanced error logging with full context for debugging
-      Logger.error('DashboardPage.handleStopSession', 'Failed to stop session', {
+      Logger.error('DashboardPage.handleStopSession', {
+        message: 'Failed to stop session',
         sessionId: sessionId,
         errorType: error instanceof Error ? error.constructor.name : typeof error,
         errorMessage: error instanceof Error ? error.message : String(error),
@@ -672,7 +674,7 @@ function DashboardContent() {
         setSignalPanelOpen(true);
       } else {
         // Fallback: show signal with no indicator details
-        Logger.warn('DashboardPage.handleSignalClick', 'Failed to fetch signal details, showing basic info');
+        Logger.warn('DashboardPage.handleSignalClick', { message: 'Failed to fetch signal details, showing basic info' });
         const signalDetail: SignalDetail = {
           ...signal,
           indicators: [],
@@ -688,7 +690,7 @@ function DashboardContent() {
         setSignalPanelOpen(true);
       }
     } catch (error) {
-      Logger.error('DashboardPage.handleSignalClick', 'Error fetching signal details', { error });
+      Logger.error('DashboardPage.handleSignalClick', { message: 'Error fetching signal details', error });
       // Fallback: show signal with no indicator details
       const signalDetail: SignalDetail = {
         ...signal,
@@ -847,7 +849,7 @@ function DashboardContent() {
           sessionId={sessionId}
           onNavigateToPositions={() => setHistoryTab(2)} // Switch to "Active Positions" tab
           onClosePosition={(positionId) => {
-            Logger.debug('DashboardPage.onClosePosition', 'Position closed from banner', { positionId });
+            Logger.debug('DashboardPage.onClosePosition', { message: 'Position closed from banner', positionId });
             // Position will auto-refresh via banner's internal state
           }}
         />
@@ -957,7 +959,7 @@ function DashboardContent() {
                     sessionId={sessionId}
                     maxSignals={10}
                     onSignalClick={(signalId) => {
-                      Logger.debug('DashboardPage.onSignalClick', 'Signal clicked', { signalId });
+                      Logger.debug('DashboardPage.onSignalClick', { message: 'Signal clicked', signalId });
                       // Could open signal detail panel here
                     }}
                   />

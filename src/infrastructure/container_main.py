@@ -10,6 +10,13 @@ CRITICAL RULES:
 - NO conditional logic (decisions made in Settings)
 - Constructor injection only
 - Created once at application startup
+
+ARCHITECTURE (W1 Refactoring):
+- Domain-specific modules in src/infrastructure/container/
+- TradingModule: Order, Position, Risk, Session management
+- DataModule: Market data, Indicators, QuestDB providers
+- ApiModule: WebSocket, Broadcasting, API endpoints
+- Modules are lazy-loaded for backward compatibility
 """
 
 from typing import Optional, List, Any, Dict, Set
@@ -99,10 +106,77 @@ class Container:
         if not validation["valid"]:
             raise RuntimeError(f"Configuration validation failed: {validation['errors']}")
 
-        self.logger.info("container.init_completed", {
-            "eventbus_healthy": event_bus is not None,
-            "eventbus_running": getattr(event_bus, '_is_processing', False)
-        })
+        # Domain-specific modules (lazy-loaded)
+        # W1 Refactoring: Modules provide organized access to factory methods
+        self._trading_module = None
+        self._data_module = None
+        self._api_module = None
+
+    # =========================================================================
+    # DOMAIN MODULES (W1 Refactoring)
+    # =========================================================================
+
+    @property
+    def trading(self) -> 'TradingModule':
+        """
+        Access trading domain module.
+
+        Provides factory methods for:
+        - Order management (live, paper, backtest)
+        - Position management and synchronization
+        - Risk management and assessment
+        - Session management
+        - Trading orchestration
+
+        Returns:
+            TradingModule instance (lazy-loaded)
+        """
+        if self._trading_module is None:
+            from .container.trading_module import TradingModule
+            self._trading_module = TradingModule(self)
+        return self._trading_module
+
+    @property
+    def data(self) -> 'DataModule':
+        """
+        Access data domain module.
+
+        Provides factory methods for:
+        - Market data providers
+        - QuestDB connection and queries
+        - Indicator algorithms and engines
+        - Signal detection and processing
+
+        Returns:
+            DataModule instance (lazy-loaded)
+        """
+        if self._data_module is None:
+            from .container.data_module import DataModule
+            self._data_module = DataModule(self)
+        return self._data_module
+
+    @property
+    def api(self) -> 'ApiModule':
+        """
+        Access API domain module.
+
+        Provides factory methods for:
+        - WebSocket server management
+        - Event broadcasting to clients
+        - Metrics and monitoring APIs
+        - Notification services
+
+        Returns:
+            ApiModule instance (lazy-loaded)
+        """
+        if self._api_module is None:
+            from .container.api_module import ApiModule
+            self._api_module = ApiModule(self)
+        return self._api_module
+
+    # =========================================================================
+    # SINGLETON MANAGEMENT
+    # =========================================================================
 
     async def _get_or_create_singleton_async(self, service_name: str, factory_func) -> Any:
         """

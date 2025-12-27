@@ -171,7 +171,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
       // If too many missed pongs, force reconnect
       if (missedPongs >= 3 && wsRef.current) {
-        Logger.error('useWebSocket.connection_unhealthy', 'Too many missed pongs, forcing reconnect');
+        Logger.error('useWebSocket.connection_unhealthy', { message: 'Too many missed pongs, forcing reconnect' });
         wsRef.current.close();
       }
 
@@ -257,7 +257,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   // Connect to WebSocket
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN || wsRef.current?.readyState === WebSocket.CONNECTING) {
-      Logger.debug('useWebSocket.already_connected', 'Already connected or connecting');
+      Logger.debug('useWebSocket.already_connected', { message: 'Already connected or connecting' });
       return;
     }
 
@@ -269,7 +269,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       const ws = new WebSocket(opts.url);
 
       ws.onopen = (event) => {
-        Logger.info('useWebSocket.connected', 'WebSocket connected');
+        Logger.info('useWebSocket.connected', { message: 'WebSocket connected' });
         setIsConnected(true);
         setConnectionState('connected');
         setReconnectAttempt(0);
@@ -297,13 +297,13 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
             connect();
           }, delay);
         } else if (reconnectAttempt >= opts.reconnectAttempts) {
-          Logger.error('useWebSocket.max_reconnects', 'Max reconnect attempts reached');
+          Logger.error('useWebSocket.max_reconnects', { message: 'Max reconnect attempts reached' });
           setConnectionState('error');
         }
       };
 
       ws.onerror = (event) => {
-        Logger.error('useWebSocket.error', 'WebSocket error occurred');
+        Logger.error('useWebSocket.error', { message: 'WebSocket error occurred' });
         setConnectionState('error');
         options.onError?.(event);
       };

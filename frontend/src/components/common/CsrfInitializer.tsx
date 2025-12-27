@@ -25,9 +25,9 @@ export default function CsrfInitializer() {
   useEffect(() => {
     const initializeCsrf = async () => {
       try {
-        Logger.debug('CsrfInitializer.init', 'Initializing CSRF service...');
+        Logger.debug('CsrfInitializer.init', { message: 'Initializing CSRF service...' });
         await csrfService.initialize();
-        Logger.debug('CsrfInitializer.init', 'CSRF service initialized successfully');
+        Logger.debug('CsrfInitializer.init', { message: 'CSRF service initialized successfully' });
         setInitialized(true);
       } catch (error) {
         Logger.warn('CsrfInitializer.init', { message: 'Failed to initialize CSRF service (will retry on first request)', error });

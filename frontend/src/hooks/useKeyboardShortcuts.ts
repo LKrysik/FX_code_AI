@@ -86,7 +86,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
       // Emergency Stop - ESC
       if (key === shortcuts.emergencyStop) {
         event.preventDefault();
-        Logger.warn('useKeyboardShortcuts.emergency_stop', 'Emergency Stop triggered');
+        Logger.warn('useKeyboardShortcuts.emergency_stop', { message: 'Emergency Stop triggered' });
         if (onEmergencyStop) {
           onEmergencyStop();
         } else {
@@ -105,7 +105,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
       // Close Position - C
       if (key.toLowerCase() === shortcuts.closePosition.toLowerCase()) {
         event.preventDefault();
-        Logger.info('useKeyboardShortcuts.close_position', 'Close Position triggered');
+        Logger.info('useKeyboardShortcuts.close_position', { message: 'Close Position triggered' });
         if (onClosePosition) {
           onClosePosition();
         }
@@ -115,21 +115,21 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
       // Navigation shortcuts
       if (key.toLowerCase() === shortcuts.goToDashboard.toLowerCase()) {
         event.preventDefault();
-        Logger.debug('useKeyboardShortcuts.navigate', 'Navigate to Dashboard');
+        Logger.debug('useKeyboardShortcuts.navigate', { message: 'Navigate to Dashboard' });
         router.push('/dashboard');
         return;
       }
 
       if (key.toLowerCase() === shortcuts.goToTrading.toLowerCase()) {
         event.preventDefault();
-        Logger.debug('useKeyboardShortcuts.navigate', 'Navigate to Trading Session');
+        Logger.debug('useKeyboardShortcuts.navigate', { message: 'Navigate to Trading Session' });
         router.push('/trading-session');
         return;
       }
 
       if (key.toLowerCase() === shortcuts.goToHistory.toLowerCase()) {
         event.preventDefault();
-        Logger.debug('useKeyboardShortcuts.navigate', 'Navigate to Session History');
+        Logger.debug('useKeyboardShortcuts.navigate', { message: 'Navigate to Session History' });
         router.push('/session-history');
         return;
       }
@@ -137,7 +137,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
       // Zoom shortcuts
       if (key === shortcuts.zoomIn || (key === '=' && event.shiftKey)) {
         event.preventDefault();
-        Logger.debug('useKeyboardShortcuts.zoom', 'Zoom In');
+        Logger.debug('useKeyboardShortcuts.zoom', { message: 'Zoom In' });
         if (onZoomIn) {
           onZoomIn();
         }
@@ -146,7 +146,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
 
       if (key === shortcuts.zoomOut) {
         event.preventDefault();
-        Logger.debug('useKeyboardShortcuts.zoom', 'Zoom Out');
+        Logger.debug('useKeyboardShortcuts.zoom', { message: 'Zoom Out' });
         if (onZoomOut) {
           onZoomOut();
         }
@@ -156,7 +156,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
       // Fullscreen - F
       if (key.toLowerCase() === shortcuts.fullscreen.toLowerCase()) {
         event.preventDefault();
-        Logger.debug('useKeyboardShortcuts.fullscreen', 'Toggle Fullscreen');
+        Logger.debug('useKeyboardShortcuts.fullscreen', { message: 'Toggle Fullscreen' });
         if (onFullscreen) {
           onFullscreen();
         } else {

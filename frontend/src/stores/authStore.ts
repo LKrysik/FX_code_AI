@@ -42,7 +42,7 @@ const scheduleTokenRefresh = (tokenExpiry: number, refreshTokenFn: () => Promise
     return setTimeout(async () => {
       const success = await refreshTokenFn();
       if (!success) {
-        Logger.warn('auth.tokenRefreshFailed', 'Automatic token refresh failed');
+        Logger.warn('auth.tokenRefreshFailed', { message: 'Automatic token refresh failed' });
       }
     }, refreshTime);
   }

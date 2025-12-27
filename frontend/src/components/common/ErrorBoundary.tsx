@@ -148,7 +148,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   private handleRetry = () => {
     if (this.state.retryCount >= this.maxRetries) {
-      Logger.warn('ErrorBoundary.handleRetry', 'Max retry attempts reached');
+      Logger.warn('ErrorBoundary.handleRetry', { message: 'Max retry attempts reached' });
       return;
     }
 

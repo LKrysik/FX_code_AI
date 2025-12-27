@@ -342,7 +342,7 @@ export default function DataCollectionPage() {
     const setupWebSocketSubscription = () => {
       if (subscribed) return;
 
-      Logger.info('DataCollectionPage.setupWebSocketSubscription', 'Setting up subscription');
+      Logger.info('DataCollectionPage.setupWebSocketSubscription', { message: 'Setting up subscription' });
 
       // Add debug logging to see what messages are received
       const unsubscribe = wsService.addSessionUpdateListener((message) => {
@@ -497,9 +497,9 @@ export default function DataCollectionPage() {
       // Subscribe to execution_status with retry logic
       const subscribeWithRetry = () => {
         try {
-          Logger.info('DataCollectionPage.subscribeWithRetry', 'Subscribing to execution_status');
+          Logger.info('DataCollectionPage.subscribeWithRetry', { message: 'Subscribing to execution_status' });
           wsService.subscribe('execution_status');
-          Logger.info('DataCollectionPage.subscribeWithRetry', 'Successfully subscribed to execution_status');
+          Logger.info('DataCollectionPage.subscribeWithRetry', { message: 'Successfully subscribed to execution_status' });
 
           // Log subscription summary to verify
           setTimeout(() => {
@@ -515,7 +515,7 @@ export default function DataCollectionPage() {
 
       // Also subscribe immediately when WebSocket connects
       const handleWebSocketConnect = () => {
-        Logger.info('DataCollectionPage.handleWebSocketConnect', 'Connection established, subscribing to execution_status');
+        Logger.info('DataCollectionPage.handleWebSocketConnect', { message: 'Connection established, subscribing to execution_status' });
         if (!subscribed) {
           subscribeWithRetry();
         }
@@ -535,16 +535,16 @@ export default function DataCollectionPage() {
 
       // Check if WebSocket is connected using reactive store
       if (isConnected) {
-        Logger.info('DataCollectionPage.setupWebSocketSubscription', 'Already connected, subscribing immediately');
+        Logger.info('DataCollectionPage.setupWebSocketSubscription', { message: 'Already connected, subscribing immediately' });
         subscribeWithRetry();
       } else {
-        Logger.info('DataCollectionPage.setupWebSocketSubscription', 'Waiting for connection before subscribing');
+        Logger.info('DataCollectionPage.setupWebSocketSubscription', { message: 'Waiting for connection before subscribing' });
 
 
         // Also try to subscribe after a short delay as fallback
         setTimeout(() => {
           if (!subscribed && isConnected) {
-            Logger.info('DataCollectionPage.setupWebSocketSubscription', 'Fallback: trying subscription after delay');
+            Logger.info('DataCollectionPage.setupWebSocketSubscription', { message: 'Fallback: trying subscription after delay' });
             subscribeWithRetry();
           }
         }, 2000);
@@ -556,7 +556,7 @@ export default function DataCollectionPage() {
     const unsubscribe = setupWebSocketSubscription();
 
     return () => {
-      Logger.info('DataCollectionPage.cleanup', 'Cleaning up WebSocket listener');
+      Logger.info('DataCollectionPage.cleanup', { message: 'Cleaning up WebSocket listener' });
       if (unsubscribe) unsubscribe();
       if (typeof (debouncedUpdateSession as any).cancel === 'function') {
         (debouncedUpdateSession as any).cancel();

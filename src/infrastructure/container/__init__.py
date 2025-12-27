@@ -10,7 +10,7 @@ Architecture:
 - trading_module.py: Order, Position, Risk, Session management
 - data_module.py: Market data, Indicators, QuestDB providers
 - api_module.py: WebSocket, Broadcasting, API endpoints
-- infrastructure_module.py: Exchange adapters, Metrics
+- container_main.py: Main Container class (renamed from container.py)
 
 Usage:
     from src.infrastructure.container import Container
@@ -23,7 +23,11 @@ from .trading_module import TradingModule
 from .data_module import DataModule
 from .api_module import ApiModule
 
+# Re-export Container from container_main.py for backward compatibility
+from ..container_main import Container
+
 __all__ = [
+    'Container',
     'ContainerModule',
     'TradingModule',
     'DataModule',

@@ -16,6 +16,154 @@ from src.core.logger import get_logger
 logger = get_logger(__name__)
 
 
+# ============================================================================
+# W2 Enhancement: Metrics and Alerting Data Classes
+# ============================================================================
+
+from dataclasses import dataclass, field
+from time import time
+
+
+@dataclass
+class EventBusMetrics:
+    """
+    Comprehensive metrics for EventBus monitoring.
+
+    Tracks publish/delivery statistics and latency for health monitoring.
+    Thread-safe through atomic operations on primitive counters.
+    """
+    # Counters
+    total_published: int = 0
+    total_delivered: int = 0
+    total_failed: int = 0
+    total_retries: int = 0
+
+    # Per-topic counters (topic -> count)
+    published_by_topic: Dict[str, int] = field(default_factory=dict)
+    failed_by_topic: Dict[str, int] = field(default_factory=dict)
+
+    # Latency tracking (in milliseconds)
+    total_latency_ms: float = 0.0
+    latency_samples: int = 0
+    max_latency_ms: float = 0.0
+    min_latency_ms: float = float('inf')
+
+    # Time tracking
+    last_publish_time: float = 0.0
+    last_failure_time: float = 0.0
+    started_at: float = field(default_factory=time)
+
+    def record_publish(self, topic: str) -> None:
+        """Record a publish event."""
+        self.total_published += 1
+        self.published_by_topic[topic] = self.published_by_topic.get(topic, 0) + 1
+        self.last_publish_time = time()
+
+    def record_delivery(self, latency_ms: float) -> None:
+        """Record successful delivery with latency."""
+        self.total_delivered += 1
+        self.total_latency_ms += latency_ms
+        self.latency_samples += 1
+        self.max_latency_ms = max(self.max_latency_ms, latency_ms)
+        self.min_latency_ms = min(self.min_latency_ms, latency_ms)
+
+    def record_failure(self, topic: str) -> None:
+        """Record a delivery failure."""
+        self.total_failed += 1
+        self.failed_by_topic[topic] = self.failed_by_topic.get(topic, 0) + 1
+        self.last_failure_time = time()
+
+    def record_retry(self) -> None:
+        """Record a retry attempt."""
+        self.total_retries += 1
+
+    @property
+    def avg_latency_ms(self) -> float:
+        """Calculate average latency."""
+        if self.latency_samples == 0:
+            return 0.0
+        return self.total_latency_ms / self.latency_samples
+
+    @property
+    def success_rate(self) -> float:
+        """Calculate delivery success rate (0.0 - 1.0)."""
+        total = self.total_delivered + self.total_failed
+        if total == 0:
+            return 1.0
+        return self.total_delivered / total
+
+    @property
+    def uptime_seconds(self) -> float:
+        """Calculate uptime in seconds."""
+        return time() - self.started_at
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert metrics to dictionary for health check."""
+        return {
+            "total_published": self.total_published,
+            "total_delivered": self.total_delivered,
+            "total_failed": self.total_failed,
+            "total_retries": self.total_retries,
+            "success_rate": round(self.success_rate, 4),
+            "avg_latency_ms": round(self.avg_latency_ms, 2),
+            "max_latency_ms": round(self.max_latency_ms, 2),
+            "min_latency_ms": round(self.min_latency_ms, 2) if self.min_latency_ms != float('inf') else 0.0,
+            "uptime_seconds": round(self.uptime_seconds, 1),
+            "last_publish_time": self.last_publish_time,
+            "last_failure_time": self.last_failure_time,
+            "topics_with_failures": list(self.failed_by_topic.keys())
+        }
+
+
+@dataclass
+class AlertThresholds:
+    """
+    Configurable thresholds for EventBus health alerting.
+
+    When metrics exceed these thresholds, alerts are triggered.
+    """
+    # Success rate threshold (below this triggers CRITICAL)
+    min_success_rate: float = 0.95
+
+    # Latency thresholds (ms)
+    max_avg_latency_ms: float = 100.0
+    max_single_latency_ms: float = 500.0
+
+    # Failure thresholds
+    max_consecutive_failures: int = 5
+    max_failures_per_minute: int = 10
+
+    # Queue thresholds (for future queue-based implementation)
+    max_queue_size: int = 1000
+
+    # Inactivity threshold (seconds without publish)
+    max_inactivity_seconds: float = 300.0  # 5 minutes
+
+
+@dataclass
+class HealthAlert:
+    """
+    Health alert emitted when thresholds are breached.
+    """
+    severity: str  # CRITICAL, WARNING, INFO
+    alert_type: str  # success_rate, latency, failure_count, inactivity
+    message: str
+    current_value: Any
+    threshold_value: Any
+    timestamp: float = field(default_factory=time)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert alert to dictionary."""
+        return {
+            "severity": self.severity,
+            "alert_type": self.alert_type,
+            "message": self.message,
+            "current_value": self.current_value,
+            "threshold_value": self.threshold_value,
+            "timestamp": self.timestamp
+        }
+
+
 # Event Topics - DO NOT CHANGE without coordination
 TOPICS = {
     "market_data": {
@@ -110,6 +258,7 @@ class EventBus:
     - Error isolation: subscriber crash doesn't affect others
     - Memory safe: NO defaultdict, explicit cleanup
     - All async (asyncio)
+    - W2 Enhancement: Comprehensive health monitoring and alerting
     """
 
     def __init__(self):
@@ -120,7 +269,12 @@ class EventBus:
         # Lock to protect concurrent access to _subscribers dict
         self._lock = asyncio.Lock()
 
-        logger.info("EventBus initialized (simplified, AT_LEAST_ONCE delivery)")
+        # W2 Enhancement: Metrics tracking
+        self._metrics = EventBusMetrics()
+        self._alert_thresholds = AlertThresholds()
+        self._alert_callbacks: List[Callable] = []
+
+        logger.info("EventBus initialized (simplified, AT_LEAST_ONCE delivery, W2 monitoring)")
 
     async def subscribe(self, topic: str, handler: Callable[[Any], None]) -> None:
         """
@@ -184,9 +338,15 @@ class EventBus:
 
         logger.debug(f"Publishing to '{topic}' ({len(subscribers)} subscribers)")
 
+        # W2: Track publish metrics
+        self._metrics.record_publish(topic)
+
         # Deliver to each subscriber with retry and error isolation
         for subscriber in subscribers:
             await self._deliver_with_retry(topic, subscriber, data)
+
+        # W2: Check thresholds and trigger alerts if needed
+        await self._check_and_alert()
 
     async def _deliver_with_retry(
         self,
@@ -212,6 +372,9 @@ class EventBus:
         retries = 0
 
         while retries <= max_retries:
+            # W2: Track delivery start time for latency
+            start_time = time()
+
             try:
                 # Call subscriber handler
                 if asyncio.iscoroutinefunction(subscriber):
@@ -221,13 +384,24 @@ class EventBus:
                     loop = asyncio.get_event_loop()
                     await loop.run_in_executor(None, subscriber, data)
 
+                # W2: Record successful delivery with latency
+                latency_ms = (time() - start_time) * 1000
+                self._metrics.record_delivery(latency_ms)
+
                 # Success - exit retry loop
                 return
 
             except Exception as e:
                 retries += 1
 
+                # W2: Record retry attempt
+                if retries <= max_retries:
+                    self._metrics.record_retry()
+
                 if retries > max_retries:
+                    # W2: Record failure after all retries exhausted
+                    self._metrics.record_failure(topic)
+
                     # All retries exhausted - log and move on (error isolation)
                     logger.error(
                         f"Failed to deliver to subscriber after {max_retries} attempts: "
@@ -280,13 +454,13 @@ class EventBus:
 
     async def health_check(self) -> Dict[str, Any]:
         """
-        Minimal health check for monitoring.
+        Comprehensive health check for monitoring (W2 Enhanced).
 
-        Returns basic EventBus state without complex metrics.
-        Simplified version - does not track queues or processing rates.
+        Returns EventBus state with full metrics tracking.
+        Includes success rates, latency, and failure information.
 
         Returns:
-            Dict with health status and subscriber count
+            Dict with health status, metrics, and alerts
         """
         async with self._lock:
             active_subscribers = sum(
@@ -294,15 +468,36 @@ class EventBus:
             )
             total_topics = len(self._subscribers)
 
+        # W2: Determine health based on metrics thresholds
+        is_healthy = (
+            not self._shutdown_requested and
+            self._metrics.success_rate >= self._alert_thresholds.min_success_rate and
+            self._metrics.avg_latency_ms <= self._alert_thresholds.max_avg_latency_ms
+        )
+
+        # W2: Check for inactivity
+        time_since_publish = time() - self._metrics.last_publish_time if self._metrics.last_publish_time > 0 else 0
+        is_inactive = time_since_publish > self._alert_thresholds.max_inactivity_seconds if self._metrics.last_publish_time > 0 else False
+
         return {
-            "healthy": not self._shutdown_requested,
+            "healthy": is_healthy,
             "active_subscribers": active_subscribers,
             "total_topics": total_topics,
             "total_queue_size": 0,  # Simplified EventBus has no queues
             "shutdown_requested": self._shutdown_requested,
-            # Legacy fields for backward compatibility (execution_monitor expects these)
-            "metrics": {
-                "total_processed": 0  # Not tracked in simplified version
+            "is_inactive": is_inactive,
+            "time_since_last_publish": round(time_since_publish, 1),
+            # W2: Full metrics
+            "metrics": self._metrics.to_dict(),
+            # W2: Thresholds for reference
+            "thresholds": {
+                "min_success_rate": self._alert_thresholds.min_success_rate,
+                "max_avg_latency_ms": self._alert_thresholds.max_avg_latency_ms,
+                "max_inactivity_seconds": self._alert_thresholds.max_inactivity_seconds
+            },
+            # Legacy field for backward compatibility
+            "legacy_metrics": {
+                "total_processed": self._metrics.total_delivered
             }
         }
 
@@ -327,3 +522,136 @@ class EventBus:
             f"EventBus shutdown completed: "
             f"cleared {subscriber_count} subscribers from {topic_count} topics"
         )
+
+    # =========================================================================
+    # W2 Enhancement: Alerting and Threshold Configuration
+    # =========================================================================
+
+    def register_alert_callback(self, callback: Callable[[HealthAlert], None]) -> None:
+        """
+        Register a callback for health alerts.
+
+        Args:
+            callback: Async or sync callable that receives HealthAlert
+        """
+        self._alert_callbacks.append(callback)
+        logger.info(f"Alert callback registered (total: {len(self._alert_callbacks)})")
+
+    def unregister_alert_callback(self, callback: Callable) -> None:
+        """
+        Unregister an alert callback.
+
+        Args:
+            callback: Callback to remove
+        """
+        if callback in self._alert_callbacks:
+            self._alert_callbacks.remove(callback)
+            logger.info(f"Alert callback unregistered (remaining: {len(self._alert_callbacks)})")
+
+    def configure_thresholds(
+        self,
+        min_success_rate: Optional[float] = None,
+        max_avg_latency_ms: Optional[float] = None,
+        max_single_latency_ms: Optional[float] = None,
+        max_inactivity_seconds: Optional[float] = None
+    ) -> None:
+        """
+        Configure alert thresholds.
+
+        Args:
+            min_success_rate: Minimum acceptable success rate (0.0-1.0)
+            max_avg_latency_ms: Maximum average latency in ms
+            max_single_latency_ms: Maximum single delivery latency in ms
+            max_inactivity_seconds: Maximum seconds without publish activity
+        """
+        if min_success_rate is not None:
+            self._alert_thresholds.min_success_rate = min_success_rate
+        if max_avg_latency_ms is not None:
+            self._alert_thresholds.max_avg_latency_ms = max_avg_latency_ms
+        if max_single_latency_ms is not None:
+            self._alert_thresholds.max_single_latency_ms = max_single_latency_ms
+        if max_inactivity_seconds is not None:
+            self._alert_thresholds.max_inactivity_seconds = max_inactivity_seconds
+
+        logger.info(
+            f"Alert thresholds updated: min_success_rate={self._alert_thresholds.min_success_rate}, "
+            f"max_avg_latency_ms={self._alert_thresholds.max_avg_latency_ms}"
+        )
+
+    async def _check_and_alert(self) -> None:
+        """
+        Check metrics against thresholds and emit alerts if needed.
+
+        Called after each publish to detect threshold breaches.
+        """
+        alerts = []
+
+        # Check success rate
+        if self._metrics.success_rate < self._alert_thresholds.min_success_rate:
+            alerts.append(HealthAlert(
+                severity="CRITICAL",
+                alert_type="success_rate",
+                message=f"Delivery success rate below threshold: {self._metrics.success_rate:.2%}",
+                current_value=self._metrics.success_rate,
+                threshold_value=self._alert_thresholds.min_success_rate
+            ))
+
+        # Check average latency
+        if self._metrics.avg_latency_ms > self._alert_thresholds.max_avg_latency_ms:
+            alerts.append(HealthAlert(
+                severity="WARNING",
+                alert_type="avg_latency",
+                message=f"Average latency exceeds threshold: {self._metrics.avg_latency_ms:.1f}ms",
+                current_value=self._metrics.avg_latency_ms,
+                threshold_value=self._alert_thresholds.max_avg_latency_ms
+            ))
+
+        # Check max single latency
+        if self._metrics.max_latency_ms > self._alert_thresholds.max_single_latency_ms:
+            alerts.append(HealthAlert(
+                severity="WARNING",
+                alert_type="max_latency",
+                message=f"Single delivery latency spike: {self._metrics.max_latency_ms:.1f}ms",
+                current_value=self._metrics.max_latency_ms,
+                threshold_value=self._alert_thresholds.max_single_latency_ms
+            ))
+
+        # Emit alerts to callbacks
+        for alert in alerts:
+            await self._emit_alert(alert)
+
+    async def _emit_alert(self, alert: HealthAlert) -> None:
+        """
+        Emit alert to all registered callbacks.
+
+        Args:
+            alert: HealthAlert to emit
+        """
+        logger.warning(f"EventBus Alert: [{alert.severity}] {alert.message}")
+
+        for callback in self._alert_callbacks:
+            try:
+                if asyncio.iscoroutinefunction(callback):
+                    await callback(alert)
+                else:
+                    callback(alert)
+            except Exception as e:
+                logger.error(f"Alert callback failed: {str(e)}")
+
+    def get_metrics(self) -> EventBusMetrics:
+        """
+        Get current metrics snapshot.
+
+        Returns:
+            Current EventBusMetrics instance
+        """
+        return self._metrics
+
+    def reset_metrics(self) -> None:
+        """
+        Reset all metrics counters.
+
+        Useful for testing or periodic reset.
+        """
+        self._metrics = EventBusMetrics()
+        logger.info("EventBus metrics reset")

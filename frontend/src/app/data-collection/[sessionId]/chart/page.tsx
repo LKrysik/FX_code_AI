@@ -642,7 +642,7 @@ export default function ChartPage() {
         //           price values (with forward-fill) and indicator values (exact match)
         // ============================================================================
 
-        Logger.debug('ChartPage.processChartData', 'Building unified time axis');
+        Logger.debug('ChartPage.processChartData', { message: 'Building unified time axis' });
 
         // Step 1: Collect all unique timestamps from both sources
         const allTimestamps = new Set<number>();
@@ -1007,7 +1007,7 @@ export default function ChartPage() {
         preferences
       );
 
-      Logger.info('ChartPage.saveUserPreferences', 'Saved user preferences');
+      Logger.info('ChartPage.saveUserPreferences', { message: 'Saved user preferences' });
 
     } catch (error: any) {
       Logger.warn('ChartPage.saveUserPreferences', { message: 'Failed to save user preferences', error });
@@ -1096,7 +1096,7 @@ export default function ChartPage() {
   // Calculate price domain for better scaling
   const priceDomain = useMemo(() => {
     if (processedData.length === 0) {
-      Logger.debug('ChartPage.priceDomain', 'No processed data for price domain calculation');
+      Logger.debug('ChartPage.priceDomain', { message: 'No processed data for price domain calculation' });
       return [0, 100]; // fallback
     }
     
@@ -1119,7 +1119,7 @@ export default function ChartPage() {
     });
     
     if (prices.length === 0) {
-      Logger.debug('ChartPage.priceDomain', 'No valid prices found for domain calculation');
+      Logger.debug('ChartPage.priceDomain', { message: 'No valid prices found for domain calculation' });
       return [0, 100]; // fallback
     }
 
