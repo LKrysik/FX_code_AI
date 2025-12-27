@@ -23,7 +23,13 @@ from .trading_module import TradingModule
 from .data_module import DataModule
 from .api_module import ApiModule
 
-# Re-export Container from container_main.py for backward compatibility
+# ============================================================================
+# CRITICAL: Do NOT remove this import!
+# This re-export maintains backward compatibility for:
+#   from src.infrastructure.container import Container
+# Without this line, all existing imports will break.
+# P56 Sorites Paradox: This single line is the critical element.
+# ============================================================================
 from ..container_main import Container
 
 __all__ = [

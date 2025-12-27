@@ -114,6 +114,59 @@ class EventBusMetrics:
             "topics_with_failures": list(self.failed_by_topic.keys())
         }
 
+    def to_prometheus_format(self) -> str:
+        """
+        P66 FIX: Convert metrics to Prometheus exposition format.
+
+        Returns metrics in standard Prometheus text format for future
+        integration with Prometheus/Grafana monitoring stack.
+
+        Returns:
+            String in Prometheus exposition format
+        """
+        lines = [
+            "# HELP eventbus_messages_published_total Total messages published",
+            "# TYPE eventbus_messages_published_total counter",
+            f"eventbus_messages_published_total {self.total_published}",
+            "",
+            "# HELP eventbus_messages_delivered_total Total messages delivered successfully",
+            "# TYPE eventbus_messages_delivered_total counter",
+            f"eventbus_messages_delivered_total {self.total_delivered}",
+            "",
+            "# HELP eventbus_messages_failed_total Total messages that failed delivery",
+            "# TYPE eventbus_messages_failed_total counter",
+            f"eventbus_messages_failed_total {self.total_failed}",
+            "",
+            "# HELP eventbus_retries_total Total retry attempts",
+            "# TYPE eventbus_retries_total counter",
+            f"eventbus_retries_total {self.total_retries}",
+            "",
+            "# HELP eventbus_success_rate Delivery success rate (0.0-1.0)",
+            "# TYPE eventbus_success_rate gauge",
+            f"eventbus_success_rate {self.success_rate:.4f}",
+            "",
+            "# HELP eventbus_latency_avg_ms Average delivery latency in milliseconds",
+            "# TYPE eventbus_latency_avg_ms gauge",
+            f"eventbus_latency_avg_ms {self.avg_latency_ms:.2f}",
+            "",
+            "# HELP eventbus_latency_max_ms Maximum delivery latency in milliseconds",
+            "# TYPE eventbus_latency_max_ms gauge",
+            f"eventbus_latency_max_ms {self.max_latency_ms:.2f}",
+            "",
+            "# HELP eventbus_uptime_seconds EventBus uptime in seconds",
+            "# TYPE eventbus_uptime_seconds gauge",
+            f"eventbus_uptime_seconds {self.uptime_seconds:.1f}",
+        ]
+
+        # Add per-topic metrics
+        for topic, count in self.published_by_topic.items():
+            lines.append(f'eventbus_messages_published_by_topic{{topic="{topic}"}} {count}')
+
+        for topic, count in self.failed_by_topic.items():
+            lines.append(f'eventbus_messages_failed_by_topic{{topic="{topic}"}} {count}')
+
+        return "\n".join(lines)
+
 
 @dataclass
 class AlertThresholds:
@@ -273,6 +326,13 @@ class EventBus:
         self._metrics = EventBusMetrics()
         self._alert_thresholds = AlertThresholds()
         self._alert_callbacks: List[Callable] = []
+
+        # P61 FIX: Prevent alert→publish infinite loop
+        self._in_alert_emission = False
+
+        # P58 FIX: Rate limit alert checking (max once per second)
+        self._last_alert_check_time: float = 0.0
+        self._alert_check_interval: float = 1.0  # seconds
 
         logger.info("EventBus initialized (simplified, AT_LEAST_ONCE delivery, W2 monitoring)")
 
@@ -468,12 +528,20 @@ class EventBus:
             )
             total_topics = len(self._subscribers)
 
+        # P60 FIX: Detect "warming up" state before first publish
+        has_data = self._metrics.total_published > 0
+
         # W2: Determine health based on metrics thresholds
-        is_healthy = (
-            not self._shutdown_requested and
-            self._metrics.success_rate >= self._alert_thresholds.min_success_rate and
-            self._metrics.avg_latency_ms <= self._alert_thresholds.max_avg_latency_ms
-        )
+        # P60: When no data yet, we're in unknown state (not unhealthy, but uncertain)
+        if has_data:
+            is_healthy = (
+                not self._shutdown_requested and
+                self._metrics.success_rate >= self._alert_thresholds.min_success_rate and
+                self._metrics.avg_latency_ms <= self._alert_thresholds.max_avg_latency_ms
+            )
+        else:
+            # No data yet - healthy if not shutting down, but flag as warming up
+            is_healthy = not self._shutdown_requested
 
         # W2: Check for inactivity
         time_since_publish = time() - self._metrics.last_publish_time if self._metrics.last_publish_time > 0 else 0
@@ -481,6 +549,7 @@ class EventBus:
 
         return {
             "healthy": is_healthy,
+            "warming_up": not has_data,  # P60 FIX: Explicit warming up indicator
             "active_subscribers": active_subscribers,
             "total_topics": total_topics,
             "total_queue_size": 0,  # Simplified EventBus has no queues
@@ -583,7 +652,18 @@ class EventBus:
         Check metrics against thresholds and emit alerts if needed.
 
         Called after each publish to detect threshold breaches.
+        Rate limited to avoid performance impact (P58 FIX).
         """
+        # P58 FIX: Rate limit alert checking
+        current_time = time()
+        if current_time - self._last_alert_check_time < self._alert_check_interval:
+            return  # Skip check, too soon since last check
+        self._last_alert_check_time = current_time
+
+        # P61 FIX: Skip if already emitting alerts (prevent recursion)
+        if self._in_alert_emission:
+            return
+
         alerts = []
 
         # Check success rate
@@ -624,19 +704,28 @@ class EventBus:
         """
         Emit alert to all registered callbacks.
 
+        P61 FIX: Uses _in_alert_emission flag to prevent infinite recursion
+        if a callback publishes back to EventBus.
+
         Args:
             alert: HealthAlert to emit
         """
-        logger.warning(f"EventBus Alert: [{alert.severity}] {alert.message}")
+        # P61 FIX: Set recursion guard before emitting
+        self._in_alert_emission = True
+        try:
+            logger.warning(f"EventBus Alert: [{alert.severity}] {alert.message}")
 
-        for callback in self._alert_callbacks:
-            try:
-                if asyncio.iscoroutinefunction(callback):
-                    await callback(alert)
-                else:
-                    callback(alert)
-            except Exception as e:
-                logger.error(f"Alert callback failed: {str(e)}")
+            for callback in self._alert_callbacks:
+                try:
+                    if asyncio.iscoroutinefunction(callback):
+                        await callback(alert)
+                    else:
+                        callback(alert)
+                except Exception as e:
+                    logger.error(f"Alert callback failed: {str(e)}")
+        finally:
+            # P61 FIX: Always clear recursion guard
+            self._in_alert_emission = False
 
     def get_metrics(self) -> EventBusMetrics:
         """
