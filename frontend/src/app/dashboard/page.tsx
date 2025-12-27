@@ -69,6 +69,7 @@ import { CandlestickChart } from '@/components/dashboard/CandlestickChart';
 import { MultiSymbolGrid } from '@/components/dashboard/MultiSymbolGrid';
 import { SignalDetailPanel, type SignalDetail } from '@/components/dashboard/SignalDetailPanel';
 import { SignalHistoryPanel } from '@/components/dashboard/SignalHistoryPanel';
+import { RecentSignalsPanel } from '@/components/dashboard/RecentSignalsPanel'; // Story 1A-1
 import { TransactionHistoryPanel } from '@/components/dashboard/TransactionHistoryPanel';
 import { SessionConfigDialog, type SessionConfig } from '@/components/dashboard/SessionConfigDialog';
 import EquityCurveChart from '@/components/charts/EquityCurveChart';
@@ -885,8 +886,20 @@ function DashboardContent() {
           {/* Conditional Rendering: Single View vs Grid View */}
           {viewMode === 'single' ? (
             <>
-              {/* Single View: Watchlist + Chart + Indicators */}
+              {/* Single View: Signals + Watchlist + Chart + Indicators */}
               <Grid item xs={12} md={4}>
+                {/* Story 1A-1: Recent Signals Panel - Prominent Position (AC5) */}
+                <Box sx={{ mb: 2 }}>
+                  <RecentSignalsPanel
+                    sessionId={sessionId}
+                    maxSignals={10}
+                    onSignalClick={(signalId) => {
+                      console.log('[Dashboard] Signal clicked:', signalId);
+                      // Could open signal detail panel here
+                    }}
+                  />
+                </Box>
+
                 <SymbolWatchlist
                   symbols={dashboardData.symbols}
                   loading={loading}

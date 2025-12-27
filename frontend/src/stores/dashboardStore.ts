@@ -53,14 +53,15 @@ export const useDashboardStore = create<DashboardState>()(
         // Validate input - skip if null/undefined
         if (!signal) return;
         // [SIGNAL-FLOW] Debug logging for E2E verification (Story 0-2)
+        // Story 1A-1: Logging for signal display verification
         console.log('[SIGNAL-FLOW] Signal added to store:', {
-          signal_type: signal.signal_type,
+          signalType: signal.signalType,
           symbol: signal.symbol,
           timestamp: signal.timestamp,
           store_count: get().activeSignals.length + 1,
         });
         const currentSignals = get().activeSignals;
-        // Keep only latest 10 signals to prevent memory bloat
+        // Keep only latest 10 signals to prevent memory bloat (AC4)
         const updatedSignals = [signal, ...currentSignals.slice(0, 9)];
         set({ activeSignals: updatedSignals });
       },
