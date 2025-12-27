@@ -1,6 +1,6 @@
 # Story 1A.3: Indicator Values Panel
 
-Status: review
+Status: done
 
 ## Story
 
@@ -164,3 +164,4 @@ N/A - No issues encountered
 | Date | Change | Author |
 |------|--------|--------|
 | 2025-12-27 | Story implemented - IndicatorValuesPanel component created with WebSocket integration, value formatting, and dashboard integration. All 5 ACs satisfied. 15 tests passing. | Claude Opus 4.5 |
+| 2025-12-27 | Code review fixes: (1) Removed unused refreshInterval prop, (2) Added error handling for malformed WebSocket messages, (3) Added stale data indicator (Task 2.4), (4) Fixed key lookup case-insensitivity, (5) Removed unused useDashboardStore import, (6) Added 2 new tests for data flow and symbol filtering. 17 tests passing. | Claude Opus 4.5 |
