@@ -1637,8 +1637,10 @@ class Container:
                 import os
                 from ..api.ops.ops_routes import OpsAPI
 
-                market_adapter = await self.create_live_market_adapter() # SessionManager is created by this
-                session_manager = market_adapter.session_manager
+                # K2 FIX: Get SessionManager directly from container
+                # After K2 refactoring, LiveMarketAdapter uses TradingCoordinator, not SessionManager
+                market_adapter = await self.create_live_market_adapter()
+                session_manager = await self.create_session_manager()
                 metrics_exporter = await self.create_metrics_exporter()
 
                 # ✅ FIX: Remove circular dependency on websocket_server
