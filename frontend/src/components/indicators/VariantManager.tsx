@@ -28,6 +28,7 @@ import {
   AccordionDetails,
   LinearProgress,
 } from '@mui/material';
+import { Logger } from '@/services/frontendLogService';
 import {
   Add as AddIcon,
   Edit as EditIcon,
@@ -72,7 +73,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
   onVariantDeleted,
 }) => {
   // Add debugging for page refresh issue
-  console.log("[VariantManager] component mounted/re-rendered at:", new Date().toISOString());
+  Logger.debug('VariantManager.render', 'Component mounted/re-rendered', { timestamp: new Date().toISOString() });
   
   const [activeTab, setActiveTab] = useState<'variants' | 'create'>('variants');
   const [variants, setVariants] = useState<IndicatorVariant[]>([]);
@@ -135,7 +136,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
         });
       }
     } catch (error) {
-      console.error('Failed to load variants:', error);
+      Logger.error('VariantManager.loadVariants', 'Failed to load variants', { error });
       setVariants([]);
       setSnackbar({
         open: true,
@@ -166,7 +167,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
           const indicators = await apiService.getSystemIndicators();
           
           // DEBUG: Log raw API response
-          console.log("[VariantManager] Raw system indicators from API:", indicators.slice(0, 2));
+          Logger.debug('VariantManager.loadSystemIndicators', 'Raw system indicators from API', { sampleIndicators: indicators.slice(0, 2) });
 
           // Transform backend data to frontend format
           const transformedIndicators: SystemIndicator[] = indicators.map((indicator: any) => {
@@ -190,10 +191,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
             
             // DEBUG: Log transformation
             if (indicator.name?.includes('Time Weighted')) {
-              console.log("[VariantManager] TWPA transformation:", {
-                original: indicator,
-                transformed: transformed
-              });
+              Logger.debug('VariantManager.loadSystemIndicators', 'TWPA transformation', { original: indicator, transformed: transformed });
             }
             
             return transformed;
@@ -211,7 +209,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
 
           return transformedIndicators;
         } catch (error) {
-          console.error('Failed to load system indicators:', error);
+          Logger.error('VariantManager.loadSystemIndicators', 'Failed to load system indicators', { error });
           setSnackbar({
             open: true,
             message: 'Failed to load system indicators from backend',
@@ -255,7 +253,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
       event.stopPropagation();
     }
     
-    console.log("[VariantManager] Creating variant for:", systemIndicator.name);
+    Logger.debug('VariantManager.handleCreateVariant', 'Creating variant', { indicatorName: systemIndicator.name });
     
     setSelectedSystemIndicator(systemIndicator);
     setEditingVariant(null);
@@ -336,7 +334,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
       });
       onVariantDeleted?.(variantId);
     } catch (error: any) {
-      console.error('Failed to delete variant:', error);
+      Logger.error('VariantManager.handleDeleteVariant', 'Failed to delete variant', { error, variantId });
 
       // Rollback the optimistic update
       setVariants(originalVariants);
@@ -370,7 +368,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
           return status.files?.[indicatorId]?.path;
         }
       } catch (error) {
-        console.warn('Failed to poll indicator status:', error);
+        Logger.warn('VariantManager.waitForIndicatorReady', 'Failed to poll indicator status', { error, sessionId, indicatorId });
         throw error;
       }
     }
@@ -405,7 +403,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
         severity: 'success'
       });
     } catch (error: any) {
-      console.error('Failed to recalculate variant:', error);
+      Logger.error('VariantManager.handleRecalculateVariant', 'Failed to recalculate variant', { error, variantId });
       setSnackbar({
         open: true,
         message: 'Failed to recalculate indicator',
@@ -469,7 +467,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
 
             processedParameters[param.name] = JSON.parse(processedParameters[param.name]);
           } catch (error) {
-            console.error(`Failed to parse JSON parameter ${param.name}:`, error);
+            Logger.error('VariantManager.handleSaveVariant', 'Failed to parse JSON parameter', { paramName: param.name, error });
           }
         }
       });
@@ -484,22 +482,22 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
 
       if (editingVariant) {
         // DEBUG: Log update attempt
-        console.log("[VariantManager] Attempting to update variant:", {
+        Logger.debug('VariantManager.handleSaveVariant', 'Attempting to update variant', {
           variantId: editingVariant.id,
           formData: variantForm,
           selectedIndicator: selectedSystemIndicator?.id
         });
-        
-        const updatePayload = { 
+
+        const updatePayload = {
           name: variantForm.name,
           description: variantForm.description,
-          parameters: processedParameters 
+          parameters: processedParameters
         };
-        
-        console.log("[VariantManager] Update payload:", updatePayload);
-        
+
+        Logger.debug('VariantManager.handleSaveVariant', 'Update payload', { updatePayload });
+
         const result = await apiService.updateVariant(editingVariant.id, updatePayload);
-        console.log("[VariantManager] Update result:", result);
+        Logger.debug('VariantManager.handleSaveVariant', 'Update result', { result });
 
         const updatedVariant: IndicatorVariant = {
           ...editingVariant,
@@ -547,7 +545,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
       setSelectedSystemIndicator(null);
       setEditingVariant(null);
     } catch (error: any) {
-      console.error('Failed to save variant:', error);
+      Logger.error('VariantManager.handleSaveVariant', 'Failed to save variant', { error, isEdit: !!editingVariant });
       const errorMessage = error?.response?.data?.error_message ||
                           error?.response?.data?.message ||
                           'Unknown error occurred';

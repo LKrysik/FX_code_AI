@@ -56,6 +56,7 @@ import {
   ListAlt as DetailsIcon,
   ShowChart as ChartIcon,
 } from '@mui/icons-material';
+import { Logger } from '@/services/frontendLogService';
 
 // ============================================================================
 // TYPES
@@ -123,7 +124,7 @@ export default function SessionDetailPage() {
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Unknown error';
         setError(errorMessage);
-        console.error('Failed to load session detail:', err);
+        Logger.error('SessionDetailPage.loadSessionDetail', 'Failed to load session detail', { error: err, sessionId });
       } finally {
         setLoading(false);
       }

@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { CircularProgress } from '@mui/material';
+import { Logger } from '@/services/frontendLogService';
 import {
   CheckCircle as CheckCircleIcon,
   Error as ErrorIcon,
@@ -494,16 +495,16 @@ export const logUnifiedError = (error: UnifiedError): void => {
 
   switch (error.severity) {
     case 'critical':
-      console.error(logMessage, logData);
+      Logger.error('status.unifiedError', logMessage, logData);
       break;
     case 'high':
-      console.error(logMessage, logData);
+      Logger.error('status.unifiedError', logMessage, logData);
       break;
     case 'medium':
-      console.warn(logMessage, logData);
+      Logger.warn('status.unifiedError', logMessage, logData);
       break;
     case 'low':
-      console.info(logMessage, logData);
+      Logger.info('status.unifiedError', logMessage, logData);
       break;
   }
 };

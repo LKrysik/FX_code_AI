@@ -10,6 +10,7 @@ import {
   Collapse,
   Button,
 } from '@mui/material';
+import { Logger } from '@/services/frontendLogService';
 import {
   TrendingUp as TrendingUpIcon,
   Settings as SettingsIcon,
@@ -171,7 +172,7 @@ const IndicatorNode = React.memo(function IndicatorNode({ data, selected }: Node
                   startIcon={<RefreshIcon />}
                   onClick={() => {
                     // Trigger validation refresh
-                    console.log('Retrying validation for', label);
+                    Logger.debug('IndicatorNode.retryValidation', 'Retrying validation', { label });
                   }}
                   sx={{ fontSize: '0.7rem' }}
                 >

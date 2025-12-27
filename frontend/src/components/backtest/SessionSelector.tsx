@@ -19,6 +19,7 @@ import {
   Tooltip,
   LinearProgress,
 } from '@mui/material';
+import { Logger } from '@/services/frontendLogService';
 import {
   Search as SearchIcon,
   CheckCircle as CheckCircleIcon,
@@ -110,7 +111,7 @@ export const SessionSelector: React.FC<SessionSelectorProps> = ({
 
       setSessions(completedSessions);
     } catch (err: any) {
-      console.error('Failed to load data collection sessions:', err);
+      Logger.error('SessionSelector.loadSessions', 'Failed to load data collection sessions', { error: err });
       setLoadError(err.message || 'Failed to load sessions');
       setSessions([]);
     } finally {

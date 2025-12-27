@@ -32,6 +32,7 @@ from collections import deque
 
 from ..core.event_bus import EventBus
 from ..core.logger import StructuredLogger
+from ..domain.interfaces.coordination import ITradingCoordinator
 
 if TYPE_CHECKING:
     from ..data.live_market_adapter import LiveMarketAdapter
@@ -163,11 +164,15 @@ class SessionManager:
         self,
         event_bus: EventBus,
         logger: StructuredLogger,
-        market_adapter: "LiveMarketAdapter"
+        market_adapter: Optional["LiveMarketAdapter"] = None,
+        trading_coordinator: Optional[ITradingCoordinator] = None
     ):
         self.event_bus = event_bus
         self.logger = logger
-        self.market_adapter = market_adapter
+        # DEPRECATED: Direct market_adapter dependency - use coordinator instead
+        self._market_adapter = market_adapter
+        self._trading_coordinator = trading_coordinator
+        self._coordinator_registered = False
 
         # Session management
         self.active_sessions: Dict[str, TradingSession] = {}
@@ -269,9 +274,27 @@ class SessionManager:
             self.active_sessions[session_id] = session
 
         # Attempt to subscribe to symbols
+        # With Mediator pattern, we request subscription via EventBus
         try:
             for symbol in symbols:
-                if await self.market_adapter.subscribe_to_symbol(symbol):
+                success = False
+
+                # Request subscription via EventBus (Mediator pattern)
+                # LiveMarketAdapter listens and performs actual subscription
+                await self.event_bus.publish("subscription.session_request", {
+                    "session_id": session_id,
+                    "symbol": symbol,
+                    "client_id": client_id
+                })
+
+                # DEPRECATED: Direct adapter call - fallback for backward compatibility
+                if self._market_adapter:
+                    success = await self._market_adapter.subscribe_to_symbol(symbol)
+                else:
+                    # When using coordinator, assume success (coordinator handles failures via events)
+                    success = True
+
+                if success:
                     session.active_subscriptions.add(symbol)
                 else:
                     await self._handle_subscription_failure(session, symbol)
@@ -329,7 +352,11 @@ class SessionManager:
         try:
             for symbol in session.active_subscriptions.copy():
                 try:
-                    await self.market_adapter.unsubscribe_from_symbol(symbol)
+                    # Use coordinator if available, fallback to direct adapter
+                    if self._trading_coordinator:
+                        await self._trading_coordinator.request_unsubscription(symbol)
+                    elif self._market_adapter:
+                        await self._market_adapter.unsubscribe_from_symbol(symbol)
                     session.active_subscriptions.discard(symbol)
                 except Exception as e:
                     cleanup_errors.append((symbol, str(e)))
@@ -536,7 +563,11 @@ class SessionManager:
                 # Unsubscribe from any remaining symbols
                 for symbol in session.active_subscriptions.copy():
                     try:
-                        await self.market_adapter.unsubscribe_from_symbol(symbol)
+                        # Use coordinator if available, fallback to direct adapter
+                        if self._trading_coordinator:
+                            await self._trading_coordinator.request_unsubscription(symbol)
+                        elif self._market_adapter:
+                            await self._market_adapter.unsubscribe_from_symbol(symbol)
                     except Exception as e:
                         self.logger.warning("session_manager.cleanup_unsubscribe_failed", {
                             "session_id": session_id,
@@ -680,3 +711,99 @@ class SessionManager:
             "rate_limits": self.rate_limiter_config,
             "resource_limits": self.resource_limits
         }
+
+    # =========================================================================
+    # COORDINATOR INTEGRATION (Mediator Pattern)
+    # =========================================================================
+
+    async def register_with_coordinator(self) -> None:
+        """
+        Register with TradingCoordinator via EventBus.
+        Subscribe to subscription check requests and respond with permission decisions.
+        """
+        if self._coordinator_registered:
+            self.logger.warning("session_manager.already_registered_with_coordinator")
+            return
+
+        # Subscribe to subscription check requests from coordinator
+        await self.event_bus.subscribe(
+            "subscription.check_request",
+            self._handle_subscription_check_request
+        )
+
+        # Publish registration event for coordinator
+        await self.event_bus.publish("session.registered", {
+            "component": "session_manager",
+            "timestamp": datetime.now().isoformat(),
+            "capabilities": ["subscription_check", "rate_limiting", "circuit_breaker"]
+        })
+
+        self._coordinator_registered = True
+
+        self.logger.info("session_manager.registered_with_coordinator", {
+            "subscribed_to": ["subscription.check_request"]
+        })
+
+    async def _handle_subscription_check_request(self, data: Dict[str, Any]) -> None:
+        """
+        Handle subscription check request from TradingCoordinator.
+        Responds via EventBus with permission decision.
+        """
+        request_id = data.get("request_id")
+        symbol = data.get("symbol")
+
+        if not request_id or not symbol:
+            self.logger.warning("session_manager.invalid_check_request", {"data": data})
+            return
+
+        # Check if subscription is allowed
+        allowed = await self.can_subscribe_symbol(symbol)
+        reason = ""
+
+        if not allowed:
+            # Determine reason
+            if symbol in self.global_circuit_breakers:
+                cb = self.global_circuit_breakers[symbol]
+                if cb.state != CircuitBreakerState.CLOSED:
+                    reason = f"circuit_breaker_{cb.state.value}"
+
+            if not reason:
+                # Check rate limit
+                rate_ok = await self._check_global_rate_limit()
+                if not rate_ok:
+                    reason = "rate_limit_exceeded"
+
+            if not reason:
+                reason = "unknown"
+
+        # Respond via EventBus
+        await self.event_bus.publish("subscription.check_response", {
+            "request_id": request_id,
+            "symbol": symbol,
+            "allowed": allowed,
+            "reason": reason,
+            "timestamp": datetime.now().isoformat()
+        })
+
+        self.logger.debug("session_manager.subscription_check_response", {
+            "request_id": request_id,
+            "symbol": symbol,
+            "allowed": allowed,
+            "reason": reason
+        })
+
+    async def unregister_from_coordinator(self) -> None:
+        """
+        Unregister from TradingCoordinator.
+        """
+        if not self._coordinator_registered:
+            return
+
+        await self.event_bus.unsubscribe(
+            "subscription.check_request",
+            self._handle_subscription_check_request
+        )
+
+        self._coordinator_registered = False
+
+        self.logger.info("session_manager.unregistered_from_coordinator")

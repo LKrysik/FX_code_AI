@@ -38,6 +38,7 @@ import {
   alpha,
   Divider,
 } from '@mui/material';
+import { Logger } from '@/services/frontendLogService';
 import {
   ExpandMore as ExpandMoreIcon,
   TrendingUp as TrendingUpIcon,
@@ -324,7 +325,7 @@ const StrategyPreviewPanel: React.FC<StrategyPreviewPanelProps> = ({
       const data = result.data || result;
       setStrategy(data);
     } catch (err) {
-      console.error('[StrategyPreviewPanel] Fetch error:', err);
+      Logger.error('StrategyPreviewPanel.fetchStrategy', 'Failed to fetch strategy', { error: err });
       setError(err instanceof Error ? err.message : 'Failed to load strategy');
     } finally {
       setIsLoading(false);

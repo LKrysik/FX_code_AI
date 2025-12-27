@@ -35,6 +35,7 @@ import {
   LinearProgress,
   Divider,
 } from '@mui/material';
+import { Logger } from '@/services/frontendLogService';
 import {
   PlayArrow as PlayIcon,
   Pause as PauseIcon,
@@ -168,7 +169,7 @@ export const SessionReplayPlayer: React.FC<SessionReplayPlayerProps> = ({
           setError('No replay data available for this session');
         }
       } catch (err) {
-        console.error('Failed to load replay data:', err);
+        Logger.error('SessionReplayPlayer.loadReplayData', 'Failed to load replay data', { error: err });
         setError('Failed to load replay data');
       } finally {
         setLoading(false);

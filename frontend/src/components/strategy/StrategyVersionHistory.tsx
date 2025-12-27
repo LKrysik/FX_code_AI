@@ -37,6 +37,7 @@ import {
   Divider,
   Badge,
 } from '@mui/material';
+import { Logger } from '@/services/frontendLogService';
 import {
   History as HistoryIcon,
   Restore as RestoreIcon,
@@ -107,7 +108,7 @@ export const StrategyVersionHistory: React.FC<StrategyVersionHistoryProps> = ({
         }
       }
     } catch (err) {
-      console.warn('Failed to load strategy versions:', err);
+      Logger.warn('StrategyVersionHistory.loadVersions', 'Failed to load strategy versions', { error: err });
     }
   }, [storageKey]);
 
@@ -118,7 +119,7 @@ export const StrategyVersionHistory: React.FC<StrategyVersionHistoryProps> = ({
       localStorage.setItem(storageKey, JSON.stringify(trimmed));
       setVersions(trimmed);
     } catch (err) {
-      console.warn('Failed to save strategy versions:', err);
+      Logger.warn('StrategyVersionHistory.saveVersions', 'Failed to save strategy versions', { error: err });
     }
   }, [storageKey, maxVersions]);
 
@@ -143,7 +144,7 @@ export const StrategyVersionHistory: React.FC<StrategyVersionHistoryProps> = ({
     const newVersions = [newVersion, ...versions];
     saveVersions(newVersions);
 
-    console.log(`[StrategyVersionHistory] Version saved: ${newVersion.id}`);
+    Logger.info('StrategyVersionHistory.saveVersion', 'Version saved', { versionId: newVersion.id });
     return newVersion;
   }, [currentStrategy, versions, saveVersions]);
 

@@ -39,6 +39,7 @@ import {
   Divider,
   Stack,
 } from '@mui/material';
+import { Logger } from '@/services/frontendLogService';
 import {
   Compare as CompareIcon,
   SwapHoriz as SwapIcon,
@@ -132,7 +133,7 @@ export const VariantComparison: React.FC<VariantComparisonProps> = ({
           setLeftVariantId(transformedVariants[0].id);
         }
       } catch (err) {
-        console.error('Failed to load variants:', err);
+        Logger.error('VariantComparison.loadVariants', 'Failed to load variants', { error: err });
         setError('Failed to load variants');
       } finally {
         setLoading(false);

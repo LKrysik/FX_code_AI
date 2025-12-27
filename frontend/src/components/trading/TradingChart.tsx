@@ -20,6 +20,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket';
 import { createChart, IChartApi, ISeriesApi, CandlestickData, Time, CandlestickSeriesPartialOptions, CandlestickSeries, HistogramSeries } from 'lightweight-charts';
+import { Logger } from '@/services/frontendLogService';
 
 // ========================================
 // TypeScript Types
@@ -200,7 +201,7 @@ export default function TradingChart({
       setOhlcvData(ohlcvArray);
       updateChart(ohlcvArray);
     } catch (err: any) {
-      console.error('[TradingChart] Failed to fetch historical data:', err);
+      Logger.error('TradingChart.fetchHistoricalData', 'Failed to fetch historical data', { error: err });
       setError(err.message || 'Failed to load chart data');
     } finally {
       setLoading(false);

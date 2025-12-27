@@ -14,6 +14,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
+import { Logger } from '@/services/frontendLogService';
 import {
   Box,
   Paper,
@@ -135,7 +136,7 @@ export const TransactionHistoryPanel: React.FC<TransactionHistoryPanelProps> = (
       setTransactions(data.transactions || []);
       setSummary(data.summary || null);
     } catch (err: any) {
-      console.error('Failed to load transaction history:', err);
+      Logger.error('TransactionHistoryPanel.loadTransactions', 'Failed to load transaction history', { error: err });
       setError(err.message || 'Failed to load transaction history');
     } finally {
       setLoading(false);

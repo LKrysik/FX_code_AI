@@ -46,6 +46,7 @@ import { apiService } from '@/services/api';
 import { SystemStatusIndicator } from '@/components/common/SystemStatusIndicator';
 import { getCategoryStatusColor, type CategoryType } from '@/utils/statusUtils';
 import type { Indicator } from '@/types/api';
+import { Logger } from '@/services/frontendLogService';
 
 interface IndicatorType {
   name: string;
@@ -97,7 +98,7 @@ export default function MarketDataPage() {
       await apiService.healthCheck();
     } catch (error) {
       // Silently handle health check failures
-      console.warn('Health check failed:', error);
+      Logger.warn('MarketDataPage.checkBackendConnection', 'Health check failed', { error });
     }
   }, []);
 

@@ -31,6 +31,7 @@ import {
   Stack,
   Paper,
 } from '@mui/material';
+import { Logger } from '@/services/frontendLogService';
 import {
   Close as CloseIcon,
   Warning as WarningIcon,
@@ -83,7 +84,7 @@ export default function LiquidationAlert({
       ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
-        console.log('[LiquidationAlert] WebSocket connected');
+        Logger.info('LiquidationAlert.connect', 'WebSocket connected');
         isConnecting = false;
 
         // Subscribe to paper trading events (includes liquidation warnings)
@@ -151,16 +152,16 @@ export default function LiquidationAlert({
             }
           }
         } catch (error) {
-          console.error('[LiquidationAlert] Error parsing WebSocket message:', error);
+          Logger.error('LiquidationAlert.onMessage', 'Error parsing WebSocket message', { error });
         }
       };
 
       ws.onerror = (error) => {
-        console.error('[LiquidationAlert] WebSocket error:', error);
+        Logger.error('LiquidationAlert.onError', 'WebSocket error', { error });
       };
 
       ws.onclose = () => {
-        console.log('[LiquidationAlert] WebSocket disconnected, reconnecting in 5s...');
+        Logger.info('LiquidationAlert.onClose', 'WebSocket disconnected, reconnecting in 5s...');
         isConnecting = false;
         reconnectTimeout = setTimeout(connect, 5000);
       };

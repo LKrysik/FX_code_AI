@@ -16,6 +16,7 @@
  */
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { Logger } from '@/services/frontendLogService';
 import {
   Box,
   Paper,
@@ -268,7 +269,7 @@ export const IndicatorValuesPanel: React.FC<IndicatorValuesProps> = ({
 
         // Validate indicatorData is an object we can iterate
         if (!indicatorData || typeof indicatorData !== 'object' || Array.isArray(indicatorData)) {
-          console.warn('[IndicatorValuesPanel] Invalid indicator data format:', indicatorData);
+          Logger.warn('IndicatorValuesPanel.handleMessage', 'Invalid indicator data format', { indicatorData });
           return;
         }
 
@@ -306,7 +307,7 @@ export const IndicatorValuesPanel: React.FC<IndicatorValuesProps> = ({
 
         setLastUpdate(new Date().toISOString());
       } catch (error) {
-        console.error('[IndicatorValuesPanel] Error processing indicator message:', error);
+        Logger.error('IndicatorValuesPanel.handleMessage', 'Error processing indicator message', { error });
       }
     },
     [symbol]

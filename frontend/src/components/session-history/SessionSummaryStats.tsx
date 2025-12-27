@@ -34,6 +34,7 @@ import {
   Divider,
   Stack,
 } from '@mui/material';
+import { Logger } from '@/services/frontendLogService';
 import {
   TrendingUp as SignalIcon,
   PlayCircle as EntryIcon,
@@ -128,7 +129,7 @@ export const SessionSummaryStats: React.FC<SessionSummaryStatsProps> = ({
         setStats(processed);
         onStatsLoad?.(processed);
       } catch (err) {
-        console.error('Failed to load session stats:', err);
+        Logger.error('SessionSummaryStats.loadStats', 'Failed to load session stats', { error: err });
         // Fallback to mock data for development
         const mockStats = generateMockStats();
         setStats(mockStats);

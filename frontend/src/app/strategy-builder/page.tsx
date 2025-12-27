@@ -34,6 +34,7 @@ import { QuickBacktestPreview } from '@/components/strategy/QuickBacktestPreview
 import { SignalPreviewChart } from '@/components/strategy/SignalPreviewChart';
 import { apiService } from '@/services/api';
 import { Strategy5Section, IndicatorVariant, StrategyValidationResult } from '@/types/strategy';
+import { Logger } from '@/services/frontendLogService';
 
 interface StrategyListItem {
   id: string;
@@ -97,7 +98,7 @@ export default function StrategyBuilderPage() {
   // Load initial data
   // Intentionally run only on mount to load initial data
   useEffect(() => {
-    console.log('Strategy Builder: Starting to load initial data...');
+    Logger.info('StrategyBuilderPage.mount', 'Starting to load initial data');
     loadInitialData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -127,13 +128,13 @@ export default function StrategyBuilderPage() {
 
       // Load indicators from API (works without authentication)
       try {
-        console.log('Strategy Builder: Loading indicator variants...');
+        Logger.info('StrategyBuilderPage.loadInitialData', 'Loading indicator variants');
         const apiVariants = await apiService.getVariants();
         const mappedVariants = (apiVariants || []).map(mapApiVariantToIndicatorVariant);
-        console.log('Strategy Builder: Loaded variants:', mappedVariants.length);
+        Logger.info('StrategyBuilderPage.loadInitialData', 'Loaded variants', { count: mappedVariants.length });
         setAvailableIndicators(mappedVariants);
       } catch (indicatorError) {
-        console.warn('Strategy Builder: Failed to load indicators:', indicatorError);
+        Logger.warn('StrategyBuilderPage.loadInitialData', 'Failed to load indicators', { error: indicatorError });
         showNotification('Failed to load indicators - using empty list', 'warning');
         setAvailableIndicators([]);
       }
@@ -141,7 +142,7 @@ export default function StrategyBuilderPage() {
       // Load strategies list (requires authentication)
       await loadStrategiesList();
     } catch (error) {
-      console.error('Failed to load initial data:', error);
+      Logger.error('StrategyBuilderPage.loadInitialData', 'Failed to load initial data', { error });
       showNotification('Failed to load data - check if you are logged in', 'warning');
       // Set empty strategies list as fallback
       setStrategiesList([]);
@@ -156,7 +157,7 @@ export default function StrategyBuilderPage() {
       const strategies = await apiService.get4SectionStrategies();
       setStrategiesList(strategies || []);
     } catch (error) {
-      console.error('Failed to load strategies:', error);
+      Logger.error('StrategyBuilderPage.loadStrategiesList', 'Failed to load strategies', { error });
       showNotification('Cannot connect to API server - working offline', 'warning');
       // Set empty array as fallback so UI can still work
       setStrategiesList([]);
@@ -218,7 +219,7 @@ export default function StrategyBuilderPage() {
         setCurrentTab(1);
       }
     } catch (error) {
-      console.error('Failed to load strategy:', error);
+      Logger.error('StrategyBuilderPage.handleEditStrategy', 'Failed to load strategy', { error, strategyId });
       showNotification('Failed to load strategy', 'error');
     }
   };
@@ -238,7 +239,7 @@ export default function StrategyBuilderPage() {
         showNotification('Strategy deleted successfully', 'success');
         await loadStrategiesList();
       } catch (error) {
-        console.error('Failed to delete strategy:', error);
+        Logger.error('StrategyBuilderPage.confirmDeleteStrategy', 'Failed to delete strategy', { error, strategyId: deleteDialog.strategyId });
         showNotification('Failed to delete strategy', 'error');
       }
     }
@@ -263,10 +264,10 @@ export default function StrategyBuilderPage() {
     try {
       // Convert 5-section to API format
       const strategyAPIFormat = convertStrategy5SectionToAPIFormat(strategy);
-      
+
       // Debug: Log what we're sending to API
-      console.log('Saving strategy to API:', JSON.stringify(strategyAPIFormat, null, 2));
-      
+      Logger.debug('StrategyBuilderPage.handleSaveStrategy', 'Saving strategy to API', { strategy: strategyAPIFormat });
+
       if (isNewStrategy) {
         await apiService.saveStrategy(strategyAPIFormat);
         // ✅ UX FIX (2025-12-26): Updated message to reflect that strategy is now active
@@ -283,7 +284,7 @@ export default function StrategyBuilderPage() {
       setIsNewStrategy(false);
       await loadStrategiesList();
     } catch (error) {
-      console.error('Failed to save strategy:', error);
+      Logger.error('StrategyBuilderPage.handleSaveStrategy', 'Failed to save strategy', { error });
       showNotification('Failed to save strategy', 'error');
     }
   };
@@ -301,8 +302,8 @@ export default function StrategyBuilderPage() {
       };
     } catch (error: any) {
       // Fallback to basic validation if server validation fails
-      console.warn('Server validation failed, falling back to local validation:', error);
-      
+      Logger.warn('StrategyBuilderPage.handleValidateStrategy', 'Server validation failed, falling back to local validation', { error });
+
       const errors: string[] = [];
       const warnings: string[] = [];
 

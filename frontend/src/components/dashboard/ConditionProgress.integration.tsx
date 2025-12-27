@@ -16,6 +16,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { Logger } from '@/services/frontendLogService';
 import ConditionProgress, { ConditionGroup, Condition } from './ConditionProgress';
 
 // ============================================================================
@@ -212,7 +213,7 @@ const ConditionProgressIntegration: React.FC<ConditionProgressIntegrationProps> 
         setCurrentState('INACTIVE');
       }
     } catch (err) {
-      console.error('[ConditionProgress] Failed to fetch condition status:', err);
+      Logger.error('ConditionProgress.fetchStatus', 'Failed to fetch condition status', { error: err });
       setError(err instanceof Error ? err.message : 'Unknown error');
       // Don't clear existing data on error - show stale data with error indicator
     } finally {
@@ -236,7 +237,7 @@ const ConditionProgressIntegration: React.FC<ConditionProgressIntegrationProps> 
       ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
-        console.log('[ConditionProgress] WebSocket connected');
+        Logger.debug('ConditionProgress.wsConnected', 'WebSocket connected');
 
         // Subscribe to condition updates for this session
         ws?.send(
@@ -265,20 +266,20 @@ const ConditionProgressIntegration: React.FC<ConditionProgressIntegrationProps> 
             setCurrentState(message.new_state || 'INACTIVE');
           }
         } catch (err) {
-          console.error('[ConditionProgress] WebSocket message parse error:', err);
+          Logger.error('ConditionProgress.wsMessage', 'WebSocket message parse error', { error: err });
         }
       };
 
       ws.onerror = (err) => {
-        console.error('[ConditionProgress] WebSocket error:', err);
+        Logger.error('ConditionProgress.wsError', 'WebSocket error', { error: err });
         setError('WebSocket connection error');
       };
 
       ws.onclose = () => {
-        console.log('[ConditionProgress] WebSocket disconnected');
+        Logger.debug('ConditionProgress.wsClosed', 'WebSocket disconnected');
       };
     } catch (err) {
-      console.error('[ConditionProgress] WebSocket initialization error:', err);
+      Logger.error('ConditionProgress.wsInit', 'WebSocket initialization error', { error: err });
       setError('Failed to initialize WebSocket');
     }
 

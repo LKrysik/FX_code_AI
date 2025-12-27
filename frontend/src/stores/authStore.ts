@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { csrfService } from '@/services/csrfService';
+import { Logger } from '@/services/frontendLogService';
 
 export interface User {
   user_id: string;
@@ -41,7 +42,7 @@ const scheduleTokenRefresh = (tokenExpiry: number, refreshTokenFn: () => Promise
     return setTimeout(async () => {
       const success = await refreshTokenFn();
       if (!success) {
-        console.warn('Automatic token refresh failed');
+        Logger.warn('auth.tokenRefreshFailed', 'Automatic token refresh failed');
       }
     }, refreshTime);
   }
@@ -114,7 +115,7 @@ export const useAuthStore = create<AuthState>()(
           try {
             await csrfService.refreshToken();
           } catch (csrfError) {
-            console.warn('Failed to fetch CSRF token after login:', csrfError);
+            Logger.warn('auth.csrfTokenFetchFailed', 'Failed to fetch CSRF token after login', csrfError);
           }
 
           return true;
@@ -150,7 +151,7 @@ export const useAuthStore = create<AuthState>()(
           }
         } catch (error) {
           // Ignore logout errors
-          console.warn('Logout request failed:', error);
+          Logger.warn('auth.logoutFailed', 'Logout request failed', error);
         }
 
         // Clear refresh timer

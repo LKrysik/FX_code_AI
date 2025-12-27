@@ -39,6 +39,7 @@ import {
   Tooltip,
   Grid,
 } from '@mui/material';
+import { Logger } from '@/services/frontendLogService';
 import {
   Analytics as AnalyticsIcon,
   ExpandMore as ExpandMoreIcon,
@@ -202,7 +203,7 @@ export const SignalCountTest: React.FC<SignalCountTestProps> = ({
           setSelectedVariantId(transformedVariants[0].id);
         }
       } catch (err) {
-        console.error('Failed to load variants:', err);
+        Logger.error('SignalCountTest.loadVariants', 'Failed to load variants', { error: err });
         // Use mock variants for development
         const mockVariants: IndicatorVariant[] = [
           {

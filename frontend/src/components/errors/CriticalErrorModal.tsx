@@ -25,6 +25,7 @@ import {
   Divider,
   CircularProgress,
 } from '@mui/material';
+import { Logger } from '@/services/frontendLogService';
 import {
   Error as ErrorIcon,
   Warning as WarningIcon,
@@ -67,8 +68,8 @@ interface CriticalErrorState {
 export const useCriticalErrorStore = create<CriticalErrorState>((set) => ({
   currentError: null,
   showCriticalError: (error: CriticalError) => {
-    // Log to console for debugging (AC5)
-    console.error('[CRITICAL ERROR]', {
+    // Log for debugging (AC5)
+    Logger.error('CriticalErrorModal.show', 'CRITICAL ERROR', {
       type: error.type,
       title: error.title,
       message: error.message,
@@ -122,7 +123,7 @@ export const CriticalErrorModal: React.FC = () => {
       await action();
       dismissCriticalError();
     } catch (error) {
-      console.error('Recovery action failed:', error);
+      Logger.error('CriticalErrorModal.handleAction', 'Recovery action failed', { error });
     } finally {
       setIsProcessing(false);
     }

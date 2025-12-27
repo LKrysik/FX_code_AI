@@ -61,6 +61,7 @@ import {
 import { apiService } from '@/services/api';
 import MiniSparkline, { generateMockSparklineData } from '@/components/charts/MiniSparkline';
 import { SignalHistoryPanel } from '@/components/market-scanner/SignalHistoryPanel';
+import { Logger } from '@/services/frontendLogService';
 
 interface ScannerData {
   symbol: string;
@@ -233,7 +234,7 @@ export default function MarketScannerPage() {
       // Check for alerts
       checkForAlerts(scannerResults);
     } catch (error) {
-      console.error('Failed to load scanner data:', error);
+      Logger.error('MarketScannerPage.loadScannerData', 'Failed to load scanner data', { error });
       setSnackbar({
         open: true,
         message: `Failed to load scanner data: ${error instanceof Error ? error.message : 'Unknown error'}`,

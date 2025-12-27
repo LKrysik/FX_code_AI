@@ -1323,26 +1323,80 @@ class Container:
 
         return await self._get_or_create_singleton_async("execution_processor", _create)
 
+    async def create_trading_coordinator(self):
+        """
+        Create TradingCoordinator - Mediator eliminating circular dependency.
+
+        ✅ ARCHITECTURE FIX (K2): Breaks LiveMarketAdapter <-> SessionManager cycle
+        - LiveMarketAdapter depends on ITradingCoordinator (not SessionManager)
+        - SessionManager registers with coordinator via EventBus
+        - No direct circular references
+
+        Returns:
+            Configured TradingCoordinator singleton
+        """
+        async def _create():
+            try:
+                from ..trading.trading_coordinator import TradingCoordinator
+
+                coordinator = TradingCoordinator(
+                    event_bus=self.event_bus,
+                    logger=self.logger,
+                    rate_limit_per_minute=60,
+                    default_decision_timeout=5.0
+                )
+
+                # Start coordinator (subscribes to EventBus topics)
+                await coordinator.start()
+
+                self.logger.info("container.trading_coordinator_created", {
+                    "status": "started",
+                    "pattern": "mediator"
+                })
+
+                return coordinator
+
+            except Exception as e:
+                self.logger.error("container.trading_coordinator_creation_failed", {
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                })
+                raise RuntimeError(f"Failed to create trading coordinator: {str(e)}") from e
+
+        return await self._get_or_create_singleton_async("trading_coordinator", _create)
+
     async def create_live_market_adapter(self) -> LiveMarketAdapter:
         """
-        Create live market adapter with session manager integration.
-        Handles circular dependency by deferring session manager assignment.
-        Uses singleton pattern to prevent multiple instances.
+        Create live market adapter with TradingCoordinator integration.
+
+        ✅ ARCHITECTURE FIX (K2): Uses Mediator pattern instead of direct SessionManager
+        - Injects ITradingCoordinator for subscription permission checks
+        - No circular dependency with SessionManager
+        - Graceful degradation if coordinator not available
 
         Returns:
             Configured live market adapter
         """
-        def _create():
+        async def _create():
             try:
                 from ..data.live_market_adapter import LiveMarketAdapter
 
-                # Create adapter with None session_manager initially
+                # ✅ FIX: Use TradingCoordinator instead of direct SessionManager reference
+                trading_coordinator = await self.create_trading_coordinator()
+
                 adapter = LiveMarketAdapter(
                     settings=self.settings.exchanges,
                     event_bus=self.event_bus,
                     logger=self.logger,
-                    session_manager=None  # Will be set later
+                    trading_coordinator=trading_coordinator,  # ✅ Mediator pattern
+                    session_manager=None  # DEPRECATED: Kept for backward compatibility
                 )
+
+                self.logger.info("container.live_market_adapter_created", {
+                    "uses_coordinator": True,
+                    "circular_dependency": "ELIMINATED"
+                })
+
                 return adapter
             except Exception as e:
                 self.logger.error("container.live_market_adapter_creation_failed", {
@@ -1355,9 +1409,12 @@ class Container:
 
     async def create_session_manager(self) -> SessionManager:
         """
-        Create session manager with market adapter integration.
-        Sets session manager reference on live market adapter after creation.
-        Uses singleton pattern to prevent multiple instances.
+        Create session manager with TradingCoordinator integration.
+
+        ✅ ARCHITECTURE FIX (K2): Uses Mediator pattern
+        - Does NOT directly reference LiveMarketAdapter (optional, deprecated)
+        - Registers with TradingCoordinator via EventBus
+        - No circular dependency
 
         Returns:
             Configured session manager
@@ -1366,14 +1423,26 @@ class Container:
             try:
                 from ..trading.session_manager import SessionManager
 
-                market_adapter = await self.create_live_market_adapter()
+                # ✅ FIX: Get coordinator for registration
+                trading_coordinator = await self.create_trading_coordinator()
 
+                # ✅ FIX: market_adapter is now OPTIONAL (deprecated path)
+                # With Mediator pattern, SessionManager doesn't need direct adapter reference
                 manager = SessionManager(
                     event_bus=self.event_bus,
                     logger=self.logger,
-                    market_adapter=market_adapter
+                    market_adapter=None,  # DEPRECATED: No longer needed with coordinator
+                    trading_coordinator=trading_coordinator
                 )
-                market_adapter.session_manager = manager
+
+                # ✅ Register with coordinator via EventBus
+                await manager.register_with_coordinator()
+
+                self.logger.info("container.session_manager_created", {
+                    "uses_coordinator": True,
+                    "circular_dependency": "ELIMINATED",
+                    "registered_with_coordinator": True
+                })
 
                 return manager
             except Exception as e:

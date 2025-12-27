@@ -33,6 +33,7 @@ import {
   CircularProgress,
   Divider,
 } from '@mui/material';
+import { Logger } from '@/services/frontendLogService';
 import {
   ShowChart as ChartIcon,
   ExpandMore as ExpandMoreIcon,
@@ -328,7 +329,7 @@ export const VariantChartPreview: React.FC<VariantChartPreviewProps> = ({
           setSelectedVariantId(transformedVariants[0].id);
         }
       } catch (err) {
-        console.error('Failed to load variants:', err);
+        Logger.error('VariantChartPreview.loadVariants', 'Failed to load variants', { error: err });
         // Use mock variants for development
         const mockVariants: IndicatorVariant[] = [
           {

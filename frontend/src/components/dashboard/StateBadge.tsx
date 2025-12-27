@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { Logger } from '@/services/frontendLogService';
 import {
   Chip,
   Tooltip,
@@ -72,7 +73,7 @@ function calculateDuration(since: string): string {
     if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
     return `${seconds}s`;
   } catch (error) {
-    console.error('Error calculating duration:', error);
+    Logger.error('StateBadge.calculateDuration', 'Error calculating duration', { error });
     return 'N/A';
   }
 }

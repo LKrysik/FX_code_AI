@@ -66,6 +66,7 @@ import {
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
 import { apiService } from '@/services/api';
+import { Logger } from '@/services/frontendLogService';
 import StrategyPreviewPanel from '@/components/trading/StrategyPreviewPanel';
 import SessionMatrix from '@/components/trading/SessionMatrix';
 import SymbolRecommendation from '@/components/trading/SymbolRecommendation';
@@ -151,7 +152,7 @@ export default function TradingSessionPage() {
         }
       }
     } catch (error: any) {
-      console.error('Failed to fetch strategies:', error);
+      Logger.error('TradingSessionPage.fetchStrategies', 'Failed to fetch strategies', { error });
       setStrategiesError(error.message || 'Failed to load strategies');
     } finally {
       setLoadingStrategies(false);
@@ -182,7 +183,7 @@ export default function TradingSessionPage() {
         setBacktestSessionId(validSessions[0].session_id);
       }
     } catch (error: any) {
-      console.error('Failed to fetch data sessions:', error);
+      Logger.error('TradingSessionPage.fetchDataSessions', 'Failed to fetch data sessions', { error });
       setSessionsError(error.message || 'Failed to load data sessions');
     } finally {
       setLoadingSessions(false);
@@ -256,7 +257,7 @@ export default function TradingSessionPage() {
         },
       };
 
-      console.log('Starting session with config:', sessionData);
+      Logger.info('TradingSessionPage.handleStartSession', 'Starting session with config', { sessionData });
 
       const response = await apiService.startSession(sessionData);
       const newSessionId = response?.data?.session_id || response?.session_id;
@@ -270,7 +271,7 @@ export default function TradingSessionPage() {
         throw new Error('No session_id returned from API');
       }
     } catch (error: any) {
-      console.error('Failed to start session:', error);
+      Logger.error('TradingSessionPage.handleStartSession', 'Failed to start session', { error });
       setStartError(error.message || 'Failed to start session');
     } finally {
       setStartingSession(false);
@@ -283,7 +284,7 @@ export default function TradingSessionPage() {
       setIsSessionRunning(false);
       setCurrentSessionId(null);
     } catch (error: any) {
-      console.error('Failed to stop session:', error);
+      Logger.error('TradingSessionPage.handleStopSession', 'Failed to stop session', { error });
       setStartError(error.message || 'Failed to stop session');
     }
   };

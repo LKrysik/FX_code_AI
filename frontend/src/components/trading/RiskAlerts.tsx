@@ -16,6 +16,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket';
+import { Logger } from '@/services/frontendLogService';
 
 // ========================================
 // TypeScript Types
@@ -107,7 +108,7 @@ export default function RiskAlerts({
     // Play sound for CRITICAL alerts
     if (alert.severity === 'CRITICAL' && playSound && audioRef.current) {
       audioRef.current.play().catch(err => {
-        console.warn('[RiskAlerts] Failed to play alert sound:', err);
+        Logger.warn('RiskAlerts.playSound', 'Failed to play alert sound', { error: err });
       });
     }
 

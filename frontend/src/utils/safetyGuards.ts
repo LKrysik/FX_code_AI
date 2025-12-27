@@ -8,6 +8,7 @@
 import { useWebSocketStore } from '@/stores/websocketStore';
 import { useUIStore } from '@/stores/uiStore';
 import { useTradingStore } from '@/stores/tradingStore';
+import { Logger } from '@/services/frontendLogService';
 
 // Types for safety validation
 export interface SafetyContext {
@@ -252,7 +253,7 @@ export function validateSafety(operation: string, context: SafetyContext): Safet
 
 // Emergency stop function
 export function emergencyStop(reason: string) {
-  console.warn('🚨 EMERGENCY STOP ACTIVATED:', reason);
+  Logger.warn('safety.emergencyStop', 'EMERGENCY STOP ACTIVATED', { reason });
 
   // Update UI state
   const { addNotification } = useUIStore.getState();
@@ -285,7 +286,7 @@ export async function withSafetyGuard<T>(
   const safetyResult = validateSafety(operationName, context);
 
   if (safetyResult.blocked) {
-    console.warn(`🚫 SAFETY BLOCK: ${operationName} blocked - ${safetyResult.reasons.join(', ')}`);
+    Logger.warn('safety.operationBlocked', `Operation blocked: ${operationName}`, { reasons: safetyResult.reasons });
 
     // Add notification
     const { addNotification } = useUIStore.getState();
@@ -298,7 +299,7 @@ export async function withSafetyGuard<T>(
   }
 
   if (!safetyResult.safe && safetyResult.risk === 'high') {
-    console.warn(`⚠️ SAFETY WARNING: ${operationName} - ${safetyResult.reasons.join(', ')}`);
+    Logger.warn('safety.operationWarning', `Operation warning: ${operationName}`, { reasons: safetyResult.reasons });
 
     // Add warning notification
     const { addNotification } = useUIStore.getState();
@@ -309,10 +310,10 @@ export async function withSafetyGuard<T>(
   }
 
   try {
-    console.log(`✅ SAFETY CHECK PASSED: ${operationName}`);
+    Logger.info('safety.checkPassed', `Safety check passed: ${operationName}`);
     return await operation();
   } catch (error) {
-    console.error(`💥 OPERATION FAILED: ${operationName}`, error);
+    Logger.error('safety.operationFailed', `Operation failed: ${operationName}`, error);
 
     // Check if this is a critical financial error
     if (operationName.includes('trade') || operationName.includes('order')) {

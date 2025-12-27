@@ -54,7 +54,7 @@ export const useDashboardStore = create<DashboardState>()(
         if (!signal) return;
         // [SIGNAL-FLOW] Debug logging for E2E verification (Story 0-2)
         // Story 1A-1: Logging for signal display verification
-        console.log('[SIGNAL-FLOW] Signal added to store:', {
+        Logger.debug('dashboardStore.signalAdded', 'Signal added to store', {
           signalType: signal.signalType,
           symbol: signal.symbol,
           timestamp: signal.timestamp,
@@ -149,14 +149,14 @@ export const useDashboardStore = create<DashboardState>()(
             const validMarketData = marketData.filter(isValidMarketData);
 
             if (validMarketData.length !== marketData.length) {
-              console.warn(`Filtered out ${marketData.length - validMarketData.length} invalid market data items`);
+              Logger.warn('dashboardStore.invalidMarketData', `Filtered out ${marketData.length - validMarketData.length} invalid market data items`);
             }
 
             set({ marketData: validMarketData, marketDataLoading: false });
-            debugLog('Market data fetched successfully', { count: validMarketData.length });
+            Logger.debug('dashboardStore.fetchMarketData', 'Market data fetched successfully', { count: validMarketData.length });
             return validMarketData;
           } else {
-            console.warn('Invalid market data response structure:', response);
+            Logger.warn('dashboardStore.invalidMarketDataResponse', 'Invalid market data response structure', { response });
             // Fallback to empty array if no data
             set({ marketData: [], marketDataLoading: false });
             return [];
@@ -164,7 +164,7 @@ export const useDashboardStore = create<DashboardState>()(
         } catch (error: any) {
           const errorMessage = error?.message || 'Failed to fetch market data';
           set({ marketDataError: errorMessage, marketDataLoading: false });
-          errorLog('Failed to fetch market data', error);
+          Logger.error('dashboardStore.fetchMarketDataError', 'Failed to fetch market data', error);
           throw error;
         }
       },
@@ -193,21 +193,21 @@ export const useDashboardStore = create<DashboardState>()(
             const validIndicators = indicatorData.filter(isValidIndicator);
 
             if (validIndicators.length !== indicatorData.length) {
-              console.warn(`Filtered out ${indicatorData.length - validIndicators.length} invalid indicators`);
+              Logger.warn('dashboardStore.invalidIndicators', `Filtered out ${indicatorData.length - validIndicators.length} invalid indicators`);
             }
 
             set({ indicators: validIndicators, indicatorsLoading: false });
-            debugLog('Indicators fetched successfully', { count: validIndicators.length });
+            Logger.debug('dashboardStore.fetchIndicators', 'Indicators fetched successfully', { count: validIndicators.length });
             return validIndicators;
           } else {
-            console.warn('Invalid indicators response structure:', indicators);
+            Logger.warn('dashboardStore.invalidIndicatorsResponse', 'Invalid indicators response structure', { indicators });
             set({ indicators: [], indicatorsLoading: false });
             return [];
           }
         } catch (error: any) {
           const errorMessage = error?.message || 'Failed to fetch indicators';
           set({ indicatorsError: errorMessage, indicatorsLoading: false });
-          errorLog('Failed to fetch indicators', error);
+          Logger.error('dashboardStore.fetchIndicatorsError', 'Failed to fetch indicators', error);
           throw error;
         }
       },
@@ -239,7 +239,7 @@ export const useDashboardStore = create<DashboardState>()(
               }));
 
             set({ activeSignals: signals, signalsLoading: false });
-            debugLog('Active signals fetched successfully', { count: signals.length });
+            Logger.debug('dashboardStore.fetchActiveSignals', 'Active signals fetched successfully', { count: signals.length });
             return signals;
           } else {
             // Empty array or invalid structure
@@ -249,7 +249,7 @@ export const useDashboardStore = create<DashboardState>()(
         } catch (error: any) {
           const errorMessage = error?.message || 'Failed to fetch active signals';
           set({ signalsError: errorMessage, signalsLoading: false });
-          errorLog('Failed to fetch active signals', error);
+          Logger.error('dashboardStore.fetchActiveSignalsError', 'Failed to fetch active signals', error);
           throw error;
         }
       },

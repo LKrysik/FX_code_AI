@@ -18,6 +18,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { Logger } from '@/services/frontendLogService';
 import {
   Box,
   Paper,
@@ -104,7 +105,7 @@ function calculateTimeSince(since: string | null): string {
     if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
     return `${seconds}s`;
   } catch (error) {
-    console.error('Error calculating time since:', error);
+    Logger.error('StateOverviewTable.calculateTimeSince', 'Error calculating time since', { error });
     return 'N/A';
   }
 }

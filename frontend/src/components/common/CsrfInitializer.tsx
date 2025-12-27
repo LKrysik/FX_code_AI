@@ -17,6 +17,7 @@
 
 import { useEffect, useState } from 'react';
 import { csrfService } from '@/services/csrfService';
+import { Logger } from '@/services/frontendLogService';
 
 export default function CsrfInitializer() {
   const [initialized, setInitialized] = useState(false);
@@ -24,12 +25,12 @@ export default function CsrfInitializer() {
   useEffect(() => {
     const initializeCsrf = async () => {
       try {
-        console.debug('[CSRF] Initializing CSRF service...');
+        Logger.debug('CsrfInitializer.init', 'Initializing CSRF service...');
         await csrfService.initialize();
-        console.debug('[CSRF] CSRF service initialized successfully');
+        Logger.debug('CsrfInitializer.init', 'CSRF service initialized successfully');
         setInitialized(true);
       } catch (error) {
-        console.warn('[CSRF] Failed to initialize CSRF service (will retry on first request):', error);
+        Logger.warn('CsrfInitializer.init', 'Failed to initialize CSRF service (will retry on first request)', { error });
         // Don't block app initialization - token will be fetched on first request
         setInitialized(true);
       }

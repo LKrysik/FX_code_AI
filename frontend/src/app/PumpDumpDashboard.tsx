@@ -60,6 +60,7 @@ import { SystemStatusIndicator } from '@/components/common/SystemStatusIndicator
 import { useSmartCache } from '@/hooks/useSmartCache';
 import { debugLog, errorLog } from '@/utils/config';
 import { useRouter } from 'next/navigation';
+import { Logger } from '@/services/frontendLogService';
 import { useHealthStore } from '@/stores/healthStore';
 import {
   getPerformanceStatusColor,
@@ -307,7 +308,7 @@ const DashboardContent = React.memo(function DashboardContent() {
       // Set error in dashboard store
       useDashboardStore.getState().setError(errorMessage);
 
-      console.error('Dashboard error:', err);
+      Logger.error('PumpDumpDashboard.loadDashboardData', 'Dashboard error', { error: err });
 
       addNotification({
         type: 'error',
@@ -463,7 +464,7 @@ const DashboardContent = React.memo(function DashboardContent() {
         type: 'error',
         message: 'Backtest feature requires session selection UI (not yet implemented on this page). Please use /backtesting page instead.',
       });
-      console.error('[PumpDumpDashboard] CRITICAL: Backtest button clicked but no session_id selector exists. Redirecting to /backtesting...');
+      Logger.error('PumpDumpDashboard.handleStartBacktest', 'CRITICAL: Backtest button clicked but no session_id selector exists. Redirecting to /backtesting...');
 
       // Redirect to proper backtesting page
       router.push('/backtesting');

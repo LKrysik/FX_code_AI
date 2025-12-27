@@ -32,6 +32,7 @@ import {
   ToggleButton,
   ToggleButtonGroup,
 } from '@mui/material';
+import { Logger } from '@/services/frontendLogService';
 import {
   Timeline,
   TimelineItem,
@@ -148,7 +149,7 @@ export const TransitionTimeline: React.FC<TransitionTimelineProps> = ({
           setError('No transitions recorded for this session');
         }
       } catch (err) {
-        console.error('Failed to load transitions:', err);
+        Logger.error('TransitionTimeline.loadTransitions', 'Failed to load transitions', { error: err });
         setError('Failed to load transition data');
       } finally {
         setLoading(false);

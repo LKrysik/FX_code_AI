@@ -49,6 +49,7 @@ import {
   Download as DownloadIcon,
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
+import { Logger } from '@/services/frontendLogService';
 
 // ============================================================================
 // TYPES
@@ -127,7 +128,7 @@ export default function SessionHistoryPage() {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
       setError(errorMessage);
-      console.error('Failed to load sessions:', err);
+      Logger.error('SessionHistoryPage.loadSessions', 'Failed to load sessions', { error: err });
     } finally {
       setLoading(false);
     }

@@ -22,6 +22,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { Logger } from '@/services/frontendLogService';
 import {
   Box,
   Paper,
@@ -103,7 +104,7 @@ export const LiveIndicatorPanel: React.FC<LiveIndicatorPanelProps> = ({
       setIndicators(data.indicators || []);
       setNextEvaluationIn(data.next_evaluation_in_seconds || null);
     } catch (err) {
-      console.error('Failed to load indicators:', err);
+      Logger.error('LiveIndicatorPanel.loadIndicators', 'Failed to load indicators', { error: err });
       setError('Failed to load indicator data');
     } finally {
       setLoading(false);

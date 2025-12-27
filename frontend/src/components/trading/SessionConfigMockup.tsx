@@ -62,6 +62,7 @@ import {
   Switch,
   Slider,
 } from '@mui/material';
+import { Logger } from '@/services/frontendLogService';
 import {
   ExpandMore as ExpandMoreIcon,
   Add as AddIcon,
@@ -153,7 +154,7 @@ export const SessionConfigMockup: React.FC<SessionConfigMockupProps> = ({ onSess
       }
     };
 
-    console.log('⚠️ MOCKUP: Would start session with config:', mockConfig);
+    Logger.info('SessionConfigMockup.startSession', 'MOCKUP: Would start session with config', mockConfig);
 
     if (onSessionStart) {
       onSessionStart(mockConfig);

@@ -15,6 +15,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
+import { Logger } from '@/services/frontendLogService';
 import {
   Box,
   Paper,
@@ -136,7 +137,7 @@ export const SignalHistoryPanel: React.FC<SignalHistoryPanelProps> = ({
 
       setSignals(data.signals || []);
     } catch (err: any) {
-      console.error('Failed to load signal history:', err);
+      Logger.error('SignalHistoryPanel.loadSignals', 'Failed to load signal history', { error: err });
       setError(err.message || 'Failed to load signal history');
     } finally {
       setLoading(false);

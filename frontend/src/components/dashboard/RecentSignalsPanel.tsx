@@ -15,6 +15,7 @@
 'use client';
 
 import React, { useEffect } from 'react';
+import { Logger } from '@/services/frontendLogService';
 import {
   Box,
   Paper,
@@ -61,7 +62,7 @@ export const RecentSignalsPanel: React.FC<RecentSignalsPanelProps> = ({
       if (!message?.data) return;
 
       const signalData = message.data;
-      console.log('[1A-1] Signal received via WebSocket:', signalData);
+      Logger.debug('RecentSignalsPanel.signalReceived', 'Signal received via WebSocket', { signalData });
 
       // Transform WebSocket signal to ActiveSignal format
       const signal = {
@@ -88,11 +89,11 @@ export const RecentSignalsPanel: React.FC<RecentSignalsPanelProps> = ({
       onSignals: handleSignalReceived,
     });
 
-    console.log('[1A-1] WebSocket signal callback registered');
+    Logger.debug('RecentSignalsPanel.init', 'WebSocket signal callback registered');
 
     // Cleanup on unmount (don't remove callback - other components may need it)
     return () => {
-      console.log('[1A-1] RecentSignalsPanel unmounted');
+      Logger.debug('RecentSignalsPanel.unmount', 'RecentSignalsPanel unmounted');
     };
   }, [sessionId]);
 

@@ -40,6 +40,7 @@ import {
   LinearProgress,
   IconButton,
 } from '@mui/material';
+import { Logger } from '@/services/frontendLogService';
 import {
   ExpandMore as ExpandIcon,
   TrendingUp as PumpIcon,
@@ -151,7 +152,7 @@ export const TransitionDetails: React.FC<TransitionDetailsProps> = ({
         setTransitions(data);
         onTransitionsLoad?.(data);
       } catch (err) {
-        console.error('Failed to load transition details:', err);
+        Logger.error('TransitionDetails.loadTransitions', 'Failed to load transition details', { error: err });
         // Fallback to mock data
         const mockData = generateMockTransitions();
         setTransitions(mockData);

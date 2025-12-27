@@ -4,6 +4,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { Box } from '@mui/material';
+import { Logger } from '@/services/frontendLogService';
 
 // Type definitions
 export interface UPlotSeries {
@@ -287,7 +288,7 @@ export const UPlotChart: React.FC<UPlotChartProps> = ({
     if (!plotRef.current) {
       const opts = createOptions(dimensions.width, dimensions.height);
       plotRef.current = new uPlot(opts, uplotData, chartRef.current);
-      console.log('[uPlot] Chart created with', uplotData[0]?.length || 0, 'data points');
+      Logger.debug('UPlotChart.create', 'Chart created', { dataPoints: uplotData[0]?.length || 0 });
     } else {
       // Update existing instance
       plotRef.current.setData(uplotData);
@@ -295,7 +296,7 @@ export const UPlotChart: React.FC<UPlotChartProps> = ({
         width: dimensions.width,
         height: dimensions.height,
       });
-      console.log('[uPlot] Chart updated with', uplotData[0]?.length || 0, 'data points');
+      Logger.debug('UPlotChart.update', 'Chart updated', { dataPoints: uplotData[0]?.length || 0 });
     }
 
     // Cleanup on unmount

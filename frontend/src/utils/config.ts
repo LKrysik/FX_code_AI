@@ -1,5 +1,7 @@
 // Environment configuration utilities
 
+import { Logger } from '@/services/frontendLogService';
+
 export interface AppConfig {
   apiUrl: string;
   wsUrl: string;
@@ -50,10 +52,10 @@ export const isDebugMode = () => config.enableDebugMode;
 // Environment-specific logging
 export const debugLog = (message: string, ...args: any[]) => {
   if (isDebugMode()) {
-    console.log(`[DEBUG] ${message}`, ...args);
+    Logger.debug('config.debug', message, ...args);
   }
 };
 
 export const errorLog = (message: string, error?: any) => {
-  console.error(`[ERROR] ${message}`, error);
+  Logger.error('config.error', message, error);
 };

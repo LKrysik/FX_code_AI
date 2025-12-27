@@ -27,6 +27,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { Logger } from '@/services/frontendLogService';
 import {
   Box,
   Paper,
@@ -146,7 +147,7 @@ export default function ActivePositionBanner({
       setPositions(positionList);
       setError(null);
     } catch (err) {
-      console.error('[ActivePositionBanner] Failed to fetch positions:', err);
+      Logger.error('ActivePositionBanner.fetchPositions', 'Failed to fetch positions', { error: err });
       setError(err instanceof Error ? err.message : 'Failed to load positions');
       setPositions([]);
     } finally {
@@ -198,7 +199,7 @@ export default function ActivePositionBanner({
       // Refresh positions
       setTimeout(fetchPositions, 500);
     } catch (err) {
-      console.error('[ActivePositionBanner] Failed to close position:', err);
+      Logger.error('ActivePositionBanner.closePosition', 'Failed to close position', { error: err });
       alert(`Failed to close position: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setClosingId(null);
@@ -296,7 +297,7 @@ export default function ActivePositionBanner({
       handleCloseSlTpEdit();
       setTimeout(fetchPositions, 500);
     } catch (err) {
-      console.error('[ActivePositionBanner] Failed to update SL/TP:', err);
+      Logger.error('ActivePositionBanner.updateSlTp', 'Failed to update SL/TP', { error: err });
       setSlTpError(err instanceof Error ? err.message : 'Failed to update SL/TP');
     } finally {
       setSavingSlTp(false);

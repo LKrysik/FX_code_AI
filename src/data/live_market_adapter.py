@@ -33,9 +33,10 @@ from ..core.event_bus import EventBus
 from ..core.logger import StructuredLogger
 from ..infrastructure.exchanges.mexc_websocket_adapter import MexcWebSocketAdapter
 from ..infrastructure.config.settings import ExchangeSettings
+from ..domain.interfaces.coordination import ITradingCoordinator, SubscriptionDecision
 
 if TYPE_CHECKING:
-    from ..trading.session_manager import SessionManager
+    from ..trading.session_manager import SessionManager  # Kept for backward compatibility
 
 
 class IncidentSeverity(Enum):
@@ -77,13 +78,17 @@ class LiveMarketAdapter:
         settings: ExchangeSettings,
         event_bus: EventBus,
         logger: StructuredLogger,
-        session_manager: "SessionManager",
-        data_types: Optional[List[str]] = None
+        trading_coordinator: Optional[ITradingCoordinator] = None,
+        data_types: Optional[List[str]] = None,
+        # DEPRECATED: session_manager kept for backward compatibility
+        session_manager: Optional["SessionManager"] = None
     ):
         self.settings = settings
         self.event_bus = event_bus
         self.logger = logger
-        self.session_manager = session_manager
+        self._trading_coordinator = trading_coordinator
+        # DEPRECATED: Will be removed in future version
+        self._legacy_session_manager = session_manager
 
         # Core adapter instance
         # ✅ FIX: Pass data_types to underlying MEXC adapter
@@ -168,22 +173,51 @@ class LiveMarketAdapter:
         self.logger.info("live_market_adapter.disconnected")
 
     async def subscribe_to_symbol(self, symbol: str) -> bool:
-        """Subscribe with session coordination"""
+        """Subscribe with coordinator-mediated session coordination"""
         try:
-            # Check if session allows subscription
-            if not await self.session_manager.can_subscribe_symbol(symbol):
-                await self._log_incident(
-                    severity=IncidentSeverity.MEDIUM,
-                    component="subscription",
-                    event_type="subscription_blocked",
-                    description=f"Subscription blocked by session manager for {symbol}",
-                    metadata={"symbol": symbol}
-                )
-                return False
+            # Use TradingCoordinator (Mediator Pattern) to check subscription permission
+            if self._trading_coordinator:
+                decision = await self._trading_coordinator.request_subscription(symbol)
 
+                if decision != SubscriptionDecision.ALLOWED:
+                    await self._log_incident(
+                        severity=IncidentSeverity.MEDIUM,
+                        component="subscription",
+                        event_type="subscription_blocked",
+                        description=f"Subscription blocked by coordinator for {symbol}: {decision.value}",
+                        metadata={"symbol": symbol, "decision": decision.value}
+                    )
+                    return False
+
+            # DEPRECATED: Fallback to legacy session_manager if coordinator not available
+            elif self._legacy_session_manager:
+                if not await self._legacy_session_manager.can_subscribe_symbol(symbol):
+                    await self._log_incident(
+                        severity=IncidentSeverity.MEDIUM,
+                        component="subscription",
+                        event_type="subscription_blocked",
+                        description=f"Subscription blocked by session manager for {symbol}",
+                        metadata={"symbol": symbol}
+                    )
+                    return False
+
+            # No coordinator and no session manager - allow subscription (graceful degradation)
+            # This eliminates the NULL WINDOW bug
+
+            # Perform actual subscription
             await self.adapter.subscribe_to_symbol(symbol)
+
+            # Notify coordinator of success
+            if self._trading_coordinator:
+                await self._trading_coordinator.notify_subscription_success(symbol)
+
             return True
+
         except Exception as e:
+            # Notify coordinator of failure
+            if self._trading_coordinator:
+                await self._trading_coordinator.notify_subscription_failure(symbol, str(e))
+
             await self._log_incident(
                 severity=IncidentSeverity.HIGH,
                 component="subscription",

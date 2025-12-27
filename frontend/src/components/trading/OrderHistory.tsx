@@ -18,6 +18,7 @@
 import React, { useState, useEffect } from 'react';
 import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket';
 import { Order, tradingAPI } from '@/services/TradingAPI';
+import { Logger } from '@/services/frontendLogService';
 
 // ========================================
 // TypeScript Types
@@ -103,7 +104,7 @@ export default function OrderHistory({
       const symbols = Array.from(new Set(data.map(o => o.symbol)));
       setAvailableSymbols(symbols);
     } catch (err: any) {
-      console.error('[OrderHistory] Failed to fetch orders:', err);
+      Logger.error('OrderHistory.fetchOrders', 'Failed to fetch orders', { error: err });
       setError(err.message || 'Failed to load orders');
     } finally {
       setLoading(false);

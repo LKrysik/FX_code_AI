@@ -20,6 +20,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Logger } from '@/services/frontendLogService';
 import {
   Box,
   Paper,
@@ -492,7 +493,7 @@ const PumpIndicatorsPanel: React.FC<PumpIndicatorsPanelProps> = ({
         setVelocityHistory([...velocityHistoryRef.current]);
       }
     } catch (err) {
-      console.error('[PumpIndicatorsPanel] Fetch error:', err);
+      Logger.error('PumpIndicatorsPanel.fetch', 'Fetch error', { error: err });
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
       setIsLoading(false);
@@ -556,15 +557,15 @@ const PumpIndicatorsPanel: React.FC<PumpIndicatorsPanelProps> = ({
             }
           }
         } catch (err) {
-          console.error('[PumpIndicatorsPanel] WS message parse error:', err);
+          Logger.error('PumpIndicatorsPanel.wsMessage', 'WS message parse error', { error: err });
         }
       };
 
       ws.onerror = (err) => {
-        console.error('[PumpIndicatorsPanel] WebSocket error:', err);
+        Logger.error('PumpIndicatorsPanel.wsError', 'WebSocket error', { error: err });
       };
     } catch (err) {
-      console.error('[PumpIndicatorsPanel] WebSocket init error:', err);
+      Logger.error('PumpIndicatorsPanel.wsInit', 'WebSocket init error', { error: err });
     }
 
     return () => {

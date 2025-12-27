@@ -18,6 +18,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { Logger } from '@/services/frontendLogService';
 import {
   Dialog,
   DialogTitle,
@@ -227,7 +228,7 @@ export const SessionConfigDialog: React.FC<SessionConfigDialogProps> = ({
           return;
         }
 
-        console.error('Failed to load strategies:', error);
+        Logger.error('SessionConfigDialog.loadStrategies', 'Failed to load strategies', { error });
 
         // Type-safe error message extraction
         const errorMessage = error instanceof Error
@@ -299,7 +300,7 @@ export const SessionConfigDialog: React.FC<SessionConfigDialogProps> = ({
           return;
         }
 
-        console.error('Failed to load symbols:', error);
+        Logger.error('SessionConfigDialog.loadSymbols', 'Failed to load symbols', { error });
 
         // Type-safe error message extraction
         const errorMessage = error instanceof Error
@@ -382,7 +383,7 @@ export const SessionConfigDialog: React.FC<SessionConfigDialogProps> = ({
           return;
         }
 
-        console.error('Failed to load data sessions:', error);
+        Logger.error('SessionConfigDialog.loadSessions', 'Failed to load data sessions', { error });
 
         // Type-safe error message extraction
         const errorMessage = error instanceof Error

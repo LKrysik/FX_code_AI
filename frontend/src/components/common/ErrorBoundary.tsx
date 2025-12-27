@@ -17,6 +17,7 @@ import {
   AccordionDetails,
   Chip,
 } from '@mui/material';
+import { Logger } from '@/services/frontendLogService';
 import {
   Error as ErrorIcon,
   Refresh as RefreshIcon,
@@ -67,7 +68,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     // Log error details
-    console.error('ErrorBoundary caught an error:', error, errorInfo);
+    Logger.error('ErrorBoundary.componentDidCatch', 'ErrorBoundary caught an error', { error, errorInfo });
 
     // Update state with error info
     this.setState({
@@ -122,7 +123,7 @@ export class ErrorBoundary extends Component<Props, State> {
     window.dispatchEvent(event);
 
     // Log financial safety activation
-    console.warn('🔒 FINANCIAL SAFETY MODE ACTIVATED due to error:', error.message);
+    Logger.warn('ErrorBoundary.financialSafety', 'FINANCIAL SAFETY MODE ACTIVATED due to error', { errorMessage: error.message });
   };
 
   private logErrorToService = (error: Error, errorInfo: ErrorInfo) => {
@@ -138,8 +139,8 @@ export class ErrorBoundary extends Component<Props, State> {
       financial: this.props.financial,
     };
 
-    // For now, just log to console with structured format
-    console.error('🚨 ERROR REPORT:', errorReport);
+    // For now, just log with structured format
+    Logger.error('ErrorBoundary.logError', 'ERROR REPORT', errorReport);
 
     // TODO: Send to error reporting service
     // errorReportingService.send(errorReport);
@@ -147,7 +148,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   private handleRetry = () => {
     if (this.state.retryCount >= this.maxRetries) {
-      console.warn('Max retry attempts reached');
+      Logger.warn('ErrorBoundary.handleRetry', 'Max retry attempts reached');
       return;
     }
 
@@ -161,7 +162,7 @@ export class ErrorBoundary extends Component<Props, State> {
     // Add exponential backoff for retries
     const delay = Math.min(1000 * Math.pow(2, this.state.retryCount), 10000);
     const timeout = setTimeout(() => {
-      console.log(`Retrying after error (attempt ${this.state.retryCount + 1})`);
+      Logger.info('ErrorBoundary.retry', `Retrying after error (attempt ${this.state.retryCount + 1})`);
     }, delay);
 
     this.retryTimeouts.push(timeout);
@@ -313,7 +314,7 @@ export function withErrorBoundary<P extends object>(
 // Hook for programmatic error handling
 export const useErrorHandler = () => {
   return (error: Error, context?: string) => {
-    console.error(`Error in ${context || 'unknown context'}:`, error);
+    Logger.error('ErrorBoundary.useErrorHandler', `Error in ${context || 'unknown context'}`, { error });
 
     // Emit custom event for error boundary
     const event = new CustomEvent('reactError', {

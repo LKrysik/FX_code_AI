@@ -58,6 +58,7 @@ import {
   TableCell,
   TableRow,
 } from '@mui/material';
+import { Logger } from '@/services/frontendLogService';
 import {
   ShowChart as ChartIcon,
   ZoomIn as ZoomInIcon,
@@ -273,7 +274,7 @@ export const SessionChartWithMarkers: React.FC<SessionChartWithMarkersProps> = (
             ohlcv = data.ohlcv || data.data || [];
           }
         } catch (e) {
-          console.warn('OHLCV fetch failed, using mock data');
+          Logger.warn('SessionChartWithMarkers.loadData', 'OHLCV fetch failed, using mock data');
         }
 
         try {
@@ -285,7 +286,7 @@ export const SessionChartWithMarkers: React.FC<SessionChartWithMarkersProps> = (
             trans = data.transitions || [];
           }
         } catch (e) {
-          console.warn('Transitions fetch failed, using mock data');
+          Logger.warn('SessionChartWithMarkers.loadData', 'Transitions fetch failed, using mock data');
         }
 
         // Fallback to mock data if API fails

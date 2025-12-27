@@ -26,6 +26,7 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Logger } from '@/services/frontendLogService';
 import { Box, Typography, CircularProgress, Alert, IconButton, Tooltip, Chip, ToggleButtonGroup, ToggleButton } from '@mui/material';
 import { ZoomOutMap as ResetZoomIcon, Info as InfoIcon } from '@mui/icons-material';
 import { createChart, IChartApi, ISeriesApi, CandlestickData, Time, CandlestickSeries } from 'lightweight-charts';
@@ -178,7 +179,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
       // Validate real data - no fallback to mock
       if (!ohlcvData.candles || ohlcvData.candles.length === 0) {
-        console.warn('No OHLCV data available for', symbol);
+        Logger.warn('CandlestickChart.loadData', 'No OHLCV data available', { symbol });
         setCandleData([]);
         setError('No chart data available. Start data collection to see chart.');
       } else {
@@ -199,7 +200,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           setStateTransitions(symbolTransitions);
         }
       } else {
-        console.warn('State transitions endpoint not available (expected for MVP)');
+        Logger.warn('CandlestickChart.loadTransitions', 'State transitions endpoint not available (expected for MVP)');
         setStateTransitions([]);
       }
     } catch (err) {
@@ -207,7 +208,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       if (err instanceof Error && err.name === 'AbortError') {
         return;
       }
-      console.error('Failed to load chart data:', err);
+      Logger.error('CandlestickChart.loadData', 'Failed to load chart data', { error: err });
       setCandleData([]);
       setError(`Failed to load chart data: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
@@ -427,9 +428,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const series = candlestickSeriesRef.current as any;
     if (typeof series.setMarkers === 'function') {
       series.setMarkers(markers);
-      console.log(`[CandlestickChart] Applied ${markers.length} state machine markers to chart`);
+      Logger.debug('CandlestickChart.applyMarkers', `Applied ${markers.length} state machine markers to chart`);
     } else {
-      console.warn('[CandlestickChart] setMarkers not available on series - markers not applied');
+      Logger.warn('CandlestickChart.applyMarkers', 'setMarkers not available on series - markers not applied');
     }
   }, [stateTransitions]);
 
@@ -493,7 +494,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         });
       }
 
-      console.log(`[CandlestickChart] CH-03: Price lines updated - Entry: ${positionLines.entryPrice}, SL: ${positionLines.stopLoss}, TP: ${positionLines.takeProfit}`);
+      Logger.debug('CandlestickChart.priceLines', 'CH-03: Price lines updated', { entryPrice: positionLines.entryPrice, stopLoss: positionLines.stopLoss, takeProfit: positionLines.takeProfit });
     }
   }, [positionLines]);
 
@@ -633,7 +634,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           };
 
       setDrawings((prev) => [...prev, newDrawing]);
-      console.log(`[CandlestickChart] Drawing saved:`, newDrawing);
+      Logger.debug('CandlestickChart.drawingSaved', 'Drawing saved', { drawing: newDrawing });
     }
 
     // Reset drawing state

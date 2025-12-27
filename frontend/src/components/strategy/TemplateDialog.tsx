@@ -16,6 +16,7 @@ import {
   Alert,
   InputAdornment,
 } from '@mui/material';
+import { Logger } from '@/services/frontendLogService';
 import {
   Search as SearchIcon,
   Close as CloseIcon,
@@ -165,16 +166,16 @@ export const TemplateDialog: React.FC<TemplateDialogProps> = ({
     try {
       await fetch(`/api/templates/${templateId}/view`, { method: 'POST' });
     } catch (err) {
-      console.error('Failed to track view:', err);
+      Logger.error('TemplateDialog.viewTemplate', 'Failed to track view', { error: err });
     }
 
     // TODO: Open template details dialog
-    console.log('View template:', templateId);
+    Logger.debug('TemplateDialog.viewTemplate', 'View template', { templateId });
   };
 
   const handleForkTemplate = async (templateId: string) => {
     // TODO: Implement fork functionality
-    console.log('Fork template:', templateId);
+    Logger.debug('TemplateDialog.forkTemplate', 'Fork template', { templateId });
   };
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: TabValue) => {

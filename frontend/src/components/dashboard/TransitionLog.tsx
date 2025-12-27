@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { Logger } from '@/services/frontendLogService';
 import {
   Box,
   Paper,
@@ -112,7 +113,7 @@ function formatTime(isoString: string): string {
       second: '2-digit'
     });
   } catch (error) {
-    console.error('Error formatting time:', error);
+    Logger.error('TransitionLog.formatTime', 'Error formatting time', { error });
     return 'Invalid time';
   }
 }
@@ -132,7 +133,7 @@ function formatFullTimestamp(isoString: string): string {
       second: '2-digit'
     });
   } catch (error) {
-    console.error('Error formatting timestamp:', error);
+    Logger.error('TransitionLog.formatTimestamp', 'Error formatting timestamp', { error });
     return 'Invalid timestamp';
   }
 }

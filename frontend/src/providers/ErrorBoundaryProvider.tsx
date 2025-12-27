@@ -12,6 +12,7 @@ import { Box, Button, Typography, Paper, Alert } from '@mui/material';
 import { ErrorBoundary, useErrorHandler } from '@/components/common/ErrorBoundary';
 import { useUIStore } from '@/stores/uiStore';
 import { useWebSocketStore } from '@/stores/websocketStore';
+import { Logger } from '@/services/frontendLogService';
 
 interface ErrorBoundaryProviderProps {
   children: ReactNode;
@@ -179,7 +180,7 @@ export const ErrorBoundaryProvider: React.FC<ErrorBoundaryProviderProps> = ({ ch
   // Custom event listener for financial errors
   React.useEffect(() => {
     const handleFinancialError = (event: CustomEvent) => {
-      console.error('🚨 FINANCIAL ERROR EVENT:', event.detail);
+      Logger.error('ErrorBoundaryProvider.financialError', 'FINANCIAL ERROR EVENT', { detail: event.detail });
       // Could trigger additional safety measures here
     };
 
@@ -203,7 +204,7 @@ export const ErrorBoundaryProvider: React.FC<ErrorBoundaryProviderProps> = ({ ch
       )}
       onError={(error, errorInfo) => {
         // Log to external service
-        console.error('Global error caught:', error, errorInfo);
+        Logger.error('ErrorBoundaryProvider.globalError', 'Global error caught', { error: error.message, componentStack: errorInfo?.componentStack });
 
         // Send to error reporting service (if available)
         // errorReportingService.send({
@@ -237,7 +238,7 @@ export const PageErrorBoundary: React.FC<{ children: ReactNode }> = ({ children 
         />
       )}
       onError={(error, errorInfo) => {
-        console.error('Page error caught:', error, errorInfo);
+        Logger.error('PageErrorBoundary.error', 'Page error caught', { error: error.message, componentStack: errorInfo?.componentStack });
       }}
       financial={false}
       showDetails={process.env.NODE_ENV === 'development'}

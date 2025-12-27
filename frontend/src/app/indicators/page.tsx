@@ -21,6 +21,7 @@ import { VariantComparison } from '@/components/indicators/VariantComparison';
 import { VariantChartPreview } from '@/components/indicators/VariantChartPreview';
 import { SignalCountTest } from '@/components/indicators/SignalCountTest';
 import { IndicatorVariant } from '@/types/strategy';
+import { Logger } from '@/services/frontendLogService';
 
 
 export default function IndicatorsPage() {
@@ -87,7 +88,7 @@ export default function IndicatorsPage() {
         <VariantChartPreview
           variant={selectedVariant}
           onPumpDetected={(pump) => {
-            console.log('Pump detected:', pump);
+            Logger.info('IndicatorsPage.onPumpDetected', 'Pump detected', { pump });
           }}
         />
       )}

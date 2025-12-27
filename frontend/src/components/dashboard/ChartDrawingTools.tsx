@@ -17,6 +17,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
+import { Logger } from '@/services/frontendLogService';
 import {
   Box,
   IconButton,
@@ -141,7 +142,7 @@ export const ChartDrawingTools: React.FC<ChartDrawingToolsProps> = ({
         }
       }
     } catch (err) {
-      console.warn('Failed to load drawings from localStorage:', err);
+      Logger.warn('ChartDrawingTools.loadDrawings', 'Failed to load drawings from localStorage', { error: err });
     }
   }, [symbol, storageKey, onDrawingsChange]);
 
@@ -150,7 +151,7 @@ export const ChartDrawingTools: React.FC<ChartDrawingToolsProps> = ({
     try {
       localStorage.setItem(storageKey, JSON.stringify(drawings));
     } catch (err) {
-      console.warn('Failed to save drawings to localStorage:', err);
+      Logger.warn('ChartDrawingTools.saveDrawings', 'Failed to save drawings to localStorage', { error: err });
     }
   }, [drawings, storageKey]);
 

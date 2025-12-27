@@ -37,6 +37,7 @@ import {
   Collapse,
   Stack,
 } from '@mui/material';
+import { Logger } from '@/services/frontendLogService';
 import {
   TrendingUp as ProfitIcon,
   TrendingDown as LossIcon,
@@ -134,7 +135,7 @@ export const TradeBreakdownTable: React.FC<TradeBreakdownTableProps> = ({
         setTrades(data);
         onTradesLoad?.(data);
       } catch (err) {
-        console.error('Failed to load trades:', err);
+        Logger.error('TradeBreakdownTable.loadTrades', 'Failed to load trades', { error: err });
         // Fallback to mock data for development
         const mockTrades = generateMockTrades();
         setTrades(mockTrades);
