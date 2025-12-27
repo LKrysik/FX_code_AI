@@ -101,7 +101,7 @@ export function useStatusHeroData(
     }
 
     try {
-      const response = await apiService.getPositions(sessionId);
+      const response = await apiService.getPositions();
 
       if (response && Array.isArray(response) && response.length > 0) {
         // Get the first active position (or filter by symbol if provided)

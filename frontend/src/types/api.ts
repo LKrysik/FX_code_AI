@@ -76,10 +76,25 @@ export interface Order {
 
 // Position Types
 export interface Position {
+  session_id?: string;
+  position_id?: string;
   symbol: string;
+  side?: 'LONG' | 'SHORT';
   quantity: number;
-  avg_price: number;
+  avg_price?: number;
+  entry_price?: number;
+  current_price?: number;
+  liquidation_price?: number;
   unrealized_pnl: number;
+  unrealized_pnl_pct?: number;
+  margin?: number;
+  leverage?: number;
+  margin_ratio?: number;
+  opened_at?: string;
+  updated_at?: string;
+  status?: 'OPEN' | 'CLOSED' | 'LIQUIDATED';
+  stop_loss_price?: number;
+  take_profit_price?: number;
   strategy_name?: string;
 }
 

@@ -214,12 +214,13 @@ async def get_watchlist_data(
         symbol_list = [s.strip() for s in symbols.split(',')]
 
         # Query watchlist_cache table
+        # ✅ FIX (BUG-003-3): Use correct QuestDB LATEST ON syntax
         query = """
             SELECT symbol, latest_price, price_change_pct, volume_24h,
                    position_side, position_pnl, position_margin_ratio
             FROM watchlist_cache
             WHERE session_id = $1 AND symbol = ANY($2)
-            LATEST BY symbol
+            LATEST ON last_updated PARTITION BY symbol
         """
 
         async with questdb.pg_pool.acquire() as conn:
@@ -274,12 +275,13 @@ async def get_watchlist_data(
 async def _get_summary_from_cache(questdb: QuestDBProvider, session_id: str) -> Dict[str, Any]:
     """Read aggregated metrics from dashboard_summary_cache."""
     try:
+        # ✅ FIX (BUG-003-3): Use correct QuestDB LATEST ON syntax
         query = """
             SELECT global_pnl, total_positions, total_signals,
                    budget_utilization_pct, avg_margin_ratio, max_drawdown_pct
             FROM dashboard_summary_cache
             WHERE session_id = $1
-            LATEST BY session_id
+            LATEST ON last_updated PARTITION BY session_id
         """
 
         async with questdb.pg_pool.acquire() as conn:
@@ -324,12 +326,13 @@ async def _get_summary_from_cache(questdb: QuestDBProvider, session_id: str) -> 
 async def _get_watchlist_data(questdb: QuestDBProvider, session_id: str) -> List[Dict[str, Any]]:
     """Get watchlist data for all symbols in session."""
     try:
+        # ✅ FIX (BUG-003-3): Use correct QuestDB LATEST ON syntax
         query = """
             SELECT symbol, latest_price, price_change_pct, volume_24h,
                    position_side, position_pnl, position_margin_ratio
             FROM watchlist_cache
             WHERE session_id = $1
-            LATEST BY symbol
+            LATEST ON last_updated PARTITION BY symbol
             LIMIT 20
         """
 

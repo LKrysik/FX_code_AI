@@ -242,6 +242,8 @@ export default function TradingSessionPage() {
         name: `${mode}_${Date.now()}`,
         symbols: selectedSymbols,
         strategy_config: strategyConfig,
+        // ✅ FIX (BUG-003-1): Pass selected_strategies for session filtering
+        selected_strategies: selectedStrategies,
         config: {
           global_budget: globalBudget,
           max_position_size: maxPositionSize,

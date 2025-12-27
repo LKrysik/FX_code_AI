@@ -89,7 +89,7 @@ export function useStateMachineState(): UseStateMachineStateReturn {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const listenerRef = useRef<((message: any) => void) | null>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
 
   /**
    * Fetch initial state from API
@@ -175,16 +175,15 @@ export function useStateMachineState(): UseStateMachineStateReturn {
 
     // Subscribe to WebSocket session updates
     if (wsService && typeof wsService.addSessionUpdateListener === 'function') {
-      listenerRef.current = handleWebSocketMessage;
-      wsService.addSessionUpdateListener(listenerRef.current, 'StateMachineState');
-
+      cleanupRef.current = wsService.addSessionUpdateListener(handleWebSocketMessage, 'StateMachineState');
       console.log('[useStateMachineState] Subscribed to WebSocket updates');
     }
 
     return () => {
       // Cleanup listener on unmount
-      if (listenerRef.current && wsService && typeof wsService.removeSessionUpdateListener === 'function') {
-        wsService.removeSessionUpdateListener(listenerRef.current);
+      if (cleanupRef.current) {
+        cleanupRef.current();
+        cleanupRef.current = null;
         console.log('[useStateMachineState] Unsubscribed from WebSocket updates');
       }
     };

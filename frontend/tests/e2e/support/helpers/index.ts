@@ -22,7 +22,7 @@ export {
   waitForFormValidation,
   clickAndWaitForResponse,
   gotoAndWaitForApi,
-} from './wait-helpers';
+} from '../wait-helpers';
 
 // Seed helpers (API-first data setup)
 export {

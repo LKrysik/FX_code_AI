@@ -77,6 +77,25 @@ development_status:
   epic-1a-retrospective: optional
 
   # ============================================================
+  # Epic BUG-003: Paper Trading Session Critical Fixes (P0)
+  # Goal: Fix critical bugs blocking Paper Trading session
+  # Source: docs/bug_003.md + logs/frontend_error.log + backend.log
+  # ============================================================
+  epic-bug-003: in-progress
+  bug-003-1-session-strategy-filtering: done  # FIXED 2025-12-27 - Filter by selected_strategies
+  bug-003-2-session-symbol-filtering: done    # FIXED 2025-12-27 - Auto-select from session symbols
+  bug-003-3-pump-indicators-api-500: done     # FIXED 2025-12-27 - QuestDB LATEST ON syntax
+  bug-003-4-indicator-values-missing: done    # FIXED 2025-12-27 - Parse indicator_type format
+  bug-003-5-live-indicators-duplicates: done  # FIXED 2025-12-27 - LATEST ON + deduplication
+  bug-003-6-active-positions-display: done    # FIXED 2025-12-27 - Correct API URL
+  bug-003-7-page-refresh-flickering: done     # FIXED 2025-12-27 - Background refresh without loading
+  bug-003-8-condition-progress-collapse: done # FIXED 2025-12-27 - Controlled accordion state
+  bug-003-9-ux-designer-review: ready-for-dev    # Requires UX Designer agent review
+  bug-003-10-e2e-test-coverage: ready-for-dev    # Requires TEA agent for E2E tests
+  bug-003-11-order-persistence-oserror: done  # FIXED 2025-12-27 - Milliseconds timestamp conversion
+  epic-bug-003-retrospective: optional
+
+  # ============================================================
   # Epic 1B: First Successful Backtest (P0)
   # Goal: Trader runs a complete backtest and sees P&L results
   # ============================================================

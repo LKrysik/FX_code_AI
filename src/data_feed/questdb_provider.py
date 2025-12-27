@@ -1110,10 +1110,11 @@ class QuestDBProvider:
         """
         await self.initialize()
 
+        # ✅ FIX (BUG-003-3): Use correct QuestDB LATEST ON syntax
         query = """
             SELECT * FROM tick_prices
             WHERE symbol = $1
-            LATEST BY symbol
+            LATEST ON timestamp PARTITION BY symbol
         """
 
         async with self.pg_pool.acquire() as conn:
@@ -1196,6 +1197,7 @@ class QuestDBProvider:
         """
         await self.initialize()
 
+        # ✅ FIX (BUG-003-3): Use correct QuestDB LATEST ON syntax
         if indicator_ids:
             placeholders = ', '.join([f'${i+2}' for i in range(len(indicator_ids))])
             query = f"""
@@ -1203,7 +1205,7 @@ class QuestDBProvider:
                 FROM indicators
                 WHERE symbol = $1
                   AND indicator_id IN ({placeholders})
-                LATEST BY indicator_id
+                LATEST ON timestamp PARTITION BY indicator_id
             """
             params = [symbol] + indicator_ids
         else:
@@ -1211,7 +1213,7 @@ class QuestDBProvider:
                 SELECT indicator_id, value
                 FROM indicators
                 WHERE symbol = $1
-                LATEST BY indicator_id
+                LATEST ON timestamp PARTITION BY indicator_id
             """
             params = [symbol]
 
@@ -1251,6 +1253,7 @@ class QuestDBProvider:
         """
         await self.initialize()
 
+        # ✅ FIX (BUG-003-3): Use correct QuestDB LATEST ON syntax
         if indicator_ids:
             placeholders = ', '.join([f'${i+2}' for i in range(len(indicator_ids))])
             query = f"""
@@ -1258,7 +1261,7 @@ class QuestDBProvider:
                 FROM indicators
                 WHERE symbol = $1
                   AND indicator_id IN ({placeholders})
-                LATEST BY indicator_id
+                LATEST ON timestamp PARTITION BY indicator_id
             """
             params = [symbol] + indicator_ids
         else:
@@ -1266,7 +1269,7 @@ class QuestDBProvider:
                 SELECT indicator_id, value, confidence, timestamp, metadata
                 FROM indicators
                 WHERE symbol = $1
-                LATEST BY indicator_id
+                LATEST ON timestamp PARTITION BY indicator_id
             """
             params = [symbol]
 

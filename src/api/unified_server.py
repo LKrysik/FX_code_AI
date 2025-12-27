@@ -2018,6 +2018,32 @@ def create_unified_app():
                         "error": str(e)
                     })
 
+            # ✅ FIX (BUG-003-2): Fallback to ExecutionController for symbols
+            # If symbols are empty, try to get from current execution session
+            if not summary["symbols"] and session_id:
+                try:
+                    controller = await app.state.rest_service.get_controller()
+                    current_session = controller.get_current_session()
+                    if current_session and current_session.session_id == session_id:
+                        symbols_data = current_session.symbols or []
+                        summary["symbols"] = [
+                            {
+                                "symbol": s,
+                                "price": 0.0,
+                                "change_24h": 0.0,
+                                "volume_24h": 0.0
+                            } for s in symbols_data
+                        ]
+                        logger.info("dashboard.symbols_from_execution_controller", {
+                            "session_id": session_id,
+                            "symbols_count": len(symbols_data)
+                        })
+                except Exception as e:
+                    logger.warning("dashboard.execution_controller_fallback_error", {
+                        "session_id": session_id,
+                        "error": str(e)
+                    })
+
             return _json_ok(summary)
 
         except Exception as e:
@@ -2403,6 +2429,11 @@ def create_unified_app():
             strategy_config = (body or {}).get("strategy_config", {}) or {}
             config = (body or {}).get("config", {}) or {}
             idempotent = bool((body or {}).get("idempotent", False))
+            # ✅ FIX (BUG-003-1): Extract selected_strategies from body or derive from strategy_config keys
+            selected_strategies = (body or {}).get("selected_strategies", []) or []
+            if not selected_strategies and strategy_config:
+                # Fallback: extract strategy names from strategy_config keys
+                selected_strategies = list(strategy_config.keys())
 
             # Resolve symbols: prefer explicit, else derive from strategy_config, else settings defaults
             symbols = (body or {}).get("symbols", []) or []
@@ -2482,7 +2513,8 @@ def create_unified_app():
                     # If session_id is missing, validation will fail with clear error message.
                     # See: command_processor.py:_validate_start_backtest() for validation logic
                     clean_cfg = _sanitize_start_config(config, ["strategy_config"])  # avoid duplicate kw
-                    session_id = await controller.start_backtest(symbols=symbols, strategy_config=strategy_config, idempotent=idempotent, **clean_cfg)
+                    # ✅ FIX (BUG-003-1): Pass selected_strategies to controller
+                    session_id = await controller.start_backtest(symbols=symbols, strategy_config=strategy_config, idempotent=idempotent, selected_strategies=selected_strategies, **clean_cfg)
                 elif session_type == "collect":
                     duration, clean_cfg = _extract_duration_and_clean_config(body)
                     session_id = await controller.start_data_collection(symbols=symbols, duration=duration, strategy_config=strategy_config, idempotent=idempotent, **clean_cfg)
@@ -2490,7 +2522,8 @@ def create_unified_app():
                     # live or paper
                     mode = "paper" if session_type == "paper" else "live"
                     clean_cfg = _sanitize_start_config(config, ["strategy_config"])  # avoid duplicate kw
-                    session_id = await controller.start_live_trading(symbols=symbols, mode=mode, strategy_config=strategy_config, idempotent=idempotent, **clean_cfg)
+                    # ✅ FIX (BUG-003-1): Pass selected_strategies to controller
+                    session_id = await controller.start_live_trading(symbols=symbols, mode=mode, strategy_config=strategy_config, idempotent=idempotent, selected_strategies=selected_strategies, **clean_cfg)
 
                 return _json_ok({
                     "status": "session_started",

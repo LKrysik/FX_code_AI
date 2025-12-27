@@ -129,8 +129,9 @@ export default function ActivePositionBanner({
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+      // ✅ FIX (BUG-003-6): Use correct endpoint /api/trading/positions
       const response = await fetch(
-        `${apiUrl}/api/positions?session_id=${sessionId}&status=OPEN`
+        `${apiUrl}/api/trading/positions?session_id=${sessionId}&status=OPEN`
       );
 
       if (!response.ok) {
@@ -175,8 +176,9 @@ export default function ActivePositionBanner({
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+      // ✅ FIX (BUG-003-6): Use correct endpoint /api/trading/positions
       const response = await fetch(
-        `${apiUrl}/api/positions/${positionId}/close`,
+        `${apiUrl}/api/trading/positions/${positionId}/close`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

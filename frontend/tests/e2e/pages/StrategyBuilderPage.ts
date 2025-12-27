@@ -3,16 +3,19 @@
  * =============================
  *
  * Visual strategy builder with:
- * - 5-section condition system (S1→O1→Z1→ZE1→E1)
+ * - 5-section condition system using Accordions (S1→Z1→O1→ZE1→Emergency)
  * - Strategy list and management
  * - Condition configuration
- * - State machine visualization
+ * - Import/Export functionality
+ *
+ * NOTE: The StrategyBuilder5Section component uses MUI Accordions,
+ * not Tabs. Each section is an expandable accordion panel.
  */
 
 import { Page, Locator, expect } from '@playwright/test';
 import { BasePage } from './BasePage';
 
-export type StrategySection = 'S1' | 'O1' | 'Z1' | 'ZE1' | 'E1';
+export type StrategySection = 'S1' | 'Z1' | 'O1' | 'ZE1' | 'Emergency';
 
 export class StrategyBuilderPage extends BasePage {
   // ============================================
@@ -28,15 +31,15 @@ export class StrategyBuilderPage extends BasePage {
   // Strategy editor
   readonly strategyNameInput: Locator;
   readonly strategyDescriptionInput: Locator;
-  readonly sectionTabs: Locator;
+  readonly sectionAccordions: Locator;
   readonly activeSection: Locator;
 
-  // Section tabs (5-section system)
-  readonly s1Tab: Locator;
-  readonly o1Tab: Locator;
-  readonly z1Tab: Locator;
-  readonly ze1Tab: Locator;
-  readonly e1Tab: Locator;
+  // Section accordions (5-section system - MUI Accordions)
+  readonly s1Accordion: Locator;
+  readonly z1Accordion: Locator;
+  readonly o1Accordion: Locator;
+  readonly ze1Accordion: Locator;
+  readonly emergencyAccordion: Locator;
 
   // Condition builder
   readonly addConditionButton: Locator;
@@ -66,15 +69,16 @@ export class StrategyBuilderPage extends BasePage {
     // Strategy editor
     this.strategyNameInput = page.locator('[data-testid="strategy-name"]');
     this.strategyDescriptionInput = page.locator('[data-testid="strategy-description"]');
-    this.sectionTabs = page.getByRole('tablist');
-    this.activeSection = page.locator('[role="tabpanel"]');
+    this.sectionAccordions = page.locator('[class*="MuiAccordion"]');
+    this.activeSection = page.locator('[class*="MuiAccordionDetails"], [class*="MuiCollapse-entered"]');
 
-    // Section tabs
-    this.s1Tab = page.getByRole('tab', { name: /S1|Start/i });
-    this.o1Tab = page.getByRole('tab', { name: /O1|Open/i });
-    this.z1Tab = page.getByRole('tab', { name: /Z1|Zone/i });
-    this.ze1Tab = page.getByRole('tab', { name: /ZE1|Zone Exit/i });
-    this.e1Tab = page.getByRole('tab', { name: /E1|Exit/i });
+    // Section accordions (MUI Accordion components)
+    // These match the AccordionSummary text patterns from StrategyBuilder5Section.tsx
+    this.s1Accordion = page.locator('[class*="MuiAccordion"]').filter({ hasText: /S1.*Signal|Signal.*Detection/i });
+    this.z1Accordion = page.locator('[class*="MuiAccordion"]').filter({ hasText: /Z1.*Entry|Order.*Entry/i });
+    this.o1Accordion = page.locator('[class*="MuiAccordion"]').filter({ hasText: /O1.*Cancel|Signal.*Cancel/i });
+    this.ze1Accordion = page.locator('[class*="MuiAccordion"]').filter({ hasText: /ZE1.*Close|Order.*Closing/i });
+    this.emergencyAccordion = page.locator('[class*="MuiAccordion"]').filter({ hasText: /Emergency/i });
 
     // Condition builder
     this.addConditionButton = page.getByRole('button', { name: /Add Condition/i });
@@ -119,14 +123,19 @@ export class StrategyBuilderPage extends BasePage {
   }
 
   async selectSection(section: StrategySection): Promise<void> {
-    const tabMap = {
-      S1: this.s1Tab,
-      O1: this.o1Tab,
-      Z1: this.z1Tab,
-      ZE1: this.ze1Tab,
-      E1: this.e1Tab,
+    const accordionMap = {
+      S1: this.s1Accordion,
+      Z1: this.z1Accordion,
+      O1: this.o1Accordion,
+      ZE1: this.ze1Accordion,
+      Emergency: this.emergencyAccordion,
     };
-    await tabMap[section].click();
+    // Click on the accordion summary to expand/collapse
+    const accordion = accordionMap[section];
+    const summary = accordion.locator('[class*="MuiAccordionSummary"]');
+    await summary.click();
+    // Wait for expansion animation
+    await this.page.waitForTimeout(300);
   }
 
   async addCondition(): Promise<void> {
@@ -232,10 +241,10 @@ export class StrategyBuilderPage extends BasePage {
     await expect(this.strategyRows.filter({ hasText: strategyName })).toBeVisible();
   }
 
-  async expectSectionTabsVisible(): Promise<void> {
-    await expect(this.sectionTabs).toBeVisible();
-    await expect(this.s1Tab).toBeVisible();
-    await expect(this.e1Tab).toBeVisible();
+  async expectSectionAccordionsVisible(): Promise<void> {
+    await expect(this.sectionAccordions.first()).toBeVisible();
+    await expect(this.s1Accordion).toBeVisible();
+    await expect(this.emergencyAccordion).toBeVisible();
   }
 
   async expectConditionBlockCount(count: number): Promise<void> {
@@ -272,8 +281,21 @@ export class StrategyBuilderPage extends BasePage {
     return this.conditionBlocks.count();
   }
 
-  async getActiveSection(): Promise<string | null> {
-    const activeTab = this.page.locator('[role="tab"][aria-selected="true"]');
-    return activeTab.textContent();
+  async getExpandedSections(): Promise<string[]> {
+    // Find all expanded accordions (MUI uses aria-expanded or class Mui-expanded)
+    const expandedAccordions = this.page.locator('[class*="MuiAccordion"][class*="Mui-expanded"], [class*="MuiAccordion"][aria-expanded="true"]');
+    const count = await expandedAccordions.count();
+    const sections: string[] = [];
+
+    for (let i = 0; i < count; i++) {
+      const text = await expandedAccordions.nth(i).locator('[class*="MuiAccordionSummary"]').textContent();
+      if (text) sections.push(text.trim());
+    }
+
+    return sections;
+  }
+
+  async getAccordionCount(): Promise<number> {
+    return this.sectionAccordions.count();
   }
 }

@@ -58,13 +58,14 @@ const getTypeColor = (type: string): string => TYPE_COLORS[type] || '#757575';
 const formatTimestamp = (iso: string): string => {
   try {
     const date = new Date(iso);
-    return date.toLocaleTimeString('en-US', {
+    const timeStr = date.toLocaleTimeString('en-US', {
       hour12: false,
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
-      fractionalSecondDigits: 3,
     });
+    const ms = date.getMilliseconds().toString().padStart(3, '0');
+    return `${timeStr}.${ms}`;
   } catch {
     return iso;
   }

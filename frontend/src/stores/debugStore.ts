@@ -136,7 +136,7 @@ export const useDebugStore = create<DebugState>()(
 
           set({ activeFilters: newFilters });
           if (typeof window !== 'undefined') {
-            localStorage.setItem('debugPanel.filters', JSON.stringify([...newFilters]));
+            localStorage.setItem('debugPanel.filters', JSON.stringify(Array.from(newFilters)));
           }
         },
 

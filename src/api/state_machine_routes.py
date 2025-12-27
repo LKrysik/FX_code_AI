@@ -141,12 +141,29 @@ async def get_session_state(
 
         # Get strategy instances from StrategyManager
         # For each symbol in the session, get active strategies
+        # ✅ FIX (BUG-003-1): Filter by session's selected_strategies
+        selected_strategies = session.parameters.get("selected_strategies", [])
+
         if strategy_manager and session.symbols:
+            seen_strategy_symbols = set()  # Deduplicate entries
+
             for symbol in session.symbols:
                 try:
                     active_strategies = strategy_manager.get_active_strategies_for_symbol(symbol)
 
                     for strategy_info in active_strategies:
+                        strategy_name = strategy_info.get("strategy_name", "")
+
+                        # ✅ Filter: Only show strategies that were selected for this session
+                        # If selected_strategies is empty, show all (backwards compatibility)
+                        if selected_strategies and strategy_name not in selected_strategies:
+                            continue
+
+                        # ✅ Deduplicate: Skip if already added for this symbol
+                        key = f"{strategy_name}:{symbol}"
+                        if key in seen_strategy_symbols:
+                            continue
+                        seen_strategy_symbols.add(key)
                         # Get full strategy details to include state_since timestamp
                         strategy = strategy_manager.strategies.get(strategy_info["strategy_name"])
 

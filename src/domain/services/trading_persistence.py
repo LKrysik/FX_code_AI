@@ -24,6 +24,22 @@ from ...core.logger import StructuredLogger
 from ...core.event_bus import EventBus
 
 
+def _safe_timestamp_to_datetime(timestamp) -> datetime:
+    """
+    Convert timestamp to datetime, handling both seconds and milliseconds.
+
+    ✅ FIX (BUG-003-11): Many systems send timestamps in milliseconds,
+    but datetime.fromtimestamp() expects seconds. If timestamp > 10 billion,
+    it's milliseconds and needs to be divided by 1000.
+    """
+    if isinstance(timestamp, (int, float)):
+        # If timestamp is in milliseconds (> 10 billion), convert to seconds
+        if timestamp > 10_000_000_000:
+            timestamp = timestamp / 1000.0
+        return datetime.fromtimestamp(timestamp)
+    return timestamp
+
+
 class TradingPersistenceService:
     """
     Unified trading persistence for all modes (live/paper/backtest).
@@ -217,11 +233,8 @@ class TradingPersistenceService:
             indicators_json = json.dumps(indicator_values) if indicator_values else None
             metadata_json = json.dumps(metadata) if metadata else None
 
-            # Convert timestamp to datetime
-            if isinstance(timestamp, (int, float)):
-                timestamp_dt = datetime.fromtimestamp(timestamp)
-            else:
-                timestamp_dt = timestamp
+            # Convert timestamp to datetime (handles milliseconds)
+            timestamp_dt = _safe_timestamp_to_datetime(timestamp)
 
             # Insert into strategy_signals table
             query = """
@@ -304,11 +317,8 @@ class TradingPersistenceService:
             status = data.get("status", "NEW").upper()
             metadata = data.get("metadata", {})
 
-            # Convert timestamp
-            if isinstance(timestamp, (int, float)):
-                timestamp_dt = datetime.fromtimestamp(timestamp)
-            else:
-                timestamp_dt = timestamp
+            # Convert timestamp to datetime (handles milliseconds)
+            timestamp_dt = _safe_timestamp_to_datetime(timestamp)
 
             # Convert metadata to JSON
             metadata_json = json.dumps(metadata) if metadata else None
@@ -486,11 +496,8 @@ class TradingPersistenceService:
             status = "OPEN"
             metadata = data.get("metadata", {})
 
-            # Convert timestamp
-            if isinstance(timestamp, (int, float)):
-                timestamp_dt = datetime.fromtimestamp(timestamp)
-            else:
-                timestamp_dt = timestamp
+            # Convert timestamp to datetime (handles milliseconds)
+            timestamp_dt = _safe_timestamp_to_datetime(timestamp)
 
             metadata_json = json.dumps(metadata) if metadata else None
 
@@ -572,14 +579,8 @@ class TradingPersistenceService:
             liquidation_price = float(data.get("liquidation_price", 0))
             timestamp = data.get("timestamp", time.time())
 
-            # Convert timestamp to datetime
-            if isinstance(timestamp, (int, float)):
-                # Handle milliseconds
-                if timestamp > 1e12:  # Milliseconds
-                    timestamp = timestamp / 1000.0
-                timestamp_dt = datetime.fromtimestamp(timestamp)
-            else:
-                timestamp_dt = timestamp
+            # Convert timestamp to datetime (handles milliseconds)
+            timestamp_dt = _safe_timestamp_to_datetime(timestamp)
 
             async with self._pool.acquire() as conn:
                 if status_value == "opened":

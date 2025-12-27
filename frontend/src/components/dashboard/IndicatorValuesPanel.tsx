@@ -221,6 +221,49 @@ export const IndicatorValuesPanel: React.FC<IndicatorValuesProps> = ({
 
         // Handle both direct data and nested data structures
         const data = message.data || message;
+
+        // Filter by symbol if specified
+        if (data.symbol && data.symbol !== symbol) return;
+
+        // ✅ FIX (BUG-003-4): Handle individual indicator updates from backend
+        // Backend sends: { symbol, indicator, indicator_type, value, timestamp }
+        // We need to extract indicator_type as the key and value as the value
+        if (data.indicator_type && data.value !== undefined) {
+          const indicatorType = data.indicator_type.toLowerCase();
+          const config = MVP_INDICATORS.find((i) => i.key === indicatorType);
+
+          if (config) {
+            const numValue = typeof data.value === 'number' ? data.value : null;
+            const now = new Date().toISOString();
+
+            setIndicatorValues((prev) => {
+              const updated = new Map(prev);
+              const previousValue = previousValuesRef.current.get(config.key) ?? null;
+              const trend = determineTrend(numValue, previousValue);
+
+              if (numValue !== null) {
+                previousValuesRef.current.set(config.key, numValue);
+              }
+
+              updated.set(config.key, {
+                key: config.key,
+                label: config.label,
+                value: numValue,
+                formattedValue: formatIndicatorValue(numValue, config.unit),
+                unit: config.unit,
+                trend,
+                lastUpdate: now,
+              });
+
+              return updated;
+            });
+
+            setLastUpdate(new Date().toISOString());
+          }
+          return;
+        }
+
+        // Handle aggregated format: { indicators: { twpa: value, ... } }
         const indicatorData = data.indicators || data;
 
         // Validate indicatorData is an object we can iterate
@@ -228,9 +271,6 @@ export const IndicatorValuesPanel: React.FC<IndicatorValuesProps> = ({
           console.warn('[IndicatorValuesPanel] Invalid indicator data format:', indicatorData);
           return;
         }
-
-        // Filter by symbol if specified
-        if (data.symbol && data.symbol !== symbol) return;
 
         setIndicatorValues((prev) => {
           const updated = new Map(prev);

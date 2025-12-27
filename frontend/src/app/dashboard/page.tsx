@@ -154,7 +154,18 @@ function DashboardContent() {
   const [dashboardData, setDashboardData] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [isSessionRunning, setIsSessionRunning] = useState(false);
-  const [selectedSymbol, setSelectedSymbol] = useState<string>('BTC_USDT');
+  const [selectedSymbol, setSelectedSymbol] = useState<string>('');
+
+  // ✅ FIX (BUG-003-2): Auto-select first symbol from session when dashboard data loads
+  useEffect(() => {
+    if (dashboardData?.symbols && dashboardData.symbols.length > 0) {
+      const firstSymbol = dashboardData.symbols[0]?.symbol;
+      if (firstSymbol && firstSymbol !== selectedSymbol) {
+        console.log('[BUG-003-2] Auto-selecting first symbol from session:', firstSymbol);
+        setSelectedSymbol(firstSymbol);
+      }
+    }
+  }, [dashboardData?.symbols]);
 
   // Story 1A-2: State Machine State for Hero Badge
   const { currentState: stateMachineState, since: stateSince } = useStateMachineState();
@@ -225,15 +236,20 @@ function DashboardContent() {
    * Performance target: <100ms
    * FIX: Proper AbortController usage with cleanup
    */
-  const loadDashboardData = useCallback(async (signal?: AbortSignal) => {
-    console.log('[DEBUG] loadDashboardData called', { sessionId, signal });
+  const loadDashboardData = useCallback(async (signal?: AbortSignal, isBackgroundRefresh = false) => {
+    console.log('[DEBUG] loadDashboardData called', { sessionId, signal, isBackgroundRefresh });
     if (!sessionId) {
       console.log('[DEBUG] loadDashboardData SKIPPED - no sessionId');
       return;
     }
 
     console.log('[DEBUG] loadDashboardData STARTING fetch');
-    setLoading(true);
+    // ✅ FIX (BUG-003-7): Only show loading on initial load, not on background refreshes
+    // This prevents UI flickering during periodic updates
+    const shouldShowLoading = !isBackgroundRefresh;
+    if (shouldShowLoading) {
+      setLoading(true);
+    }
     try {
       // OPTIMIZED: Single request for all dashboard data
       const response = await fetch(
@@ -257,6 +273,19 @@ function DashboardContent() {
       // Handle envelope response format
       const data = result.data || result;
 
+      // ✅ FIX (BUG-003-5): Deduplicate symbols to prevent duplicate LiveIndicatorPanel rendering
+      if (data.symbols && Array.isArray(data.symbols)) {
+        const seen = new Set<string>();
+        data.symbols = data.symbols.filter((s: { symbol: string }) => {
+          if (seen.has(s.symbol)) {
+            console.log('[BUG-003-5] Removed duplicate symbol:', s.symbol);
+            return false;
+          }
+          seen.add(s.symbol);
+          return true;
+        });
+      }
+
       console.log('[DEBUG] loadDashboardData SUCCESS', { data });
       setDashboardData(data);
     } catch (error) {
@@ -279,8 +308,11 @@ function DashboardContent() {
         severity: 'error',
       });
     } finally {
-      console.log('[DEBUG] loadDashboardData FINALLY - setLoading(false)');
-      setLoading(false);
+      // ✅ FIX (BUG-003-7): Only clear loading if we set it (not on background refresh)
+      if (!isBackgroundRefresh) {
+        console.log('[DEBUG] loadDashboardData FINALLY - setLoading(false)');
+        setLoading(false);
+      }
     }
   }, [sessionId]);
 
@@ -470,7 +502,8 @@ function DashboardContent() {
         // Create new abort controller for this fetch
         console.log('[DEBUG] interval CALLING loadDashboardData');
         abortControllerRef.current = new AbortController();
-        loadDashboardData(abortControllerRef.current.signal);
+        // ✅ FIX (BUG-003-7): Pass isBackgroundRefresh=true to prevent flickering
+        loadDashboardData(abortControllerRef.current.signal, true);
       }
     },
     2000 // 2-second refresh for real-time feel

@@ -509,14 +509,16 @@ FR10-FR17 (Signal Generation) are **VERIFICATION** of existing functionality, NO
 | Epic | Name | Stories | Priority | User Value |
 |------|------|---------|----------|------------|
 | 0 | Foundation & Pipeline Unblock | 8 | P0 (foundation) | "Plumbing works, I can debug" |
+| SEC-0 | Critical Security Fixes | 3 | P0 | "System is secure" |
 | 1A | First Signal Visible | 8 | P0 | "I see a signal!" |
+| **BUG-003** | **Paper Trading Session Fixes** | **11** | **P0** | **"Paper trading works correctly"** |
 | 1B | First Successful Backtest | 9 | P0 | "I made simulated profit!" |
 | 2 | Complete Strategy Configuration | 11 | P1 | "I can build my strategy" |
 | 3 | Transparency & Diagnostics | 9 | P1 | "I understand why" |
 | 4 | Production Reliability | 13 | P2* | "I can trust it" |
 | 5 | Dashboard Experience Polish | UX | P3 | "It's beautiful & intuitive" |
 
-**Total:** 42 FRs + 37 UX requirements covered across 6 epics + 1 foundation
+**Total:** 42 FRs + 37 UX requirements covered across 6 epics + 1 foundation + 2 bug fix epics
 
 *\* P2 but consider P1 if 3-month live trading timeline is firm (Trader B feedback)*
 
@@ -562,6 +564,55 @@ Based on User Persona Focus Group feedback, these features are valuable but not 
 | **Backtesting as a Service** | Cloud-based backtesting for larger datasets |
 | **Real-Time Alerts** | Push notifications for signals and P&L thresholds |
 | **Multi-Exchange Support** | Beyond MEXC to Binance, Bybit, etc. |
+
+---
+
+## Bug Fix Epics
+
+### Epic SEC-0: Critical Security Fixes
+**Goal:** Address critical security vulnerabilities before feature development.
+
+**User Value:** "The system is secure and won't have race conditions or injection attacks."
+
+**Status:** DONE (completed 2025-12-27)
+
+**Stories:**
+1. **Position Operation Locking** - PositionLockManager prevents race conditions (14 tests)
+2. **Strategy JSON Validation** - Allowlist validation, security logging
+3. **WebSocket State Reconciliation** - State desync fix for reliable connections
+
+---
+
+### Epic BUG-003: Paper Trading Session Critical Fixes
+**Goal:** Fix critical bugs blocking Paper Trading session discovered 2025-12-27.
+
+**User Value:** "When I start a Paper Trading session, it shows ONLY what I selected with real indicator values."
+
+**Source:** `docs/bug_003.md` + `logs/frontend_error.log` + `logs/backend.log`
+
+**Status:** BACKLOG - Priority P0
+
+**Log Analysis Evidence:**
+- Positions API 404: 249 occurrences (ActivePositionBanner.tsx:92)
+- Pump Indicators API 500: 236 occurrences (PumpIndicatorsPanel.tsx:522)
+- Live Indicators API 500: 95 occurrences (LiveIndicatorPanel.tsx:68)
+- Backend OSError: Order persistence failure `[Errno 22] Invalid argument`
+- active_count: 4 strategies running when 1 selected
+
+**Stories:**
+1. **Session Strategy Filtering** - Fix: Multiple strategies shown when 1 selected (P0)
+2. **Session Symbol Filtering** - Fix: Wrong symbols (BTC_USDT instead of selected) (P0)
+3. **Pump Indicators API 500** - Fix: API error 500 (236 occurrences) (P0)
+4. **Indicator Values Missing** - Fix: Values show "--" not actual values (P0)
+5. **Live Indicators Duplicates** - Fix: Duplicate AEVO_USDT entries (P1)
+6. **Active Positions Display** - Fix: Oversized symbol, API 404 (249 occurrences) (P1)
+7. **Page Refresh Flickering** - Fix: Severe UI flickering/jumping (P1)
+8. **Condition Progress Collapse** - Fix: Auto-collapse on data refresh (P2)
+9. **UX Designer Review** - Overall interface readability review (P2)
+10. **E2E Test Coverage** - E2E tests for paper/live/backtest flows (P1)
+11. **Order Persistence OSError** - Fix: Backend OSError on order save (P0)
+
+**Full details:** `_bmad-output/stories/bug-003-epic.md`
 
 ---
 

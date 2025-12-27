@@ -27,6 +27,13 @@ jest.mock('@mui/material', () => ({
   LinearProgress: ({ value }: any) => (
     <div data-testid="progress-bar" data-value={value} />
   ),
+  // Story 1A-6: Added useTheme mock for signal type color coding
+  useTheme: () => ({
+    palette: {
+      mode: 'light',
+    },
+  }),
+  alpha: (color: string, opacity: number) => `rgba(${color}, ${opacity})`,
 }));
 
 jest.mock('@mui/icons-material', () => ({
@@ -53,12 +60,14 @@ describe('SignalCard', () => {
 
     it('displays signal type as PUMP for pump signals', () => {
       render(<SignalCard {...defaultProps} signalType="pump" />);
-      expect(screen.getByTestId('chip')).toHaveTextContent('PUMP');
+      // Story 1A-6: Uses human-readable label with emoji
+      expect(screen.getByTestId('chip')).toHaveTextContent('Pump Detected');
     });
 
     it('displays signal type as DUMP for dump signals', () => {
       render(<SignalCard {...defaultProps} signalType="dump" />);
-      expect(screen.getByTestId('chip')).toHaveTextContent('DUMP');
+      // Story 1A-6: Uses human-readable label with emoji
+      expect(screen.getByTestId('chip')).toHaveTextContent('Dump Detected');
     });
 
     it('displays magnitude with percentage', () => {

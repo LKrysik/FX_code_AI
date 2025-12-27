@@ -261,6 +261,36 @@ const ConditionProgress: React.FC<ConditionProgressProps> = ({
   currentState,
   isLoading = false,
 }) => {
+  // ✅ FIX (BUG-003-8): Track expanded state to persist across data refreshes
+  // This prevents accordion from auto-collapsing when props change
+  const [expandedSections, setExpandedSections] = React.useState<Set<string>>(() => {
+    // Initialize with active sections expanded
+    const initialExpanded = new Set<string>();
+    groups.forEach((group) => {
+      const config = SECTION_CONFIG[group.section];
+      if (config.associatedStates.includes(currentState)) {
+        initialExpanded.add(group.section);
+      }
+    });
+    return initialExpanded;
+  });
+
+  // Handle accordion toggle
+  const handleAccordionChange = (section: string) => (
+    _event: React.SyntheticEvent,
+    isExpanded: boolean
+  ) => {
+    setExpandedSections((prev) => {
+      const next = new Set(prev);
+      if (isExpanded) {
+        next.add(section);
+      } else {
+        next.delete(section);
+      }
+      return next;
+    });
+  };
+
   // ========================================
   // Render Helpers
   // ========================================
@@ -334,7 +364,9 @@ const ConditionProgress: React.FC<ConditionProgressProps> = ({
     return (
       <Accordion
         key={group.section}
-        defaultExpanded={isActive}
+        // ✅ FIX (BUG-003-8): Use controlled expanded state to persist user's selection
+        expanded={expandedSections.has(group.section)}
+        onChange={handleAccordionChange(group.section)}
         sx={{
           mb: 2,
           border: '2px solid',

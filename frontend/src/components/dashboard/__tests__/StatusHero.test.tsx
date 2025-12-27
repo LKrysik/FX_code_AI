@@ -60,8 +60,8 @@ describe('StatusHero Component', () => {
 
     it('displays state label prominently', () => {
       render(<StatusHero state="MONITORING" />);
-
-      expect(screen.getByText('WATCHING')).toBeInTheDocument();
+      // Story 1A-4: Uses human vocabulary label
+      expect(screen.getByText('Watching')).toBeInTheDocument();
     });
 
     it('displays state icon', () => {
@@ -239,20 +239,20 @@ describe('StatusHero Component', () => {
     });
   });
 
-  // Test state labels match vocabulary
+  // Test state labels match vocabulary (Story 1A-4: Human Vocabulary Labels)
   describe('State Labels', () => {
     const stateLabels: Record<string, string> = {
-      MONITORING: 'WATCHING',
-      S1: 'FOUND!',
-      O1: 'FALSE ALARM',
-      Z1: 'ENTERING',
-      POSITION_ACTIVE: 'IN POSITION',
-      ZE1: 'TAKING PROFIT',
-      E1: 'STOPPING LOSS',
-      INACTIVE: 'INACTIVE',
-      SIGNAL_DETECTED: 'FOUND!',
-      EXITED: 'EXITED',
-      ERROR: 'ERROR',
+      MONITORING: 'Watching',
+      S1: 'Found!',
+      O1: 'False Alarm',
+      Z1: 'Entering',
+      POSITION_ACTIVE: 'In Position',
+      ZE1: 'Taking Profit',
+      E1: 'Stopping Loss',
+      INACTIVE: 'Inactive',
+      SIGNAL_DETECTED: 'Found!',
+      EXITED: 'Exited',
+      ERROR: 'Error',
     };
 
     Object.entries(stateLabels).forEach(([state, label]) => {
