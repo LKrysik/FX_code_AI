@@ -9,74 +9,23 @@ import {
   alpha
 } from '@mui/material';
 
-// ============================================================================
-// TYPES
-// ============================================================================
+// Import centralized vocabulary (Story 1A-4: Human Vocabulary Labels - AC4)
+import {
+  StateMachineState,
+  StateVocabulary,
+  STATE_VOCABULARY,
+  getStateVocabulary
+} from '@/utils/stateVocabulary';
 
-export type StateMachineState =
-  | 'INACTIVE'
-  | 'MONITORING'
-  | 'SIGNAL_DETECTED'
-  | 'POSITION_ACTIVE'
-  | 'EXITED'
-  | 'ERROR';
+// Re-export type for consumers
+export type { StateMachineState };
 
 export interface StateBadgeProps {
   state: StateMachineState;
   since?: string; // ISO timestamp
-  size?: 'small' | 'medium' | 'large';
+  size?: 'small' | 'medium' | 'large' | 'hero';
   showDuration?: boolean;
 }
-
-// ============================================================================
-// STATE CONFIGURATION
-// ============================================================================
-
-interface StateConfig {
-  color: string;
-  label: string;
-  icon: string;
-  description: string;
-}
-
-const STATE_CONFIG: Record<StateMachineState, StateConfig> = {
-  INACTIVE: {
-    color: '#9e9e9e',
-    label: 'Inactive',
-    icon: '⏸️',
-    description: 'System is not actively monitoring markets'
-  },
-  MONITORING: {
-    color: '#4caf50',
-    label: 'Monitoring',
-    icon: '👁️',
-    description: 'Actively scanning markets for trading signals'
-  },
-  SIGNAL_DETECTED: {
-    color: '#ff9800',
-    label: 'Signal',
-    icon: '⚡',
-    description: 'Trading signal detected - evaluating entry conditions'
-  },
-  POSITION_ACTIVE: {
-    color: '#f44336',
-    label: 'In Position',
-    icon: '📍',
-    description: 'Active position open - monitoring exit conditions'
-  },
-  EXITED: {
-    color: '#2196f3',
-    label: 'Exited',
-    icon: '✓',
-    description: 'Position closed successfully'
-  },
-  ERROR: {
-    color: '#d32f2f',
-    label: 'Error',
-    icon: '⚠️',
-    description: 'System error detected - check logs'
-  }
-};
 
 // ============================================================================
 // STYLED COMPONENTS
@@ -131,20 +80,72 @@ function calculateDuration(since: string): string {
 /**
  * Get chip size variant
  */
-function getChipSize(size?: 'small' | 'medium' | 'large'): 'small' | 'medium' {
+function getChipSize(size?: 'small' | 'medium' | 'large' | 'hero'): 'small' | 'medium' {
   // MUI Chip only supports 'small' and 'medium'
+  // Hero and large use 'medium' as base with custom styling
   if (size === 'small') return 'small';
   return 'medium';
 }
 
 /**
- * Get font size for large variant
+ * Get font size based on size variant
+ * Story 1A-2 AC3: Hero size requires 48px (3rem) for prominent display
  */
-function getFontSize(size?: 'small' | 'medium' | 'large'): string {
-  if (size === 'large') return '1.1rem';
-  if (size === 'small') return '0.75rem';
-  return '0.875rem';
+function getFontSize(size?: 'small' | 'medium' | 'large' | 'hero'): string {
+  if (size === 'hero') return '3rem';      // 48px - Hero element (AC3)
+  if (size === 'large') return '1.5rem';   // 24px
+  if (size === 'small') return '0.75rem';  // 12px
+  return '0.875rem';                       // 14px - medium (default)
 }
+
+/**
+ * Get padding based on size variant
+ */
+function getPadding(size?: 'small' | 'medium' | 'large' | 'hero'): string {
+  if (size === 'hero') return '24px 48px';
+  if (size === 'large') return '12px 24px';
+  if (size === 'small') return '4px 8px';
+  return '6px 12px';
+}
+
+/**
+ * Get icon size based on size variant
+ */
+function getIconSize(size?: 'small' | 'medium' | 'large' | 'hero'): string {
+  if (size === 'hero') return '2.5rem';    // 40px
+  if (size === 'large') return '1.25rem';  // 20px
+  if (size === 'small') return '0.875rem'; // 14px
+  return '1rem';                           // 16px
+}
+
+// ============================================================================
+// HERO BADGE STYLED COMPONENT (Story 1A-2 AC3)
+// ============================================================================
+
+const HeroBadge = styled(Box, {
+  shouldForwardProp: (prop) => prop !== 'pulsing' && prop !== 'stateColor'
+})<{ pulsing?: boolean; stateColor?: string }>(({ theme, pulsing, stateColor }) => ({
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: '16px',
+  borderRadius: '16px',
+  fontWeight: 700,
+  boxShadow: `0 8px 32px ${alpha(stateColor || theme.palette.primary.main, 0.3)}`,
+  transition: 'all 0.3s ease-in-out',
+  animation: pulsing ? 'heroPulse 2s ease-in-out infinite' : 'none',
+
+  '@keyframes heroPulse': {
+    '0%, 100%': {
+      transform: 'scale(1)',
+      boxShadow: `0 8px 32px ${alpha(stateColor || theme.palette.primary.main, 0.3)}`
+    },
+    '50%': {
+      transform: 'scale(1.02)',
+      boxShadow: `0 12px 48px ${alpha(stateColor || theme.palette.primary.main, 0.5)}`
+    }
+  }
+}));
 
 // ============================================================================
 // MAIN COMPONENT
@@ -157,7 +158,8 @@ const StateBadge: React.FC<StateBadgeProps> = ({
   showDuration = false
 }) => {
   const [duration, setDuration] = useState<string>('');
-  const config = STATE_CONFIG[state];
+  // Use centralized vocabulary (Story 1A-4 AC4)
+  const config = getStateVocabulary(state);
 
   // Update duration every second if showDuration is enabled
   useEffect(() => {
@@ -176,13 +178,8 @@ const StateBadge: React.FC<StateBadgeProps> = ({
     return () => clearInterval(interval);
   }, [since, showDuration]);
 
-  // Determine if should pulse (SIGNAL_DETECTED state)
-  const shouldPulse = state === 'SIGNAL_DETECTED';
-
-  // Build label with duration
-  const label = showDuration && duration
-    ? `${config.icon} ${config.label} (${duration})`
-    : `${config.icon} ${config.label}`;
+  // Determine if should pulse (S1 or SIGNAL_DETECTED - signal detected states)
+  const shouldPulse = state === 'S1' || state === 'SIGNAL_DETECTED';
 
   // Build tooltip content
   const tooltipContent = (
@@ -201,6 +198,63 @@ const StateBadge: React.FC<StateBadgeProps> = ({
     </Box>
   );
 
+  // Hero size uses custom Box-based component for better layout control (AC3)
+  if (size === 'hero') {
+    return (
+      <Tooltip
+        title={tooltipContent}
+        arrow
+        placement="top"
+      >
+        <HeroBadge
+          pulsing={shouldPulse}
+          stateColor={config.color}
+          sx={{
+            backgroundColor: alpha(config.color, 0.15),
+            color: config.color,
+            border: `2px solid ${config.color}`,
+            padding: getPadding(size),
+            fontSize: getFontSize(size),
+            '&:hover': {
+              backgroundColor: alpha(config.color, 0.25),
+              transform: 'scale(1.02)'
+            }
+          }}
+        >
+          <Box
+            component="span"
+            sx={{
+              fontSize: getIconSize(size),
+              lineHeight: 1
+            }}
+          >
+            {config.icon}
+          </Box>
+          <Box component="span">
+            {config.label}
+            {showDuration && duration && (
+              <Box
+                component="span"
+                sx={{
+                  fontSize: '0.5em',
+                  opacity: 0.8,
+                  ml: 2
+                }}
+              >
+                ({duration})
+              </Box>
+            )}
+          </Box>
+        </HeroBadge>
+      </Tooltip>
+    );
+  }
+
+  // Standard sizes use PulsingChip
+  const label = showDuration && duration
+    ? `${config.icon} ${config.label} (${duration})`
+    : `${config.icon} ${config.label}`;
+
   return (
     <Tooltip
       title={tooltipContent}
@@ -217,7 +271,9 @@ const StateBadge: React.FC<StateBadgeProps> = ({
           color: config.color,
           borderColor: config.color,
           border: '1px solid',
+          padding: getPadding(size),
           fontSize: getFontSize(size),
+          transition: 'all 0.3s ease-in-out',
           '&:hover': {
             backgroundColor: alpha(config.color, 0.25)
           }
