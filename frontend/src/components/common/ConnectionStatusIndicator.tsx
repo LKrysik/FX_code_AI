@@ -11,6 +11,8 @@
  * AC3: Click shows connection details (latency, last message time)
  * AC4: Updates within 2 seconds of connection change
  * AC5: Shows "disabled" state when WebSocket intentionally off
+ *
+ * SEC-0-3: Added state sync status display and Force Sync button
  */
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -25,13 +27,15 @@ import {
   Button,
   Divider,
   keyframes,
+  CircularProgress,
 } from '@mui/material';
 import {
   FiberManualRecord as DotIcon,
   Refresh as RefreshIcon,
   Warning as WarningIcon,
+  Sync as SyncIcon,
 } from '@mui/icons-material';
-import { useWebSocketConnection } from '@/stores/websocketStore';
+import { useWebSocketConnection, useWebSocketStore } from '@/stores/websocketStore';
 import { wsService } from '@/services/websocket';
 
 // Pulsing animation for connecting state
@@ -51,6 +55,10 @@ interface ConnectionDetails {
 
 export function ConnectionStatusIndicator() {
   const { isConnected, connectionStatus } = useWebSocketConnection();
+  // SEC-0-3: Track sync status
+  const syncStatus = useWebSocketStore(state => state.syncStatus);
+  const lastSyncTime = useWebSocketStore(state => state.lastSyncTime);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const [details, setDetails] = useState<ConnectionDetails>({
     status: connectionStatus,
@@ -152,6 +160,40 @@ export function ConnectionStatusIndicator() {
     window.location.reload();
   };
 
+  // SEC-0-3: Force sync handler
+  const handleForceSync = async () => {
+    setIsSyncing(true);
+    try {
+      await wsService.forceStateSync();
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // SEC-0-3: Format last sync time
+  const formatLastSync = () => {
+    if (!lastSyncTime) return 'Never';
+    const diff = Date.now() - new Date(lastSyncTime).getTime();
+    if (diff < 1000) return 'Just now';
+    if (diff < 60000) return `${Math.floor(diff / 1000)}s ago`;
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    return new Date(lastSyncTime).toLocaleTimeString();
+  };
+
+  // SEC-0-3: Get sync status display
+  const getSyncStatusDisplay = () => {
+    switch (syncStatus) {
+      case 'syncing':
+        return { label: 'Syncing...', color: '#F59E0B' };
+      case 'synced':
+        return { label: 'Synced', color: '#10B981' };
+      case 'failed':
+        return { label: 'Sync Failed', color: '#EF4444' };
+      default:
+        return { label: 'Not synced', color: '#6B7280' };
+    }
+  };
+
   const open = Boolean(anchorEl);
   const id = open ? 'connection-status-popover' : undefined;
 
@@ -249,6 +291,26 @@ export function ConnectionStatusIndicator() {
                 secondary={details.url}
               />
             </ListItem>
+
+            {/* SEC-0-3: State sync status */}
+            <ListItem disableGutters>
+              <ListItemText
+                primary="State Sync"
+                secondary={
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <DotIcon sx={{ fontSize: 12, color: getSyncStatusDisplay().color }} />
+                    <span>{getSyncStatusDisplay().label}</span>
+                  </Box>
+                }
+              />
+            </ListItem>
+
+            <ListItem disableGutters>
+              <ListItemText
+                primary="Last Synced"
+                secondary={formatLastSync()}
+              />
+            </ListItem>
           </List>
 
           {/* Show warning for non-connected states */}
@@ -281,6 +343,22 @@ export function ConnectionStatusIndicator() {
               sx={{ mt: 2 }}
             >
               Reconnect Now
+            </Button>
+          )}
+
+          {/* SEC-0-3: Force Sync button (Task 4.4) */}
+          {isConnected && (
+            <Button
+              fullWidth
+              size="small"
+              variant="outlined"
+              color={syncStatus === 'failed' ? 'error' : 'primary'}
+              startIcon={isSyncing ? <CircularProgress size={16} /> : <SyncIcon />}
+              onClick={handleForceSync}
+              disabled={isSyncing}
+              sx={{ mt: 2 }}
+            >
+              {isSyncing ? 'Syncing...' : 'Force Sync'}
             </Button>
           )}
         </Box>

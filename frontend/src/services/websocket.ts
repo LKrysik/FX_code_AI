@@ -522,9 +522,13 @@ class WebSocketService {
   /**
    * SEC-0-3: Request state sync from backend after WebSocket reconnection.
    * Fetches complete state snapshot and updates Zustand stores.
+   * Includes timeout, retry logic, and user notifications (AC4, AC5).
    */
-  public async requestStateSync(): Promise<void> {
-    console.log('[WS] Requesting state sync...');
+  public async requestStateSync(retryCount = 0): Promise<void> {
+    const MAX_RETRIES = 3;
+    const TIMEOUT_MS = 10000; // 10 second timeout
+
+    console.log('[WS] Requesting state sync...', { attempt: retryCount + 1, maxRetries: MAX_RETRIES });
 
     // Skip state sync during SSR - relative URLs don't work without browser context
     if (typeof window === 'undefined') {
@@ -532,7 +536,16 @@ class WebSocketService {
       return;
     }
 
+    // Update sync status to 'syncing'
+    this.safeStoreUpdate(() => {
+      useWebSocketStore.getState().setSyncStatus?.('syncing');
+    }, 'sync status start');
+
     try {
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
       // Fetch state snapshot via REST API using absolute URL
       const baseUrl = window.location.origin;
       const response = await fetch(`${baseUrl}/api/state/snapshot`, {
@@ -541,7 +554,10 @@ class WebSocketService {
         headers: {
           'Content-Type': 'application/json',
         },
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         throw new Error(`State sync failed: ${response.status}`);
@@ -568,15 +584,70 @@ class WebSocketService {
           useDashboardStore.getState().setPositions?.(snapshot.positions);
         }
 
+        // Update signals if available
+        if (useDashboardStore && snapshot.active_signals) {
+          useDashboardStore.getState().setActiveSignals?.(snapshot.active_signals);
+        }
+
         // Mark sync as complete
         useWebSocketStore.getState().setLastSyncTime?.(new Date(snapshot.timestamp));
+        useWebSocketStore.getState().setSyncStatus?.('synced');
       }, 'state sync');
 
+      // SEC-0-3 AC4: Show success notification
+      this.showStateSyncNotification('success', 'State synchronized');
       console.log('[WS] State sync completed successfully');
 
-    } catch (error) {
-      console.error('[WS] State sync error:', error);
-      // Don't throw - state sync failure shouldn't break the connection
+    } catch (error: any) {
+      const isTimeout = error.name === 'AbortError';
+      const errorMsg = isTimeout ? 'State sync timeout' : (error.message || 'Unknown error');
+      console.error('[WS] State sync error:', errorMsg);
+
+      // Retry logic for timeout or network errors
+      if (retryCount < MAX_RETRIES - 1 && (isTimeout || error.message?.includes('fetch'))) {
+        console.log(`[WS] Retrying state sync (${retryCount + 2}/${MAX_RETRIES})...`);
+        const backoffDelay = Math.min(1000 * Math.pow(2, retryCount), 5000);
+        await new Promise(resolve => setTimeout(resolve, backoffDelay));
+        return this.requestStateSync(retryCount + 1);
+      }
+
+      // All retries exhausted or non-retryable error
+      this.safeStoreUpdate(() => {
+        useWebSocketStore.getState().setSyncStatus?.('failed');
+      }, 'sync status failed');
+
+      // SEC-0-3 AC5: Show failure notification with refresh suggestion
+      this.showStateSyncNotification('error', 'State sync failed - please refresh the page');
+    }
+  }
+
+  /**
+   * SEC-0-3: Show notification for state sync status using uiStore
+   */
+  private showStateSyncNotification(type: 'success' | 'error' | 'warning' | 'info', message: string): void {
+    try {
+      const { useUIStore } = require('@/stores/uiStore');
+      useUIStore.getState().addNotification({
+        type,
+        message,
+        autoHide: type === 'success', // Auto-hide success, keep errors visible
+      });
+    } catch (err) {
+      // Fallback to console if store not available
+      console.log(`[WS] Notification (${type}): ${message}`);
+    }
+  }
+
+  /**
+   * SEC-0-3: Force manual state sync - for use with Force Sync button
+   */
+  public async forceStateSync(): Promise<boolean> {
+    console.log('[WS] Force state sync requested');
+    try {
+      await this.requestStateSync(0);
+      return useWebSocketStore.getState().syncStatus === 'synced';
+    } catch {
+      return false;
     }
   }
 
