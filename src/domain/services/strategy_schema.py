@@ -84,16 +84,11 @@ def _log_security_rejection(
     client_ip: Optional[str] = None
 ) -> None:
     """Log security-related validation rejections."""
+    truncated_value = str(value)[:100]
+    payload_hash = _hash_payload(payload) if payload else "no_payload"
     _security_logger.warning(
-        "SECURITY: Strategy validation rejected",
-        extra={
-            "event": "strategy_validation_security_reject",
-            "field": field,
-            "rejected_value": str(value)[:100],  # Truncate long values
-            "reason": reason,
-            "client_ip": client_ip or "unknown",
-            "payload_hash": _hash_payload(payload) if payload else "no_payload"
-        }
+        f"SECURITY: Strategy validation rejected | field={field}, value={truncated_value}, "
+        f"reason={reason}, ip={client_ip or 'unknown'}, hash={payload_hash}"
     )
 
 

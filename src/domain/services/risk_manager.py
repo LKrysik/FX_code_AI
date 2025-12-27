@@ -119,14 +119,11 @@ class RiskManager:
         self._sync_lock = threading.Lock()  # ✅ EDGE CASE FIX: For synchronous budget methods
 
         logger.info(
-            "RiskManager initialized",
-            extra={
-                "initial_capital": float(initial_capital),
-                "max_position_size_pct": float(self.risk_config.max_position_size_percent),
-                "max_positions": self.risk_config.max_concurrent_positions,
-                "daily_loss_limit_pct": float(self.risk_config.daily_loss_limit_percent),
-                "max_drawdown_pct": float(self.risk_config.max_drawdown_percent)
-            }
+            f"RiskManager initialized: capital={float(initial_capital)}, "
+            f"max_pos_pct={float(self.risk_config.max_position_size_percent)}, "
+            f"max_positions={self.risk_config.max_concurrent_positions}, "
+            f"daily_loss_pct={float(self.risk_config.daily_loss_limit_percent)}, "
+            f"max_drawdown_pct={float(self.risk_config.max_drawdown_percent)}"
         )
 
     async def can_open_position(
@@ -267,15 +264,9 @@ class RiskManager:
                 )
 
             logger.info(
-                f"Risk check result: {'APPROVED' if result.can_proceed else 'REJECTED'}",
-                extra={
-                    "symbol": symbol,
-                    "position_value": float(position_value),
-                    "can_proceed": result.can_proceed,
-                    "risk_score": result.risk_score,
-                    "failed_checks": result.failed_checks,
-                    "reason": result.reason
-                }
+                f"Risk check result: {'APPROVED' if result.can_proceed else 'REJECTED'} | "
+                f"symbol={symbol}, value={float(position_value)}, score={result.risk_score}, "
+                f"failed={result.failed_checks}, reason={result.reason}"
             )
 
             return result
@@ -648,13 +639,14 @@ class RiskManager:
 
         await self.event_bus.publish("risk_alert", alert_data)
 
-        # Log based on severity
+        # Log based on severity (StructuredLogger doesn't support extra=)
+        details_str = str(details) if details else ""
         if severity == RiskAlertSeverity.CRITICAL:
-            logger.error(f"RISK ALERT [CRITICAL]: {message}", extra=details)
+            logger.error(f"RISK ALERT [CRITICAL]: {message} | {details_str}")
         elif severity == RiskAlertSeverity.WARNING:
-            logger.warning(f"RISK ALERT [WARNING]: {message}", extra=details)
+            logger.warning(f"RISK ALERT [WARNING]: {message} | {details_str}")
         else:
-            logger.info(f"RISK ALERT [INFO]: {message}", extra=details)
+            logger.info(f"RISK ALERT [INFO]: {message} | {details_str}")
 
     # === Public Risk Assessment ===
 
@@ -862,8 +854,7 @@ class RiskManager:
         # ✅ EDGE CASE FIX: Input validation
         if amount <= 0:
             logger.warning(
-                "Budget allocation failed - invalid amount",
-                extra={"strategy_name": strategy_name, "amount": amount}
+                f"Budget allocation failed - invalid amount: strategy={strategy_name}, amount={amount}"
             )
             return False
 
@@ -880,14 +871,9 @@ class RiskManager:
 
             if amount_decimal > available:
                 logger.warning(
-                    "Budget allocation failed - insufficient funds",
-                    extra={
-                        "strategy_name": strategy_name,
-                        "requested": float(amount_decimal),
-                        "available": float(available),
-                        "total_allocated": float(total_allocated),
-                        "current_capital": float(self.current_capital)
-                    }
+                    f"Budget allocation failed - insufficient funds: strategy={strategy_name}, "
+                    f"requested={float(amount_decimal)}, available={float(available)}, "
+                    f"allocated={float(total_allocated)}, capital={float(self.current_capital)}"
                 )
                 return False
 
@@ -898,13 +884,8 @@ class RiskManager:
                 self._allocated_budgets[strategy_name] = amount_decimal
 
             logger.info(
-                "Budget allocated for strategy",
-                extra={
-                    "strategy_name": strategy_name,
-                    "amount": float(amount_decimal),
-                    "total_for_strategy": float(self._allocated_budgets[strategy_name]),
-                    "remaining_available": float(available - amount_decimal)
-                }
+                f"Budget allocated for strategy: {strategy_name}, amount={float(amount_decimal)}, "
+                f"total={float(self._allocated_budgets[strategy_name])}, remaining={float(available - amount_decimal)}"
             )
             return True
 
@@ -931,8 +912,7 @@ class RiskManager:
         with self._sync_lock:  # ✅ EDGE CASE FIX: Thread-safe
             if strategy_name not in self._allocated_budgets:
                 logger.warning(
-                    "Cannot release budget - no allocation found",
-                    extra={"strategy_name": strategy_name}
+                    f"Cannot release budget - no allocation found: strategy={strategy_name}"
                 )
                 return False
 
@@ -940,18 +920,13 @@ class RiskManager:
                 # Release all budget for this strategy
                 released = self._allocated_budgets.pop(strategy_name)
                 logger.info(
-                    "All budget released for strategy",
-                    extra={
-                        "strategy_name": strategy_name,
-                        "released": float(released)
-                    }
+                    f"All budget released for strategy: {strategy_name}, released={float(released)}"
                 )
             else:
                 # ✅ EDGE CASE FIX: Validate amount
                 if amount < 0:
                     logger.warning(
-                        "Cannot release negative budget amount",
-                        extra={"strategy_name": strategy_name, "amount": amount}
+                        f"Cannot release negative budget amount: strategy={strategy_name}, amount={amount}"
                     )
                     return False
 
@@ -967,12 +942,8 @@ class RiskManager:
                     released = amount_decimal
 
                 logger.info(
-                    "Budget partially released for strategy",
-                    extra={
-                        "strategy_name": strategy_name,
-                        "released": float(released),
-                        "remaining": float(self._allocated_budgets.get(strategy_name, Decimal('0')))
-                    }
+                    f"Budget partially released for strategy: {strategy_name}, "
+                    f"released={float(released)}, remaining={float(self._allocated_budgets.get(strategy_name, Decimal('0')))}"
                 )
             return True
 
