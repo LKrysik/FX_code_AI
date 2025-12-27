@@ -798,17 +798,17 @@ class UnifiedTradingController:
             return None
         return self.wallet_service.get_balance()
 
-    def get_all_orders(self) -> List[Dict[str, Any]]:
+    async def get_all_orders(self) -> List[Dict[str, Any]]:
         """Get all orders"""
         if not self.order_manager:
             return []
-        return self.order_manager.get_all_orders()
+        return await self.order_manager.get_all_orders()
 
-    def get_all_positions(self) -> List[Dict[str, Any]]:
+    async def get_all_positions(self) -> List[Dict[str, Any]]:
         """Get all positions"""
         if not self.order_manager:
             return []
-        return self.order_manager.get_all_positions()
+        return await self.order_manager.get_all_positions()
 
     def get_trading_performance(self) -> Optional[Dict[str, Any]]:
         """Get trading performance summary"""

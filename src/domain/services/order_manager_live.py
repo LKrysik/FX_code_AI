@@ -418,6 +418,24 @@ class LiveOrderManager:
             return False
 
         try:
+            # If order was never submitted to exchange (no exchange_order_id), just mark as cancelled locally
+            if order.exchange_order_id is None:
+                logger.info(f"Order {order_id} has no exchange_order_id, cancelling locally only")
+                order.status = OrderStatus.CANCELLED
+                order.updated_at = time.time()
+
+                # Cancel timeout task
+                if order_id in self._order_timeouts:
+                    self._order_timeouts[order_id].cancel()
+                    del self._order_timeouts[order_id]
+
+                await self.event_bus.publish("order_cancelled", {
+                    "order_id": order_id,
+                    "exchange_order_id": None,
+                    "timestamp": int(time.time() * 1000)
+                })
+                return True
+
             # Cancel via MEXC adapter (circuit breaker already integrated)
             success = await self.mexc_adapter.cancel_order(
                 order.symbol,
@@ -481,6 +499,11 @@ class LiveOrderManager:
                             order.symbol,
                             order.exchange_order_id
                         )
+
+                        # Skip if status_response is None (order not found on exchange)
+                        if status_response is None:
+                            logger.warning(f"Order status not found on exchange: {order.order_id} (exchange_id: {order.exchange_order_id})")
+                            continue
 
                         await self._update_order_status(order, status_response)
 

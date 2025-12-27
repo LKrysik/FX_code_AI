@@ -3008,14 +3008,14 @@ def create_unified_app():
     async def get_orders(current_user: UserSession = Depends(get_current_user)):
         """Get all orders"""
         controller = await app.state.rest_service.get_controller()
-        orders = controller.get_all_orders()
+        orders = await controller.get_all_orders()
         return _json_ok({"orders": orders})
 
     @app.get("/orders/{order_id}")
     async def get_order(order_id: str, current_user: UserSession = Depends(get_current_user)):
         """Get specific order by ID"""
         controller = await app.state.rest_service.get_controller()
-        orders = controller.get_all_orders()
+        orders = await controller.get_all_orders()
         order = next((o for o in orders if o.get("order_id") == order_id), None)
         if not order:
             return _json_error("not_found", f"Order not found: {order_id}", status=404)
@@ -3026,14 +3026,14 @@ def create_unified_app():
     async def get_positions(current_user: UserSession = Depends(get_current_user)):
         """Get all positions"""
         controller = await app.state.rest_service.get_controller()
-        positions = controller.get_all_positions()
+        positions = await controller.get_all_positions()
         return _json_ok({"positions": positions})
 
     @app.get("/positions/{symbol}")
     async def get_position(symbol: str, current_user: UserSession = Depends(get_current_user)):
         """Get position for specific symbol"""
         controller = await app.state.rest_service.get_controller()
-        positions = controller.get_all_positions()
+        positions = await controller.get_all_positions()
         position = next((p for p in positions if p.get("symbol") == symbol.upper()), None)
         if not position:
             return _json_ok({"position": None})
@@ -3079,7 +3079,7 @@ def create_unified_app():
             session_status = current_session.get("status", "IDLE") if current_session else "IDLE"
 
             # Get positions
-            positions = controller.get_all_positions()
+            positions = await controller.get_all_positions()
 
             # Get signals from session status if available
             signals = []
@@ -3350,6 +3350,62 @@ def create_unified_app():
 
         except Exception as e:
             return _json_error("trades_fetch_failed", f"Failed to fetch trades: {str(e)}", status=500)
+
+    # =========================================================================
+    # Frontend Error Logging Endpoint
+    # =========================================================================
+    @app.post("/api/frontend-logs")
+    async def receive_frontend_logs(request: Request):
+        """
+        Receive error logs from frontend and write to logs/frontend_error.log.
+
+        Accepts batched logs from the frontend FrontendLogService.
+        No authentication required to ensure errors are always captured.
+        """
+        import os
+        from datetime import datetime
+
+        try:
+            body = await request.json()
+            logs = body.get("logs", [])
+            metadata = body.get("metadata", {})
+
+            if not logs:
+                return _json_ok({"received": 0})
+
+            # Ensure logs directory exists
+            log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "logs")
+            os.makedirs(log_dir, exist_ok=True)
+            log_file = os.path.join(log_dir, "frontend_error.log")
+
+            # Write logs to file
+            with open(log_file, "a", encoding="utf-8") as f:
+                session_id = metadata.get("sessionId", "unknown")
+                app_version = metadata.get("appVersion", "unknown")
+
+                for log_entry in logs:
+                    timestamp = log_entry.get("timestamp", datetime.utcnow().isoformat())
+                    level = log_entry.get("level", "error").upper()
+                    message = log_entry.get("message", "No message")
+                    source = log_entry.get("source", "unknown")
+                    url = log_entry.get("url", "unknown")
+                    stack = log_entry.get("stack", "")
+
+                    # Format log line
+                    log_line = f"[{timestamp}] [{level}] [{session_id}] [{source}] {url}\n"
+                    log_line += f"  Message: {message}\n"
+                    if stack:
+                        log_line += f"  Stack: {stack}\n"
+                    log_line += "\n"
+
+                    f.write(log_line)
+
+            return _json_ok({"received": len(logs)})
+
+        except Exception as e:
+            # Don't fail silently - log to backend console
+            logger.error(f"Failed to process frontend logs: {e}")
+            return _json_error("log_processing_failed", str(e), status=500)
 
     # Legacy API endpoints for backward compatibility
     @app.get("/api/v1/status")

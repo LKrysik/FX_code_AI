@@ -19,6 +19,7 @@ import {
   BugReport as BugReportIcon,
 } from '@mui/icons-material';
 import { errorLog } from '@/utils/config';
+import { frontendLogService } from '@/services/frontendLogService';
 
 interface Props {
   children: ReactNode;
@@ -56,8 +57,15 @@ class ErrorBoundary extends Component<Props, State> {
       errorInfo,
     });
 
-    // Log error
+    // Log error to console
     errorLog('ErrorBoundary caught an error', { error, errorInfo });
+
+    // Send error to backend via FrontendLogService
+    frontendLogService.logError(
+      'ErrorBoundary caught an error',
+      error,
+      { componentStack: errorInfo.componentStack }
+    );
 
     // Call custom error handler if provided
     if (this.props.onError) {
