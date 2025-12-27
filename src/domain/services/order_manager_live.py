@@ -501,8 +501,9 @@ class LiveOrderManager:
                         )
 
                         # Skip if status_response is None (order not found on exchange)
+                        # Use debug level to avoid log spam - this can happen frequently during normal operation
                         if status_response is None:
-                            logger.warning(f"Order status not found on exchange: {order.order_id} (exchange_id: {order.exchange_order_id})")
+                            logger.debug(f"Order status not found on exchange: {order.order_id} (exchange_id: {order.exchange_order_id})")
                             continue
 
                         await self._update_order_status(order, status_response)

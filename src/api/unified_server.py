@@ -3361,35 +3361,81 @@ def create_unified_app():
 
         Accepts batched logs from the frontend FrontendLogService.
         No authentication required to ensure errors are always captured.
+
+        Features:
+        - JSON validation with graceful error handling
+        - Log rotation (max 10MB, 5 backups)
+        - Rate limiting (max 100 entries per request)
         """
         import os
         from datetime import datetime
+        import json
+
+        # Parse JSON with validation
+        try:
+            body_bytes = await request.body()
+            if not body_bytes:
+                return _json_ok({"received": 0})
+            body = json.loads(body_bytes.decode('utf-8'))
+        except json.JSONDecodeError as e:
+            logger.warning(f"Invalid JSON in frontend logs request: {e}")
+            return _json_error("invalid_json", "Request body is not valid JSON", status=400)
+        except UnicodeDecodeError as e:
+            logger.warning(f"Invalid encoding in frontend logs request: {e}")
+            return _json_error("invalid_encoding", "Request body has invalid encoding", status=400)
 
         try:
-            body = await request.json()
-            logs = body.get("logs", [])
-            metadata = body.get("metadata", {})
+            logs = body.get("logs", []) if isinstance(body, dict) else []
+            metadata = body.get("metadata", {}) if isinstance(body, dict) else {}
 
             if not logs:
                 return _json_ok({"received": 0})
+
+            # Rate limit: max 100 entries per request
+            if len(logs) > 100:
+                logs = logs[:100]
+                logger.warning(f"Frontend logs truncated from {len(body.get('logs', []))} to 100 entries")
 
             # Ensure logs directory exists
             log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "logs")
             os.makedirs(log_dir, exist_ok=True)
             log_file = os.path.join(log_dir, "frontend_error.log")
 
+            # Log rotation: rotate if file > 10MB
+            max_size = 10 * 1024 * 1024  # 10MB
+            max_backups = 5
+            try:
+                if os.path.exists(log_file) and os.path.getsize(log_file) > max_size:
+                    # Rotate logs
+                    for i in range(max_backups - 1, 0, -1):
+                        old_file = f"{log_file}.{i}"
+                        new_file = f"{log_file}.{i + 1}"
+                        if os.path.exists(old_file):
+                            if os.path.exists(new_file):
+                                os.remove(new_file)
+                            os.rename(old_file, new_file)
+                    # Rename current to .1
+                    if os.path.exists(f"{log_file}.1"):
+                        os.remove(f"{log_file}.1")
+                    os.rename(log_file, f"{log_file}.1")
+            except OSError as e:
+                logger.warning(f"Log rotation failed: {e}")
+
             # Write logs to file
             with open(log_file, "a", encoding="utf-8") as f:
-                session_id = metadata.get("sessionId", "unknown")
-                app_version = metadata.get("appVersion", "unknown")
+                session_id = str(metadata.get("sessionId", "unknown"))[:50]
+                app_version = str(metadata.get("appVersion", "unknown"))[:20]
 
                 for log_entry in logs:
-                    timestamp = log_entry.get("timestamp", datetime.utcnow().isoformat())
-                    level = log_entry.get("level", "error").upper()
-                    message = log_entry.get("message", "No message")
-                    source = log_entry.get("source", "unknown")
-                    url = log_entry.get("url", "unknown")
-                    stack = log_entry.get("stack", "")
+                    if not isinstance(log_entry, dict):
+                        continue
+
+                    timestamp = str(log_entry.get("timestamp", datetime.utcnow().isoformat()))[:30]
+                    level = str(log_entry.get("level", "error")).upper()[:10]
+                    message = str(log_entry.get("message", "No message"))[:2000]
+                    source = str(log_entry.get("source", "unknown"))[:50]
+                    url = str(log_entry.get("url", "unknown"))[:200]
+                    stack = str(log_entry.get("stack", ""))[:5000]
 
                     # Format log line
                     log_line = f"[{timestamp}] [{level}] [{session_id}] [{source}] {url}\n"
