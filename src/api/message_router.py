@@ -747,11 +747,15 @@ class MessageRouter:
 
         # Register heartbeat handler
         async def handle_heartbeat(client_id: str, message: Dict[str, Any]) -> Dict[str, Any]:
-            return self._create_success_response(
-                MessageType.HEARTBEAT,
-                {"timestamp": datetime.now().isoformat()},
-                message.get("id")
-            )
+            # Return pong response that frontend can recognize
+            # Frontend checks: message.type === 'pong' || message.type === 'status' && message.status === 'pong'
+            return {
+                "type": "status",
+                "status": "pong",
+                "timestamp": datetime.now().isoformat(),
+                "server_time": datetime.now().timestamp(),
+                "message_id": message.get("id")
+            }
 
         self.register_handler(MessageType.HEARTBEAT, handle_heartbeat)
 

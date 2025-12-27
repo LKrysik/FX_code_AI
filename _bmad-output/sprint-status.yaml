@@ -96,6 +96,21 @@ development_status:
   epic-bug-003-retrospective: optional
 
   # ============================================================
+  # Epic BUG-004: WebSocket & Dashboard Real-Time Data Fixes (P0)
+  # Goal: Fix WebSocket stability and dashboard data flow
+  # Source: docs/bug_004.md
+  # ============================================================
+  epic-bug-004: in-progress
+  bug-004-0-preflight-data-verification: done      # Verified - data pipeline issues identified
+  bug-004-1-invalid-column-side-error: done        # FIXED 2025-12-27 - Changed side→action, execution_status→triggered
+  bug-004-2-websocket-ping-pong-stability: done    # FIXED 2025-12-27 - Frontend→heartbeat, backend→status/pong, fixed detection
+  bug-004-3-state-machine-instance-registration: backlog # "No active instances" despite session
+  bug-004-4-symbol-watchlist-population: backlog   # "No symbols in watchlist" despite selection
+  bug-004-5-indicator-values-data-flow: backlog    # All indicators show "--"
+  bug-004-6-condition-progress-inactive: backlog   # Condition Progress shows "INACTIVE"
+  epic-bug-004-retrospective: optional
+
+  # ============================================================
   # Epic 1B: First Successful Backtest (P0)
   # Goal: Trader runs a complete backtest and sees P&L results
   # ============================================================

@@ -371,9 +371,10 @@ async def _get_watchlist_data(questdb: QuestDBProvider, session_id: str) -> List
 async def _get_recent_signals(questdb: QuestDBProvider, session_id: str, limit: int = 10) -> List[Dict[str, Any]]:
     """Get recent signals for session."""
     try:
+        # Correct columns: strategy_signals table has action (not side) and triggered (not execution_status)
         query = """
-            SELECT signal_id, symbol, signal_type, side, confidence,
-                   execution_status, timestamp
+            SELECT signal_id, symbol, signal_type, action, confidence,
+                   triggered, timestamp
             FROM strategy_signals
             WHERE session_id = $1
             ORDER BY timestamp DESC
@@ -389,9 +390,9 @@ async def _get_recent_signals(questdb: QuestDBProvider, session_id: str, limit: 
                 "signal_id": row['signal_id'],
                 "symbol": row['symbol'],
                 "signal_type": row['signal_type'],
-                "side": row['side'],
+                "action": row['action'],  # BUY/SELL action from signal
                 "confidence": float(row['confidence']) if row['confidence'] else 0.0,
-                "execution_status": row['execution_status'],
+                "triggered": row['triggered'],  # Whether signal was triggered
                 "timestamp": row['timestamp'].isoformat() if row['timestamp'] else None
             })
 

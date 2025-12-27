@@ -192,7 +192,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         try {
           lastPingSentRef.current = Date.now();
           wsRef.current.send(JSON.stringify({
-            type: 'ping',
+            type: 'heartbeat',  // Backend expects 'heartbeat', not 'ping'
             timestamp: new Date().toISOString(),
             client_time: lastPingSentRef.current
           }));
@@ -310,9 +310,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         try {
           const message: WebSocketMessage = JSON.parse(event.data);
 
-          // Handle pong response (from server ping or our ping)
-          if (message.type === 'pong' || message.type === 'status' && (message.data as any)?.status === 'pong') {
-            handlePong((message.data as any)?.server_time);
+          // Handle pong response (from server ping or our heartbeat)
+          // Backend sends: {"type": "status", "status": "pong", "server_time": ...}
+          if (message.type === 'pong' || (message.type === 'status' && (message as any).status === 'pong')) {
+            handlePong((message as any).server_time);
             return; // Don't propagate internal heartbeat messages
           }
 
