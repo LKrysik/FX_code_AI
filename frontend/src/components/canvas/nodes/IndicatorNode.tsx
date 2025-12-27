@@ -172,7 +172,7 @@ const IndicatorNode = React.memo(function IndicatorNode({ data, selected }: Node
                   startIcon={<RefreshIcon />}
                   onClick={() => {
                     // Trigger validation refresh
-                    Logger.debug('IndicatorNode.retryValidation', 'Retrying validation', { label });
+                    Logger.debug('IndicatorNode.retryValidation', { message: 'Retrying validation', label });
                   }}
                   sx={{ fontSize: '0.7rem' }}
                 >

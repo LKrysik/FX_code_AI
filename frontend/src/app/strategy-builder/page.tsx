@@ -98,7 +98,7 @@ export default function StrategyBuilderPage() {
   // Load initial data
   // Intentionally run only on mount to load initial data
   useEffect(() => {
-    Logger.info('StrategyBuilderPage.mount', 'Starting to load initial data');
+    Logger.info('StrategyBuilderPage.mount', { message: 'Starting to load initial data' });
     loadInitialData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -128,7 +128,7 @@ export default function StrategyBuilderPage() {
 
       // Load indicators from API (works without authentication)
       try {
-        Logger.info('StrategyBuilderPage.loadInitialData', 'Loading indicator variants');
+        Logger.info('StrategyBuilderPage.loadInitialData', { message: 'Loading indicator variants' });
         const apiVariants = await apiService.getVariants();
         const mappedVariants = (apiVariants || []).map(mapApiVariantToIndicatorVariant);
         Logger.info('StrategyBuilderPage.loadInitialData', { message: 'Loaded variants', count: mappedVariants.length });

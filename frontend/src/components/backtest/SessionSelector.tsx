@@ -111,7 +111,7 @@ export const SessionSelector: React.FC<SessionSelectorProps> = ({
 
       setSessions(completedSessions);
     } catch (err: any) {
-      Logger.error('SessionSelector.loadSessions', 'Failed to load data collection sessions', { error: err });
+      Logger.error('SessionSelector.loadSessions', { message: 'Failed to load data collection sessions', error: err });
       setLoadError(err.message || 'Failed to load sessions');
       setSessions([]);
     } finally {

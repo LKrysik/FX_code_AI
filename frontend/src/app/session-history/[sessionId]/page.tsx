@@ -124,7 +124,7 @@ export default function SessionDetailPage() {
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Unknown error';
         setError(errorMessage);
-        Logger.error('SessionDetailPage.loadSessionDetail', 'Failed to load session detail', { error: err, sessionId });
+        Logger.error('SessionDetailPage.loadSessionDetail', { message: 'Failed to load session detail', error: err, sessionId });
       } finally {
         setLoading(false);
       }

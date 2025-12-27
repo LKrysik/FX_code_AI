@@ -98,7 +98,7 @@ export default function MarketDataPage() {
       await apiService.healthCheck();
     } catch (error) {
       // Silently handle health check failures
-      Logger.warn('MarketDataPage.checkBackendConnection', 'Health check failed', { error });
+      Logger.warn('MarketDataPage.checkBackendConnection', { message: 'Health check failed', error });
     }
   }, []);
 

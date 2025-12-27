@@ -140,7 +140,7 @@ export class ErrorBoundary extends Component<Props, State> {
     };
 
     // For now, just log with structured format
-    Logger.error('ErrorBoundary.logError', { message: 'ERROR REPORT', ...errorReport });
+    Logger.error('ErrorBoundary.logError', { logType: 'ERROR REPORT', errorMessage: errorReport.message, ...errorReport });
 
     // TODO: Send to error reporting service
     // errorReportingService.send(errorReport);

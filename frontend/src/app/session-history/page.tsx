@@ -128,7 +128,7 @@ export default function SessionHistoryPage() {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
       setError(errorMessage);
-      Logger.error('SessionHistoryPage.loadSessions', 'Failed to load sessions', { error: err });
+      Logger.error('SessionHistoryPage.loadSessions', { message: 'Failed to load sessions', error: err });
     } finally {
       setLoading(false);
     }

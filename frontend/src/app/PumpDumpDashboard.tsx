@@ -464,7 +464,7 @@ const DashboardContent = React.memo(function DashboardContent() {
         type: 'error',
         message: 'Backtest feature requires session selection UI (not yet implemented on this page). Please use /backtesting page instead.',
       });
-      Logger.error('PumpDumpDashboard.handleStartBacktest', 'CRITICAL: Backtest button clicked but no session_id selector exists. Redirecting to /backtesting...');
+      Logger.error('PumpDumpDashboard.handleStartBacktest', { message: 'CRITICAL: Backtest button clicked but no session_id selector exists. Redirecting to /backtesting...' });
 
       // Redirect to proper backtesting page
       router.push('/backtesting');

@@ -88,7 +88,7 @@ export default function IndicatorsPage() {
         <VariantChartPreview
           variant={selectedVariant}
           onPumpDetected={(pump) => {
-            Logger.info('IndicatorsPage.onPumpDetected', 'Pump detected', { pump });
+            Logger.info('IndicatorsPage.onPumpDetected', { message: 'Pump detected', pump });
           }}
         />
       )}

@@ -525,11 +525,11 @@ export default function DataCollectionPage() {
       wsService.setCallbacks({
         onConnect: handleWebSocketConnect,
         onDisconnect: (reason) => {
-          Logger.info('DataCollectionPage.wsCallbacks', 'Disconnected', { reason });
+          Logger.info('DataCollectionPage.wsCallbacks', { message: 'Disconnected', reason });
           subscribed = false;
         },
         onError: (error) => {
-          Logger.error('DataCollectionPage.wsCallbacks', 'Connection error', { error });
+          Logger.error('DataCollectionPage.wsCallbacks', { message: 'Connection error', error });
         }
       });
 
