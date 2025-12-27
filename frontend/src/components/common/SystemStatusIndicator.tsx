@@ -242,7 +242,7 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
   // Cache health check for 30 seconds
   const fetchHealth = React.useCallback(async () => {
     try {
-      Logger.debug('SystemStatusIndicator.fetchHealth', 'Fetching health data from API...');
+      Logger.debug('SystemStatusIndicator.fetchHealth', { message: 'Fetching health data from API...' });
       const health = await apiService.healthCheck();
       Logger.debug('SystemStatusIndicator.fetchHealth', { message: 'Health API response', health });
 
@@ -373,7 +373,7 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
 
   // Update system status only when computed values change
   useEffect(() => {
-    Logger.debug('SystemStatusIndicator.statusUpdate', 'STATUS UPDATE TRIGGERED');
+    Logger.debug('SystemStatusIndicator.statusUpdate', { message: 'STATUS UPDATE TRIGGERED' });
     Logger.debug('SystemStatusIndicator.statusUpdate', { message: 'New computed status', ...computedStatus });
 
     setSystemStatus(prev => ({
@@ -382,12 +382,12 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
       readOnlyMode: false, // no automatic read-only
     }));
 
-    Logger.debug('SystemStatusIndicator.statusUpdate', 'STATUS UPDATE COMPLETED');
+    Logger.debug('SystemStatusIndicator.statusUpdate', { message: 'STATUS UPDATE COMPLETED' });
   }, [computedStatus]);
 
   // Direct WebSocket health subscription for redundancy
   useEffect(() => {
-    Logger.debug('SystemStatusIndicator.mount', 'Component mounted');
+    Logger.debug('SystemStatusIndicator.mount', { message: 'Component mounted' });
 
     // Check WebSocket service initialization
     Logger.debug('SystemStatusIndicator.wsCheck', {
@@ -403,7 +403,7 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
 
     // Subscribe to health updates directly if not already subscribed
     if (!healthWsSubscribed) {
-      Logger.debug('SystemStatusIndicator.wsSubscription', 'Setting up direct WebSocket health subscription');
+      Logger.debug('SystemStatusIndicator.wsSubscription', { message: 'Setting up direct WebSocket health subscription' });
 
       const healthCallbacks = {
         onHealthUpdate: (data: any) => {
@@ -437,9 +437,9 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
               lastUpdated: Date.now()
             });
 
-            Logger.debug('SystemStatusIndicator.updateHealthStore', 'Health store updated successfully');
+            Logger.debug('SystemStatusIndicator.updateHealthStore', { message: 'Health store updated successfully' });
           } else {
-            Logger.warn('SystemStatusIndicator.healthCallback', 'No health data in message');
+            Logger.warn('SystemStatusIndicator.healthCallback', { message: 'No health data in message' });
           }
         }
       };
@@ -447,8 +447,8 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
       // Set up WebSocket callbacks for health updates
       wsService.setCallbacks({
         onConnect: () => {
-          Logger.info('SystemStatusIndicator.wsConnect', 'WebSocket CONNECTED for health updates');
-          Logger.debug('SystemStatusIndicator.wsConnect', 'Subscribing to health streams...');
+          Logger.info('SystemStatusIndicator.wsConnect', { message: 'WebSocket CONNECTED for health updates' });
+          Logger.debug('SystemStatusIndicator.wsConnect', { message: 'Subscribing to health streams...' });
         },
         onDisconnect: (reason: string) => {
           Logger.info('SystemStatusIndicator.wsDisconnect', { message: 'WebSocket DISCONNECTED', reason });
@@ -469,13 +469,13 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
 
           // Handle both alert and status updates
           if (data && data.type === 'response' && data.status === 'comprehensive_health_check') {
-            Logger.debug('SystemStatusIndicator.wsHealthCheck', 'Processing comprehensive_health_check message');
+            Logger.debug('SystemStatusIndicator.wsHealthCheck', { message: 'Processing comprehensive_health_check message' });
             healthCallbacks.onHealthUpdate(data);
           } else if (data && data.type === 'health_update') {
-            Logger.debug('SystemStatusIndicator.wsHealthCheck', 'Processing health_update message');
+            Logger.debug('SystemStatusIndicator.wsHealthCheck', { message: 'Processing health_update message' });
             healthCallbacks.onHealthUpdate(data);
           } else if (data && data.alert_id) {
-            Logger.debug('SystemStatusIndicator.wsHealthCheck', 'Processing health alert');
+            Logger.debug('SystemStatusIndicator.wsHealthCheck', { message: 'Processing health alert' });
           } else {
             Logger.debug('SystemStatusIndicator.wsHealthCheck', { message: 'Unknown health message type', type: data?.type, status: data?.status });
           }
@@ -505,11 +505,11 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
 
       // Test backend connectivity
       setTimeout(() => {
-        Logger.debug('SystemStatusIndicator.testConnectivity', 'Testing backend connectivity...');
+        Logger.debug('SystemStatusIndicator.testConnectivity', { message: 'Testing backend connectivity...' });
 
         // Test WebSocket connectivity
         if (wsService.isWebSocketConnected()) {
-          Logger.info('SystemStatusIndicator.testConnectivity', 'Backend WebSocket is connected');
+          Logger.info('SystemStatusIndicator.testConnectivity', { message: 'Backend WebSocket is connected' });
         } else {
           Logger.warn('SystemStatusIndicator.testConnectivity', {
             message: 'Backend WebSocket is NOT connected',
@@ -523,7 +523,7 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
         }
 
         // Test HTTP API connectivity
-        Logger.debug('SystemStatusIndicator.testConnectivity', 'Testing HTTP API connectivity...');
+        Logger.debug('SystemStatusIndicator.testConnectivity', { message: 'Testing HTTP API connectivity...' });
         apiService.healthCheck()
           .then(response => {
             Logger.info('SystemStatusIndicator.testConnectivity', {
@@ -545,7 +545,7 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
     }
 
     return () => {
-      Logger.debug('SystemStatusIndicator.unmount', 'Component unmounting, cleaning up...');
+      Logger.debug('SystemStatusIndicator.unmount', { message: 'Component unmounting, cleaning up...' });
       // Clear any intervals or subscriptions here if needed
       // Note: Zustand stores handle their own cleanup
     };
@@ -561,7 +561,8 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
   React.useEffect(() => {
     const prevStatus = prevStatusRef.current;
     if (prevStatus.backend !== systemStatus.backend || prevStatus.websocket !== systemStatus.websocket) {
-      Logger.info('SystemStatusIndicator.statusChanged', `Status changed (Render #${renderCount.current})`, {
+      Logger.info('SystemStatusIndicator.statusChanged', {
+        message: `Status changed (Render #${renderCount.current})`,
         from: prevStatus,
         to: systemStatus,
         timestamp: new Date().toISOString()
@@ -632,31 +633,31 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
     });
 
     if (systemStatus.readOnlyMode) {
-      Logger.debug('SystemStatusIndicator.getStatusText', 'Returning "Read-Only"');
+      Logger.debug('SystemStatusIndicator.getStatusText', { message: 'Returning "Read-Only"' });
       return 'Read-Only';
     }
     if (systemStatus.backend === 'unhealthy') {
-      Logger.debug('SystemStatusIndicator.getStatusText', 'Returning "Backend Error"');
+      Logger.debug('SystemStatusIndicator.getStatusText', { message: 'Returning "Backend Error"' });
       return 'Backend Error';
     }
     if (systemStatus.websocket === 'error') {
-      Logger.debug('SystemStatusIndicator.getStatusText', 'Returning "Connection Error"');
+      Logger.debug('SystemStatusIndicator.getStatusText', { message: 'Returning "Connection Error"' });
       return 'Connection Error';
     }
     if (systemStatus.backend === 'degraded') {
-      Logger.debug('SystemStatusIndicator.getStatusText', 'Returning "Degraded"');
+      Logger.debug('SystemStatusIndicator.getStatusText', { message: 'Returning "Degraded"' });
       return 'Degraded';
     }
     if (systemStatus.websocket === 'disconnected') {
-      Logger.debug('SystemStatusIndicator.getStatusText', 'Returning "Disconnected"');
+      Logger.debug('SystemStatusIndicator.getStatusText', { message: 'Returning "Disconnected"' });
       return 'Disconnected';
     }
     if (systemStatus.backend === 'healthy' && systemStatus.websocket === 'connected') {
-      Logger.debug('SystemStatusIndicator.getStatusText', 'Returning "All Systems Operational"');
+      Logger.debug('SystemStatusIndicator.getStatusText', { message: 'Returning "All Systems Operational"' });
       return 'All Systems Operational';
     }
 
-    Logger.debug('SystemStatusIndicator.getStatusText', 'Falling back to "Checking..." - conditions not met');
+    Logger.debug('SystemStatusIndicator.getStatusText', { message: 'Falling back to "Checking..." - conditions not met' });
     return 'Checking...';
   };
 

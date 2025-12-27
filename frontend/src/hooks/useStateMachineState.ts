@@ -120,7 +120,7 @@ export function useStateMachineState(): UseStateMachineStateReturn {
         });
       }
     } catch (err: any) {
-      Logger.warn('useStateMachineState.fetch_failed', `Failed to fetch initial state: ${err?.message}`);
+      Logger.warn('useStateMachineState.fetch_failed', { message: `Failed to fetch initial state: ${err?.message}` });
       // Don't set error - just use default state
     } finally {
       setIsLoading(false);
@@ -152,7 +152,7 @@ export function useStateMachineState(): UseStateMachineStateReturn {
     const newState = data.state_machine_state || data.state || data.current_state;
 
     if (newState) {
-      Logger.info('useStateMachineState.state_update', `State update received: ${newState} (type: ${msgType}, symbol: ${data.symbol})`);
+      Logger.info('useStateMachineState.state_update', { message: `State update received: ${newState} (type: ${msgType}, symbol: ${data.symbol})` });
 
       setStateData({
         state: normalizeState(newState),

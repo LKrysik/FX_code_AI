@@ -162,7 +162,7 @@ export class ErrorBoundary extends Component<Props, State> {
     // Add exponential backoff for retries
     const delay = Math.min(1000 * Math.pow(2, this.state.retryCount), 10000);
     const timeout = setTimeout(() => {
-      Logger.info('ErrorBoundary.retry', `Retrying after error (attempt ${this.state.retryCount + 1})`);
+      Logger.info('ErrorBoundary.retry', { message: `Retrying after error (attempt ${this.state.retryCount + 1})` });
     }, delay);
 
     this.retryTimeouts.push(timeout);

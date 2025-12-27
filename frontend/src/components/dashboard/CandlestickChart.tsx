@@ -179,7 +179,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
       // Validate real data - no fallback to mock
       if (!ohlcvData.candles || ohlcvData.candles.length === 0) {
-        Logger.warn('CandlestickChart.loadData', 'No OHLCV data available', { symbol });
+        Logger.warn('CandlestickChart.loadData', { message: 'No OHLCV data available', symbol });
         setCandleData([]);
         setError('No chart data available. Start data collection to see chart.');
       } else {

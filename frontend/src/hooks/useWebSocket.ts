@@ -158,7 +158,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       isHealthy: true
     });
 
-    Logger.debug('useWebSocket.pong_received', `Pong received - RTT: ${rttMs}ms, Avg: ${avgRttMs.toFixed(1)}ms`);
+    Logger.debug('useWebSocket.pong_received', { message: `Pong received - RTT: ${rttMs}ms, Avg: ${avgRttMs.toFixed(1)}ms` });
   }, []);
 
   // Handle missed pong
@@ -167,7 +167,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       const missedPongs = prev.missedPongs + 1;
       const isHealthy = missedPongs < 3;
 
-      Logger.warn('useWebSocket.missed_pong', `Missed pong #${missedPongs}${isHealthy ? '' : ' - connection unhealthy'}`);
+      Logger.warn('useWebSocket.missed_pong', { message: `Missed pong #${missedPongs}${isHealthy ? '' : ' - connection unhealthy'}` });
 
       // If too many missed pongs, force reconnect
       if (missedPongs >= 3 && wsRef.current) {
@@ -231,7 +231,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     } else {
       // Queue message if not connected
       messageQueueRef.current.push(message);
-      Logger.warn('useWebSocket.message_queued', `Message queued (not connected): ${JSON.stringify(message)}`);
+      Logger.warn('useWebSocket.message_queued', { message: `Message queued (not connected): ${JSON.stringify(message)}` });
     }
   }, []);
 
@@ -247,7 +247,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   // Process queued messages after reconnect
   const processQueue = useCallback(() => {
     if (messageQueueRef.current.length > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
-      Logger.info('useWebSocket.processing_queue', `Processing ${messageQueueRef.current.length} queued messages`);
+      Logger.info('useWebSocket.processing_queue', { message: `Processing ${messageQueueRef.current.length} queued messages` });
       const queue = [...messageQueueRef.current];
       messageQueueRef.current = [];
       queue.forEach(msg => sendMessage(msg));
@@ -265,7 +265,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     setConnectionState('connecting');
 
     try {
-      Logger.info('useWebSocket.connecting', `Connecting to ${opts.url} (attempt ${reconnectAttempt + 1}/${opts.reconnectAttempts})`);
+      Logger.info('useWebSocket.connecting', { message: `Connecting to ${opts.url} (attempt ${reconnectAttempt + 1}/${opts.reconnectAttempts})` });
       const ws = new WebSocket(opts.url);
 
       ws.onopen = (event) => {
@@ -279,7 +279,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       };
 
       ws.onclose = (event) => {
-        Logger.info('useWebSocket.disconnected', `Disconnected: ${event.code} ${event.reason}`);
+        Logger.info('useWebSocket.disconnected', { message: `Disconnected: ${event.code} ${event.reason}` });
         setIsConnected(false);
         setConnectionState('disconnected');
         clearTimers();
@@ -291,7 +291,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
             opts.reconnectInterval * Math.pow(opts.reconnectDecay, reconnectAttempt),
             30000  // Max 30 seconds
           );
-          Logger.info('useWebSocket.reconnecting', `Reconnecting in ${delay}ms...`);
+          Logger.info('useWebSocket.reconnecting', { message: `Reconnecting in ${delay}ms...` });
           reconnectTimeoutRef.current = setTimeout(() => {
             setReconnectAttempt(prev => prev + 1);
             connect();
@@ -333,7 +333,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           setLastMessage(message);
           options.onMessage?.(message);
         } catch (error) {
-          Logger.error('useWebSocket.parse_failed', `Failed to parse message: ${event.data}`, error instanceof Error ? error : undefined);
+          Logger.error('useWebSocket.parse_failed', { message: `Failed to parse message: ${event.data}` }, error instanceof Error ? error : undefined);
         }
       };
 
