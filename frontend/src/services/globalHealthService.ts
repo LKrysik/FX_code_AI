@@ -3,6 +3,7 @@ import { useHealthStore } from '@/stores/healthStore';
 import { useWebSocketStore } from '@/stores/websocketStore';
 import { wsService } from './websocket';
 import { apiService } from './api';
+import { Logger } from './frontendLogService';
 
 interface HealthStatus {
   backend: 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
@@ -61,7 +62,7 @@ class GlobalHealthService {
         const healthData = await apiService.healthCheck();
         this.updateHealthFromAPI(healthData);
       } catch (error) {
-        console.warn('Global health check failed:', error);
+        Logger.warn('health.check_failed', { error: String(error) });
       }
     }, 5 * 60 * 1000); // 5 minutes
   }
@@ -174,7 +175,7 @@ class GlobalHealthService {
       try {
         callback(status);
       } catch (error) {
-        console.error('Health subscriber error:', error);
+        Logger.error('health.subscriber_error', { error: String(error) }, error instanceof Error ? error : undefined);
       }
     });
   }

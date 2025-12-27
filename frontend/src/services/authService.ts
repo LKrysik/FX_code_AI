@@ -1,5 +1,6 @@
 import { config, debugLog, errorLog } from '@/utils/config';
 import { csrfService } from './csrfService';
+import { Logger } from './frontendLogService';
 
 interface User {
   user_id: string;
@@ -23,7 +24,7 @@ class AuthService {
         try {
           this.currentUser = JSON.parse(userStr);
         } catch (e) {
-          console.warn('Failed to parse current_user from localStorage', e);
+          Logger.warn('auth.parse_user_failed', { error: String(e) });
         }
       }
     }
@@ -48,8 +49,8 @@ class AuthService {
       });
 
       const data = await response.json();
-      console.log('Login response status:', response.status, response.ok);
-      console.log('Login raw response data:', data);
+      Logger.debug('auth.login_response', { status: response.status, ok: response.ok });
+      Logger.debug('auth.login_raw_response', { data });
       debugLog('Login response data:', data);
       if (!response.ok) {
         throw new Error(data.error_message || 'Login failed');
@@ -65,7 +66,7 @@ class AuthService {
       try {
         await csrfService.refreshToken();
       } catch (csrfError) {
-        console.warn('Failed to fetch CSRF token after login:', csrfError);
+        Logger.warn('auth.csrf_refresh_failed', { error: String(csrfError) });
       }
 
       debugLog('Login successful', { user: data.user });
@@ -148,7 +149,7 @@ class AuthService {
         const csrfToken = await csrfService.getToken();
         (headers as any)['X-CSRF-Token'] = csrfToken;
       } catch (csrfError) {
-        console.warn('Failed to get CSRF token for request:', csrfError);
+        Logger.warn('auth.csrf_token_failed', { error: String(csrfError), method, path });
       }
     }
 

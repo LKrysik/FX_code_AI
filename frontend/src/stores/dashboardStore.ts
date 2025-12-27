@@ -9,7 +9,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { DashboardState, MarketData, ActiveSignal, IndicatorData } from './types';
 import { apiService } from '@/services/api';
-import { debugLog, errorLog } from '@/utils/config';
+import { Logger } from '@/services/frontendLogService';
 
 const initialState = {
   // Market Data

@@ -15,6 +15,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useStateMachineState } from './useStateMachineState';
 import { apiService } from '@/services/api';
+import { Logger } from '@/services/frontendLogService';
 import type { StateMachineState } from '@/components/dashboard/StateBadge';
 import type { StatusHeroProps } from '@/components/dashboard/StatusHero';
 
@@ -129,7 +130,7 @@ export function useStatusHeroData(
         }
       }
     } catch (err: any) {
-      console.warn('[useStatusHeroData] Failed to fetch position data:', err?.message);
+      Logger.warn('useStatusHeroData.position_fetch_failed', `Failed to fetch position data: ${err?.message}`);
     }
   }, [sessionId, currentState, symbol]);
 
@@ -166,7 +167,7 @@ export function useStatusHeroData(
         }));
       }
     } catch (err: any) {
-      console.warn('[useStatusHeroData] Failed to fetch session info:', err?.message);
+      Logger.warn('useStatusHeroData.session_fetch_failed', `Failed to fetch session info: ${err?.message}`);
     }
   }, [sessionId]);
 

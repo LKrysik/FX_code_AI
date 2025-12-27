@@ -9,6 +9,7 @@ import { useCallback, useEffect } from 'react';
 import { useWebSocketStore } from '@/stores/websocketStore';
 import { useUIStore } from '@/stores/uiStore';
 import { useTradingStore } from '@/stores/tradingStore';
+import { Logger } from '@/services/frontendLogService';
 
 export interface SafetyCheckResult {
   safe: boolean;
@@ -128,17 +129,17 @@ export const useFinancialSafety = () => {
         }
 
         if (safetyResult.action === 'block') {
-          console.warn(`🚫 FINANCIAL SAFETY: ${operationName} blocked - ${safetyResult.reason}`);
+          Logger.warn('useFinancialSafety.blocked', `${operationName} blocked - ${safetyResult.reason}`);
           return null;
         }
       }
 
       // Operation is safe to proceed
       try {
-        console.log(`✅ FINANCIAL SAFETY: ${operationName} approved`);
+        Logger.info('useFinancialSafety.approved', `${operationName} approved`);
         return await operation();
       } catch (error) {
-        console.error(`💥 FINANCIAL SAFETY: ${operationName} failed:`, error);
+        Logger.error('useFinancialSafety.failed', `${operationName} failed`, error instanceof Error ? error : undefined);
 
         if (showNotification) {
           addNotification({
@@ -155,7 +156,7 @@ export const useFinancialSafety = () => {
 
   // Emergency stop function
   const emergencyStop = useCallback(() => {
-    console.warn('🚨 FINANCIAL SAFETY: Emergency stop activated');
+    Logger.warn('useFinancialSafety.emergency_stop', 'Emergency stop activated');
 
     addNotification({
       type: 'error',
@@ -172,7 +173,7 @@ export const useFinancialSafety = () => {
   // Auto-safety mode based on connection status
   useEffect(() => {
     if (!isConnected && !readOnlyMode) {
-      console.warn('🔒 FINANCIAL SAFETY: Auto-entering read-only mode due to connection loss');
+      Logger.warn('useFinancialSafety.auto_readonly', 'Auto-entering read-only mode due to connection loss');
       // Note: In real implementation, this would update the UI store
     }
   }, [isConnected, readOnlyMode]);

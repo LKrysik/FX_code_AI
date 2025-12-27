@@ -18,6 +18,7 @@
 
 import { useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { Logger } from '@/services/frontendLogService';
 
 export interface KeyboardShortcuts {
   emergencyStop: string;
@@ -85,7 +86,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
       // Emergency Stop - ESC
       if (key === shortcuts.emergencyStop) {
         event.preventDefault();
-        console.log('[KeyboardShortcuts] Emergency Stop triggered');
+        Logger.warn('useKeyboardShortcuts.emergency_stop', 'Emergency Stop triggered');
         if (onEmergencyStop) {
           onEmergencyStop();
         } else {
@@ -95,7 +96,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
             // Call emergency stop API
             fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/paper-trading/emergency-stop`, {
               method: 'POST',
-            }).catch(console.error);
+            }).catch((err) => Logger.error('useKeyboardShortcuts.emergency_stop_failed', 'Emergency stop API call failed', err));
           }
         }
         return;
@@ -104,7 +105,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
       // Close Position - C
       if (key.toLowerCase() === shortcuts.closePosition.toLowerCase()) {
         event.preventDefault();
-        console.log('[KeyboardShortcuts] Close Position triggered');
+        Logger.info('useKeyboardShortcuts.close_position', 'Close Position triggered');
         if (onClosePosition) {
           onClosePosition();
         }
@@ -114,21 +115,21 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
       // Navigation shortcuts
       if (key.toLowerCase() === shortcuts.goToDashboard.toLowerCase()) {
         event.preventDefault();
-        console.log('[KeyboardShortcuts] Navigate to Dashboard');
+        Logger.debug('useKeyboardShortcuts.navigate', 'Navigate to Dashboard');
         router.push('/dashboard');
         return;
       }
 
       if (key.toLowerCase() === shortcuts.goToTrading.toLowerCase()) {
         event.preventDefault();
-        console.log('[KeyboardShortcuts] Navigate to Trading Session');
+        Logger.debug('useKeyboardShortcuts.navigate', 'Navigate to Trading Session');
         router.push('/trading-session');
         return;
       }
 
       if (key.toLowerCase() === shortcuts.goToHistory.toLowerCase()) {
         event.preventDefault();
-        console.log('[KeyboardShortcuts] Navigate to Session History');
+        Logger.debug('useKeyboardShortcuts.navigate', 'Navigate to Session History');
         router.push('/session-history');
         return;
       }
@@ -136,7 +137,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
       // Zoom shortcuts
       if (key === shortcuts.zoomIn || (key === '=' && event.shiftKey)) {
         event.preventDefault();
-        console.log('[KeyboardShortcuts] Zoom In');
+        Logger.debug('useKeyboardShortcuts.zoom', 'Zoom In');
         if (onZoomIn) {
           onZoomIn();
         }
@@ -145,7 +146,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
 
       if (key === shortcuts.zoomOut) {
         event.preventDefault();
-        console.log('[KeyboardShortcuts] Zoom Out');
+        Logger.debug('useKeyboardShortcuts.zoom', 'Zoom Out');
         if (onZoomOut) {
           onZoomOut();
         }
@@ -155,15 +156,15 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
       // Fullscreen - F
       if (key.toLowerCase() === shortcuts.fullscreen.toLowerCase()) {
         event.preventDefault();
-        console.log('[KeyboardShortcuts] Toggle Fullscreen');
+        Logger.debug('useKeyboardShortcuts.fullscreen', 'Toggle Fullscreen');
         if (onFullscreen) {
           onFullscreen();
         } else {
           // Default: toggle document fullscreen
           if (!document.fullscreenElement) {
-            document.documentElement.requestFullscreen().catch(console.error);
+            document.documentElement.requestFullscreen().catch((err) => Logger.error('useKeyboardShortcuts.fullscreen_failed', 'Failed to enter fullscreen', err));
           } else {
-            document.exitFullscreen().catch(console.error);
+            document.exitFullscreen().catch((err) => Logger.error('useKeyboardShortcuts.fullscreen_failed', 'Failed to exit fullscreen', err));
           }
         }
         return;

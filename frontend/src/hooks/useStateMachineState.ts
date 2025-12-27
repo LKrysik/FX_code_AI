@@ -19,6 +19,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { wsService } from '@/services/websocket';
 import { apiService } from '@/services/api';
+import { Logger } from '@/services/frontendLogService';
 import type { StateMachineState } from '@/components/dashboard/StateBadge';
 
 export interface StateMachineStateData {
@@ -119,7 +120,7 @@ export function useStateMachineState(): UseStateMachineStateReturn {
         });
       }
     } catch (err: any) {
-      console.warn('[useStateMachineState] Failed to fetch initial state:', err?.message);
+      Logger.warn('useStateMachineState.fetch_failed', `Failed to fetch initial state: ${err?.message}`);
       // Don't set error - just use default state
     } finally {
       setIsLoading(false);
@@ -151,11 +152,7 @@ export function useStateMachineState(): UseStateMachineStateReturn {
     const newState = data.state_machine_state || data.state || data.current_state;
 
     if (newState) {
-      console.log('[useStateMachineState] State update received:', {
-        type: msgType,
-        state: newState,
-        symbol: data.symbol,
-      });
+      Logger.info('useStateMachineState.state_update', `State update received: ${newState} (type: ${msgType}, symbol: ${data.symbol})`);
 
       setStateData({
         state: normalizeState(newState),
@@ -176,7 +173,7 @@ export function useStateMachineState(): UseStateMachineStateReturn {
     // Subscribe to WebSocket session updates
     if (wsService && typeof wsService.addSessionUpdateListener === 'function') {
       cleanupRef.current = wsService.addSessionUpdateListener(handleWebSocketMessage, 'StateMachineState');
-      console.log('[useStateMachineState] Subscribed to WebSocket updates');
+      Logger.debug('useStateMachineState.subscribed', 'Subscribed to WebSocket updates');
     }
 
     return () => {
@@ -184,7 +181,7 @@ export function useStateMachineState(): UseStateMachineStateReturn {
       if (cleanupRef.current) {
         cleanupRef.current();
         cleanupRef.current = null;
-        console.log('[useStateMachineState] Unsubscribed from WebSocket updates');
+        Logger.debug('useStateMachineState.unsubscribed', 'Unsubscribed from WebSocket updates');
       }
     };
   }, [fetchInitialState, handleWebSocketMessage]);

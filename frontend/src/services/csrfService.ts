@@ -16,6 +16,7 @@
  */
 
 import { config } from '@/utils/config';
+import { Logger } from './frontendLogService';
 
 interface CsrfTokenResponse {
   type: string;
@@ -38,7 +39,7 @@ class CsrfService {
     try {
       await this.fetchNewToken();
     } catch (error) {
-      console.error('[CSRF] Failed to initialize CSRF token:', error);
+      Logger.error('csrf.init_failed', { error: String(error) }, error instanceof Error ? error : undefined);
       // Don't throw - allow app to start even if CSRF fetch fails
       // Token will be fetched on first request
     }
@@ -132,14 +133,14 @@ class CsrfService {
       this.token = data.data.token;
       this.expiresAt = Date.now() + (data.data.expires_in * 1000); // Convert relative seconds to absolute ms timestamp
 
-      console.debug('[CSRF] Token fetched successfully', {
+      Logger.debug('csrf.token_fetched', {
         expires_at: new Date(this.expiresAt).toISOString(),
         expires_in_seconds: data.data.expires_in,
       });
 
       return this.token;
     } catch (error) {
-      console.error('[CSRF] Failed to fetch token:', error);
+      Logger.error('csrf.fetch_failed', { error: String(error) }, error instanceof Error ? error : undefined);
       throw error;
     }
   }
