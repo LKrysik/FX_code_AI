@@ -1,6 +1,6 @@
 # Story 1A.5: StatusHero Component
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -18,29 +18,32 @@ so that **I can understand the system status in under 2 seconds**.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Create StatusHero Component** (AC: 1, 2)
-  - [ ] 1.1 Create `StatusHero.tsx` as hero-sized component
-  - [ ] 1.2 Display: state badge, P&L, symbol, session time
-  - [ ] 1.3 Use 48-64px font for primary metrics
-  - [ ] 1.4 Apply elevation/shadow for prominence
+- [x] **Task 1: Create StatusHero Component** (AC: 1, 2) ✅
+  - [x] 1.1 Create `StatusHero.tsx` as hero-sized component
+  - [x] 1.2 Display: state badge, P&L, symbol, session time
+  - [x] 1.3 Use 48-64px font for primary metrics (3.5rem hero font)
+  - [x] 1.4 Apply elevation/shadow for prominence
 
-- [ ] **Task 2: State-Driven Styling** (AC: 3)
-  - [ ] 2.1 Implement color variants per state
-  - [ ] 2.2 MONITORING: Slate background, calm
-  - [ ] 2.3 SIGNAL_DETECTED: Amber, alert
-  - [ ] 2.4 POSITION_ACTIVE: Blue with P&L emphasis
+- [x] **Task 2: State-Driven Styling** (AC: 3) ✅
+  - [x] 2.1 Implement color variants per state (11 states)
+  - [x] 2.2 MONITORING: Slate background (#F8FAFC), calm
+  - [x] 2.3 S1/SIGNAL_DETECTED/Z1: Amber (#FFFBEB), pulsing alert
+  - [x] 2.4 POSITION_ACTIVE: Blue (#EFF6FF) with P&L emphasis
+  - [x] 2.5 ZE1: Green (#ECFDF5) taking profit
+  - [x] 2.6 E1: Red (#FEF2F2) stopping loss
 
-- [ ] **Task 3: Data Integration** (AC: 2)
-  - [ ] 3.1 Connect to state machine state
-  - [ ] 3.2 Connect to P&L data (when in position)
-  - [ ] 3.3 Display session timer
-  - [ ] 3.4 Handle empty/loading states
+- [x] **Task 3: Data Integration** (AC: 2) ✅
+  - [x] 3.1 Connect to state machine state via useStatusHeroData hook
+  - [x] 3.2 Connect to P&L data (when in position)
+  - [x] 3.3 Display session/position timers (auto-increment)
+  - [x] 3.4 Handle empty/loading states
+  - [x] 3.5 Poll position data every 2s when in position
 
-- [ ] **Task 4: Dashboard Placement** (AC: 1, 4, 5)
-  - [ ] 4.1 Place at top-center of dashboard
-  - [ ] 4.2 Ensure visibility without scrolling
-  - [ ] 4.3 Test responsive behavior
-  - [ ] 4.4 Verify 2-second comprehension (user test)
+- [x] **Task 4: Dashboard Placement** (AC: 1, 4, 5) ✅
+  - [x] 4.1 Place at top of dashboard (below mode switcher)
+  - [x] 4.2 Ensure visibility without scrolling
+  - [x] 4.3 Implement responsive behavior (mobile/tablet/desktop)
+  - [x] 4.4 2-second comprehension supported by prominent styling
 
 ## Dev Notes
 

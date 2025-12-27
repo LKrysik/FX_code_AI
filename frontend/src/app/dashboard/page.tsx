@@ -65,6 +65,7 @@ import { apiService } from '@/services/api';
 import { useVisibilityAwareInterval } from '@/hooks/useVisibilityAwareInterval';
 import { SymbolWatchlist, type SymbolData } from '@/components/dashboard/SymbolWatchlist';
 import { LiveIndicatorPanel } from '@/components/dashboard/LiveIndicatorPanel';
+import { IndicatorValuesPanel } from '@/components/dashboard/IndicatorValuesPanel'; // Story 1A-3
 import { CandlestickChart } from '@/components/dashboard/CandlestickChart';
 import { MultiSymbolGrid } from '@/components/dashboard/MultiSymbolGrid';
 import { SignalDetailPanel, type SignalDetail } from '@/components/dashboard/SignalDetailPanel';
@@ -80,6 +81,10 @@ import ConditionProgressIntegration from '@/components/dashboard/ConditionProgre
 import TransitionLogIntegration from '@/components/dashboard/TransitionLog.integration';
 import PumpIndicatorsPanel from '@/components/dashboard/PumpIndicatorsPanel';
 import ActivePositionBanner from '@/components/dashboard/ActivePositionBanner';
+import StateBadge from '@/components/dashboard/StateBadge'; // Story 1A-2
+import StatusHero from '@/components/dashboard/StatusHero'; // Story 1A-5
+import { useStateMachineState } from '@/hooks/useStateMachineState'; // Story 1A-2
+import { useStatusHeroData } from '@/hooks/useStatusHeroData'; // Story 1A-5
 
 // ============================================================================
 // Types
@@ -150,6 +155,12 @@ function DashboardContent() {
   const [loading, setLoading] = useState(false);
   const [isSessionRunning, setIsSessionRunning] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState<string>('BTC_USDT');
+
+  // Story 1A-2: State Machine State for Hero Badge
+  const { currentState: stateMachineState, since: stateSince } = useStateMachineState();
+
+  // Story 1A-5: StatusHero Data Integration
+  const statusHeroData = useStatusHeroData(sessionId, selectedSymbol);
 
   // FIX ERROR 45: Loading state for session start/stop
   const [sessionActionLoading, setSessionActionLoading] = useState(false);
@@ -752,6 +763,27 @@ function DashboardContent() {
 
       {/* Loading Indicator - REMOVED to prevent page jumping during auto-refresh */}
 
+      {/* Story 1A-5: StatusHero Component - PRIMARY HERO ELEMENT */}
+      {/* Largest and most prominent element - combines state, P&L, and symbol */}
+      {/* Visible immediately without scrolling - 2-second time-to-insight */}
+      {isSessionRunning && (
+        <Box sx={{ mb: 3 }}>
+          <StatusHero
+            state={statusHeroData.state}
+            symbol={statusHeroData.symbol || selectedSymbol}
+            pnl={statusHeroData.pnl}
+            pnlPercent={statusHeroData.pnlPercent}
+            entryPrice={statusHeroData.entryPrice}
+            currentPrice={statusHeroData.currentPrice}
+            sessionTime={statusHeroData.sessionTime}
+            positionTime={statusHeroData.positionTime}
+            signalType={statusHeroData.signalType}
+            indicatorHighlights={statusHeroData.indicatorHighlights}
+            side={statusHeroData.side}
+          />
+        </Box>
+      )}
+
       {/* Active Session Alert */}
       {isSessionRunning && sessionId && (
         <Alert severity="info" sx={{ mb: 3 }}>
@@ -930,14 +962,21 @@ function DashboardContent() {
                 </Box>
 
                 <Grid container spacing={2}>
-                  <Grid item xs={12} md={6}>
+                  <Grid item xs={12} md={4}>
+                    {/* Story 1A-3: MVP Indicator Values Panel (AC1-5) */}
+                    <IndicatorValuesPanel
+                      sessionId={sessionId}
+                      symbol={selectedSymbol}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={4}>
                     <LiveIndicatorPanel
                       sessionId={sessionId}
                       symbol={selectedSymbol}
                       refreshInterval={5000}
                     />
                   </Grid>
-                  <Grid item xs={12} md={6}>
+                  <Grid item xs={12} md={4}>
                     <ConditionProgressIntegration
                       sessionId={sessionId}
                       symbol={selectedSymbol}

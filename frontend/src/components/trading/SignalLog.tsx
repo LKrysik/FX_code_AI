@@ -2,6 +2,7 @@
  * SignalLog Component - Agent 6
  * ===============================
  * Displays trading signals with execution results and indicator values.
+ * Story 1A-4: Human Vocabulary Labels (centralized vocabulary)
  *
  * Features:
  * - Real-time updates via WebSocket (signal_generated events)
@@ -18,6 +19,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket';
+// Import centralized vocabulary (Story 1A-4: Human Vocabulary Labels - AC2)
+import { getSignalLabel, getSignalColor } from '@/utils/stateVocabulary';
 
 // ========================================
 // TypeScript Types
@@ -194,15 +197,9 @@ export default function SignalLog({
     }
   };
 
-  // Get signal type label
+  // Get signal type label - uses centralized vocabulary (Story 1A-4 AC2)
   const getSignalTypeLabel = (signalType: string) => {
-    switch (signalType) {
-      case 'S1': return 'Entry Signal';
-      case 'Z1': return 'Position Opened';
-      case 'ZE1': return 'Partial Exit';
-      case 'E1': return 'Full Exit';
-      default: return signalType;
-    }
+    return getSignalLabel(signalType);
   };
 
   // Get confidence color

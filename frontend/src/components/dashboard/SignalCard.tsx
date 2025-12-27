@@ -2,6 +2,8 @@
  * SignalCard Component
  * ====================
  * Story 1A-1: Prominent display of individual trading signals
+ * Story 1A-4: Human Vocabulary Labels (AC2 - centralized vocabulary)
+ * Story 1A-6: Signal Type Color Coding (AC1-5)
  *
  * AC2: Signal display includes: type, symbol, timestamp, and key indicator value
  * AC5: Signal display uses prominent styling (not buried in UI)
@@ -17,11 +19,17 @@ import {
   Typography,
   Chip,
   LinearProgress,
+  useTheme,
 } from '@mui/material';
 import {
   TrendingUp as PumpIcon,
   TrendingDown as DumpIcon,
 } from '@mui/icons-material';
+
+// Import centralized vocabulary (Story 1A-4: Human Vocabulary Labels - AC2)
+import { getSignalVocabulary, SignalType } from '@/utils/stateVocabulary';
+// Import color system (Story 1A-6: Signal Type Color Coding)
+import { getSignalColorPalette, getSignalColorConfig } from '@/theme/signalColors';
 
 export interface SignalCardProps {
   id: string;
@@ -36,23 +44,25 @@ export interface SignalCardProps {
 
 /**
  * Get signal type styling based on pump/dump
+ * Uses centralized vocabulary for labels (Story 1A-4 AC2)
+ * Uses color system for light/dark mode (Story 1A-6)
  */
-const getSignalTypeConfig = (signalType: 'pump' | 'dump') => {
-  if (signalType === 'pump') {
-    return {
-      icon: PumpIcon,
-      color: '#10B981', // Green
-      bgColor: 'rgba(16, 185, 129, 0.1)',
-      borderColor: 'rgba(16, 185, 129, 0.3)',
-      label: 'PUMP',
-    };
-  }
+const getSignalTypeConfig = (signalType: 'pump' | 'dump', isDarkMode: boolean) => {
+  // Get human-readable label from centralized vocabulary
+  const vocabulary = getSignalVocabulary(signalType);
+  // Get color palette for current mode (Story 1A-6: AC5 - light/dark mode)
+  const colorConfig = getSignalColorConfig(signalType);
+  const colors = getSignalColorPalette(signalType, isDarkMode ? 'dark' : 'light');
+
   return {
-    icon: DumpIcon,
-    color: '#EF4444', // Red
-    bgColor: 'rgba(239, 68, 68, 0.1)',
-    borderColor: 'rgba(239, 68, 68, 0.3)',
-    label: 'DUMP',
+    icon: signalType === 'pump' ? PumpIcon : DumpIcon,
+    color: colors.icon,
+    bgColor: colors.bg,
+    borderColor: colors.border,
+    textColor: colors.text,
+    label: vocabulary.label,
+    emoji: colorConfig.icon, // AC4: Color-blind friendly icon
+    primaryColor: colorConfig.primary,
   };
 };
 
@@ -81,6 +91,7 @@ const formatTimestamp = (timestamp: string): string => {
 
 /**
  * SignalCard - Prominent display for a single trading signal
+ * Story 1A-6: Uses theme-aware colors for light/dark mode support
  */
 export const SignalCard: React.FC<SignalCardProps> = ({
   id,
@@ -92,7 +103,9 @@ export const SignalCard: React.FC<SignalCardProps> = ({
   strategy,
   onClick,
 }) => {
-  const config = getSignalTypeConfig(signalType);
+  const theme = useTheme();
+  const isDarkMode = theme.palette.mode === 'dark';
+  const config = getSignalTypeConfig(signalType, isDarkMode);
   const IconComponent = config.icon;
 
   return (
@@ -127,14 +140,14 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                 {symbol}
               </Typography>
               <Chip
-                label={config.label}
+                label={`${config.emoji} ${config.label}`}
                 size="small"
                 sx={{
                   mt: 0.5,
-                  height: 20,
+                  height: 22,
                   fontSize: '0.7rem',
                   fontWeight: 600,
-                  backgroundColor: config.color,
+                  backgroundColor: config.primaryColor,
                   color: 'white',
                 }}
               />

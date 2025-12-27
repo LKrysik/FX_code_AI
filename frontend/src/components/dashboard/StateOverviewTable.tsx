@@ -61,14 +61,20 @@ export interface StateOverviewTableProps {
 
 /**
  * State priority for sorting (lower = higher priority)
+ * Story 1A-4: Updated to include all states from centralized vocabulary
  */
 const STATE_PRIORITY: Record<StateMachineState, number> = {
   POSITION_ACTIVE: 1,
-  SIGNAL_DETECTED: 2,
-  ERROR: 3,
-  MONITORING: 4,
-  EXITED: 5,
-  INACTIVE: 6,
+  S1: 2, // Signal detected - high priority
+  SIGNAL_DETECTED: 2, // Legacy, same as S1
+  Z1: 3, // Entering position
+  ZE1: 4, // Taking profit
+  E1: 5, // Stopping loss - urgent but after active position
+  O1: 6, // False alarm / cancelled
+  ERROR: 7,
+  MONITORING: 8,
+  EXITED: 9,
+  INACTIVE: 10,
 };
 
 // ============================================================================
