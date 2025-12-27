@@ -308,7 +308,7 @@ const DashboardContent = React.memo(function DashboardContent() {
       // Set error in dashboard store
       useDashboardStore.getState().setError(errorMessage);
 
-      Logger.error('PumpDumpDashboard.loadDashboardData', 'Dashboard error', { error: err });
+      Logger.error('PumpDumpDashboard.loadDashboardData', { message: 'Dashboard error', error: err });
 
       addNotification({
         type: 'error',

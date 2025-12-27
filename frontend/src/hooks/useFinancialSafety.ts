@@ -129,17 +129,17 @@ export const useFinancialSafety = () => {
         }
 
         if (safetyResult.action === 'block') {
-          Logger.warn('useFinancialSafety.blocked', `${operationName} blocked - ${safetyResult.reason}`);
+          Logger.warn('useFinancialSafety.blocked', { message: `${operationName} blocked - ${safetyResult.reason}` });
           return null;
         }
       }
 
       // Operation is safe to proceed
       try {
-        Logger.info('useFinancialSafety.approved', `${operationName} approved`);
+        Logger.info('useFinancialSafety.approved', { message: `${operationName} approved` });
         return await operation();
       } catch (error) {
-        Logger.error('useFinancialSafety.failed', `${operationName} failed`, error instanceof Error ? error : undefined);
+        Logger.error('useFinancialSafety.failed', { message: `${operationName} failed` }, error instanceof Error ? error : undefined);
 
         if (showNotification) {
           addNotification({

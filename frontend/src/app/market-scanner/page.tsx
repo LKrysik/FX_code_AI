@@ -234,7 +234,7 @@ export default function MarketScannerPage() {
       // Check for alerts
       checkForAlerts(scannerResults);
     } catch (error) {
-      Logger.error('MarketScannerPage.loadScannerData', 'Failed to load scanner data', { error });
+      Logger.error('MarketScannerPage.loadScannerData', { message: 'Failed to load scanner data', error });
       setSnackbar({
         open: true,
         message: `Failed to load scanner data: ${error instanceof Error ? error.message : 'Unknown error'}`,

@@ -243,11 +243,11 @@ export default function StrategiesPage() {
           isRunning: statuses.some((s: any) => s.strategy_name === strategy.id && s.current_state === 'ACTIVE')
         })));
       } catch (statusError) {
-        Logger.warn('StrategiesPage.loadStrategies', 'Failed to load strategy statuses', { error: statusError });
+        Logger.warn('StrategiesPage.loadStrategies', { message: 'Failed to load strategy statuses', error: statusError });
       }
 
     } catch (error) {
-      Logger.error('StrategiesPage.loadStrategies', 'Failed to load strategies', { error });
+      Logger.error('StrategiesPage.loadStrategies', { message: 'Failed to load strategies', error });
       // Fallback to template data
       setStrategies(strategyTemplates);
       setSnackbar({
@@ -267,7 +267,7 @@ export default function StrategiesPage() {
       const userStrategiesData = await apiService.get4SectionStrategies();
       setUserStrategies(userStrategiesData);
     } catch (error) {
-      Logger.error('StrategiesPage.loadUserStrategies', 'Failed to load user strategies', { error });
+      Logger.error('StrategiesPage.loadUserStrategies', { message: 'Failed to load user strategies', error });
       setUserStrategies([]);
     }
   };
@@ -413,7 +413,7 @@ export default function StrategiesPage() {
       });
       setDialogOpen(false);
     } catch (error) {
-      Logger.error('StrategiesPage.handleSaveCustom', 'Failed to save custom configuration', { error });
+      Logger.error('StrategiesPage.handleSaveCustom', { message: 'Failed to save custom configuration', error });
       setSnackbar({
         open: true,
         message: 'Failed to save custom configuration',

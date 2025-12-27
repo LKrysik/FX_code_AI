@@ -776,7 +776,7 @@ export default function ChartPage() {
   const disableOtherIndicatorsWithSameVariant = (currentIndicators: any[], variantId: string, excludeIndex: number): any[] => {
     return currentIndicators.map((ind, i) => {
       if (i !== excludeIndex && (ind.variantId === variantId || ind.id === variantId)) {
-        Logger.debug('ChartPage.disableOtherIndicatorsWithSameVariant', 'Disabling duplicate indicator', { name: ind.name, id: ind.id });
+        Logger.debug('ChartPage.disableOtherIndicatorsWithSameVariant', { message: 'Disabling duplicate indicator', name: ind.name, id: ind.id });
         return { ...ind, enabled: false };
       }
       return ind;
@@ -827,7 +827,7 @@ export default function ChartPage() {
         
         if (existingIndicatorId) {
           // Wskaźnik już istnieje - użyj istniejącego ID zamiast tworzyć nowy
-          Logger.debug('ChartPage.handleIndicatorToggle', 'Reusing existing indicator', { existingIndicatorId, variantId });
+          Logger.debug('ChartPage.handleIndicatorToggle', { message: 'Reusing existing indicator', existingIndicatorId, variantId });
           
           updatedIndicators = updatedIndicators.map((ind, i) =>
             i === index ? { ...ind, field: existingIndicatorId, id: existingIndicatorId } : ind
@@ -858,8 +858,8 @@ export default function ChartPage() {
 
         const response = await apiService.addIndicatorToSession(sessionId, selectedSymbol, payload);
         const indicatorId = response?.indicator_id;
-        Logger.debug('ChartPage.handleIndicatorToggle', 'Backend response', { indicatorName: indicator.name, response });
-        Logger.debug('ChartPage.handleIndicatorToggle', 'Received indicator ID', { indicatorId });
+        Logger.debug('ChartPage.handleIndicatorToggle', { message: 'Backend response', indicatorName: indicator.name, response });
+        Logger.debug('ChartPage.handleIndicatorToggle', { message: 'Received indicator ID', indicatorId });
         if (!indicatorId) {
           throw new Error('Missing indicator identifier from server');
         }
@@ -931,13 +931,13 @@ export default function ChartPage() {
               await apiService.delete(
                 `/api/indicators/sessions/${sessionId}/symbols/${selectedSymbol}/indicators/${indicatorId}`
               );
-              Logger.info('ChartPage.handleIndicatorToggle', 'Removed duplicate indicator', { indicatorId });
+              Logger.info('ChartPage.handleIndicatorToggle', { message: 'Removed duplicate indicator', indicatorId });
             } catch (error) {
-              Logger.warn('ChartPage.handleIndicatorToggle', 'Failed to remove indicator', { indicatorId, error });
+              Logger.warn('ChartPage.handleIndicatorToggle', { message: 'Failed to remove indicator', indicatorId, error });
             }
           }
 
-          Logger.info('ChartPage.handleIndicatorToggle', 'Removed instances of variant', { count: existingIndicatorIds.length, variantId: indicator.variantId });
+          Logger.info('ChartPage.handleIndicatorToggle', { message: 'Removed instances of variant', count: existingIndicatorIds.length, variantId: indicator.variantId });
         } else if (indicator.field) {
           // Fallback dla starszych wskaźników bez variantId
           await apiService.delete(
@@ -959,7 +959,7 @@ export default function ChartPage() {
         });
       }
     } catch (error: any) {
-      Logger.error('ChartPage.handleIndicatorToggle', 'Failed to toggle indicator', { error, indicatorName: indicator.name });
+      Logger.error('ChartPage.handleIndicatorToggle', { message: 'Failed to toggle indicator', error, indicatorName: indicator.name });
       setIndicators(originalIndicators);
       setIsCreatingIndicator(false); // Reset flag on error
       updateIndicatorStatus(previousId, 'error', error?.message || 'Failed to toggle indicator');
@@ -1010,7 +1010,7 @@ export default function ChartPage() {
       Logger.info('ChartPage.saveUserPreferences', 'Saved user preferences');
 
     } catch (error: any) {
-      Logger.warn('ChartPage.saveUserPreferences', 'Failed to save user preferences', { error });
+      Logger.warn('ChartPage.saveUserPreferences', { message: 'Failed to save user preferences', error });
     }
   };
 
@@ -1128,7 +1128,8 @@ export default function ChartPage() {
     const margin = (maxPrice - minPrice) * 0.05; // 5% margin
 
     const domain = [minPrice - margin, maxPrice + margin];
-    Logger.debug('ChartPage.priceDomain', 'Price domain calculated', {
+    Logger.debug('ChartPage.priceDomain', {
+      message: 'Price domain calculated',
       domain: [domain[0].toFixed(6), domain[1].toFixed(6)],
       priceCount: prices.length,
       minPrice: minPrice.toFixed(6),
@@ -1140,7 +1141,7 @@ export default function ChartPage() {
 
   // Debug priceDomain
   useEffect(() => {
-    Logger.debug('ChartPage.priceDomain', 'Current priceDomain', { priceDomain });
+    Logger.debug('ChartPage.priceDomain', { message: 'Current priceDomain', priceDomain });
   }, [priceDomain]);
 
   const resetZoom = () => {
