@@ -18,14 +18,14 @@ Critical Requirements:
 - ✅ Prometheus format compliance
 """
 
-import logging
 import time
 from typing import Dict, Any, Optional, ClassVar
 from prometheus_client import Counter, Gauge, Histogram, generate_latest, CONTENT_TYPE_LATEST, CollectorRegistry
 
 from ...core.event_bus import EventBus
+from ...core.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 # ==================== MODULE-LEVEL METRICS (Singleton Pattern) ====================

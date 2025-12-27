@@ -56,8 +56,8 @@ class DetectPumpSignalsUseCase:
         if logger:
             self.logger = logger
         else:
-            import logging
-            self.logger = logging.getLogger("DetectPumpSignals")
+            from ...core.logger import get_logger
+            self.logger = get_logger("DetectPumpSignals")
         
         # Track confirmed pumps for reversal detection
         self._confirmed_pumps: Dict[str, FlashPumpSignal] = {}

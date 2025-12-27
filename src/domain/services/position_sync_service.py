@@ -21,15 +21,15 @@ Critical Requirements:
 
 import asyncio
 import time
-import logging
 from typing import Dict, Optional, List, Any
 from dataclasses import dataclass
 
 from ...core.event_bus import EventBus
 # ✅ FUTURES ONLY - Using MexcFuturesAdapter (compatibility methods added)
 from ...core.circuit_breaker import CircuitBreakerOpenException
+from ...core.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

@@ -14,6 +14,7 @@ import { wsService } from './websocket';
 import { recordApiCall } from '@/hooks/usePerformanceMonitor';
 import { categorizeError, logUnifiedError, getErrorRecoveryStrategy } from '@/utils/statusUtils';
 import { csrfService } from './csrfService';
+import { Logger } from './frontendLogService';
 
 // Configure axios defaults
 axios.defaults.baseURL = config.apiUrl;
@@ -32,7 +33,7 @@ axios.interceptors.request.use(
         const token = await csrfService.getToken();
         request.headers['X-CSRF-Token'] = token;
       } catch (error) {
-        console.error('[CSRF] Failed to get CSRF token for request:', error);
+        Logger.error('csrf.get_token_failed', { url: request.url }, error as Error);
         // Continue with request - backend will reject if token required
       }
     }
@@ -80,13 +81,13 @@ class CookieAuth {
       try {
         await csrfService.refreshToken();
       } catch (csrfError) {
-        console.warn('Failed to fetch CSRF token after login:', csrfError);
+        Logger.warn('csrf.refresh_after_login_failed', { error: String(csrfError) });
       }
 
       return response.data;
     } catch (error: any) {
       this.setAuthenticated(false);
-      console.error('Login failed:', error);
+      Logger.error('auth.login_failed', { message: error.response?.data?.error_message || error.message }, error);
       throw new Error(error.response?.data?.error_message || 'Login failed');
     }
   }
@@ -95,7 +96,7 @@ class CookieAuth {
     try {
       await axios.post('/api/v1/auth/logout');
     } catch (error) {
-      console.warn('Logout request failed:', error);
+      Logger.warn('auth.logout_request_failed', { error: String(error) });
     } finally {
       // Mark as not authenticated
       this.setAuthenticated(false);
@@ -128,7 +129,7 @@ class CookieAuth {
     try {
       await axios.post('/api/v1/auth/refresh');
     } catch (error: any) {
-      console.error('Token refresh failed:', error);
+      Logger.error('auth.token_refresh_failed', { message: error.message }, error);
       throw new Error('Session expired - please login again');
     }
   }
@@ -163,7 +164,7 @@ axios.interceptors.response.use(
         return axios(originalRequest);
       } catch (refreshError) {
         // Refresh failed - redirect to login or emit event
-        console.error('Token refresh failed:', refreshError);
+        Logger.error('auth.interceptor_refresh_failed', { url: originalRequest.url }, refreshError as Error);
         // Could emit an event here to trigger login modal
         // window.dispatchEvent(new CustomEvent('auth:session-expired'));
       }
@@ -178,14 +179,14 @@ axios.interceptors.response.use(
         originalRequest._csrfRetry = true;
 
         try {
-          console.debug('[CSRF] Token expired/invalid, refreshing...');
+          Logger.debug('csrf.token_refreshing', { errorCode });
           // Refresh CSRF token
           await csrfService.refreshToken();
 
           // Retry the original request with new CSRF token
           return axios(originalRequest);
         } catch (csrfError) {
-          console.error('[CSRF] Token refresh failed:', csrfError);
+          Logger.error('csrf.refresh_failed', { url: originalRequest.url }, csrfError as Error);
           // Fall through to error handling below
         }
       }
@@ -258,7 +259,7 @@ class ApiService {
       if (recoveryStrategy.shouldRetry && this.pendingRequests.has(key)) {
         // For retryable errors, we could implement retry logic here
         // For now, just log the recovery suggestion
-        console.info(`API Error Recovery: ${recoveryStrategy.fallbackAction}`);
+        Logger.info('api.error_recovery', { action: recoveryStrategy.fallbackAction, key });
       }
 
       throw error;
@@ -302,11 +303,11 @@ class ApiService {
                           error?.response?.data?.message ||
                           error?.message ||
                           'Unknown error occurred';
-      console.error(`API error: GET /strategies/${name}`, {
+      Logger.error('api.get_strategy_failed', {
+        name,
         error: errorMessage,
-        status: error?.response?.status,
-        statusText: error?.response?.statusText
-      });
+        status: error?.response?.status
+      }, error);
       throw new Error(`Failed to get strategy '${name}': ${errorMessage}`);
     }
   }
@@ -590,11 +591,11 @@ class ApiService {
                           error?.response?.data?.message ||
                           error?.message ||
                           'Unknown error occurred';
-      console.error(`API error: GET /sessions/${sessionId}`, {
+      Logger.error('api.get_session_status_failed', {
+        sessionId,
         error: errorMessage,
-        status: error?.response?.status,
-        statusText: error?.response?.statusText
-      });
+        status: error?.response?.status
+      }, error);
       throw new Error(`Failed to get session status '${sessionId}': ${errorMessage}`);
     }
   }
@@ -617,7 +618,7 @@ class ApiService {
                            error?.message ||
                            'Unknown error occurred';
 
-      console.error(`API error: POST /sessions/start`, { error: errorMessage, status: error?.response?.status });
+      Logger.error('api.start_session_failed', { error: errorMessage, status: error?.response?.status }, error);
       throw new Error(`Failed to start session: ${errorMessage}`);
     }
   }
@@ -634,11 +635,10 @@ class ApiService {
                           error?.response?.data?.message ||
                           error?.message ||
                           'Unknown error occurred';
-      console.error('API error: GET /sessions/execution-status', {
+      Logger.error('api.get_execution_status_failed', {
         error: errorMessage,
-        status: error?.response?.status,
-        statusText: error?.response?.statusText
-      });
+        status: error?.response?.status
+      }, error);
       throw new Error(`Failed to get execution status: ${errorMessage}`);
     }
   }
@@ -657,11 +657,10 @@ class ApiService {
                           error?.response?.data?.message ||
                           error?.message ||
                           'Unknown error occurred';
-      console.error('API error: GET /api/data-collection/sessions', {
+      Logger.error('api.get_data_collection_sessions_failed', {
         error: errorMessage,
-        status: error?.response?.status,
-        statusText: error?.response?.statusText
-      });
+        status: error?.response?.status
+      }, error);
       throw new Error(`Failed to get data collection sessions: ${errorMessage}`);
     }
   }
@@ -675,11 +674,11 @@ class ApiService {
                           error?.response?.data?.message ||
                           error?.message ||
                           'Unknown error occurred';
-      console.error(`API error: DELETE /api/data-collection/sessions/${sessionId}`, {
+      Logger.error('api.delete_data_collection_session_failed', {
+        sessionId,
         error: errorMessage,
-        status: error?.response?.status,
-        statusText: error?.response?.statusText
-      });
+        status: error?.response?.status
+      }, error);
       throw new Error(`Failed to delete session: ${errorMessage}`);
     }
   }
@@ -710,26 +709,23 @@ class ApiService {
           };
         });
 
-        console.log('[API] Transformed chart data:', {
+        Logger.debug('api.chart_data_transformed', {
           session_id: (response.data as any).session_id,
           symbol: (response.data as any).symbol,
-          data_points: (response.data as any).data_points,
-          first_timestamp: (response.data as any).data[0]?.timestamp,
-          first_timestamp_type: typeof (response.data as any).data[0]?.timestamp,
-          sample_point: (response.data as any).data[0]
+          data_points: (response.data as any).data_points
         });
       }
 
       return response.data;
     } catch (error: any) {
       const errorMessage = error?.response?.data?.detail || error?.message || 'Unknown error';
-      console.error(`API error: GET /api/data-collection/${sessionId}/chart-data`, {
-        error: errorMessage,
-        status: error?.response?.status,
-        statusText: error?.response?.statusText,
+      Logger.error('api.get_chart_data_failed', {
+        sessionId,
         symbol,
-        maxPoints
-      });
+        maxPoints,
+        error: errorMessage,
+        status: error?.response?.status
+      }, error);
       throw new Error(`Failed to get chart data: ${errorMessage}`);
     }
   }
@@ -779,11 +775,10 @@ class ApiService {
                             error?.response?.data?.message ||
                             error?.message ||
                             'Unknown error occurred';
-        console.error('API error: GET /wallet/balance', {
+        Logger.error('api.get_wallet_balance_failed', {
           error: errorMessage,
-          status: error?.response?.status,
-          statusText: error?.response?.statusText
-        });
+          status: error?.response?.status
+        }, error);
         throw new Error(`Failed to get wallet balance: ${errorMessage}`);
       }
     });
@@ -810,11 +805,11 @@ class ApiService {
                           error?.response?.data?.message ||
                           error?.message ||
                           'Unknown error occurred';
-      console.error(`API error: GET /orders/${orderId}`, {
+      Logger.error('api.get_order_failed', {
+        orderId,
         error: errorMessage,
-        status: error?.response?.status,
-        statusText: error?.response?.statusText
-      });
+        status: error?.response?.status
+      }, error);
       throw new Error(`Failed to get order '${orderId}': ${errorMessage}`);
     }
   }
@@ -838,11 +833,11 @@ class ApiService {
                           error?.response?.data?.message ||
                           error?.message ||
                           'Unknown error occurred';
-      console.error(`API error: GET /positions/${symbol}`, {
+      Logger.error('api.get_position_failed', {
+        symbol,
         error: errorMessage,
-        status: error?.response?.status,
-        statusText: error?.response?.statusText
-      });
+        status: error?.response?.status
+      }, error);
       throw new Error(`Failed to get position for '${symbol}': ${errorMessage}`);
     }
   }
@@ -859,11 +854,10 @@ class ApiService {
                           error?.response?.data?.message ||
                           error?.message ||
                           'Unknown error occurred';
-      console.error('API error: GET /trading/performance', {
+      Logger.error('api.get_trading_performance_failed', {
         error: errorMessage,
-        status: error?.response?.status,
-        statusText: error?.response?.statusText
-      });
+        status: error?.response?.status
+      }, error);
       throw new Error(`Failed to get trading performance: ${errorMessage}`);
     }
   }
@@ -913,11 +907,10 @@ class ApiService {
                             error?.response?.data?.message ||
                             error?.message ||
                             'Unknown error occurred';
-        console.error('API error: GET /health', {
+        Logger.error('api.health_check_failed', {
           error: errorMessage,
-          status: error?.response?.status,
-          statusText: error?.response?.statusText
-        });
+          status: error?.response?.status
+        }, error);
         throw new Error(`Health check failed: ${errorMessage}`);
       }
     });
@@ -934,7 +927,7 @@ class ApiService {
       }
       return false;
     } catch (error) {
-      console.warn('Failed to check WebSocket connection status:', error);
+      Logger.warn('websocket.connection_check_failed', { error: String(error) });
       return false;
     }
   }

@@ -7,8 +7,9 @@ SEC-0-2: Enhanced with security validation to prevent JSON injection attacks.
 from __future__ import annotations
 
 import hashlib
-import logging
 from typing import Any, Dict, List, Set, Optional
+
+from ...core.logger import get_logger
 
 # =============================================================================
 # SEC-0-2: Security Allowlists for Strategy Validation
@@ -52,7 +53,7 @@ ALLOWED_POSITION_SIZE_TYPES: Set[str] = {"fixed", "percentage"}
 ALLOWED_CALCULATION_MODES: Set[str] = {"ABSOLUTE", "RELATIVE_TO_ENTRY"}
 
 # Security logger
-_security_logger = logging.getLogger("security.strategy_validation")
+_security_logger = get_logger("security.strategy_validation")
 
 
 class StrategySecurityError(Exception):

@@ -13,11 +13,12 @@ from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
 import json
-import logging
 from collections import defaultdict, deque
 import statistics
 
-logger = logging.getLogger(__name__)
+from src.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass

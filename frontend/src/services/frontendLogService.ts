@@ -1,21 +1,33 @@
 /**
- * Frontend Error Logging Service
+ * Frontend Unified Logging Service
  *
- * Captures browser console errors, unhandled exceptions, and promise rejections,
- * then sends them to the backend for centralized logging.
+ * Unified logging service for frontend applications.
+ * Mirrors backend StructuredLogger API for consistent logging across stack.
  *
  * Features:
- * - Captures console.error calls
+ * - Structured logging with event types and data (info, warn, error, debug)
+ * - Captures console.error calls automatically
  * - Captures window.onerror (uncaught exceptions)
  * - Captures unhandledrejection (unhandled promise rejections)
  * - Batches logs to reduce network requests
  * - Includes user context and browser info
+ * - Development mode console output
+ *
+ * Usage:
+ *   import { Logger } from '@/services/frontendLogService';
+ *   Logger.info('user.login', { userId: 123 });
+ *   Logger.warn('api.slow_response', { endpoint: '/users', ms: 2500 });
+ *   Logger.error('api.failed', { endpoint: '/users', status: 500 });
  */
 
 import { config } from '@/utils/config';
 
+type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
 interface FrontendLogEntry {
-  level: 'error' | 'warn' | 'info';
+  level: LogLevel;
+  eventType: string;
+  data?: Record<string, unknown>;
   message: string;
   stack?: string;
   source?: string;
@@ -190,9 +202,10 @@ class FrontendLogService {
     });
   }
 
-  private addLog(partial: Omit<FrontendLogEntry, 'timestamp' | 'url' | 'userAgent' | 'sessionId'>): void {
+  private addLog(partial: Omit<FrontendLogEntry, 'timestamp' | 'url' | 'userAgent' | 'sessionId' | 'eventType'> & { eventType?: string }): void {
     const entry: FrontendLogEntry = {
       ...partial,
+      eventType: partial.eventType || 'unknown',
       timestamp: new Date().toISOString(),
       url: typeof window !== 'undefined' ? window.location.href : 'unknown',
       userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
@@ -209,14 +222,99 @@ class FrontendLogService {
 
   /**
    * Manually log an error (useful for ErrorBoundary integration)
+   * @deprecated Use Logger.error() instead
    */
   logError(message: string, error?: Error, context?: Record<string, any>): void {
     this.addLog({
       level: 'error',
+      eventType: 'manual.error',
       message: context ? `${message} | Context: ${JSON.stringify(context)}` : message,
       stack: error?.stack,
       source: 'manual',
     });
+  }
+
+  // ============================================================================
+  // Structured Logging API (mirrors backend StructuredLogger)
+  // ============================================================================
+
+  /**
+   * Log an info-level event
+   * @param eventType - Event type identifier (e.g., 'user.login', 'api.success')
+   * @param data - Optional structured data to include in the log
+   */
+  info(eventType: string, data?: Record<string, unknown>): void {
+    this._log('info', eventType, data);
+  }
+
+  /**
+   * Log a warning-level event
+   * @param eventType - Event type identifier (e.g., 'api.slow_response', 'validation.warning')
+   * @param data - Optional structured data to include in the log
+   */
+  warn(eventType: string, data?: Record<string, unknown>): void {
+    this._log('warn', eventType, data);
+  }
+
+  /**
+   * Log an error-level event
+   * @param eventType - Event type identifier (e.g., 'api.failed', 'component.error')
+   * @param data - Optional structured data to include in the log
+   * @param error - Optional Error object for stack trace
+   */
+  error(eventType: string, data?: Record<string, unknown>, error?: Error): void {
+    this.addLog({
+      level: 'error',
+      eventType,
+      data,
+      message: data?.message as string || eventType,
+      stack: error?.stack,
+      source: 'structured',
+    });
+
+    // Also log to console in development
+    if (this.isDevelopment()) {
+      console.error(`[ERROR] ${eventType}`, data, error);
+    }
+  }
+
+  /**
+   * Log a debug-level event (only in development mode)
+   * @param eventType - Event type identifier
+   * @param data - Optional structured data to include in the log
+   */
+  debug(eventType: string, data?: Record<string, unknown>): void {
+    if (this.isDevelopment()) {
+      this._log('debug', eventType, data);
+    }
+  }
+
+  /**
+   * Internal logging method
+   */
+  private _log(level: LogLevel, eventType: string, data?: Record<string, unknown>): void {
+    this.addLog({
+      level,
+      eventType,
+      data,
+      message: eventType,
+      source: 'structured',
+    });
+
+    // Console output in development
+    if (this.isDevelopment()) {
+      const consoleMethod = level === 'warn' ? console.warn :
+                           level === 'error' ? console.error :
+                           level === 'debug' ? console.debug : console.log;
+      consoleMethod(`[${level.toUpperCase()}] ${eventType}`, data || '');
+    }
+  }
+
+  /**
+   * Check if running in development mode
+   */
+  private isDevelopment(): boolean {
+    return process.env.NODE_ENV === 'development';
   }
 
   /**
@@ -271,3 +369,16 @@ class FrontendLogService {
 }
 
 export const frontendLogService = FrontendLogService.getInstance();
+
+/**
+ * Logger - Unified logging API
+ *
+ * Usage:
+ *   import { Logger } from '@/services/frontendLogService';
+ *
+ *   Logger.info('user.login', { userId: 123 });
+ *   Logger.warn('api.slow_response', { endpoint: '/users', ms: 2500 });
+ *   Logger.error('api.failed', { endpoint: '/users', status: 500 });
+ *   Logger.debug('component.render', { props: {...} });
+ */
+export const Logger = frontendLogService;

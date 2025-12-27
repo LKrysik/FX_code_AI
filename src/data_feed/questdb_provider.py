@@ -92,7 +92,6 @@ Usage:
     df = await provider.get_prices(symbol='BTC/USD', start_time=..., end_time=...)
 """
 
-import logging
 import asyncio
 import time
 from contextlib import asynccontextmanager
@@ -102,7 +101,9 @@ import pandas as pd
 import asyncpg
 from questdb.ingress import Sender, IngressError, TimestampNanos, Protocol
 
-logger = logging.getLogger(__name__)
+from src.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class QuestDBProvider:

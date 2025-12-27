@@ -319,10 +319,9 @@ def validate_config(symbol: str) -> bool:
         return True
     except Exception as e:
         try:
-            import logging
-            logging.getLogger(__name__).error(
-                "Configuration validation failed", extra={"symbol": symbol, "error": str(e)}
-            )
+            from .logger import get_logger
+            logger = get_logger(__name__)
+            logger.error("config.validation_failed", {"symbol": symbol, "error": str(e)})
         except Exception:
             pass
         return False

@@ -420,10 +420,12 @@ def create_unified_app():
         # ========================================
 
         # Initialize paper trading routes (TIER 1.2)
+        # BUG-005-1 FIX: Pass unified controller for strategy activation
         paper_trading_routes_module.initialize_paper_trading_dependencies(
-            persistence_service=paper_trading_persistence
+            persistence_service=paper_trading_persistence,
+            unified_controller=ws_controller  # BUG-005-1: Enable strategy activation pipeline
         )
-        logger.info("paper_trading_routes initialized with QuestDB persistence")
+        logger.info("paper_trading_routes initialized with QuestDB persistence and strategy activation")
 
         # Agent 6: Initialize live trading routes with dependencies
         # ✅ AGENT 0 INTEGRATION: Wire LiveOrderManager to trading_routes

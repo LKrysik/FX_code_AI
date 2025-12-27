@@ -202,10 +202,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
             lastPingSent: lastPingSentRef.current
           }));
 
-          // Set pong timeout (expect response within 10 seconds)
+          // Set pong timeout (expect response within 30 seconds)
+          // BUG-005-2: Increased from 10s to 30s to handle normal network latency
           pongTimeoutRef.current = setTimeout(() => {
             handleMissedPong();
-          }, 10000);
+          }, 30000);
 
         } catch (error) {
           console.error('[useWebSocket] Heartbeat failed:', error);

@@ -1,9 +1,10 @@
 import { config, debugLog, errorLog } from '@/utils/config';
 import { useWebSocketStore } from '@/stores/websocketStore';
-import { authService } from '@/services/authService'; // Import the new auth service
+import { authService } from '@/services/authService';
 import { recordWebSocketMessage } from '@/hooks/usePerformanceMonitor';
 import { categorizeError, logUnifiedError, getErrorRecoveryStrategy, type UnifiedError } from '@/utils/statusUtils';
 import { useDebugStore } from '@/stores/debugStore';
+import { Logger } from './frontendLogService';
 
 export interface WSMessage {
   type: string;
@@ -56,7 +57,10 @@ class WebSocketService {
   private pongTimeout: NodeJS.Timeout | null = null;
   private debounceTimer: NodeJS.Timeout | null = null;
   private heartbeatInterval = 30000; // 30 seconds
-  private heartbeatTimeout = 10000; // 10 seconds
+  // BUG-005-2: Increased from 10s to 30s to handle normal network latency
+  private heartbeatTimeout = 30000; // 30 seconds - time to wait for pong response
+  private missedPongs = 0; // BUG-005-2: Track missed pong responses
+  private maxMissedPongs = 3; // BUG-005-2: Force reconnect after this many missed pongs
 
   constructor() {
     try {
@@ -147,7 +151,7 @@ class WebSocketService {
 
     // Connection events
     this.socket.onopen = () => {
-      console.log('🔗 [WebSocket] CONNECTION OPENED', {
+      Logger.info('websocket.connection_opened', {
         url: this.socket?.url,
         readyState: this.socket?.readyState,
         timestamp: new Date().toISOString()
@@ -268,7 +272,7 @@ class WebSocketService {
       case 'market_data':
         // Update connection status when receiving data messages
         if (!this.isConnected) {
-          console.log('🔗 [WebSocket] Connection confirmed via market data');
+          Logger.info('websocket.connection_confirmed', { source: 'market_data' });
           this.isConnected = true;
           this.safeStoreUpdate(() => {
             useWebSocketStore.getState().setConnected(true);
@@ -280,7 +284,7 @@ class WebSocketService {
       case 'indicators':
         // Update connection status when receiving indicator messages
         if (!this.isConnected) {
-          console.log('🔗 [WebSocket] Connection confirmed via indicators');
+          Logger.info('websocket.connection_confirmed', { source: 'indicators' });
           this.isConnected = true;
           this.safeStoreUpdate(() => {
             useWebSocketStore.getState().setConnected(true);
@@ -292,7 +296,7 @@ class WebSocketService {
       case 'signal':
       case 'signals':
         // [SIGNAL-FLOW] Debug logging for E2E verification (Story 0-2)
-        console.log('[SIGNAL-FLOW] Signal received:', {
+        Logger.debug('websocket.signal_received', {
           type: message.type,
           signal_type: message.data?.signal_type,
           symbol: message.data?.symbol,
@@ -303,7 +307,7 @@ class WebSocketService {
         });
         // Update connection status when receiving signal messages
         if (!this.isConnected) {
-          console.log('🔗 [WebSocket] Connection confirmed via signals');
+          Logger.info('websocket.connection_confirmed', { source: 'signals' });
           this.isConnected = true;
           this.safeStoreUpdate(() => {
             useWebSocketStore.getState().setConnected(true);
@@ -324,7 +328,7 @@ class WebSocketService {
       case 'comprehensive_health_check':
         // Update connection status when receiving health messages
         if (!this.isConnected) {
-          console.log('🔗 [WebSocket] Connection confirmed via health message');
+          Logger.info('websocket.connection_confirmed', { source: 'health_check' });
           this.isConnected = true;
           this.safeStoreUpdate(() => {
             useWebSocketStore.getState().setConnected(true);
@@ -345,12 +349,15 @@ class WebSocketService {
         debugLog('Unhandled message type', message.type, message);
     }
 
-    // Handle pong response
+    // Handle pong response - BUG-005-2: Properly reset missed pong counter
     if (message.type === 'status' && message.status === 'pong') {
       if (this.pongTimeout) {
         clearTimeout(this.pongTimeout);
         this.pongTimeout = null;
       }
+      // BUG-005-2: Reset missed pongs counter on successful pong
+      this.missedPongs = 0;
+      debugLog('[Heartbeat] Pong received, missed pong counter reset to 0');
     }
   }
 
@@ -392,7 +399,7 @@ class WebSocketService {
   private handleDataMessage(message: WSMessage): void {
     const stream = message.stream;
     if (stream === 'execution_status') {
-      console.log('📊 [FRONTEND] RECEIVED execution_status message', {
+      Logger.debug('websocket.execution_status_received', {
         records_collected: message.data?.records_collected,
         progress_percentage: message.data?.progress_percentage,
         session_id: message.session_id,
@@ -403,7 +410,7 @@ class WebSocketService {
     }
 
     if (stream === 'execution_result') {
-      console.log('📊 [FRONTEND] RECEIVED execution_result message', {
+      Logger.debug('websocket.execution_result_received', {
         session_id: message.session_id,
         timestamp: new Date().toISOString()
       });
@@ -422,7 +429,7 @@ class WebSocketService {
       const latencyMs = messageTimestamp
         ? Date.now() - new Date(messageTimestamp).getTime()
         : null;
-      console.log('[SIGNAL-FLOW] Signal received (data stream):', {
+      Logger.debug('websocket.signal_data_stream_received', {
         type: message.type,
         stream: message.stream,
         signal_type: signalData.signal_type,
@@ -505,7 +512,7 @@ class WebSocketService {
 
       // SEC-0-3: Request state sync after reconnection
       this.requestStateSync().catch(err => {
-        console.warn('[WS] State sync failed:', err);
+        Logger.warn('websocket.state_sync_failed', { error: String(err) });
       });
 
       this.callbacks.onConnect?.();
@@ -528,11 +535,11 @@ class WebSocketService {
     const MAX_RETRIES = 3;
     const TIMEOUT_MS = 10000; // 10 second timeout
 
-    console.log('[WS] Requesting state sync...', { attempt: retryCount + 1, maxRetries: MAX_RETRIES });
+    Logger.info('websocket.state_sync_requested', { attempt: retryCount + 1, maxRetries: MAX_RETRIES });
 
     // Skip state sync during SSR - relative URLs don't work without browser context
     if (typeof window === 'undefined') {
-      console.log('[WS] Skipping state sync - not in browser context');
+      Logger.debug('websocket.state_sync_skipped', { reason: 'not_in_browser_context' });
       return;
     }
 
@@ -569,7 +576,7 @@ class WebSocketService {
       }
 
       const snapshot = result.data;
-      console.log('[WS] State snapshot received:', {
+      Logger.info('websocket.state_snapshot_received', {
         timestamp: snapshot.timestamp,
         positions: snapshot.positions?.length || 0,
         signals: snapshot.active_signals?.length || 0,
@@ -596,16 +603,16 @@ class WebSocketService {
 
       // SEC-0-3 AC4: Show success notification
       this.showStateSyncNotification('success', 'State synchronized');
-      console.log('[WS] State sync completed successfully');
+      Logger.info('websocket.state_sync_completed', { status: 'success' });
 
     } catch (error: any) {
       const isTimeout = error.name === 'AbortError';
       const errorMsg = isTimeout ? 'State sync timeout' : (error.message || 'Unknown error');
-      console.error('[WS] State sync error:', errorMsg);
+      Logger.error('websocket.state_sync_error', { error: errorMsg, isTimeout }, error instanceof Error ? error : undefined);
 
       // Retry logic for timeout or network errors
       if (retryCount < MAX_RETRIES - 1 && (isTimeout || error.message?.includes('fetch'))) {
-        console.log(`[WS] Retrying state sync (${retryCount + 2}/${MAX_RETRIES})...`);
+        Logger.info('websocket.state_sync_retrying', { attempt: retryCount + 2, maxRetries: MAX_RETRIES });
         const backoffDelay = Math.min(1000 * Math.pow(2, retryCount), 5000);
         await new Promise(resolve => setTimeout(resolve, backoffDelay));
         return this.requestStateSync(retryCount + 1);
@@ -633,8 +640,8 @@ class WebSocketService {
         autoHide: type === 'success', // Auto-hide success, keep errors visible
       });
     } catch (err) {
-      // Fallback to console if store not available
-      console.log(`[WS] Notification (${type}): ${message}`);
+      // Fallback to Logger if store not available
+      Logger.info('websocket.notification_fallback', { type, message });
     }
   }
 
@@ -642,7 +649,7 @@ class WebSocketService {
    * SEC-0-3: Force manual state sync - for use with Force Sync button
    */
   public async forceStateSync(): Promise<boolean> {
-    console.log('[WS] Force state sync requested');
+    Logger.info('websocket.force_state_sync_requested', {});
     try {
       await this.requestStateSync(0);
       return useWebSocketStore.getState().syncStatus === 'synced';
@@ -730,6 +737,8 @@ class WebSocketService {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
+    // BUG-005-2: Reset missed pongs counter when stopping heartbeat
+    this.missedPongs = 0;
   }
 
   // Removed duplicate heartbeat method - using public one below
@@ -742,7 +751,7 @@ class WebSocketService {
       return;
     }
 
-    console.log('🎧 [WebSocket] SUBSCRIBE REQUEST', {
+    Logger.info('websocket.subscribe_request', {
       stream,
       params,
       timestamp: new Date().toISOString()
@@ -752,7 +761,7 @@ class WebSocketService {
     this.pendingSubscriptions.delete(stream);
 
     if (!this.socket || !this.isConnected) {
-      console.log('⏳ [WebSocket] Connection not ready, queuing subscription', {
+      Logger.debug('websocket.subscription_queued', {
         stream,
         isConnected: this.isConnected,
         socketExists: !!this.socket
@@ -862,8 +871,20 @@ class WebSocketService {
     }
   }
 
+  /**
+   * BUG-005-2: Enhanced heartbeat with pong timeout handling
+   * - Sends heartbeat message to backend
+   * - Sets pong timeout (30 seconds) to detect missed responses
+   * - Tracks missed pongs and forces reconnect after 3 consecutive misses
+   */
   public heartbeat(): void {
     if (!this.socket || !this.isConnected) return;
+
+    // Clear any existing pong timeout before sending new heartbeat
+    if (this.pongTimeout) {
+      clearTimeout(this.pongTimeout);
+      this.pongTimeout = null;
+    }
 
     const message: WSMessage = {
       type: 'heartbeat',
@@ -871,6 +892,19 @@ class WebSocketService {
     };
 
     this.sendMessage(message);
+
+    // BUG-005-2: Set pong timeout - expect response within 30 seconds
+    this.pongTimeout = setTimeout(() => {
+      this.missedPongs++;
+      Logger.warn('websocket.heartbeat_missed_pong', { missedPongs: this.missedPongs, maxMissedPongs: this.maxMissedPongs });
+
+      // Force reconnect if too many missed pongs
+      if (this.missedPongs >= this.maxMissedPongs) {
+        Logger.error('websocket.heartbeat_reconnect', { reason: 'too_many_missed_pongs', missedPongs: this.missedPongs });
+        this.missedPongs = 0; // Reset counter before reconnect
+        this.reconnect();
+      }
+    }, this.heartbeatTimeout);
   }
 
   // Add method to check authentication status
@@ -908,7 +942,7 @@ class WebSocketService {
 
     // Warn if too many listeners (potential leak)
     if (this.sessionUpdateListeners.size > 50) {
-      console.warn(`WebSocket: High listener count (${this.sessionUpdateListeners.size}) - possible memory leak`);
+      Logger.warn('websocket.high_listener_count', { count: this.sessionUpdateListeners.size, warning: 'possible_memory_leak' });
     }
 
     return () => {
@@ -945,12 +979,7 @@ class WebSocketService {
       timestamp: new Date().toISOString()
     };
 
-    console.log('📊 [WebSocket] SUBSCRIPTION SUMMARY:');
-    console.log('├── Active Subscriptions:', summary.activeSubscriptions);
-    console.log('├── Pending Subscriptions:', summary.pendingSubscriptions);
-    console.log('├── Listener Stats:', summary.listenerStats);
-    console.log('├── Connection Status:', summary.connectionStatus);
-    console.log('└── Timestamp:', summary.timestamp);
+    Logger.info('websocket.subscription_summary', summary);
   }
 
   public disconnect(): void {
@@ -997,9 +1026,9 @@ class WebSocketService {
         client_id: this.generateClientId()
       };
 
-      // Detailed console logging with emojis for visibility
-      const emoji = direction === 'received' ? '📨' : '📤';
-      console.log(`${emoji} [WebSocket ${direction.toUpperCase()}]`, {
+      // Detailed structured logging
+      Logger.debug('websocket.message', {
+        direction,
         type: message.type,
         stream: message.stream,
         hasData: !!message.data,
@@ -1010,7 +1039,7 @@ class WebSocketService {
 
       // Log subscription details
       if (message.type === 'subscribe') {
-        console.log(`🎧 [SUBSCRIBE] Frontend subscribing to: ${message.stream}`, {
+        Logger.debug('websocket.subscribe', {
           stream: message.stream,
           params: message.data,
           timestamp: new Date().toISOString()
@@ -1019,7 +1048,7 @@ class WebSocketService {
 
       // Log handshake details
       if (message.type === 'status' && message.status === 'connected') {
-        console.log(`🤝 [HANDSHAKE] Frontend handshake completed`, {
+        Logger.info('websocket.handshake_completed', {
           status: message.status,
           client_id: message.client_id,
           timestamp: new Date().toISOString()
@@ -1028,7 +1057,8 @@ class WebSocketService {
 
       // Log health updates
       if (message.type === 'health_update' || message.stream === 'health_check') {
-        console.log(`🏥 [HEALTH] ${direction.toUpperCase()} health update`, {
+        Logger.debug('websocket.health_update', {
+          direction,
           type: message.type,
           stream: message.stream,
           status: message.data?.status,
@@ -1052,7 +1082,7 @@ class WebSocketService {
         localStorage.setItem('websocket_logs', JSON.stringify(logs));
       }
     } catch (error) {
-      console.error('❌ Failed to log WebSocket message:', error);
+      Logger.error('websocket.log_message_failed', {}, error instanceof Error ? error : undefined);
     }
   }
 }

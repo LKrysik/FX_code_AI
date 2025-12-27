@@ -9,13 +9,13 @@ Endpoints:
 - GET /health/metrics - Metrics system health check
 """
 
-import logging
 from fastapi import APIRouter, Response
 from typing import Dict, Any
 
 from ..infrastructure.monitoring import get_metrics_instance
+from ..core.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Create router
 router = APIRouter()

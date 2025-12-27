@@ -21,7 +21,6 @@ Critical Requirements:
 
 import asyncio
 import time
-import logging
 from typing import Dict, Optional, List
 from dataclasses import dataclass
 from enum import Enum
@@ -32,9 +31,10 @@ from ...core.event_bus import EventBus
 # Removed deprecated MexcSpotAdapter import - Spot API is forbidden.
 # LiveOrderManager uses MexcFuturesAdapter or MexcPaperAdapter injected via constructor.
 from ...core.circuit_breaker import CircuitBreakerOpenException
+from ...core.logger import get_logger
 from ..models.trading import Position
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class OrderStatus(str, Enum):

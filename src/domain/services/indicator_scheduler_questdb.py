@@ -26,14 +26,14 @@ Benefits:
 """
 
 import asyncio
-import logging
 from typing import Dict, List, Set, Optional
 from datetime import datetime
 
 from .indicators.incremental_indicators import IncrementalIndicator
 from ...data_feed.questdb_provider import QuestDBProvider
+from ...core.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class IndicatorScheduler:

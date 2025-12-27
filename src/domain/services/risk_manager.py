@@ -15,7 +15,6 @@ Thread-safe for async operations.
 """
 
 import asyncio
-import logging
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -25,12 +24,13 @@ from enum import Enum
 
 from ..models.trading import Position, Order, OrderSide
 from ...core.event_bus import EventBus
+from ...core.logger import get_logger
 # ✅ ARCHITECTURE FIX (2025-11-30):
 # Removed AppSettings import - Domain should not depend on Infrastructure.
 # RiskManager now accepts risk_config directly (duck-typed object with required attributes).
 # See Container.create_risk_manager() for how config is passed.
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class RiskAlertSeverity(str, Enum):

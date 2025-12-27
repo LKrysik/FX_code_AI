@@ -10,13 +10,14 @@ Service for managing strategy templates including:
 - Template categories and tags
 """
 
-import logging
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from uuid import UUID, uuid4
 import asyncpg
 
-logger = logging.getLogger(__name__)
+from ...core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class StrategyTemplate:

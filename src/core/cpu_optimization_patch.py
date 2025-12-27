@@ -7,9 +7,10 @@ Apply these changes immediately for production systems experiencing high CPU loa
 """
 
 from typing import Dict, Any
-import logging
 
-logger = logging.getLogger(__name__)
+from src.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 class CpuOptimizationConfig:
     """Configuration for CPU optimization settings"""

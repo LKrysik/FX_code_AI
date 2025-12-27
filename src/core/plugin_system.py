@@ -6,9 +6,10 @@ Simple plugin interface for future phases. Not used in MVP.
 
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
-import logging
 
-logger = logging.getLogger(__name__)
+from src.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class PluginInterface(ABC):

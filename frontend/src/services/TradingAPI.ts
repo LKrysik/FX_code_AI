@@ -12,6 +12,7 @@
  */
 
 import { csrfService } from './csrfService';
+import { Logger } from './frontendLogService';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
@@ -163,7 +164,7 @@ export class TradingAPI {
         'X-CSRF-Token': csrfToken
       };
     } catch (error) {
-      console.warn('[TradingAPI] Failed to get CSRF token:', error);
+      Logger.warn('trading_api.csrf_token_failed', { error: String(error) });
       return this.headers;
     }
   }

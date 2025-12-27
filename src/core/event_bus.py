@@ -9,10 +9,11 @@ Error Isolation: Subscriber crashes don't affect others
 """
 
 import asyncio
-import logging
 from typing import Callable, Any, Dict, List, Optional
 
-logger = logging.getLogger(__name__)
+from src.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 # Event Topics - DO NOT CHANGE without coordination

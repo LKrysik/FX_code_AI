@@ -12,10 +12,11 @@ from typing import Any, Callable, Dict, Optional, Union, List
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
 from enum import Enum
-import logging
 import statistics
 
-logger = logging.getLogger(__name__)
+from src.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class CircuitBreakerState(Enum):
