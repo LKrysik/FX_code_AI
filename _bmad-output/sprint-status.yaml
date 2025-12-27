@@ -56,18 +56,18 @@ development_status:
   # Epic SEC-0: Critical Security Fixes (P0 - BEFORE features!)
   # Goal: Address SEC-P0 critical security vulnerabilities
   # ============================================================
-  epic-sec-0: in-progress
+  epic-sec-0: done  # ALL 3 stories completed 2025-12-27
   sec-0-1-position-operation-locking: done  # Completed 2025-12-26 - PositionLockManager, 14 tests
   sec-0-2-strategy-json-validation: done  # Completed 2025-12-26 - Allowlist validation, security logging
-  sec-0-3-websocket-state-reconciliation: ready-for-dev  # State desync fix
+  sec-0-3-websocket-state-reconciliation: done  # State desync fix - completed 2025-12-27
 
   # ============================================================
   # Epic 1A: First Signal Visible (P0)
   # Goal: Trader sees their FIRST signal appear on dashboard
   # ============================================================
-  epic-1a: backlog
-  1a-1-signal-display-on-dashboard: ready-for-dev
-  1a-2-state-machine-state-badge: ready-for-dev
+  epic-1a: in-progress
+  1a-1-signal-display-on-dashboard: done  # Completed 2025-12-27 - SignalCard, RecentSignalsPanel
+  1a-2-state-machine-state-badge: in-progress
   1a-3-indicator-values-panel: ready-for-dev
   1a-4-human-vocabulary-labels: ready-for-dev
   1a-5-statushero-component: ready-for-dev
