@@ -493,7 +493,7 @@ const PumpIndicatorsPanel: React.FC<PumpIndicatorsPanelProps> = ({
         setVelocityHistory([...velocityHistoryRef.current]);
       }
     } catch (err) {
-      Logger.error('PumpIndicatorsPanel.fetch', 'Fetch error', { error: err });
+      Logger.error('PumpIndicatorsPanel.fetch', { message: 'Fetch error', error: err });
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
       setIsLoading(false);
@@ -514,7 +514,7 @@ const PumpIndicatorsPanel: React.FC<PumpIndicatorsPanelProps> = ({
       ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
-        console.log('[PumpIndicatorsPanel] WebSocket connected');
+        Logger.debug('PumpIndicatorsPanel.wsConnected', { sessionId, symbol });
         ws?.send(
           JSON.stringify({
             type: 'subscribe',
@@ -557,15 +557,15 @@ const PumpIndicatorsPanel: React.FC<PumpIndicatorsPanelProps> = ({
             }
           }
         } catch (err) {
-          Logger.error('PumpIndicatorsPanel.wsMessage', 'WS message parse error', { error: err });
+          Logger.error('PumpIndicatorsPanel.wsMessage', { message: 'WS message parse error', error: err });
         }
       };
 
       ws.onerror = (err) => {
-        Logger.error('PumpIndicatorsPanel.wsError', 'WebSocket error', { error: err });
+        Logger.error('PumpIndicatorsPanel.wsError', { message: 'WebSocket error', error: err });
       };
     } catch (err) {
-      Logger.error('PumpIndicatorsPanel.wsInit', 'WebSocket init error', { error: err });
+      Logger.error('PumpIndicatorsPanel.wsInit', { message: 'WebSocket init error', error: err });
     }
 
     return () => {

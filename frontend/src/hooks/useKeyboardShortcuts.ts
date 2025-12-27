@@ -96,7 +96,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
             // Call emergency stop API
             fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/paper-trading/emergency-stop`, {
               method: 'POST',
-            }).catch((err) => Logger.error('useKeyboardShortcuts.emergency_stop_failed', 'Emergency stop API call failed', err));
+            }).catch((err) => Logger.error('useKeyboardShortcuts.emergency_stop_failed', { message: 'Emergency stop API call failed' }, err instanceof Error ? err : undefined));
           }
         }
         return;
@@ -162,9 +162,9 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         } else {
           // Default: toggle document fullscreen
           if (!document.fullscreenElement) {
-            document.documentElement.requestFullscreen().catch((err) => Logger.error('useKeyboardShortcuts.fullscreen_failed', 'Failed to enter fullscreen', err));
+            document.documentElement.requestFullscreen().catch((err) => Logger.error('useKeyboardShortcuts.fullscreen_failed', { message: 'Failed to enter fullscreen' }, err instanceof Error ? err : undefined));
           } else {
-            document.exitFullscreen().catch((err) => Logger.error('useKeyboardShortcuts.fullscreen_failed', 'Failed to exit fullscreen', err));
+            document.exitFullscreen().catch((err) => Logger.error('useKeyboardShortcuts.fullscreen_failed', { message: 'Failed to exit fullscreen' }, err instanceof Error ? err : undefined));
           }
         }
         return;

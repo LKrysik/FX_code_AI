@@ -68,7 +68,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     // Log error details
-    Logger.error('ErrorBoundary.componentDidCatch', 'ErrorBoundary caught an error', { error, errorInfo });
+    Logger.error('ErrorBoundary.componentDidCatch', { message: 'ErrorBoundary caught an error', error, errorInfo });
 
     // Update state with error info
     this.setState({
@@ -123,7 +123,7 @@ export class ErrorBoundary extends Component<Props, State> {
     window.dispatchEvent(event);
 
     // Log financial safety activation
-    Logger.warn('ErrorBoundary.financialSafety', 'FINANCIAL SAFETY MODE ACTIVATED due to error', { errorMessage: error.message });
+    Logger.warn('ErrorBoundary.financialSafety', { message: 'FINANCIAL SAFETY MODE ACTIVATED due to error', errorMessage: error.message });
   };
 
   private logErrorToService = (error: Error, errorInfo: ErrorInfo) => {
@@ -140,7 +140,7 @@ export class ErrorBoundary extends Component<Props, State> {
     };
 
     // For now, just log with structured format
-    Logger.error('ErrorBoundary.logError', 'ERROR REPORT', errorReport);
+    Logger.error('ErrorBoundary.logError', { message: 'ERROR REPORT', ...errorReport });
 
     // TODO: Send to error reporting service
     // errorReportingService.send(errorReport);
@@ -314,7 +314,7 @@ export function withErrorBoundary<P extends object>(
 // Hook for programmatic error handling
 export const useErrorHandler = () => {
   return (error: Error, context?: string) => {
-    Logger.error('ErrorBoundary.useErrorHandler', `Error in ${context || 'unknown context'}`, { error });
+    Logger.error('ErrorBoundary.useErrorHandler', { message: `Error in ${context || 'unknown context'}`, error });
 
     // Emit custom event for error boundary
     const event = new CustomEvent('reactError', {

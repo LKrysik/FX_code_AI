@@ -152,7 +152,7 @@ export default function TradingSessionPage() {
         }
       }
     } catch (error: any) {
-      Logger.error('TradingSessionPage.fetchStrategies', 'Failed to fetch strategies', { error });
+      Logger.error('TradingSessionPage.fetchStrategies', { message: 'Failed to fetch strategies', error });
       setStrategiesError(error.message || 'Failed to load strategies');
     } finally {
       setLoadingStrategies(false);
@@ -183,7 +183,7 @@ export default function TradingSessionPage() {
         setBacktestSessionId(validSessions[0].session_id);
       }
     } catch (error: any) {
-      Logger.error('TradingSessionPage.fetchDataSessions', 'Failed to fetch data sessions', { error });
+      Logger.error('TradingSessionPage.fetchDataSessions', { message: 'Failed to fetch data sessions', error });
       setSessionsError(error.message || 'Failed to load data sessions');
     } finally {
       setLoadingSessions(false);
@@ -257,7 +257,7 @@ export default function TradingSessionPage() {
         },
       };
 
-      Logger.info('TradingSessionPage.handleStartSession', 'Starting session with config', { sessionData });
+      Logger.info('TradingSessionPage.handleStartSession', { message: 'Starting session with config', sessionData });
 
       const response = await apiService.startSession(sessionData);
       const newSessionId = response?.data?.session_id || response?.session_id;
@@ -271,7 +271,7 @@ export default function TradingSessionPage() {
         throw new Error('No session_id returned from API');
       }
     } catch (error: any) {
-      Logger.error('TradingSessionPage.handleStartSession', 'Failed to start session', { error });
+      Logger.error('TradingSessionPage.handleStartSession', { message: 'Failed to start session', error });
       setStartError(error.message || 'Failed to start session');
     } finally {
       setStartingSession(false);
@@ -284,7 +284,7 @@ export default function TradingSessionPage() {
       setIsSessionRunning(false);
       setCurrentSessionId(null);
     } catch (error: any) {
-      Logger.error('TradingSessionPage.handleStopSession', 'Failed to stop session', { error });
+      Logger.error('TradingSessionPage.handleStopSession', { message: 'Failed to stop session', error });
       setStartError(error.message || 'Failed to stop session');
     }
   };

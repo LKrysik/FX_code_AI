@@ -50,6 +50,7 @@ import {
 import { apiService } from '@/services/api';
 import UPlotChart, { UPlotSeries, UPlotDataPoint } from '@/components/UPlotChart';
 import { PumpHistoryMarking, PumpEvent, generatePumpMarkers } from '@/components/data-collection/PumpHistoryMarking';
+import { Logger } from '@/services/frontendLogService';
 
 interface ChartDataPoint {
   timestamp: number;
@@ -145,11 +146,11 @@ const downsampleLTTB = (
 ): any[] => {
   // Early return if no downsampling needed
   if (threshold >= data.length || threshold <= 2) {
-    console.log('[LTTB] No downsampling needed:', data.length, 'points, threshold:', threshold);
+    Logger.debug('ChartPage.downsampleLTTB', { message: 'No downsampling needed', dataLength: data.length, threshold });
     return data;
   }
 
-  console.log('[LTTB] Downsampling from', data.length, 'to', threshold, 'points');
+  Logger.debug('ChartPage.downsampleLTTB', { message: 'Downsampling', from: data.length, to: threshold });
 
   const sampled: any[] = [];
 
@@ -222,7 +223,7 @@ const downsampleLTTB = (
   // Last bucket: Always keep last point
   sampled.push(data[data.length - 1]);
 
-  console.log('[LTTB] Downsampling complete:', sampled.length, 'points selected');
+  Logger.debug('ChartPage.downsampleLTTB', { message: 'Downsampling complete', pointsSelected: sampled.length });
   return sampled;
 };
 
@@ -278,10 +279,10 @@ export default function ChartPage() {
   useEffect(() => {
     const processData = async () => {
       if (chartData && !isCreatingIndicator) {
-        console.log(`[DEBUG] Processing chart data with ${indicators.length} indicators, ${indicators.filter(i => i.enabled).length} enabled`);
+        Logger.debug('ChartPage.processData', { indicatorsCount: indicators.length, enabledCount: indicators.filter(i => i.enabled).length });
         await processChartData();
       } else if (isCreatingIndicator) {
-        console.log(`[DEBUG] Skipping processChartData during indicator creation`);
+        Logger.debug('ChartPage.processData', { skipped: true, reason: 'indicator_creation' });
       }
     };
     processData();
@@ -301,7 +302,7 @@ export default function ChartPage() {
         setError('No symbols found in this session');
       }
     } catch (error: any) {
-      console.error('Failed to load session data:', error);
+      Logger.error('ChartPage.loadSessionData', { message: 'Failed to load session data', error, sessionId });
       setError(`Failed to load session data: ${error.message}`);
     } finally {
       setLoading(false);
@@ -342,7 +343,7 @@ export default function ChartPage() {
         severity: 'success'
       });
     } catch (error: any) {
-      console.error('Failed to load chart data:', error);
+      Logger.error('ChartPage.loadChartData', { message: 'Failed to load chart data', error, selectedSymbol });
       setError(`Failed to load chart data: ${error.message}`);
       setSnackbar({
         open: true,
@@ -360,17 +361,17 @@ export default function ChartPage() {
       // Load available variants from the new unified API
       const variantsResponse = await apiService.get('/api/indicators/variants');
       const variants = variantsResponse.data?.variants || [];
-      console.log('Available indicator variants:', variants);
-      
+      Logger.debug('ChartPage.loadAvailableIndicators', { message: 'Available indicator variants', count: variants.length });
+
       // Load existing indicators from backend to check what's already created
       const existingIndicatorsResponse = await apiService.getSessionIndicatorValues(sessionId, selectedSymbol);
       const existingIndicators = existingIndicatorsResponse.indicators || {};
-      console.log('Existing indicators in backend:', existingIndicators);
-      
+      Logger.debug('ChartPage.loadAvailableIndicators', { message: 'Existing indicators in backend', indicatorIds: Object.keys(existingIndicators) });
+
       // Load user preferences for this session/symbol
       const preferencesResponse = await apiService.get(`/api/indicators/sessions/${sessionId}/symbols/${selectedSymbol}/preferences`);
       const preferences = preferencesResponse.data?.preferences || {};
-      console.log('User preferences:', preferences);
+      Logger.debug('ChartPage.loadAvailableIndicators', { message: 'User preferences', preferences });
       
       // Create indicator configs from variants
       const indicatorConfigs: IndicatorConfig[] = variants.map((variant: any, index: number) => {
@@ -422,11 +423,11 @@ export default function ChartPage() {
       
       // NOTE: Removed automatic creation of enabled indicators here
       // This was causing duplicates. Now indicators are only created when explicitly toggled.
-      
-      console.log(`[DEBUG] Loaded ${indicatorConfigs.length} indicator configs without auto-creation`);
-      
+
+      Logger.debug('ChartPage.loadAvailableIndicators', { message: 'Loaded indicator configs without auto-creation', count: indicatorConfigs.length });
+
     } catch (error: any) {
-      console.error('Failed to load indicator variants:', error);
+      Logger.error('ChartPage.loadAvailableIndicators', { message: 'Failed to load indicator variants', error });
       setIndicators([]);
     }
   };
@@ -435,7 +436,7 @@ export default function ChartPage() {
     try {
       const status = await apiService.getSessionIndicatorValues(sessionId, selectedSymbol);
       const indicatorValues = status.indicators || {};
-      console.log('Current indicator values:', indicatorValues);
+      Logger.debug('ChartPage.loadCurrentIndicatorValues', { message: 'Current indicator values', indicatorIds: Object.keys(indicatorValues) });
 
       setAvailableFields(Object.keys(indicatorValues));
 
@@ -463,7 +464,7 @@ export default function ChartPage() {
         );
       }
     } catch (error: any) {
-      console.warn('Failed to load current indicator values:', error);
+      Logger.warn('ChartPage.loadCurrentIndicatorValues', { message: 'Failed to load current indicator values', error });
     }
   };
 
@@ -546,7 +547,7 @@ export default function ChartPage() {
         }
         updateIndicatorStatus(indicatorId, 'loading', `Processing (${attempt}/${attempts})...`);
       } catch (pollError) {
-        console.error('Failed to poll indicator status:', pollError);
+        Logger.error('ChartPage.pollIndicatorUntilReady', { message: 'Failed to poll indicator status', error: pollError, indicatorId });
         updateIndicatorStatus(indicatorId, 'error', 'Failed to poll indicator status');
         return false;
       }
@@ -563,8 +564,8 @@ export default function ChartPage() {
     // Apply time interval aggregation
     if (timeInterval !== 'raw') {
       data = aggregateData(data, timeInterval);
-      console.log(`Aggregated data for ${timeInterval}:`, data.length, 'points');
-      if (data.length > 0) console.log('Sample aggregated point:', data[0]);
+      Logger.debug('ChartPage.processChartData', { message: 'Aggregated data', timeInterval, points: data.length });
+      if (data.length > 0) Logger.debug('ChartPage.processChartData', { message: 'Sample aggregated point', sample: data[0] });
     }
 
     // Load real indicator values for enabled indicators
@@ -580,15 +581,15 @@ export default function ChartPage() {
             // Use new unified API
             const valuesResponse = await apiService.getSessionIndicatorValues(sessionId, selectedSymbol);
             indicatorValues = valuesResponse.indicators || {};
-            console.log('Loaded indicator values for valid enabled indicators:', indicatorValues);
-            console.log('Valid enabled indicators:', validEnabledIndicators.map(ind => ({ field: ind.field, key: ind.id })));
+            Logger.debug('ChartPage.processChartData', { message: 'Loaded indicator values for valid enabled indicators', indicatorIds: Object.keys(indicatorValues) });
+            Logger.debug('ChartPage.processChartData', { message: 'Valid enabled indicators', indicators: validEnabledIndicators.map(ind => ({ field: ind.field, key: ind.id })) });
           } catch (error) {
-            console.warn('Failed to load indicator values, will use mock data for enabled indicators:', error);
+            Logger.warn('ChartPage.processChartData', { message: 'Failed to load indicator values, will use mock data for enabled indicators', error });
             // Try legacy API as fallback
             try {
               indicatorValues = await apiService.getIndicatorValuesLegacy(selectedSymbol);
             } catch (legacyError) {
-              console.warn('Legacy API also failed:', legacyError);
+              Logger.warn('ChartPage.processChartData', { message: 'Legacy API also failed', error: legacyError });
             }
           }
         }
@@ -600,14 +601,14 @@ export default function ChartPage() {
           try {
             // Use indicator.field (session indicator ID) for API call - backend requires full session ID
             const apiEndpoint = `/api/indicators/sessions/${sessionId}/symbols/${selectedSymbol}/indicators/${indicator.field}/history`;
-            console.log(`[DEBUG] Loading history from endpoint: ${apiEndpoint}`);
+            Logger.debug('ChartPage.processChartData', { message: 'Loading history from endpoint', apiEndpoint });
             const historyResponse = await apiService.get(apiEndpoint);
             const history = historyResponse.data?.history || [];
 
-            console.log(`[DEBUG] Loaded history for ${indicator.field} (variant: ${indicator.variantId}):`, history.length, 'points');
+            Logger.debug('ChartPage.processChartData', { message: 'Loaded history', field: indicator.field, variantId: indicator.variantId, points: history.length });
 
             if (history.length === 0) {
-              console.warn(`[WARNING] No history data received for indicator ${indicator.field}`);
+              Logger.warn('ChartPage.processChartData', { message: 'No history data received for indicator', field: indicator.field });
             }
 
             const historyMap: Record<string, any> = {};
@@ -616,10 +617,10 @@ export default function ChartPage() {
               historyMap[key] = hist.value;
             }
 
-            console.log(`[DEBUG] History map for ${indicator.field}:`, Object.keys(historyMap).length, 'keys');
+            Logger.debug('ChartPage.processChartData', { message: 'History map created', field: indicator.field, keys: Object.keys(historyMap).length });
             return { field: indicator.field, historyMap };
           } catch (error) {
-            console.error(`Failed to load history for indicator ${indicator.field}:`, error);
+            Logger.error('ChartPage.processChartData', { message: 'Failed to load history for indicator', field: indicator.field, error });
             return { field: indicator.field, historyMap: {} };
           }
         });
@@ -641,14 +642,14 @@ export default function ChartPage() {
         //           price values (with forward-fill) and indicator values (exact match)
         // ============================================================================
 
-        console.log('[UNIFIED AXIS] Building unified time axis...');
+        Logger.debug('ChartPage.processChartData', 'Building unified time axis');
 
         // Step 1: Collect all unique timestamps from both sources
         const allTimestamps = new Set<number>();
 
         // Add price timestamps (irregular)
         data.forEach(p => allTimestamps.add(p.timestamp));
-        console.log('[UNIFIED AXIS] Price data timestamps:', data.length);
+        Logger.debug('ChartPage.processChartData', { message: 'Price data timestamps', count: data.length });
 
         // Add indicator timestamps (regular, e.g., every 1s)
         validEnabledIndicators.forEach(indicator => {
@@ -660,7 +661,7 @@ export default function ChartPage() {
             }
           });
         });
-        console.log('[UNIFIED AXIS] Total unique timestamps:', allTimestamps.size);
+        Logger.debug('ChartPage.processChartData', { message: 'Total unique timestamps', count: allTimestamps.size });
 
         // Step 2: Sort timestamps chronologically
         const sortedTimestamps = Array.from(allTimestamps).sort((a, b) => a - b);
@@ -710,18 +711,20 @@ export default function ChartPage() {
 
             // Debug first few points
             if (index < 3 && historyMap[key] !== undefined) {
-              console.log(`[UNIFIED AXIS] ${indicator.field} @ ${timestamp}: ${historyMap[key]}`);
+              Logger.debug('ChartPage.processChartData', { message: 'Unified axis sample', field: indicator.field, timestamp, value: historyMap[key] });
             }
           });
 
           return formattedPoint;
         });
 
-        console.log('[UNIFIED AXIS] Processed data:', formattedData.length, 'points');
-        console.log('[UNIFIED AXIS] Sample points:');
-        console.log('  First:', formattedData[0]);
-        console.log('  Middle:', formattedData[Math.floor(formattedData.length / 2)]);
-        console.log('  Last:', formattedData[formattedData.length - 1]);
+        Logger.debug('ChartPage.processChartData', { message: 'Processed data', points: formattedData.length });
+        Logger.debug('ChartPage.processChartData', {
+          message: 'Sample points',
+          first: formattedData[0],
+          middle: formattedData[Math.floor(formattedData.length / 2)],
+          last: formattedData[formattedData.length - 1]
+        });
 
         // ============================================================================
         // PERFORMANCE FIX: Apply LTTB downsampling for large datasets
@@ -741,10 +744,12 @@ export default function ChartPage() {
             )
           : formattedData;
 
-        console.log('[CHART DATA] Final data points:', finalData.length,
-                    formattedData.length > DOWNSAMPLE_THRESHOLD
-                      ? `(downsampled from ${formattedData.length})`
-                      : '(no downsampling)');
+        Logger.debug('ChartPage.processChartData', {
+          message: 'Final data points',
+          finalCount: finalData.length,
+          downsampled: formattedData.length > DOWNSAMPLE_THRESHOLD,
+          originalCount: formattedData.length
+        });
 
         setProcessedData(finalData);
 
@@ -771,7 +776,7 @@ export default function ChartPage() {
   const disableOtherIndicatorsWithSameVariant = (currentIndicators: any[], variantId: string, excludeIndex: number): any[] => {
     return currentIndicators.map((ind, i) => {
       if (i !== excludeIndex && (ind.variantId === variantId || ind.id === variantId)) {
-        console.log(`[DEBUG] Disabling duplicate indicator: ${ind.name} (ID: ${ind.id})`);
+        Logger.debug('ChartPage.disableOtherIndicatorsWithSameVariant', 'Disabling duplicate indicator', { name: ind.name, id: ind.id });
         return { ...ind, enabled: false };
       }
       return ind;
@@ -822,7 +827,7 @@ export default function ChartPage() {
         
         if (existingIndicatorId) {
           // Wskaźnik już istnieje - użyj istniejącego ID zamiast tworzyć nowy
-          console.log(`[DEBUG] Reusing existing indicator: ${existingIndicatorId} for variant: ${variantId}`);
+          Logger.debug('ChartPage.handleIndicatorToggle', 'Reusing existing indicator', { existingIndicatorId, variantId });
           
           updatedIndicators = updatedIndicators.map((ind, i) =>
             i === index ? { ...ind, field: existingIndicatorId, id: existingIndicatorId } : ind
@@ -853,8 +858,8 @@ export default function ChartPage() {
 
         const response = await apiService.addIndicatorToSession(sessionId, selectedSymbol, payload);
         const indicatorId = response?.indicator_id;
-        console.log(`[DEBUG] Backend response for ${indicator.name}:`, response);
-        console.log(`[DEBUG] Received indicator ID:`, indicatorId);
+        Logger.debug('ChartPage.handleIndicatorToggle', 'Backend response', { indicatorName: indicator.name, response });
+        Logger.debug('ChartPage.handleIndicatorToggle', 'Received indicator ID', { indicatorId });
         if (!indicatorId) {
           throw new Error('Missing indicator identifier from server');
         }
@@ -926,13 +931,13 @@ export default function ChartPage() {
               await apiService.delete(
                 `/api/indicators/sessions/${sessionId}/symbols/${selectedSymbol}/indicators/${indicatorId}`
               );
-              console.log(`Removed duplicate indicator: ${indicatorId}`);
+              Logger.info('ChartPage.handleIndicatorToggle', 'Removed duplicate indicator', { indicatorId });
             } catch (error) {
-              console.warn(`Failed to remove indicator ${indicatorId}:`, error);
+              Logger.warn('ChartPage.handleIndicatorToggle', 'Failed to remove indicator', { indicatorId, error });
             }
           }
-          
-          console.log(`Removed ${existingIndicatorIds.length} instances of variant ${indicator.variantId}`);
+
+          Logger.info('ChartPage.handleIndicatorToggle', 'Removed instances of variant', { count: existingIndicatorIds.length, variantId: indicator.variantId });
         } else if (indicator.field) {
           // Fallback dla starszych wskaźników bez variantId
           await apiService.delete(
@@ -954,7 +959,7 @@ export default function ChartPage() {
         });
       }
     } catch (error: any) {
-      console.error('Failed to toggle indicator:', error);
+      Logger.error('ChartPage.handleIndicatorToggle', 'Failed to toggle indicator', { error, indicatorName: indicator.name });
       setIndicators(originalIndicators);
       setIsCreatingIndicator(false); // Reset flag on error
       updateIndicatorStatus(previousId, 'error', error?.message || 'Failed to toggle indicator');
@@ -1001,11 +1006,11 @@ export default function ChartPage() {
         `/api/indicators/sessions/${sessionId}/symbols/${selectedSymbol}/preferences`,
         preferences
       );
-      
-      console.log('Saved user preferences');
-      
+
+      Logger.info('ChartPage.saveUserPreferences', 'Saved user preferences');
+
     } catch (error: any) {
-      console.warn('Failed to save user preferences:', error);
+      Logger.warn('ChartPage.saveUserPreferences', 'Failed to save user preferences', { error });
     }
   };
 
@@ -1091,7 +1096,7 @@ export default function ChartPage() {
   // Calculate price domain for better scaling
   const priceDomain = useMemo(() => {
     if (processedData.length === 0) {
-      console.log('No processed data for price domain calculation');
+      Logger.debug('ChartPage.priceDomain', 'No processed data for price domain calculation');
       return [0, 100]; // fallback
     }
     
@@ -1114,24 +1119,28 @@ export default function ChartPage() {
     });
     
     if (prices.length === 0) {
-      console.log('No valid prices found for domain calculation');
+      Logger.debug('ChartPage.priceDomain', 'No valid prices found for domain calculation');
       return [0, 100]; // fallback
     }
-    
+
     const minPrice = Math.min(...prices);
     const maxPrice = Math.max(...prices);
     const margin = (maxPrice - minPrice) * 0.05; // 5% margin
-    
+
     const domain = [minPrice - margin, maxPrice + margin];
-    console.log(`Price domain calculated: [${domain[0].toFixed(6)}, ${domain[1].toFixed(6)}] from ${prices.length} prices`);
-    console.log(`Min price: ${minPrice.toFixed(6)}, Max price: ${maxPrice.toFixed(6)}`);
-    
+    Logger.debug('ChartPage.priceDomain', 'Price domain calculated', {
+      domain: [domain[0].toFixed(6), domain[1].toFixed(6)],
+      priceCount: prices.length,
+      minPrice: minPrice.toFixed(6),
+      maxPrice: maxPrice.toFixed(6)
+    });
+
     return domain;
   }, [processedData, enabledMainIndicators]);
 
   // Debug priceDomain
   useEffect(() => {
-    console.log('Current priceDomain:', priceDomain);
+    Logger.debug('ChartPage.priceDomain', 'Current priceDomain', { priceDomain });
   }, [priceDomain]);
 
   const resetZoom = () => {

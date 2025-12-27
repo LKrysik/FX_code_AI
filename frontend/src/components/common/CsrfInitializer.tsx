@@ -30,7 +30,7 @@ export default function CsrfInitializer() {
         Logger.debug('CsrfInitializer.init', 'CSRF service initialized successfully');
         setInitialized(true);
       } catch (error) {
-        Logger.warn('CsrfInitializer.init', 'Failed to initialize CSRF service (will retry on first request)', { error });
+        Logger.warn('CsrfInitializer.init', { message: 'Failed to initialize CSRF service (will retry on first request)', error });
         // Don't block app initialization - token will be fetched on first request
         setInitialized(true);
       }

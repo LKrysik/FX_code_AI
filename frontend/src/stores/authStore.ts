@@ -115,7 +115,7 @@ export const useAuthStore = create<AuthState>()(
           try {
             await csrfService.refreshToken();
           } catch (csrfError) {
-            Logger.warn('auth.csrfTokenFetchFailed', 'Failed to fetch CSRF token after login', csrfError);
+            Logger.warn('auth.csrfTokenFetchFailed', { message: 'Failed to fetch CSRF token after login', error: csrfError });
           }
 
           return true;
@@ -151,7 +151,7 @@ export const useAuthStore = create<AuthState>()(
           }
         } catch (error) {
           // Ignore logout errors
-          Logger.warn('auth.logoutFailed', 'Logout request failed', error);
+          Logger.warn('auth.logoutFailed', { message: 'Logout request failed', error });
         }
 
         // Clear refresh timer

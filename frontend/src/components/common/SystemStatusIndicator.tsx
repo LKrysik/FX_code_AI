@@ -231,7 +231,8 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
 
   // Log initial component mount
   useEffect(() => {
-    Logger.debug('SystemStatusIndicator.mount', 'Component INITIAL MOUNT', {
+    Logger.debug('SystemStatusIndicator.mount', {
+      message: 'Component INITIAL MOUNT',
       initialState: systemStatus,
       timestamp: new Date().toISOString()
     });
@@ -243,15 +244,15 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
     try {
       Logger.debug('SystemStatusIndicator.fetchHealth', 'Fetching health data from API...');
       const health = await apiService.healthCheck();
-      Logger.debug('SystemStatusIndicator.fetchHealth', 'Health API response', { health });
+      Logger.debug('SystemStatusIndicator.fetchHealth', { message: 'Health API response', health });
 
       // Degradation info is included in the health response
       const degradation = health?.data?.degradation_info || {};
-      Logger.debug('SystemStatusIndicator.fetchHealth', 'Degradation info', { degradation });
+      Logger.debug('SystemStatusIndicator.fetchHealth', { message: 'Degradation info', degradation });
 
       return { health, degradation };
     } catch (error) {
-      Logger.error('SystemStatusIndicator.fetchHealth', 'Health API call failed', { error });
+      Logger.error('SystemStatusIndicator.fetchHealth', { message: 'Health API call failed', error });
       // Return fallback data to prevent crashes
       return {
         health: { status: 'unknown', data: { status: 'unknown' } },
@@ -269,7 +270,7 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
   // Log health data errors
   useEffect(() => {
     if (healthError) {
-      Logger.error('SystemStatusIndicator.healthData', 'Health data error', { error: healthError });
+      Logger.error('SystemStatusIndicator.healthData', { message: 'Health data error', error: healthError });
     }
   }, [healthError]);
 
@@ -281,7 +282,8 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
 
   // Debug WebSocket store values
   useEffect(() => {
-    Logger.debug('SystemStatusIndicator.websocketStore', 'WebSocket Store Values', {
+    Logger.debug('SystemStatusIndicator.websocketStore', {
+      message: 'WebSocket Store Values',
       connectionStatus,
       isConnected,
       lastError,
@@ -291,7 +293,8 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
 
   // Debug health store values
   useEffect(() => {
-    Logger.debug('SystemStatusIndicator.healthStore', 'Health Store Values', {
+    Logger.debug('SystemStatusIndicator.healthStore', {
+      message: 'Health Store Values',
       healthStatus,
       timestamp: new Date().toISOString()
     });
@@ -301,7 +304,8 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
   // Use useMemo to compute derived values and reduce re-renders
   const computedStatus = React.useMemo(() => {
     try {
-      Logger.debug('SystemStatusIndicator.computeStatus', 'Computing status with', {
+      Logger.debug('SystemStatusIndicator.computeStatus', {
+        message: 'Computing status with',
         connectionStatus,
         isConnected,
         healthData: healthData ? 'present' : 'null',
@@ -315,7 +319,7 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
       try {
         healthOverallStatus = getHealthOverallStatus();
       } catch (error) {
-        Logger.error('SystemStatusIndicator.computeStatus', 'Error getting health overall status', { error });
+        Logger.error('SystemStatusIndicator.computeStatus', { message: 'Error getting health overall status', error });
       }
 
       // Use API health data as primary source if available, fallback to store
@@ -353,10 +357,10 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
         lastChecked,
       };
 
-      Logger.debug('SystemStatusIndicator.computeStatus', 'Computed status result', result);
+      Logger.debug('SystemStatusIndicator.computeStatus', { message: 'Computed status result', ...result });
       return result;
     } catch (error) {
-      Logger.error('SystemStatusIndicator.computeStatus', 'Critical error in computedStatus', { error });
+      Logger.error('SystemStatusIndicator.computeStatus', { message: 'Critical error in computedStatus', error });
       return {
         backend: 'unknown' as const,
         websocket: (connectionStatus === 'disabled' ? 'disconnected' : connectionStatus) || 'unknown',
@@ -370,7 +374,7 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
   // Update system status only when computed values change
   useEffect(() => {
     Logger.debug('SystemStatusIndicator.statusUpdate', 'STATUS UPDATE TRIGGERED');
-    Logger.debug('SystemStatusIndicator.statusUpdate', 'New computed status', computedStatus);
+    Logger.debug('SystemStatusIndicator.statusUpdate', { message: 'New computed status', ...computedStatus });
 
     setSystemStatus(prev => ({
       ...prev,
@@ -386,7 +390,8 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
     Logger.debug('SystemStatusIndicator.mount', 'Component mounted');
 
     // Check WebSocket service initialization
-    Logger.debug('SystemStatusIndicator.wsCheck', 'WebSocket service check', {
+    Logger.debug('SystemStatusIndicator.wsCheck', {
+      message: 'WebSocket service check',
       wsService: !!wsService,
       isWebSocketConnected: wsService?.isWebSocketConnected?.(),
       config: {
@@ -402,7 +407,8 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
 
       const healthCallbacks = {
         onHealthUpdate: (data: any) => {
-          Logger.debug('SystemStatusIndicator.healthCallback', 'Health callback triggered', {
+          Logger.debug('SystemStatusIndicator.healthCallback', {
+            message: 'Health callback triggered',
             messageType: data?.type,
             hasData: !!data?.data,
             dataKeys: data?.data ? Object.keys(data.data) : [],
@@ -411,7 +417,8 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
 
           if (data && data.data) {
             const healthData = data.data;
-            Logger.debug('SystemStatusIndicator.processHealthData', 'Processing health data', {
+            Logger.debug('SystemStatusIndicator.processHealthData', {
+              message: 'Processing health data',
               status: healthData.status,
               degradationInfo: healthData.degradation_info,
               components: healthData.components,
@@ -422,7 +429,7 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
                                 healthData.status === 'degraded' ? 'degraded' :
                                 healthData.status === 'unhealthy' ? 'unhealthy' : 'unknown';
 
-            Logger.debug('SystemStatusIndicator.updateHealthStore', 'Updating health store with status', { overallStatus });
+            Logger.debug('SystemStatusIndicator.updateHealthStore', { message: 'Updating health store with status', overallStatus });
 
             // Update health store directly
             useHealthStore.getState().setHealthStatus({
@@ -444,13 +451,14 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
           Logger.debug('SystemStatusIndicator.wsConnect', 'Subscribing to health streams...');
         },
         onDisconnect: (reason: string) => {
-          Logger.info('SystemStatusIndicator.wsDisconnect', 'WebSocket DISCONNECTED', { reason });
+          Logger.info('SystemStatusIndicator.wsDisconnect', { message: 'WebSocket DISCONNECTED', reason });
         },
         onError: (error: any) => {
-          Logger.error('SystemStatusIndicator.wsError', 'WebSocket ERROR', { error });
+          Logger.error('SystemStatusIndicator.wsError', { message: 'WebSocket ERROR', error });
         },
         onHealthCheck: (data: any) => {
-          Logger.debug('SystemStatusIndicator.wsHealthCheck', 'Direct WebSocket health message received', {
+          Logger.debug('SystemStatusIndicator.wsHealthCheck', {
+            message: 'Direct WebSocket health message received',
             type: data?.type,
             stream: data?.stream,
             hasData: !!data?.data,
@@ -469,13 +477,14 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
           } else if (data && data.alert_id) {
             Logger.debug('SystemStatusIndicator.wsHealthCheck', 'Processing health alert');
           } else {
-            Logger.debug('SystemStatusIndicator.wsHealthCheck', 'Unknown health message type', { type: data?.type, status: data?.status });
+            Logger.debug('SystemStatusIndicator.wsHealthCheck', { message: 'Unknown health message type', type: data?.type, status: data?.status });
           }
         }
       });
 
       // Subscribe to health stream
-      Logger.debug('SystemStatusIndicator.wsSubscribe', 'Subscribing to WebSocket streams', {
+      Logger.debug('SystemStatusIndicator.wsSubscribe', {
+        message: 'Subscribing to WebSocket streams',
         health_check: {},
         timestamp: new Date().toISOString(),
         component: 'SystemStatusIndicator'
@@ -484,7 +493,8 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
       wsService.subscribe('health_check', {});
       healthWsSubscribed = true;
 
-      Logger.debug('SystemStatusIndicator.wsSubscribe', 'WebSocket subscriptions completed', {
+      Logger.debug('SystemStatusIndicator.wsSubscribe', {
+        message: 'WebSocket subscriptions completed',
         subscribed_streams: ['health_check'],
         component: 'SystemStatusIndicator',
         timestamp: new Date().toISOString()
@@ -501,7 +511,8 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
         if (wsService.isWebSocketConnected()) {
           Logger.info('SystemStatusIndicator.testConnectivity', 'Backend WebSocket is connected');
         } else {
-          Logger.warn('SystemStatusIndicator.testConnectivity', 'Backend WebSocket is NOT connected', {
+          Logger.warn('SystemStatusIndicator.testConnectivity', {
+            message: 'Backend WebSocket is NOT connected',
             isConnected: wsService.isWebSocketConnected(),
             connectionStatus,
             config: {
@@ -515,14 +526,16 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
         Logger.debug('SystemStatusIndicator.testConnectivity', 'Testing HTTP API connectivity...');
         apiService.healthCheck()
           .then(response => {
-            Logger.info('SystemStatusIndicator.testConnectivity', 'HTTP API is accessible', {
+            Logger.info('SystemStatusIndicator.testConnectivity', {
+              message: 'HTTP API is accessible',
               status: response?.status,
               hasData: !!response?.data,
               timestamp: new Date().toISOString()
             });
           })
           .catch(error => {
-            Logger.error('SystemStatusIndicator.testConnectivity', 'HTTP API is NOT accessible', {
+            Logger.error('SystemStatusIndicator.testConnectivity', {
+              message: 'HTTP API is NOT accessible',
               error: error?.message || error,
               timestamp: new Date().toISOString()
             });
@@ -596,7 +609,8 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
 
   const getStatusText = () => {
     // Debug logging to see current status values
-    Logger.debug('SystemStatusIndicator.getStatusText', 'getStatusText called with', {
+    Logger.debug('SystemStatusIndicator.getStatusText', {
+      message: 'getStatusText called with',
       backend: systemStatus.backend,
       websocket: systemStatus.websocket,
       readOnlyMode: systemStatus.readOnlyMode,
@@ -606,7 +620,8 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
     });
 
     // Log the decision path with detailed reasoning
-    Logger.debug('SystemStatusIndicator.getStatusText', 'Status decision logic', {
+    Logger.debug('SystemStatusIndicator.getStatusText', {
+      message: 'Status decision logic',
       readOnlyMode: systemStatus.readOnlyMode,
       backend_unhealthy: systemStatus.backend === 'unhealthy',
       websocket_error: systemStatus.websocket === 'error',
@@ -691,7 +706,8 @@ export function SystemStatusIndicator({ showDetails = false, compact = false }: 
 
   // Log final render values
   const finalStatusText = getStatusText();
-  Logger.debug('SystemStatusIndicator.render', 'RENDERING with status', {
+  Logger.debug('SystemStatusIndicator.render', {
+    message: 'RENDERING with status',
     finalStatusText,
     overallStatus: getOverallStatus(),
     statusColor: getStatusColor(),

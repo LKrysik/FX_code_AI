@@ -210,7 +210,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           }, 30000);
 
         } catch (error) {
-          Logger.error('useWebSocket.heartbeat_failed', 'Heartbeat failed', error instanceof Error ? error : undefined);
+          Logger.error('useWebSocket.heartbeat_failed', { message: 'Heartbeat failed' }, error instanceof Error ? error : undefined);
           handleMissedPong();
         }
       }
@@ -224,7 +224,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         const payload = typeof message === 'string' ? message : JSON.stringify(message);
         wsRef.current.send(payload);
       } catch (error) {
-        Logger.error('useWebSocket.send_failed', 'Failed to send message', error instanceof Error ? error : undefined);
+        Logger.error('useWebSocket.send_failed', { message: 'Failed to send message' }, error instanceof Error ? error : undefined);
         // Queue message for retry
         messageQueueRef.current.push(message);
       }
@@ -339,7 +339,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
       wsRef.current = ws;
     } catch (error) {
-      Logger.error('useWebSocket.connection_error', 'Connection error', error instanceof Error ? error : undefined);
+      Logger.error('useWebSocket.connection_error', { message: 'Connection error' }, error instanceof Error ? error : undefined);
       setConnectionState('error');
     }
   }, [opts, reconnectAttempt, startHeartbeat, processQueue, clearTimers, handlePong, options]);

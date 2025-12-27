@@ -133,7 +133,7 @@ export const VariantComparison: React.FC<VariantComparisonProps> = ({
           setLeftVariantId(transformedVariants[0].id);
         }
       } catch (err) {
-        Logger.error('VariantComparison.loadVariants', 'Failed to load variants', { error: err });
+        Logger.error('VariantComparison.loadVariants', { message: 'Failed to load variants', error: err });
         setError('Failed to load variants');
       } finally {
         setLoading(false);

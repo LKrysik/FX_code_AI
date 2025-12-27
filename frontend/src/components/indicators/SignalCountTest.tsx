@@ -203,7 +203,7 @@ export const SignalCountTest: React.FC<SignalCountTestProps> = ({
           setSelectedVariantId(transformedVariants[0].id);
         }
       } catch (err) {
-        Logger.error('SignalCountTest.loadVariants', 'Failed to load variants', { error: err });
+        Logger.error('SignalCountTest.loadVariants', { message: 'Failed to load variants', error: err });
         // Use mock variants for development
         const mockVariants: IndicatorVariant[] = [
           {

@@ -253,7 +253,7 @@ export function validateSafety(operation: string, context: SafetyContext): Safet
 
 // Emergency stop function
 export function emergencyStop(reason: string) {
-  Logger.warn('safety.emergencyStop', 'EMERGENCY STOP ACTIVATED', { reason });
+  Logger.warn('safety.emergencyStop', { message: 'EMERGENCY STOP ACTIVATED', reason });
 
   // Update UI state
   const { addNotification } = useUIStore.getState();
@@ -286,7 +286,7 @@ export async function withSafetyGuard<T>(
   const safetyResult = validateSafety(operationName, context);
 
   if (safetyResult.blocked) {
-    Logger.warn('safety.operationBlocked', `Operation blocked: ${operationName}`, { reasons: safetyResult.reasons });
+    Logger.warn('safety.operationBlocked', { message: `Operation blocked: ${operationName}`, reasons: safetyResult.reasons });
 
     // Add notification
     const { addNotification } = useUIStore.getState();
@@ -299,7 +299,7 @@ export async function withSafetyGuard<T>(
   }
 
   if (!safetyResult.safe && safetyResult.risk === 'high') {
-    Logger.warn('safety.operationWarning', `Operation warning: ${operationName}`, { reasons: safetyResult.reasons });
+    Logger.warn('safety.operationWarning', { message: `Operation warning: ${operationName}`, reasons: safetyResult.reasons });
 
     // Add warning notification
     const { addNotification } = useUIStore.getState();
@@ -310,10 +310,10 @@ export async function withSafetyGuard<T>(
   }
 
   try {
-    Logger.info('safety.checkPassed', `Safety check passed: ${operationName}`);
+    Logger.info('safety.checkPassed', { message: `Safety check passed: ${operationName}` });
     return await operation();
   } catch (error) {
-    Logger.error('safety.operationFailed', `Operation failed: ${operationName}`, error);
+    Logger.error('safety.operationFailed', { message: `Operation failed: ${operationName}` }, error instanceof Error ? error : undefined);
 
     // Check if this is a critical financial error
     if (operationName.includes('trade') || operationName.includes('order')) {

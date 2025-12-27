@@ -61,6 +61,7 @@ import {
   getSessionStatusIcon,
   type SessionStatusType
 } from '@/utils/statusUtils';
+import { Logger } from '@/services/frontendLogService';
 
 interface DataCollectionSession {
   session_id: string;
@@ -206,7 +207,7 @@ export default function DataCollectionPage() {
       await apiService.healthCheck();
     } catch (error) {
       // Silently handle health check failures
-      console.warn('Health check failed:', error);
+      Logger.warn('DataCollectionPage.checkBackendConnection', { message: 'Health check failed', error });
     }
   }, []);
 
@@ -263,11 +264,11 @@ export default function DataCollectionPage() {
   // Debounced session update function for performance (reduced delay for snappier UI)
   const debouncedUpdateSession = useMemo(
     () => debounce((message: any) => {
-      console.log('[debouncedUpdateSession] Processing message:', message);
+      Logger.debug('DataCollectionPage.debouncedUpdateSession', { message: 'Processing message', messageData: message });
 
       // Extract data from WebSocket message format
       const sessionData = message.data || message;
-      console.log('[debouncedUpdateSession] Extracted sessionData:', sessionData);
+      Logger.debug('DataCollectionPage.debouncedUpdateSession', { message: 'Extracted sessionData', sessionData });
 
       setSessions(prev => prev.map(session => {
         if (session.session_id === sessionData.session_id) {
@@ -296,7 +297,8 @@ export default function DataCollectionPage() {
             records_collected = sessionData.progress.current_step;
           }
 
-          console.log('[debouncedUpdateSession] Progress parsing:', {
+          Logger.debug('DataCollectionPage.debouncedUpdateSession', {
+            message: 'Progress parsing',
             sessionData_progress: sessionData.progress,
             sessionData_records: sessionData.records_collected,
             sessionData_trading_stats: sessionData.trading_stats,
@@ -305,10 +307,12 @@ export default function DataCollectionPage() {
             parsed_eta: eta_seconds
           });
 
-          console.log('[UI UPDATE] 🎯 Updating progress bar and records count:');
-          console.log('[UI UPDATE] 🎯 Progress:', progress_percentage + '%');
-          console.log('[UI UPDATE] 🎯 Records:', records_collected.toLocaleString());
-          console.log('[UI UPDATE] 🎯 ETA:', eta_seconds ? formatETA(eta_seconds) : 'N/A');
+          Logger.debug('DataCollectionPage.debouncedUpdateSession', {
+            message: 'Updating progress bar and records count',
+            progress: progress_percentage,
+            records: records_collected,
+            eta: eta_seconds ? formatETA(eta_seconds) : 'N/A'
+          });
 
           const updatedSession = {
             ...session,
@@ -321,8 +325,8 @@ export default function DataCollectionPage() {
             error_message: sessionData.error_message || session.error_message
           };
 
-          console.log('[debouncedUpdateSession] Updated session:', updatedSession);
-          console.log('[STATE UPDATE] 💾 React state will be updated with new progress data');
+          Logger.debug('DataCollectionPage.debouncedUpdateSession', { message: 'Updated session', updatedSession });
+          Logger.debug('DataCollectionPage.debouncedUpdateSession', { message: 'React state will be updated with new progress data' });
           return updatedSession;
         }
         return session;
@@ -338,11 +342,12 @@ export default function DataCollectionPage() {
     const setupWebSocketSubscription = () => {
       if (subscribed) return;
 
-      console.log('[WebSocket] Setting up subscription');
+      Logger.info('DataCollectionPage.setupWebSocketSubscription', 'Setting up subscription');
 
       // Add debug logging to see what messages are received
       const unsubscribe = wsService.addSessionUpdateListener((message) => {
-        console.log('[WebSocket] 📨 RECEIVED MESSAGE:', {
+        Logger.debug('DataCollectionPage.wsListener', {
+          message: 'Received message',
           type: message?.type,
           stream: message?.stream,
           hasData: !!message?.data,
@@ -353,7 +358,8 @@ export default function DataCollectionPage() {
 
         // Special logging for ALL data messages
         if (message?.type === 'data') {
-          console.log('[WebSocket] 📊 DATA MESSAGE RECEIVED:', {
+          Logger.debug('DataCollectionPage.wsListener', {
+            message: 'Data message received',
             stream: message.stream,
             session_id: message.data?.session_id,
             progress_percentage: message.data?.progress?.percentage,
@@ -365,7 +371,8 @@ export default function DataCollectionPage() {
 
         // Special logging for progress messages
         if (message?.type === 'data' && message?.stream === 'execution_status') {
-          console.log('[WebSocket] 🎯 PROGRESS MESSAGE RECEIVED:', {
+          Logger.debug('DataCollectionPage.wsListener', {
+            message: 'Progress message received',
             session_id: message.data?.session_id,
             progress_percentage: message.data?.progress?.percentage,
             records_collected: message.data?.records_collected,
@@ -377,7 +384,7 @@ export default function DataCollectionPage() {
 
         // Extract data from WebSocket message format
         const payload = message.data || message;
-        console.log('[WebSocket] Extracted payload:', payload);
+        Logger.debug('DataCollectionPage.wsListener', { message: 'Extracted payload', payload });
 
         // Check if this is a data collection message
         const isDataCollectionMessage = (
@@ -387,7 +394,9 @@ export default function DataCollectionPage() {
           message.type === 'data' && message.stream === 'execution_status'
         );
 
-        console.log('[WebSocket] Is data collection message:', isDataCollectionMessage, {
+        Logger.debug('DataCollectionPage.wsListener', {
+          message: 'Is data collection message',
+          isDataCollectionMessage,
           command_type: payload?.command_type,
           mode: payload?.mode,
           message_type: message.type,
@@ -396,11 +405,11 @@ export default function DataCollectionPage() {
         });
 
         if (isDataCollectionMessage) {
-          console.log('[WebSocket] Processing data collection message');
+          Logger.debug('DataCollectionPage.wsListener', { message: 'Processing data collection message' });
 
           // Handle execution_result messages (completion/failure)
           if (message.type === 'execution_result') {
-            console.log('[WebSocket] Handling execution_result message');
+            Logger.debug('DataCollectionPage.wsListener', { message: 'Handling execution_result message' });
             const progressData = payload.final_results?.progress;
             const resultPayload = {
               session_id: payload.session_id,
@@ -419,14 +428,14 @@ export default function DataCollectionPage() {
                 current_date: progressData?.progress?.current_date || progressData?.current_date
               }
             };
-            console.log('[WebSocket] Calling debouncedUpdateSession with result payload:', resultPayload);
+            Logger.debug('DataCollectionPage.wsListener', { message: 'Calling debouncedUpdateSession with result payload', resultPayload });
             debouncedUpdateSession({
               type: 'execution_result',
               data: resultPayload
             });
           } else if (message.type === 'data' && message.stream === 'execution_status') {
             // Handle regular execution_status progress messages
-            console.log('[WebSocket] Handling execution_status progress message');
+            Logger.debug('DataCollectionPage.wsListener', { message: 'Handling execution_status progress message' });
 
             // Ensure the payload has the expected structure for debouncedUpdateSession
             const progressPayload = {
@@ -443,10 +452,13 @@ export default function DataCollectionPage() {
               error_message: payload.error_message
             };
 
-            console.log('[WebSocket] 📊 PROGRESS UPDATE - Session:', progressPayload.session_id);
-            console.log('[WebSocket] 📊 Records collected:', progressPayload.records_collected);
-            console.log('[WebSocket] 📊 Progress percentage:', progressPayload.progress?.percentage || 0);
-            console.log('[WebSocket] 📊 ETA seconds:', progressPayload.progress?.eta_seconds);
+            Logger.debug('DataCollectionPage.wsListener', {
+              message: 'Progress update',
+              session_id: progressPayload.session_id,
+              records_collected: progressPayload.records_collected,
+              progress_percentage: progressPayload.progress?.percentage || 0,
+              eta_seconds: progressPayload.progress?.eta_seconds
+            });
 
             debouncedUpdateSession({
               type: 'data',
@@ -454,15 +466,15 @@ export default function DataCollectionPage() {
             });
           } else {
             // Handle other execution_status messages
-            console.log('[WebSocket] Handling other execution_status message, calling debouncedUpdateSession with message:', message);
+            Logger.debug('DataCollectionPage.wsListener', { message: 'Handling other execution_status message', messageData: message });
             debouncedUpdateSession(message);
           }
         } else {
-          console.log('[WebSocket] Ignoring non-data-collection message');
+          Logger.debug('DataCollectionPage.wsListener', { message: 'Ignoring non-data-collection message' });
         }
 
         if (payload?.status === 'failed' || payload?.error_message) {
-          console.log('[WebSocket] Handling error status');
+          Logger.debug('DataCollectionPage.wsListener', { message: 'Handling error status' });
           setSessions(prev => prev.map(session => {
             if (session.session_id === payload.session_id) {
               return {
@@ -485,9 +497,9 @@ export default function DataCollectionPage() {
       // Subscribe to execution_status with retry logic
       const subscribeWithRetry = () => {
         try {
-          console.log('[WebSocket] 🔄 Subscribing to execution_status');
+          Logger.info('DataCollectionPage.subscribeWithRetry', 'Subscribing to execution_status');
           wsService.subscribe('execution_status');
-          console.log('[WebSocket] ✅ Successfully subscribed to execution_status');
+          Logger.info('DataCollectionPage.subscribeWithRetry', 'Successfully subscribed to execution_status');
 
           // Log subscription summary to verify
           setTimeout(() => {
@@ -496,14 +508,14 @@ export default function DataCollectionPage() {
 
           subscribed = true;
         } catch (error) {
-          console.error('[WebSocket] ❌ Subscription failed, retrying in 2s:', error);
+          Logger.error('DataCollectionPage.subscribeWithRetry', { message: 'Subscription failed, retrying in 2s', error });
           setTimeout(subscribeWithRetry, 2000);
         }
       };
 
       // Also subscribe immediately when WebSocket connects
       const handleWebSocketConnect = () => {
-        console.log('[WebSocket] 🔗 Connection established, subscribing to execution_status');
+        Logger.info('DataCollectionPage.handleWebSocketConnect', 'Connection established, subscribing to execution_status');
         if (!subscribed) {
           subscribeWithRetry();
         }
@@ -513,26 +525,26 @@ export default function DataCollectionPage() {
       wsService.setCallbacks({
         onConnect: handleWebSocketConnect,
         onDisconnect: (reason) => {
-          console.log('[WebSocket] 🔌 Disconnected:', reason);
+          Logger.info('DataCollectionPage.wsCallbacks', 'Disconnected', { reason });
           subscribed = false;
         },
         onError: (error) => {
-          console.error('[WebSocket] ❌ Connection error:', error);
+          Logger.error('DataCollectionPage.wsCallbacks', 'Connection error', { error });
         }
       });
 
       // Check if WebSocket is connected using reactive store
       if (isConnected) {
-        console.log('[WebSocket] Already connected, subscribing immediately');
+        Logger.info('DataCollectionPage.setupWebSocketSubscription', 'Already connected, subscribing immediately');
         subscribeWithRetry();
       } else {
-        console.log('[WebSocket] Waiting for connection before subscribing');
+        Logger.info('DataCollectionPage.setupWebSocketSubscription', 'Waiting for connection before subscribing');
 
 
         // Also try to subscribe after a short delay as fallback
         setTimeout(() => {
           if (!subscribed && isConnected) {
-            console.log('[WebSocket] Fallback: trying subscription after delay');
+            Logger.info('DataCollectionPage.setupWebSocketSubscription', 'Fallback: trying subscription after delay');
             subscribeWithRetry();
           }
         }, 2000);
@@ -544,7 +556,7 @@ export default function DataCollectionPage() {
     const unsubscribe = setupWebSocketSubscription();
 
     return () => {
-      console.log('[WebSocket] Cleaning up WebSocket listener');
+      Logger.info('DataCollectionPage.cleanup', 'Cleaning up WebSocket listener');
       if (unsubscribe) unsubscribe();
       if (typeof (debouncedUpdateSession as any).cancel === 'function') {
         (debouncedUpdateSession as any).cancel();
@@ -559,7 +571,7 @@ export default function DataCollectionPage() {
       setAvailableSymbols(symbols);
       setSymbolsError(null);
     } catch (error) {
-      console.error('Failed to load available symbols from', config.apiUrl, error);
+      Logger.error('DataCollectionPage.loadAvailableSymbols', { message: 'Failed to load available symbols', apiUrl: config.apiUrl, error });
       setSymbolsError(`Failed to load symbols from ${config.apiUrl}. Check backend and NEXT_PUBLIC_API_URL.`);
       // Do not silently fallback; surface the error
       setAvailableSymbols([]);
@@ -633,7 +645,7 @@ export default function DataCollectionPage() {
 
       setSessions(allSessions);
     } catch (error) {
-      console.error('Failed to load data collection sessions:', error);
+      Logger.error('DataCollectionPage.loadDataCollectionSessions', { message: 'Failed to load data collection sessions', error });
       setSessions([]);
       setSnackbar({
         open: true,
@@ -797,7 +809,7 @@ export default function DataCollectionPage() {
           const chartData = await apiService.getChartData(session.session_id, symbol, 100000);
           return { symbol, data: chartData?.data || [] };
         } catch (error) {
-          console.warn(`Failed to fetch data for ${symbol}:`, error);
+          Logger.warn('DataCollectionPage.handleDownloadData', { message: 'Failed to fetch data for symbol', symbol, error });
           return { symbol, data: [] };
         }
       });
@@ -856,7 +868,7 @@ export default function DataCollectionPage() {
       });
 
     } catch (error: any) {
-      console.error('Failed to export CSV:', error);
+      Logger.error('DataCollectionPage.handleDownloadData', { message: 'Failed to export CSV', error });
       setSnackbar({
         open: true,
         message: `Failed to export CSV: ${error.message || 'Unknown error'}`,
@@ -896,7 +908,7 @@ export default function DataCollectionPage() {
         throw new Error(result.message || 'Failed to delete session');
       }
     } catch (error: any) {
-      console.error('Failed to delete session:', error);
+      Logger.error('DataCollectionPage.handleDeleteSession', { message: 'Failed to delete session', error, sessionId });
 
       // Rollback optimistic update: restore session to the list
       if (sessionToRemove) {

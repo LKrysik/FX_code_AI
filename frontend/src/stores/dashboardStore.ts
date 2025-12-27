@@ -54,7 +54,8 @@ export const useDashboardStore = create<DashboardState>()(
         if (!signal) return;
         // [SIGNAL-FLOW] Debug logging for E2E verification (Story 0-2)
         // Story 1A-1: Logging for signal display verification
-        Logger.debug('dashboardStore.signalAdded', 'Signal added to store', {
+        Logger.debug('dashboardStore.signalAdded', {
+          message: 'Signal added to store',
           signalType: signal.signalType,
           symbol: signal.symbol,
           timestamp: signal.timestamp,
@@ -153,10 +154,10 @@ export const useDashboardStore = create<DashboardState>()(
             }
 
             set({ marketData: validMarketData, marketDataLoading: false });
-            Logger.debug('dashboardStore.fetchMarketData', 'Market data fetched successfully', { count: validMarketData.length });
+            Logger.debug('dashboardStore.fetchMarketData', { message: 'Market data fetched successfully', count: validMarketData.length });
             return validMarketData;
           } else {
-            Logger.warn('dashboardStore.invalidMarketDataResponse', 'Invalid market data response structure', { response });
+            Logger.warn('dashboardStore.invalidMarketDataResponse', { message: 'Invalid market data response structure', response });
             // Fallback to empty array if no data
             set({ marketData: [], marketDataLoading: false });
             return [];
@@ -164,7 +165,7 @@ export const useDashboardStore = create<DashboardState>()(
         } catch (error: any) {
           const errorMessage = error?.message || 'Failed to fetch market data';
           set({ marketDataError: errorMessage, marketDataLoading: false });
-          Logger.error('dashboardStore.fetchMarketDataError', 'Failed to fetch market data', error);
+          Logger.error('dashboardStore.fetchMarketDataError', { message: 'Failed to fetch market data' }, error instanceof Error ? error : undefined);
           throw error;
         }
       },
@@ -197,17 +198,17 @@ export const useDashboardStore = create<DashboardState>()(
             }
 
             set({ indicators: validIndicators, indicatorsLoading: false });
-            Logger.debug('dashboardStore.fetchIndicators', 'Indicators fetched successfully', { count: validIndicators.length });
+            Logger.debug('dashboardStore.fetchIndicators', { message: 'Indicators fetched successfully', count: validIndicators.length });
             return validIndicators;
           } else {
-            Logger.warn('dashboardStore.invalidIndicatorsResponse', 'Invalid indicators response structure', { indicators });
+            Logger.warn('dashboardStore.invalidIndicatorsResponse', { message: 'Invalid indicators response structure', indicators });
             set({ indicators: [], indicatorsLoading: false });
             return [];
           }
         } catch (error: any) {
           const errorMessage = error?.message || 'Failed to fetch indicators';
           set({ indicatorsError: errorMessage, indicatorsLoading: false });
-          Logger.error('dashboardStore.fetchIndicatorsError', 'Failed to fetch indicators', error);
+          Logger.error('dashboardStore.fetchIndicatorsError', { message: 'Failed to fetch indicators' }, error instanceof Error ? error : undefined);
           throw error;
         }
       },
@@ -239,7 +240,7 @@ export const useDashboardStore = create<DashboardState>()(
               }));
 
             set({ activeSignals: signals, signalsLoading: false });
-            Logger.debug('dashboardStore.fetchActiveSignals', 'Active signals fetched successfully', { count: signals.length });
+            Logger.debug('dashboardStore.fetchActiveSignals', { message: 'Active signals fetched successfully', count: signals.length });
             return signals;
           } else {
             // Empty array or invalid structure
@@ -249,7 +250,7 @@ export const useDashboardStore = create<DashboardState>()(
         } catch (error: any) {
           const errorMessage = error?.message || 'Failed to fetch active signals';
           set({ signalsError: errorMessage, signalsLoading: false });
-          Logger.error('dashboardStore.fetchActiveSignalsError', 'Failed to fetch active signals', error);
+          Logger.error('dashboardStore.fetchActiveSignalsError', { message: 'Failed to fetch active signals' }, error instanceof Error ? error : undefined);
           throw error;
         }
       },

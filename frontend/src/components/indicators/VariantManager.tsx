@@ -73,7 +73,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
   onVariantDeleted,
 }) => {
   // Add debugging for page refresh issue
-  Logger.debug('VariantManager.render', 'Component mounted/re-rendered', { timestamp: new Date().toISOString() });
+  Logger.debug('VariantManager.render', { message: 'Component mounted/re-rendered', timestamp: new Date().toISOString() });
   
   const [activeTab, setActiveTab] = useState<'variants' | 'create'>('variants');
   const [variants, setVariants] = useState<IndicatorVariant[]>([]);
@@ -136,7 +136,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
         });
       }
     } catch (error) {
-      Logger.error('VariantManager.loadVariants', 'Failed to load variants', { error });
+      Logger.error('VariantManager.loadVariants', { message: 'Failed to load variants', error });
       setVariants([]);
       setSnackbar({
         open: true,
@@ -167,7 +167,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
           const indicators = await apiService.getSystemIndicators();
           
           // DEBUG: Log raw API response
-          Logger.debug('VariantManager.loadSystemIndicators', 'Raw system indicators from API', { sampleIndicators: indicators.slice(0, 2) });
+          Logger.debug('VariantManager.loadSystemIndicators', { message: 'Raw system indicators from API', sampleIndicators: indicators.slice(0, 2) });
 
           // Transform backend data to frontend format
           const transformedIndicators: SystemIndicator[] = indicators.map((indicator: any) => {
@@ -191,7 +191,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
             
             // DEBUG: Log transformation
             if (indicator.name?.includes('Time Weighted')) {
-              Logger.debug('VariantManager.loadSystemIndicators', 'TWPA transformation', { original: indicator, transformed: transformed });
+              Logger.debug('VariantManager.loadSystemIndicators', { message: 'TWPA transformation', original: indicator, transformed: transformed });
             }
             
             return transformed;
@@ -209,7 +209,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
 
           return transformedIndicators;
         } catch (error) {
-          Logger.error('VariantManager.loadSystemIndicators', 'Failed to load system indicators', { error });
+          Logger.error('VariantManager.loadSystemIndicators', { message: 'Failed to load system indicators', error });
           setSnackbar({
             open: true,
             message: 'Failed to load system indicators from backend',
@@ -253,7 +253,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
       event.stopPropagation();
     }
     
-    Logger.debug('VariantManager.handleCreateVariant', 'Creating variant', { indicatorName: systemIndicator.name });
+    Logger.debug('VariantManager.handleCreateVariant', { message: 'Creating variant', indicatorName: systemIndicator.name });
     
     setSelectedSystemIndicator(systemIndicator);
     setEditingVariant(null);
@@ -334,7 +334,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
       });
       onVariantDeleted?.(variantId);
     } catch (error: any) {
-      Logger.error('VariantManager.handleDeleteVariant', 'Failed to delete variant', { error, variantId });
+      Logger.error('VariantManager.handleDeleteVariant', { message: 'Failed to delete variant', error, variantId });
 
       // Rollback the optimistic update
       setVariants(originalVariants);
@@ -368,7 +368,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
           return status.files?.[indicatorId]?.path;
         }
       } catch (error) {
-        Logger.warn('VariantManager.waitForIndicatorReady', 'Failed to poll indicator status', { error, sessionId, indicatorId });
+        Logger.warn('VariantManager.waitForIndicatorReady', { message: 'Failed to poll indicator status', error, sessionId, indicatorId });
         throw error;
       }
     }
@@ -403,7 +403,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
         severity: 'success'
       });
     } catch (error: any) {
-      Logger.error('VariantManager.handleRecalculateVariant', 'Failed to recalculate variant', { error, variantId });
+      Logger.error('VariantManager.handleRecalculateVariant', { message: 'Failed to recalculate variant', error, variantId });
       setSnackbar({
         open: true,
         message: 'Failed to recalculate indicator',
@@ -467,7 +467,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
 
             processedParameters[param.name] = JSON.parse(processedParameters[param.name]);
           } catch (error) {
-            Logger.error('VariantManager.handleSaveVariant', 'Failed to parse JSON parameter', { paramName: param.name, error });
+            Logger.error('VariantManager.handleSaveVariant', { message: 'Failed to parse JSON parameter', paramName: param.name, error });
           }
         }
       });
@@ -482,7 +482,8 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
 
       if (editingVariant) {
         // DEBUG: Log update attempt
-        Logger.debug('VariantManager.handleSaveVariant', 'Attempting to update variant', {
+        Logger.debug('VariantManager.handleSaveVariant', {
+          message: 'Attempting to update variant',
           variantId: editingVariant.id,
           formData: variantForm,
           selectedIndicator: selectedSystemIndicator?.id
@@ -494,10 +495,10 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
           parameters: processedParameters
         };
 
-        Logger.debug('VariantManager.handleSaveVariant', 'Update payload', { updatePayload });
+        Logger.debug('VariantManager.handleSaveVariant', { message: 'Update payload', updatePayload });
 
         const result = await apiService.updateVariant(editingVariant.id, updatePayload);
-        Logger.debug('VariantManager.handleSaveVariant', 'Update result', { result });
+        Logger.debug('VariantManager.handleSaveVariant', { message: 'Update result', result });
 
         const updatedVariant: IndicatorVariant = {
           ...editingVariant,
@@ -545,7 +546,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
       setSelectedSystemIndicator(null);
       setEditingVariant(null);
     } catch (error: any) {
-      Logger.error('VariantManager.handleSaveVariant', 'Failed to save variant', { error, isEdit: !!editingVariant });
+      Logger.error('VariantManager.handleSaveVariant', { message: 'Failed to save variant', error, isEdit: !!editingVariant });
       const errorMessage = error?.response?.data?.error_message ||
                           error?.response?.data?.message ||
                           'Unknown error occurred';
