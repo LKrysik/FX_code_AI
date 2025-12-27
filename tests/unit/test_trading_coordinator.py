@@ -36,17 +36,15 @@ def mock_logger():
 
 
 @pytest.fixture
-async def coordinator(mock_event_bus, mock_logger):
-    """Create TradingCoordinator instance for testing"""
+def coordinator(mock_event_bus, mock_logger):
+    """Create TradingCoordinator instance for testing (non-started)"""
     coord = TradingCoordinator(
         event_bus=mock_event_bus,
         logger=mock_logger,
         rate_limit_per_minute=10,
         default_decision_timeout=1.0
     )
-    await coord.start()
-    yield coord
-    await coord.stop()
+    return coord
 
 
 class TestTradingCoordinatorInitialization:
@@ -89,12 +87,14 @@ class TestTradingCoordinatorInitialization:
     @pytest.mark.asyncio
     async def test_health_check_returns_status(self, coordinator):
         """Verify health check returns proper status"""
+        await coordinator.start()
         health = await coordinator.health_check()
 
         assert health["healthy"] is True
         assert "session_manager_registered" in health
         assert "active_sessions" in health
         assert "pending_requests" in health
+        await coordinator.stop()
 
 
 class TestSubscriptionCoordination:
@@ -103,9 +103,11 @@ class TestSubscriptionCoordination:
     @pytest.mark.asyncio
     async def test_request_subscription_without_session_manager_allows(self, coordinator):
         """When no session manager registered, allow subscription (graceful degradation)"""
+        await coordinator.start()
         decision = await coordinator.request_subscription("BTCUSDT")
 
         assert decision == SubscriptionDecision.ALLOWED
+        await coordinator.stop()
 
     @pytest.mark.asyncio
     async def test_rate_limiting_blocks_excessive_requests(self, mock_event_bus, mock_logger):
@@ -131,14 +133,17 @@ class TestSubscriptionCoordination:
     @pytest.mark.asyncio
     async def test_notify_subscription_success_tracks_state(self, coordinator):
         """Verify subscription success is tracked"""
+        await coordinator.start()
         await coordinator.notify_subscription_success("BTCUSDT")
 
         symbols = await coordinator.get_active_symbols()
         assert "BTCUSDT" in symbols
+        await coordinator.stop()
 
     @pytest.mark.asyncio
     async def test_notify_subscription_failure_tracks_count(self, coordinator):
         """Verify subscription failure count is tracked"""
+        await coordinator.start()
         await coordinator.notify_subscription_failure("BTCUSDT", "Connection failed")
         await coordinator.notify_subscription_failure("BTCUSDT", "Timeout")
 
@@ -146,6 +151,7 @@ class TestSubscriptionCoordination:
         state = coordinator._subscriptions.get("BTCUSDT")
         assert state is not None
         assert state.failure_count == 2
+        await coordinator.stop()
 
 
 class TestEventBusHandlers:
@@ -154,15 +160,18 @@ class TestEventBusHandlers:
     @pytest.mark.asyncio
     async def test_session_registered_handler(self, coordinator):
         """Verify session manager registration is tracked"""
+        await coordinator.start()
         await coordinator._on_session_manager_registered({
             "component": "session_manager"
         })
 
         assert coordinator._session_manager_registered is True
+        await coordinator.stop()
 
     @pytest.mark.asyncio
     async def test_session_started_handler(self, coordinator):
         """Verify session start is tracked"""
+        await coordinator.start()
         await coordinator._on_session_started({
             "session_id": "test_session_1",
             "symbols": ["BTCUSDT"]
@@ -170,10 +179,12 @@ class TestEventBusHandlers:
 
         is_active = await coordinator.is_session_active("test_session_1")
         assert is_active is True
+        await coordinator.stop()
 
     @pytest.mark.asyncio
     async def test_session_stopped_handler(self, coordinator):
         """Verify session stop removes tracking"""
+        await coordinator.start()
         # First start a session
         await coordinator._on_session_started({
             "session_id": "test_session_1",
@@ -187,10 +198,12 @@ class TestEventBusHandlers:
 
         is_active = await coordinator.is_session_active("test_session_1")
         assert is_active is False
+        await coordinator.stop()
 
     @pytest.mark.asyncio
     async def test_circuit_breaker_state_handler(self, coordinator):
         """Verify circuit breaker state updates are tracked"""
+        await coordinator.start()
         await coordinator._on_circuit_breaker_changed({
             "symbol": "BTCUSDT",
             "state": "open",
@@ -199,6 +212,7 @@ class TestEventBusHandlers:
 
         cb_state = await coordinator.get_circuit_breaker_state("BTCUSDT")
         assert cb_state["state"] == "open"
+        await coordinator.stop()
 
 
 class TestCircularDependencyElimination:
@@ -243,12 +257,14 @@ class TestCircularDependencyElimination:
         Verify system works even if SessionManager is not registered.
         This is the key fix for the NULL WINDOW bug.
         """
+        await coordinator.start()
         # Coordinator starts without session manager registered
         assert coordinator._session_manager_registered is False
 
         # Subscription should still be allowed (graceful degradation)
         decision = await coordinator.request_subscription("BTCUSDT")
         assert decision == SubscriptionDecision.ALLOWED
+        await coordinator.stop()
 
 
 class TestIntegrationScenarios:
