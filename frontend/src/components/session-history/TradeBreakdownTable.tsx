@@ -135,7 +135,7 @@ export const TradeBreakdownTable: React.FC<TradeBreakdownTableProps> = ({
         setTrades(data);
         onTradesLoad?.(data);
       } catch (err) {
-        Logger.error('TradeBreakdownTable.loadTrades', 'Failed to load trades', { error: err });
+        Logger.error('TradeBreakdownTable.loadTrades', { message: 'Failed to load trades', error: err });
         // Fallback to mock data for development
         const mockTrades = generateMockTrades();
         setTrades(mockTrades);

@@ -169,7 +169,7 @@ export const SessionReplayPlayer: React.FC<SessionReplayPlayerProps> = ({
           setError('No replay data available for this session');
         }
       } catch (err) {
-        Logger.error('SessionReplayPlayer.loadReplayData', 'Failed to load replay data', { error: err });
+        Logger.error('SessionReplayPlayer.loadReplayData', { message: 'Failed to load replay data', error: err });
         setError('Failed to load replay data');
       } finally {
         setLoading(false);

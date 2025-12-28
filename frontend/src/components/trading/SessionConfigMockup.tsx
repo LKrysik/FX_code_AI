@@ -154,7 +154,7 @@ export const SessionConfigMockup: React.FC<SessionConfigMockupProps> = ({ onSess
       }
     };
 
-    Logger.info('SessionConfigMockup.startSession', 'MOCKUP: Would start session with config', mockConfig);
+    Logger.info('SessionConfigMockup.startSession', { message: 'MOCKUP: Would start session with config', config: mockConfig });
 
     if (onSessionStart) {
       onSessionStart(mockConfig);

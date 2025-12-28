@@ -257,13 +257,13 @@ export function SignalHistoryPanel({
           setSignals(signalData.slice(0, maxSignals));
         } else if (response.status === 404) {
           // Endpoint doesn't exist yet, use mock data
-          Logger.info('SignalHistoryPanel.loadSignalHistory', 'API endpoint not available, using mock data', { symbol });
+          Logger.info('SignalHistoryPanel.loadSignalHistory', { message: 'API endpoint not available, using mock data', symbol });
           setSignals(generateMockSignalHistory(symbol).slice(0, maxSignals));
         } else {
           throw new Error(`API error: ${response.status}`);
         }
       } catch (err) {
-        Logger.error('SignalHistoryPanel.loadSignalHistory', 'Failed to load signal history', { error: err, symbol });
+        Logger.error('SignalHistoryPanel.loadSignalHistory', { message: 'Failed to load signal history', error: err, symbol });
         // Use mock data as fallback
         setSignals(generateMockSignalHistory(symbol).slice(0, maxSignals));
       } finally {

@@ -258,13 +258,13 @@ export function SymbolRecommendation({
         setRecommendations(sorted.slice(0, maxRecommendations * 2)); // Keep more for filtering
       } else if (response.status === 404) {
         // API not available, use mock data
-        Logger.info('SymbolRecommendation.loadRecommendations', 'API not available, using mock data');
+        Logger.info('SymbolRecommendation.loadRecommendations', { message: 'API not available, using mock data' });
         setRecommendations(generateMockSymbolData());
       } else {
         throw new Error(`API error: ${response.status}`);
       }
     } catch (err) {
-      Logger.error('SymbolRecommendation.loadRecommendations', 'Failed to load recommendations', { error: err });
+      Logger.error('SymbolRecommendation.loadRecommendations', { message: 'Failed to load recommendations', error: err });
       // Use mock data as fallback
       setRecommendations(generateMockSymbolData());
     } finally {

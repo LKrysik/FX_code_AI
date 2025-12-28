@@ -137,7 +137,7 @@ export const SignalHistoryPanel: React.FC<SignalHistoryPanelProps> = ({
 
       setSignals(data.signals || []);
     } catch (err: any) {
-      Logger.error('SignalHistoryPanel.loadSignals', 'Failed to load signal history', { error: err });
+      Logger.error('SignalHistoryPanel.loadSignals', { message: 'Failed to load signal history', error: err });
       setError(err.message || 'Failed to load signal history');
     } finally {
       setLoading(false);

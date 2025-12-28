@@ -104,7 +104,7 @@ export default function OrderHistory({
       const symbols = Array.from(new Set(data.map(o => o.symbol)));
       setAvailableSymbols(symbols);
     } catch (err: any) {
-      Logger.error('OrderHistory.fetchOrders', 'Failed to fetch orders', { error: err });
+      Logger.error('OrderHistory.fetchOrders', { message: 'Failed to fetch orders', error: err });
       setError(err.message || 'Failed to load orders');
     } finally {
       setLoading(false);

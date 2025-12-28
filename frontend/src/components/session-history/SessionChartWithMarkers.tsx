@@ -274,7 +274,7 @@ export const SessionChartWithMarkers: React.FC<SessionChartWithMarkersProps> = (
             ohlcv = data.ohlcv || data.data || [];
           }
         } catch (e) {
-          Logger.warn('SessionChartWithMarkers.loadData', 'OHLCV fetch failed, using mock data');
+          Logger.warn('SessionChartWithMarkers.loadData', { message: 'OHLCV fetch failed, using mock data' });
         }
 
         try {
@@ -286,7 +286,7 @@ export const SessionChartWithMarkers: React.FC<SessionChartWithMarkersProps> = (
             trans = data.transitions || [];
           }
         } catch (e) {
-          Logger.warn('SessionChartWithMarkers.loadData', 'Transitions fetch failed, using mock data');
+          Logger.warn('SessionChartWithMarkers.loadData', { message: 'Transitions fetch failed, using mock data' });
         }
 
         // Fallback to mock data if API fails

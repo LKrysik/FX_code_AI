@@ -149,7 +149,7 @@ export const TransitionTimeline: React.FC<TransitionTimelineProps> = ({
           setError('No transitions recorded for this session');
         }
       } catch (err) {
-        Logger.error('TransitionTimeline.loadTransitions', 'Failed to load transitions', { error: err });
+        Logger.error('TransitionTimeline.loadTransitions', { message: 'Failed to load transitions', error: err });
         setError('Failed to load transition data');
       } finally {
         setLoading(false);

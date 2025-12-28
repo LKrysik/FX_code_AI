@@ -108,7 +108,7 @@ export const StrategyVersionHistory: React.FC<StrategyVersionHistoryProps> = ({
         }
       }
     } catch (err) {
-      Logger.warn('StrategyVersionHistory.loadVersions', 'Failed to load strategy versions', { error: err });
+      Logger.warn('StrategyVersionHistory.loadVersions', { message: 'Failed to load strategy versions', error: err });
     }
   }, [storageKey]);
 
@@ -119,7 +119,7 @@ export const StrategyVersionHistory: React.FC<StrategyVersionHistoryProps> = ({
       localStorage.setItem(storageKey, JSON.stringify(trimmed));
       setVersions(trimmed);
     } catch (err) {
-      Logger.warn('StrategyVersionHistory.saveVersions', 'Failed to save strategy versions', { error: err });
+      Logger.warn('StrategyVersionHistory.saveVersions', { message: 'Failed to save strategy versions', error: err });
     }
   }, [storageKey, maxVersions]);
 
@@ -144,7 +144,7 @@ export const StrategyVersionHistory: React.FC<StrategyVersionHistoryProps> = ({
     const newVersions = [newVersion, ...versions];
     saveVersions(newVersions);
 
-    Logger.info('StrategyVersionHistory.saveVersion', 'Version saved', { versionId: newVersion.id });
+    Logger.info('StrategyVersionHistory.saveVersion', { message: 'Version saved', versionId: newVersion.id });
     return newVersion;
   }, [currentStrategy, versions, saveVersions]);
 

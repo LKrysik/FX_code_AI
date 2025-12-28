@@ -136,7 +136,7 @@ export const TransactionHistoryPanel: React.FC<TransactionHistoryPanelProps> = (
       setTransactions(data.transactions || []);
       setSummary(data.summary || null);
     } catch (err: any) {
-      Logger.error('TransactionHistoryPanel.loadTransactions', 'Failed to load transaction history', { error: err });
+      Logger.error('TransactionHistoryPanel.loadTransactions', { message: 'Failed to load transaction history', error: err });
       setError(err.message || 'Failed to load transaction history');
     } finally {
       setLoading(false);

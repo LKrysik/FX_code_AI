@@ -129,7 +129,7 @@ export const SessionSummaryStats: React.FC<SessionSummaryStatsProps> = ({
         setStats(processed);
         onStatsLoad?.(processed);
       } catch (err) {
-        Logger.error('SessionSummaryStats.loadStats', 'Failed to load session stats', { error: err });
+        Logger.error('SessionSummaryStats.loadStats', { message: 'Failed to load session stats', error: err });
         // Fallback to mock data for development
         const mockStats = generateMockStats();
         setStats(mockStats);

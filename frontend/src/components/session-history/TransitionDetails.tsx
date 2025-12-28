@@ -152,7 +152,7 @@ export const TransitionDetails: React.FC<TransitionDetailsProps> = ({
         setTransitions(data);
         onTransitionsLoad?.(data);
       } catch (err) {
-        Logger.error('TransitionDetails.loadTransitions', 'Failed to load transition details', { error: err });
+        Logger.error('TransitionDetails.loadTransitions', { message: 'Failed to load transition details', error: err });
         // Fallback to mock data
         const mockData = generateMockTransitions();
         setTransitions(mockData);

@@ -113,7 +113,7 @@ function formatTime(isoString: string): string {
       second: '2-digit'
     });
   } catch (error) {
-    Logger.error('TransitionLog.formatTime', 'Error formatting time', { error });
+    Logger.error('TransitionLog.formatTime', { message: 'Error formatting time', error });
     return 'Invalid time';
   }
 }
@@ -133,7 +133,7 @@ function formatFullTimestamp(isoString: string): string {
       second: '2-digit'
     });
   } catch (error) {
-    Logger.error('TransitionLog.formatTimestamp', 'Error formatting timestamp', { error });
+    Logger.error('TransitionLog.formatTimestamp', { message: 'Error formatting timestamp', error });
     return 'Invalid timestamp';
   }
 }

@@ -325,7 +325,7 @@ const StrategyPreviewPanel: React.FC<StrategyPreviewPanelProps> = ({
       const data = result.data || result;
       setStrategy(data);
     } catch (err) {
-      Logger.error('StrategyPreviewPanel.fetchStrategy', 'Failed to fetch strategy', { error: err });
+      Logger.error('StrategyPreviewPanel.fetchStrategy', { message: 'Failed to fetch strategy', error: err });
       setError(err instanceof Error ? err.message : 'Failed to load strategy');
     } finally {
       setIsLoading(false);

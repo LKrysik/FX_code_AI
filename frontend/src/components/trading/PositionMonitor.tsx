@@ -75,7 +75,7 @@ export default function PositionMonitor({
           }
         }
       } catch (err) {
-        Logger.error('PositionMonitor.onMessage', 'Error handling WebSocket message', { error: err });
+        Logger.error('PositionMonitor.onMessage', { message: 'Error handling WebSocket message', error: err });
       }
     }
   });
@@ -97,7 +97,7 @@ export default function PositionMonitor({
       });
       setPositions(data);
     } catch (err: any) {
-      Logger.error('PositionMonitor.fetchPositions', 'Failed to fetch positions', { error: err });
+      Logger.error('PositionMonitor.fetchPositions', { message: 'Failed to fetch positions', error: err });
       setError(err.message || 'Failed to load positions');
     } finally {
       setLoading(false);
@@ -136,11 +136,12 @@ export default function PositionMonitor({
       if (percentage === 100) {
         // Close entire position
         const result = await tradingAPI.closePosition(position_id, 'USER_REQUESTED');
-        Logger.info('PositionMonitor.closePosition', 'Position close order submitted', { result });
+        Logger.info('PositionMonitor.closePosition', { message: 'Position close order submitted', result });
       } else {
         // Partial close: calculate partial quantity
         const partialQuantity = position.quantity * (percentage / 100);
-        Logger.info('PositionMonitor.closePartialPosition', 'Closing partial position', {
+        Logger.info('PositionMonitor.closePartialPosition', {
+          message: 'Closing partial position',
           symbol: position.symbol,
           percentage,
           partialQuantity,
@@ -155,7 +156,7 @@ export default function PositionMonitor({
       // Position will be removed from list via WebSocket update
       setTimeout(fetchPositions, 1000);  // Refresh after 1s
     } catch (err: any) {
-      Logger.error('PositionMonitor.closePosition', 'Failed to close position', { error: err });
+      Logger.error('PositionMonitor.closePosition', { message: 'Failed to close position', error: err });
       alert(`Failed to close position: ${err.message}`);
     } finally {
       setClosingPositionId(null);
@@ -187,7 +188,8 @@ export default function PositionMonitor({
       const stopLoss = parseFloat(editingSLTP.stopLoss);
       const takeProfit = parseFloat(editingSLTP.takeProfit);
 
-      Logger.info('PositionMonitor.updateSLTP', 'Updating SL/TP', {
+      Logger.info('PositionMonitor.updateSLTP', {
+        message: 'Updating SL/TP',
         session_id,
         symbol,
         stopLoss,
@@ -200,7 +202,7 @@ export default function PositionMonitor({
 
       setEditingSLTP(null);
     } catch (err: any) {
-      Logger.error('PositionMonitor.updateSLTP', 'Failed to update SL/TP', { error: err });
+      Logger.error('PositionMonitor.updateSLTP', { message: 'Failed to update SL/TP', error: err });
       alert(`Failed to update SL/TP: ${err.message}`);
     }
   };

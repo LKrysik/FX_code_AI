@@ -166,16 +166,16 @@ export const TemplateDialog: React.FC<TemplateDialogProps> = ({
     try {
       await fetch(`/api/templates/${templateId}/view`, { method: 'POST' });
     } catch (err) {
-      Logger.error('TemplateDialog.viewTemplate', 'Failed to track view', { error: err });
+      Logger.error('TemplateDialog.viewTemplate', { message: 'Failed to track view', error: err });
     }
 
     // TODO: Open template details dialog
-    Logger.debug('TemplateDialog.viewTemplate', 'View template', { templateId });
+    Logger.debug('TemplateDialog.viewTemplate', { message: 'View template', templateId });
   };
 
   const handleForkTemplate = async (templateId: string) => {
     // TODO: Implement fork functionality
-    Logger.debug('TemplateDialog.forkTemplate', 'Fork template', { templateId });
+    Logger.debug('TemplateDialog.forkTemplate', { message: 'Fork template', templateId });
   };
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: TabValue) => {

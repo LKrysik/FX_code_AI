@@ -269,7 +269,7 @@ export const IndicatorValuesPanel: React.FC<IndicatorValuesProps> = ({
 
         // Validate indicatorData is an object we can iterate
         if (!indicatorData || typeof indicatorData !== 'object' || Array.isArray(indicatorData)) {
-          Logger.warn('IndicatorValuesPanel.handleMessage', 'Invalid indicator data format', { indicatorData });
+          Logger.warn('IndicatorValuesPanel.handleMessage', { message: 'Invalid indicator data format', indicatorData });
           return;
         }
 
@@ -307,7 +307,7 @@ export const IndicatorValuesPanel: React.FC<IndicatorValuesProps> = ({
 
         setLastUpdate(new Date().toISOString());
       } catch (error) {
-        Logger.error('IndicatorValuesPanel.handleMessage', 'Error processing indicator message', { error });
+        Logger.error('IndicatorValuesPanel.handleMessage', { message: 'Error processing indicator message', error });
       }
     },
     [symbol]

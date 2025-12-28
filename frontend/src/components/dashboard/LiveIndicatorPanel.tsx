@@ -104,7 +104,7 @@ export const LiveIndicatorPanel: React.FC<LiveIndicatorPanelProps> = ({
       setIndicators(data.indicators || []);
       setNextEvaluationIn(data.next_evaluation_in_seconds || null);
     } catch (err) {
-      Logger.error('LiveIndicatorPanel.loadIndicators', 'Failed to load indicators', { error: err });
+      Logger.error('LiveIndicatorPanel.loadIndicators', { message: 'Failed to load indicators', error: err });
       setError('Failed to load indicator data');
     } finally {
       setLoading(false);

@@ -73,7 +73,7 @@ function calculateDuration(since: string): string {
     if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
     return `${seconds}s`;
   } catch (error) {
-    Logger.error('StateBadge.calculateDuration', 'Error calculating duration', { error });
+    Logger.error('StateBadge.calculateDuration', { message: 'Error calculating duration', error });
     return 'N/A';
   }
 }

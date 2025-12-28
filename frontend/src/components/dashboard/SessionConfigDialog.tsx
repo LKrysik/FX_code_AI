@@ -228,7 +228,7 @@ export const SessionConfigDialog: React.FC<SessionConfigDialogProps> = ({
           return;
         }
 
-        Logger.error('SessionConfigDialog.loadStrategies', 'Failed to load strategies', { error });
+        Logger.error('SessionConfigDialog.loadStrategies', { message: 'Failed to load strategies', error });
 
         // Type-safe error message extraction
         const errorMessage = error instanceof Error
@@ -300,7 +300,7 @@ export const SessionConfigDialog: React.FC<SessionConfigDialogProps> = ({
           return;
         }
 
-        Logger.error('SessionConfigDialog.loadSymbols', 'Failed to load symbols', { error });
+        Logger.error('SessionConfigDialog.loadSymbols', { message: 'Failed to load symbols', error });
 
         // Type-safe error message extraction
         const errorMessage = error instanceof Error
@@ -383,7 +383,7 @@ export const SessionConfigDialog: React.FC<SessionConfigDialogProps> = ({
           return;
         }
 
-        Logger.error('SessionConfigDialog.loadSessions', 'Failed to load data sessions', { error });
+        Logger.error('SessionConfigDialog.loadSessions', { message: 'Failed to load data sessions', error });
 
         // Type-safe error message extraction
         const errorMessage = error instanceof Error

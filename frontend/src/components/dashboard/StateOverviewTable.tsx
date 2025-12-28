@@ -105,7 +105,7 @@ function calculateTimeSince(since: string | null): string {
     if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
     return `${seconds}s`;
   } catch (error) {
-    Logger.error('StateOverviewTable.calculateTimeSince', 'Error calculating time since', { error });
+    Logger.error('StateOverviewTable.calculateTimeSince', { message: 'Error calculating time since', error });
     return 'N/A';
   }
 }

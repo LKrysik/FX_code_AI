@@ -201,7 +201,7 @@ export default function TradingChart({
       setOhlcvData(ohlcvArray);
       updateChart(ohlcvArray);
     } catch (err: any) {
-      Logger.error('TradingChart.fetchHistoricalData', 'Failed to fetch historical data', { error: err });
+      Logger.error('TradingChart.fetchHistoricalData', { message: 'Failed to fetch historical data', error: err });
       setError(err.message || 'Failed to load chart data');
     } finally {
       setLoading(false);

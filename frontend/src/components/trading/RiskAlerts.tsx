@@ -108,7 +108,7 @@ export default function RiskAlerts({
     // Play sound for CRITICAL alerts
     if (alert.severity === 'CRITICAL' && playSound && audioRef.current) {
       audioRef.current.play().catch(err => {
-        Logger.warn('RiskAlerts.playSound', 'Failed to play alert sound', { error: err });
+        Logger.warn('RiskAlerts.playSound', { message: 'Failed to play alert sound', error: err });
       });
     }
 

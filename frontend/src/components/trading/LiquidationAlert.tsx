@@ -84,7 +84,7 @@ export default function LiquidationAlert({
       ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
-        Logger.info('LiquidationAlert.connect', 'WebSocket connected');
+        Logger.info('LiquidationAlert.connect', { message: 'WebSocket connected' });
         isConnecting = false;
 
         // Subscribe to paper trading events (includes liquidation warnings)
@@ -152,16 +152,16 @@ export default function LiquidationAlert({
             }
           }
         } catch (error) {
-          Logger.error('LiquidationAlert.onMessage', 'Error parsing WebSocket message', { error });
+          Logger.error('LiquidationAlert.onMessage', { message: 'Error parsing WebSocket message', error });
         }
       };
 
       ws.onerror = (error) => {
-        Logger.error('LiquidationAlert.onError', 'WebSocket error', { error });
+        Logger.error('LiquidationAlert.onError', { message: 'WebSocket error', error });
       };
 
       ws.onclose = () => {
-        Logger.info('LiquidationAlert.onClose', 'WebSocket disconnected, reconnecting in 5s...');
+        Logger.info('LiquidationAlert.onClose', { message: 'WebSocket disconnected, reconnecting in 5s...' });
         isConnecting = false;
         reconnectTimeout = setTimeout(connect, 5000);
       };

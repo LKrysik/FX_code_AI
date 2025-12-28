@@ -69,10 +69,11 @@ export const useCriticalErrorStore = create<CriticalErrorState>((set) => ({
   currentError: null,
   showCriticalError: (error: CriticalError) => {
     // Log for debugging (AC5)
-    Logger.error('CriticalErrorModal.show', 'CRITICAL ERROR', {
+    Logger.error('CriticalErrorModal.show', {
+      message: 'CRITICAL ERROR',
       type: error.type,
       title: error.title,
-      message: error.message,
+      errorMessage: error.message,
       timestamp: error.timestamp.toISOString(),
       details: error.details,
     });
@@ -123,7 +124,7 @@ export const CriticalErrorModal: React.FC = () => {
       await action();
       dismissCriticalError();
     } catch (error) {
-      Logger.error('CriticalErrorModal.handleAction', 'Recovery action failed', { error });
+      Logger.error('CriticalErrorModal.handleAction', { message: 'Recovery action failed', error });
     } finally {
       setIsProcessing(false);
     }
