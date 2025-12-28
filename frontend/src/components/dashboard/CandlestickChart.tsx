@@ -200,7 +200,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           setStateTransitions(symbolTransitions);
         }
       } else {
-        Logger.warn('CandlestickChart.loadTransitions', 'State transitions endpoint not available (expected for MVP)');
+        Logger.warn('CandlestickChart.loadTransitions', { message: 'State transitions endpoint not available (expected for MVP)' });
         setStateTransitions([]);
       }
     } catch (err) {
@@ -208,7 +208,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       if (err instanceof Error && err.name === 'AbortError') {
         return;
       }
-      Logger.error('CandlestickChart.loadData', 'Failed to load chart data', { error: err });
+      Logger.error('CandlestickChart.loadData', { message: 'Failed to load chart data', error: err });
       setCandleData([]);
       setError(`Failed to load chart data: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
@@ -428,9 +428,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const series = candlestickSeriesRef.current as any;
     if (typeof series.setMarkers === 'function') {
       series.setMarkers(markers);
-      Logger.debug('CandlestickChart.applyMarkers', `Applied ${markers.length} state machine markers to chart`);
+      Logger.debug('CandlestickChart.applyMarkers', { message: `Applied ${markers.length} state machine markers to chart` });
     } else {
-      Logger.warn('CandlestickChart.applyMarkers', 'setMarkers not available on series - markers not applied');
+      Logger.warn('CandlestickChart.applyMarkers', { message: 'setMarkers not available on series - markers not applied' });
     }
   }, [stateTransitions]);
 
@@ -494,7 +494,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         });
       }
 
-      Logger.debug('CandlestickChart.priceLines', 'CH-03: Price lines updated', { entryPrice: positionLines.entryPrice, stopLoss: positionLines.stopLoss, takeProfit: positionLines.takeProfit });
+      Logger.debug('CandlestickChart.priceLines', { message: 'CH-03: Price lines updated', entryPrice: positionLines.entryPrice, stopLoss: positionLines.stopLoss, takeProfit: positionLines.takeProfit });
     }
   }, [positionLines]);
 
@@ -634,7 +634,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           };
 
       setDrawings((prev) => [...prev, newDrawing]);
-      Logger.debug('CandlestickChart.drawingSaved', 'Drawing saved', { drawing: newDrawing });
+      Logger.debug('CandlestickChart.drawingSaved', { message: 'Drawing saved', drawing: newDrawing });
     }
 
     // Reset drawing state

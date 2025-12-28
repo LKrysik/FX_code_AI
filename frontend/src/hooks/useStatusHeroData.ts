@@ -130,7 +130,7 @@ export function useStatusHeroData(
         }
       }
     } catch (err: any) {
-      Logger.warn('useStatusHeroData.position_fetch_failed', `Failed to fetch position data: ${err?.message}`);
+      Logger.warn('useStatusHeroData.position_fetch_failed', { message: `Failed to fetch position data: ${err?.message}` });
     }
   }, [sessionId, currentState, symbol]);
 
@@ -167,7 +167,7 @@ export function useStatusHeroData(
         }));
       }
     } catch (err: any) {
-      Logger.warn('useStatusHeroData.session_fetch_failed', `Failed to fetch session info: ${err?.message}`);
+      Logger.warn('useStatusHeroData.session_fetch_failed', { message: `Failed to fetch session info: ${err?.message}` });
     }
   }, [sessionId]);
 

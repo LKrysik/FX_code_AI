@@ -150,7 +150,7 @@ export const useDashboardStore = create<DashboardState>()(
             const validMarketData = marketData.filter(isValidMarketData);
 
             if (validMarketData.length !== marketData.length) {
-              Logger.warn('dashboardStore.invalidMarketData', `Filtered out ${marketData.length - validMarketData.length} invalid market data items`);
+              Logger.warn('dashboardStore.invalidMarketData', { message: `Filtered out ${marketData.length - validMarketData.length} invalid market data items` });
             }
 
             set({ marketData: validMarketData, marketDataLoading: false });
@@ -194,7 +194,7 @@ export const useDashboardStore = create<DashboardState>()(
             const validIndicators = indicatorData.filter(isValidIndicator);
 
             if (validIndicators.length !== indicatorData.length) {
-              Logger.warn('dashboardStore.invalidIndicators', `Filtered out ${indicatorData.length - validIndicators.length} invalid indicators`);
+              Logger.warn('dashboardStore.invalidIndicators', { message: `Filtered out ${indicatorData.length - validIndicators.length} invalid indicators` });
             }
 
             set({ indicators: validIndicators, indicatorsLoading: false });

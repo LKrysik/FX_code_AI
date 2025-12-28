@@ -142,7 +142,7 @@ export const ChartDrawingTools: React.FC<ChartDrawingToolsProps> = ({
         }
       }
     } catch (err) {
-      Logger.warn('ChartDrawingTools.loadDrawings', 'Failed to load drawings from localStorage', { error: err });
+      Logger.warn('ChartDrawingTools.loadDrawings', { message: 'Failed to load drawings from localStorage', error: err });
     }
   }, [symbol, storageKey, onDrawingsChange]);
 
@@ -151,7 +151,7 @@ export const ChartDrawingTools: React.FC<ChartDrawingToolsProps> = ({
     try {
       localStorage.setItem(storageKey, JSON.stringify(drawings));
     } catch (err) {
-      Logger.warn('ChartDrawingTools.saveDrawings', 'Failed to save drawings to localStorage', { error: err });
+      Logger.warn('ChartDrawingTools.saveDrawings', { message: 'Failed to save drawings to localStorage', error: err });
     }
   }, [drawings, storageKey]);
 
