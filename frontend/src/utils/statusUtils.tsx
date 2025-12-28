@@ -481,11 +481,11 @@ export const getErrorRecoveryStrategy = (error: UnifiedError): {
 };
 
 export const logUnifiedError = (error: UnifiedError): void => {
-  const logMessage = `[${error.severity.toUpperCase()}] ${error.type}: ${error.message}`;
   const logData = {
+    message: `[${error.severity.toUpperCase()}] ${error.type}: ${error.message}`,
     type: error.type,
     severity: error.severity,
-    message: error.message,
+    errorMessage: error.message,
     context: error.context,
     timestamp: error.timestamp,
     recoverable: error.recoverable,
@@ -495,16 +495,16 @@ export const logUnifiedError = (error: UnifiedError): void => {
 
   switch (error.severity) {
     case 'critical':
-      Logger.error('status.unifiedError', logMessage, logData);
+      Logger.error('status.unifiedError', logData);
       break;
     case 'high':
-      Logger.error('status.unifiedError', logMessage, logData);
+      Logger.error('status.unifiedError', logData);
       break;
     case 'medium':
-      Logger.warn('status.unifiedError', logMessage, logData);
+      Logger.warn('status.unifiedError', logData);
       break;
     case 'low':
-      Logger.info('status.unifiedError', logMessage, logData);
+      Logger.info('status.unifiedError', logData);
       break;
   }
 };

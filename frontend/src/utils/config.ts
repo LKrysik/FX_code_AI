@@ -50,12 +50,21 @@ export const shouldUseMockData = () => config.enableMockData;
 export const isDebugMode = () => config.enableDebugMode;
 
 // Environment-specific logging
-export const debugLog = (message: string, ...args: any[]) => {
+export const debugLog = (message: string, ...args: unknown[]) => {
   if (isDebugMode()) {
-    Logger.debug('config.debug', message, ...args);
+    // Combine all args into a data object
+    const data: Record<string, unknown> = { message };
+    args.forEach((arg, index) => {
+      if (arg && typeof arg === 'object' && !Array.isArray(arg)) {
+        Object.assign(data, arg);
+      } else if (arg !== undefined) {
+        data[`arg${index}`] = arg;
+      }
+    });
+    Logger.debug('config.debug', data);
   }
 };
 
-export const errorLog = (message: string, error?: any) => {
-  Logger.error('config.error', message, error);
+export const errorLog = (message: string, error?: unknown) => {
+  Logger.error('config.error', { message, error });
 };
