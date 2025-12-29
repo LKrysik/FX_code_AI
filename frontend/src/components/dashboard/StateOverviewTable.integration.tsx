@@ -125,6 +125,11 @@ const StateOverviewTableIntegration: React.FC<StateOverviewIntegrationProps> = (
               setInstances(message.data.instances || []);
               break;
 
+            case 'error':
+              console.error('WebSocket error message received:', message.data);
+              setError(message.data?.message || 'Unknown server error');
+              break;
+
             default:
               console.warn('Unknown WebSocket message type:', message.type);
           }

@@ -29,7 +29,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Logger } from '@/services/frontendLogService';
 import { Box, Typography, CircularProgress, Alert, IconButton, Tooltip, Chip, ToggleButtonGroup, ToggleButton } from '@mui/material';
 import { ZoomOutMap as ResetZoomIcon, Info as InfoIcon } from '@mui/icons-material';
-import { createChart, IChartApi, ISeriesApi, CandlestickData, Time, CandlestickSeries } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, CandlestickData, Time, CandlestickSeries, createSeriesMarkers } from 'lightweight-charts';
 import {
   ChartDrawingTools,
   FibonacciOverlay,
@@ -135,6 +135,10 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const entryLineRef = useRef<any>(null);
   const slLineRef = useRef<any>(null);
   const tpLineRef = useRef<any>(null);
+
+  // Series markers ref (v5 API - markers are now a separate primitive)
+  // Using 'any' type as the precise type varies with generics
+  const seriesMarkersRef = useRef<any>(null);
 
   // ========================================
   // Data Loading
@@ -360,6 +364,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       chart.remove();
       chartRef.current = null;
       candlestickSeriesRef.current = null;
+      seriesMarkersRef.current = null; // Clean up markers primitive ref
     };
   }, [height]);
 
@@ -416,21 +421,29 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     }
   }, [candleData]);
 
-  // Update markers when state transitions change
+  // Update markers when state transitions change (v5 API - using createSeriesMarkers)
   useEffect(() => {
     if (!candlestickSeriesRef.current) return;
 
     const markers = convertTransitionsToMarkers(stateTransitions);
 
-    // TypeScript doesn't recognize setMarkers in v5, but it exists at runtime
-    // Using 'as any' to bypass type checking
-    // Safety check: verify setMarkers method exists before calling
-    const series = candlestickSeriesRef.current as any;
-    if (typeof series.setMarkers === 'function') {
-      series.setMarkers(markers);
-      Logger.debug('CandlestickChart.applyMarkers', { message: `Applied ${markers.length} state machine markers to chart` });
-    } else {
-      Logger.warn('CandlestickChart.applyMarkers', { message: 'setMarkers not available on series - markers not applied' });
+    // v5 API: Use createSeriesMarkers primitive instead of series.setMarkers
+    // This is the new way to add markers in lightweight-charts v5+
+    try {
+      if (seriesMarkersRef.current) {
+        // Update existing markers primitive
+        seriesMarkersRef.current.setMarkers(markers);
+        Logger.debug('CandlestickChart.applyMarkers', { message: `Updated ${markers.length} state machine markers on chart` });
+      } else if (markers.length > 0) {
+        // Create new markers primitive
+        seriesMarkersRef.current = createSeriesMarkers(candlestickSeriesRef.current, markers);
+        Logger.debug('CandlestickChart.applyMarkers', { message: `Created markers primitive with ${markers.length} state machine markers` });
+      }
+    } catch (err) {
+      Logger.warn('CandlestickChart.applyMarkers', {
+        message: 'Failed to apply markers - createSeriesMarkers may not be available',
+        error: err instanceof Error ? err.message : String(err)
+      });
     }
   }, [stateTransitions]);
 
