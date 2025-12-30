@@ -233,9 +233,9 @@ logger.critical("mexc_adapter.connection_permanently_failed", {
 - AC6: Existing max attempts (10) handling is reused
 
 ### Test Results
-- **92 integration tests: all passing** (upgraded from 33 tests)
+- **82 behavior tests: all passing** (refactored from 92 - removed trivial tests)
 - Tests call real `_heartbeat_monitor()`, `_reconnect_connection()`, `_close_connection()` methods
-- Coverage on `mexc_websocket_adapter.py` increased from 20.4% to **26.02%**
+- Coverage on `mexc_websocket_adapter.py`: **26.63%** (honest metric, not inflated)
 - Test classes (major categories):
   - TestPongTimeoutThresholds: 2 tests (AC1/AC5 config)
   - TestHeartbeatMonitorIntegration: 6 tests (AC1-AC3 + health restoration)
@@ -243,14 +243,23 @@ logger.critical("mexc_adapter.connection_permanently_failed", {
   - TestIntegrationScenarios: 4 tests (boundary conditions, 55-min prevention)
   - TestRealCloseConnectionBehavior: 5 tests (real state changes)
   - TestRealReconnectionAttemptsBehavior: 3 tests (counter increments)
-  - TestConfigurationValidation: 5 tests (init validation, lines 71/92/94/96/98)
-  - TestDetailedMetricsMethod: 2 tests (lines 2320-2361)
-  - TestCalculateConnectionHealth: 2 tests (lines 2364-2389)
+  - TestConfigurationValidation: 5 tests (init validation)
+  - TestDetailedMetricsMethod: 2 tests (metrics)
+  - TestCalculateConnectionHealth: 2 tests (health scoring)
   - TestPublicMethods: 6 tests (health_check, get_subscribed_symbols, get_connection_stats)
-  - TestPendingSubscriptionCallbacks: 3 tests (lines 197-242)
-  - TestOrderbookCacheOperations: 2 tests (orderbook cache)
-  - TestOrderbookVersioning: 2 tests (version tracking)
-  - + 48 additional tests covering edge cases, state management, and error handling
+  - **TestReconnectSymbolPreservation: 3 tests (symbol capture, resubscription scheduling)**
+  - **TestPongTimeoutToReconnectFlow: 1 test (complete timeout→close flow)**
+  - **TestReconnectAttemptCounterIntegrity: 2 tests (counter increment/reset)**
+  - **TestSafeResubscribeErrorHandling: 1 test (error handling)**
+  - **TestBackoffDelayCalculation: 1 test (exponential backoff)**
+  - + additional tests covering edge cases and error handling
+
+### Test Quality Verification (2025-12-30)
+Applied 9 advanced elicitation methods to verify test quality:
+- **8/9 methods PASS** (vs 1/9 before refactoring)
+- Removed 10 trivial test classes that only tested Python dict/set operations
+- Added 5 real behavior test classes that verify actual reconnect data integrity
+- Tests now verify state changes, not just log messages
 
 ### Review Follow-ups (AI Code Review 2025-12-30)
 
@@ -285,15 +294,16 @@ logger.critical("mexc_adapter.connection_permanently_failed", {
 |------|---------|--------|
 | `src/infrastructure/exchanges/mexc_websocket_adapter.py` | Enhanced `_heartbeat_monitor()` with threshold-based pong handling | ✅ Clean |
 | `src/infrastructure/config/settings.py` | Added pong threshold settings to `ExchangeSettings` | ✅ Clean |
-| `tests/unit/test_mexc_pong_timeout.py` | 92 integration tests | ✅ Clean |
+| `tests/unit/test_mexc_pong_timeout.py` | 82 behavior tests (refactored) | ✅ Clean |
 
 ### Test Coverage
 
 | Metric | Value | Status |
 |--------|-------|--------|
-| Tests | 92 passing | ✅ Pass |
-| Coverage (adapter) | 26.02% | ✅ Improved |
-| Test Classes | 35+ | ✅ Comprehensive |
+| Tests | 82 passing | ✅ Pass |
+| Coverage (adapter) | 26.63% | ✅ Quality-focused |
+| Test Classes | 25+ behavior tests | ✅ Comprehensive |
+| Elicitation Verification | 8/9 methods PASS | ✅ Verified |
 
 ### Issues Found
 
@@ -351,3 +361,4 @@ logger.critical("mexc_adapter.connection_permanently_failed", {
 | 2025-12-30 | Amelia (Dev) | Coverage expanded: 26 → 33 tests. Added: TestCancelledErrorHandling, TestUnexpectedExceptionHandling, TestPongReceivedFlow, TestSuccessfulReconnection. Coverage 20.4% |
 | 2025-12-30 | Amelia (Dev) | Coverage deep expansion: 33 → 92 tests. Added: TestRealCloseConnectionBehavior, TestConfigurationValidation, TestDetailedMetricsMethod, TestPublicMethods, TestOrderbookCacheOperations. Coverage 26.02% |
 | 2025-12-30 | Code Review Agent | Final Code Review: PASS - All 6 ACs verified, 92 tests passing, status → done |
+| 2025-12-30 | Amelia (Dev) | Test refactoring: 92 → 82 tests. Removed 10 trivial test classes (dict/set operations). Added 5 real behavior test classes (symbol preservation, reconnect flow, counter integrity). Elicitation verification: 8/9 methods PASS. Coverage 26.63% |
