@@ -38,9 +38,9 @@ describe('EventType Synchronization', () => {
   it('TypeScript EventType matches shared JSON definition', () => {
     const typescriptTypes = new Set(Object.values(EventType));
 
-    // Find differences
-    const inSharedOnly = [...sharedEventTypes].filter((t) => !typescriptTypes.has(t as EventTypeValue));
-    const inTypescriptOnly = [...typescriptTypes].filter((t) => !sharedEventTypes.has(t));
+    // Find differences (use Array.from for TS compatibility)
+    const inSharedOnly = Array.from(sharedEventTypes).filter((t) => !typescriptTypes.has(t as EventTypeValue));
+    const inTypescriptOnly = Array.from(typescriptTypes).filter((t) => !sharedEventTypes.has(t));
 
     const errors: string[] = [];
 
@@ -107,7 +107,7 @@ describe('EventType Synchronization', () => {
       types.forEach((t) => categorizedTypes.add(t));
     }
 
-    const uncategorized = [...allTypes].filter((t) => !categorizedTypes.has(t));
+    const uncategorized = Array.from(allTypes).filter((t) => !categorizedTypes.has(t));
 
     expect(uncategorized).toHaveLength(0);
     if (uncategorized.length > 0) {

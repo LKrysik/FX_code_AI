@@ -1,117 +1,140 @@
 # Critical Data Map
 
-**Date:** [YYYY-MM-DD]
-**Validated with:** [Trader alias]
+**Date:** 2025-12-30
+**Validated with:** Mr Lu (Primary User)
 **Context:** Aktywna pozycja LONG/SHORT
+**Source:** Interview #001
 
 ---
 
-## Pytanie do tradera:
+## User's Answer to Critical Data Question:
 
-> "Wyobraź sobie że masz otwartą pozycję LONG na BTC.
-> Które z tych informacji MUSISZ widzieć cały czas, bez klikania?"
+> "Które elementy MUSZĄ być widoczne CAŁY CZAS podczas aktywnej pozycji?"
+
+**User selected ALL options:**
+- Stan strategii + warunki
+- Wykres cenowy
+- Stop Loss / Take Profit
+- P&L i Margin Ratio
 
 ---
 
-## Data Elements Classification
+## Data Elements Classification (Based on Interview)
 
 ### Position Data
 
-| Element | Zawsze widoczny? | Można ukryć? | User Priority (1-5) | Notes |
-|---------|------------------|--------------|---------------------|-------|
-| Symbol (np. BTC_USDT) | [ ] | [ ] | | |
-| Side (LONG/SHORT) | [ ] | [ ] | | |
-| Entry price | [ ] | [ ] | | |
-| Current price | [ ] | [ ] | | |
-| Quantity | [ ] | [ ] | | |
-| Unrealized P&L ($) | [ ] | [ ] | | |
-| Unrealized P&L (%) | [ ] | [ ] | | |
-| Margin ratio | [ ] | [ ] | | |
-| Leverage | [ ] | [ ] | | |
-| Liquidation price | [ ] | [ ] | | |
-| Stop Loss | [ ] | [ ] | | |
-| Take Profit | [ ] | [ ] | | |
-| Time in position | [ ] | [ ] | | |
+| Element | Must be visible? | User Priority | Notes |
+|---------|------------------|---------------|-------|
+| Symbol (np. BTC_USDT) | ✅ YES | HIGH | Part of position context |
+| Side (LONG/SHORT) | ✅ YES | HIGH | Critical for understanding |
+| Entry price | ✅ YES | MEDIUM | Reference point |
+| Current price | ✅ YES | HIGH | Real-time needed |
+| Unrealized P&L ($) | ✅ YES | HIGH | User selected "P&L" |
+| Unrealized P&L (%) | ✅ YES | HIGH | User selected "P&L" |
+| Margin ratio | ✅ YES | HIGH | User selected "Margin Ratio" |
+| Liquidation price | ✅ YES | HIGH | Risk indicator |
+| Stop Loss | ✅ YES | HIGH | User selected "SL/TP" |
+| Take Profit | ✅ YES | HIGH | User selected "SL/TP" |
 
 ### Strategy/State Data
 
-| Element | Zawsze widoczny? | Można ukryć? | User Priority (1-5) | Notes |
-|---------|------------------|--------------|---------------------|-------|
-| Current state (S1/Z1/etc) | [ ] | [ ] | | |
-| State label (human) | [ ] | [ ] | | |
-| Strategy name | [ ] | [ ] | | |
-| Time in state | [ ] | [ ] | | |
+| Element | Must be visible? | User Priority | Notes |
+|---------|------------------|---------------|-------|
+| Current state (S1/Z1/etc) | ✅ YES | HIGH | User selected "Stan strategii" |
+| Strategy name | ✅ YES | MEDIUM | Context |
+| Conditions status | ✅ YES | HIGH | User selected "warunki" |
 
 ### Indicator Data
 
-| Element | Zawsze widoczny? | Można ukryć? | User Priority (1-5) | Notes |
-|---------|------------------|--------------|---------------------|-------|
-| PUMP_MAGNITUDE | [ ] | [ ] | | |
-| PRICE_VELOCITY | [ ] | [ ] | | |
-| VOLUME_SURGE_RATIO | [ ] | [ ] | | |
-| TWPA | [ ] | [ ] | | |
-| Spread % | [ ] | [ ] | | |
+| Element | Must be visible? | User Priority | Notes |
+|---------|------------------|---------------|-------|
+| PUMP_MAGNITUDE | ⚠️ DEPENDS | MEDIUM | Part of conditions |
+| PRICE_VELOCITY | ⚠️ DEPENDS | MEDIUM | Part of conditions |
+| Other indicators | ⚠️ DEPENDS | LOW | Can be in details |
 
 ### Visual Elements
 
-| Element | Zawsze widoczny? | Można ukryć? | User Priority (1-5) | Notes |
-|---------|------------------|--------------|---------------------|-------|
-| Candlestick chart | [ ] | [ ] | | |
-| Equity curve | [ ] | [ ] | | |
-| Drawdown chart | [ ] | [ ] | | |
-| Condition progress bars | [ ] | [ ] | | |
-| Recent signals list | [ ] | [ ] | | |
-| Transaction history | [ ] | [ ] | | |
+| Element | Must be visible? | User Priority | Notes |
+|---------|------------------|---------------|-------|
+| Candlestick chart | ✅ YES | HIGH | User selected "Wykres cenowy" |
+| Condition progress | ✅ YES | HIGH | User selected "warunki" |
 
 ---
 
 ## Summary: Must-Have Elements (Always Visible)
 
-Based on user feedback, these elements MUST be visible at all times during active position:
+Based on user interview, these elements MUST be visible at all times during active position:
 
-1. [ ]
-2. [ ]
-3. [ ]
-4. [ ]
-5. [ ]
+1. ✅ P&L ($ and %)
+2. ✅ Margin Ratio
+3. ✅ Stop Loss / Take Profit
+4. ✅ Current State (S1/Z1/etc)
+5. ✅ Condition Status
+6. ✅ Price Chart
+7. ✅ Current Price
 
 ---
 
-## Summary: Nice-to-Have Elements (Can Be Collapsed)
+## Summary: Can Be in Secondary View
 
-These elements can be hidden behind progressive disclosure:
+These elements can be accessed with one click:
 
-1. [ ]
-2. [ ]
-3. [ ]
-4. [ ]
-5. [ ]
+1. Transaction history
+2. Signal history
+3. Detailed indicator values
+4. Equity curve (long-term)
 
 ---
 
 ## Progressive Disclosure Decision
 
-Based on this mapping:
+Based on interview:
+
+**User's explicit preference:**
+> "Zależy od sytuacji" + selected ALL critical elements
 
 **Recommended approach:**
-- [ ] Full progressive disclosure (hide most things)
-- [ ] Partial progressive disclosure (hide only charts/history)
-- [ ] No progressive disclosure (show everything)
-- [ ] Context-dependent (different for active position vs monitoring)
+- [x] **Context-dependent layout** (different for active position vs monitoring)
+- [ ] ~~Full progressive disclosure~~ - REJECTED
+- [ ] ~~Partial progressive disclosure~~ - REJECTED for active position
+- [ ] ~~No progressive disclosure~~ - May work for active position
 
-**User's preference:**
-> "[Cytat od usera]"
+### Context-Dependent Rules:
 
----
-
-## Impact on UX Review Recommendations
-
-| UX Review Issue | Still Valid? | Modification Needed |
-|-----------------|--------------|---------------------|
-| VH-1: Progressive disclosure | [ ] Yes [ ] No | |
-| VH-2: StatusHero prominence | [ ] Yes [ ] No | |
-| ID-2: Numbers without context | [ ] Yes [ ] No | |
+| Context | Layout | Reason |
+|---------|--------|--------|
+| No session | Simplified | Less noise |
+| Monitoring (no position) | Medium | Watching for signals |
+| Active Position | FULL | User wants everything |
 
 ---
 
-*Validated by: [Name]*
+## Critical Finding: Data Quality > Layout
+
+**From interview Q5:**
+> User said data was wrong for: Indicators, State, Positions, Signals
+
+**Impact:** Even perfect layout is useless if data is wrong!
+
+**New Priority:**
+1. 🔴 P0: Fix data synchronization (BUG-004-3,4,5,6)
+2. 🟡 P1: Context-dependent UI
+3. 🟢 P2: Visual polish (colors, etc)
+
+---
+
+## Connection to Existing Bugs
+
+| User Complaint | Matching Bug | Status |
+|----------------|--------------|--------|
+| "Stan strategii błędny" | BUG-004-3, BUG-004-6 | backlog |
+| "Wskaźniki błędne" | BUG-004-5 | backlog |
+| "Dane pozycji błędne" | BUG-004-3 | backlog |
+| "Sygnały błędne" | BUG-004-3 | backlog |
+
+**Recommendation:** Prioritize BUG-004 backlog items BEFORE any UX changes!
+
+---
+
+*Validated by: Sally (UX Designer Agent)*
+*Date: 2025-12-30*

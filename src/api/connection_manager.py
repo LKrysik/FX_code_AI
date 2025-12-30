@@ -745,3 +745,73 @@ class ConnectionManager:
             "stats": stats,
             "timestamp": datetime.now().isoformat()
         }
+
+    async def log_connection_closed(
+        self,
+        client_id: str,
+        close_code: int,
+        close_reason: str,
+        was_clean: bool,
+        initiated_by: str = "unknown"
+    ) -> None:
+        """
+        Log detailed diagnostic information when a WebSocket connection closes.
+
+        BUG-008-1: Enhanced disconnect logging for debugging connection issues.
+
+        Args:
+            client_id: Unique identifier for the client connection
+            close_code: WebSocket close code (1000=normal, 1006=abnormal, etc.)
+            close_reason: Human-readable reason for closure
+            was_clean: Whether the connection closed cleanly
+            initiated_by: Who initiated the close (client/server/network)
+
+        Close Code Reference:
+            1000 - Normal Closure (clean close, no error)
+            1001 - Going Away (page close, server shutdown)
+            1002 - Protocol Error
+            1005 - No Status Received
+            1006 - Abnormal Closure (connection lost, no close frame)
+            1011 - Internal Error
+            1012 - Service Restart
+        """
+        if not self.logger:
+            return
+
+        # Get connection details if still available
+        connection = self._connections.get(client_id)
+
+        # Calculate metrics
+        duration_seconds = 0.0
+        messages_sent = 0
+        messages_received = 0
+        last_activity_age_seconds = 0.0
+
+        if connection:
+            duration_seconds = connection.get_connection_age_seconds()
+            messages_sent = connection.messages_sent
+            messages_received = connection.messages_received
+            last_activity_age_seconds = time.time() - connection.last_heartbeat
+
+        # Build log data with all diagnostic fields
+        log_data = {
+            "client_id": client_id,
+            "close_code": close_code,
+            "close_reason": close_reason,
+            "was_clean": was_clean,
+            "duration_seconds": duration_seconds,
+            "messages_sent": messages_sent,
+            "messages_received": messages_received,
+            "last_activity_age_seconds": last_activity_age_seconds,
+            "initiated_by": initiated_by
+        }
+
+        # Determine if this is an abnormal close (AC6: log at WARNING level)
+        # Normal closes: 1000 (normal), 1001 (going away)
+        # Abnormal closes: 1002, 1005, 1006, 1011, 1012, etc.
+        is_abnormal = close_code not in [1000, 1001]
+
+        if is_abnormal:
+            self.logger.warning("websocket.connection_closed", log_data)
+        else:
+            self.logger.info("websocket.connection_closed", log_data)

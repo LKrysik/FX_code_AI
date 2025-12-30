@@ -403,10 +403,57 @@ class EventBridge(IEventBridge):
         self.stream_processors["market_data"] = market_processor
 
         # Indicator processor
+        # BUG-004-5: Added "indicator_value_calculated" - published by streaming_indicator_engine
+        # Transform function to normalize different indicator event formats to frontend-expected format
+        def transform_indicator_event(event_data: Dict[str, Any]) -> Dict[str, Any]:
+            """Transform indicator events to frontend-expected format.
+
+            Frontend expects: {symbol, indicator_type, value, timestamp}
+            Backend "indicator_value_calculated" sends: {indicator_key, value, timestamp, metadata}
+            Backend "indicator.updated" sends: {symbol, indicator, indicator_type, value, timestamp}
+            """
+            # If already has indicator_type, it's already in correct format
+            if "indicator_type" in event_data and "symbol" in event_data:
+                return event_data
+
+            # Handle indicator_value_calculated format
+            if "indicator_key" in event_data:
+                indicator_key = event_data["indicator_key"]
+                # Parse indicator_key: formats can be:
+                # - "session_id::SYMBOL::indicator_type"
+                # - "SYMBOL::indicator_type"
+                # - "indicator_type"
+                parts = indicator_key.split("::")
+
+                if len(parts) >= 3:
+                    # session_id::SYMBOL::indicator_type
+                    symbol = parts[1]
+                    indicator_type = parts[2]
+                elif len(parts) == 2:
+                    # SYMBOL::indicator_type
+                    symbol = parts[0]
+                    indicator_type = parts[1]
+                else:
+                    # Just indicator_type - try to get symbol from metadata
+                    indicator_type = parts[0]
+                    symbol = event_data.get("metadata", {}).get("symbol", "UNKNOWN")
+
+                return {
+                    "symbol": symbol,
+                    "indicator_type": indicator_type.lower(),  # Frontend uses lowercase keys
+                    "value": event_data.get("value"),
+                    "timestamp": event_data.get("timestamp"),
+                    "indicator": indicator_type.lower(),  # Also include for compatibility
+                }
+
+            # Fallback: return as-is
+            return event_data
+
         indicator_processor = StreamProcessor(
             stream_type="indicators",
-            event_patterns=["indicator.updated", "streaming_indicator.updated"],
-            batch_aggregator=None
+            event_patterns=["indicator.updated", "streaming_indicator.updated", "indicator_value_calculated"],
+            batch_aggregator=None,
+            transform_function=transform_indicator_event
         )
         self.stream_processors["indicators"] = indicator_processor
 
@@ -610,6 +657,9 @@ class EventBridge(IEventBridge):
         self._subscribed_handlers.append(("indicator.updated", handle_indicator_event))
         await self.event_bus.subscribe("streaming_indicator.updated", handle_indicator_event)
         self._subscribed_handlers.append(("streaming_indicator.updated", handle_indicator_event))
+        # BUG-004-5: Subscribe to indicator_value_calculated from streaming_indicator_engine
+        await self.event_bus.subscribe("indicator_value_calculated", handle_indicator_event)
+        self._subscribed_handlers.append(("indicator_value_calculated", handle_indicator_event))
 
         # Primary signal handler - forwards all signals from StrategyManager
         async def handle_signal_generated(event_data: Dict[str, Any]):

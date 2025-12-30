@@ -64,6 +64,13 @@ class WebSocketService {
   private heartbeatTimeout = 30000; // 30 seconds - time to wait for pong response
   private missedPongs = 0; // BUG-005-2: Track missed pong responses
   private maxMissedPongs = 3; // BUG-005-2: Force reconnect after this many missed pongs
+  private slowConnectionThreshold = 2; // BUG-008-2: Warn after this many missed pongs (before reconnect)
+
+  // BUG-008-1: Connection metrics for diagnostic logging
+  private connectionOpenedAt: number = 0;
+  private messagesSent = 0;
+  private messagesReceived = 0;
+  private clientId: string = '';
 
   constructor() {
     try {
@@ -154,6 +161,11 @@ class WebSocketService {
 
     // Connection events
     this.socket.onopen = () => {
+      // BUG-008-1: Track connection start time for duration calculation
+      this.connectionOpenedAt = Date.now();
+      this.messagesSent = 0;
+      this.messagesReceived = 0;
+
       Logger.info('websocket.connection_opened', {
         url: this.socket?.url,
         readyState: this.socket?.readyState,
@@ -169,6 +181,33 @@ class WebSocketService {
     };
 
     this.socket.onclose = (event) => {
+      // BUG-008-1: Calculate connection duration
+      const durationSeconds = this.connectionOpenedAt > 0
+        ? (Date.now() - this.connectionOpenedAt) / 1000
+        : 0;
+
+      // BUG-008-1: Determine if this is an abnormal close
+      const isAbnormalClose = event.code !== 1000 && event.code !== 1001;
+      const closeReasonText = this.getCloseReasonText(event.code);
+
+      // BUG-008-1: Enhanced diagnostic logging (AC5, AC6)
+      const logData = {
+        client_id: this.clientId || 'unknown',
+        close_code: event.code,
+        close_reason: event.reason || closeReasonText,
+        was_clean: event.wasClean,
+        duration_seconds: durationSeconds,
+        messages_sent: this.messagesSent,
+        messages_received: this.messagesReceived
+      };
+
+      // AC6: Log at WARN level for abnormal closes
+      if (isAbnormalClose) {
+        Logger.warn('websocket.connection_closed', logData);
+      } else {
+        Logger.info('websocket.connection_closed', logData);
+      }
+
       debugLog(`WebSocket disconnected: ${event.code} ${event.reason}`, { code: event.code, reason: event.reason, wasConnected: this.isConnected });
       this.isConnected = false;
       this.safeStoreUpdate(() => {
@@ -218,6 +257,9 @@ class WebSocketService {
         const message: WSMessage = JSON.parse(event.data);
         debugLog('Received message', message);
         recordWebSocketMessage(); // Record performance metric
+
+        // BUG-008-1: Track received messages for diagnostic logging
+        this.messagesReceived++;
 
         // Log WebSocket messages for debugging
         this.logWebSocketMessage(message, 'received');
@@ -520,6 +562,12 @@ class WebSocketService {
     if (message.type === 'status' && message.status === 'connected') {
       debugLog('Handshake accepted', message);
       this.isConnected = true;
+
+      // BUG-008-1: Capture client_id for correlation logging
+      if (message.client_id) {
+        this.clientId = message.client_id;
+      }
+
       this.safeStoreUpdate(() => {
         useWebSocketStore.getState().setConnected(true);
         useWebSocketStore.getState().setConnectionStatus('connected');
@@ -600,17 +648,15 @@ class WebSocketService {
         state: snapshot.state_machine_state
       });
 
-      // Update stores with snapshot data
+      // Update stores with snapshot data via callback (COH-001-4: clean dependency boundary)
       this.safeStoreUpdate(() => {
-        // Update dashboard store with positions if available
-        const { useDashboardStore } = require('@/stores/dashboardStore');
-        if (useDashboardStore && snapshot.positions) {
-          useDashboardStore.getState().setPositions?.(snapshot.positions);
-        }
-
-        // Update signals if available
-        if (useDashboardStore && snapshot.active_signals) {
-          useDashboardStore.getState().setActiveSignals?.(snapshot.active_signals);
+        // Notify subscribers of state sync data
+        if (this.callbacks.onStateSync) {
+          this.callbacks.onStateSync({
+            positions: snapshot.positions,
+            activeSignals: snapshot.active_signals,
+            timestamp: snapshot.timestamp
+          });
         }
 
         // Mark sync as complete
@@ -646,18 +692,18 @@ class WebSocketService {
   }
 
   /**
-   * SEC-0-3: Show notification for state sync status using uiStore
+   * SEC-0-3: Show notification for state sync status
+   * COH-001-4: Uses callback instead of dynamic import for clean dependency boundary
    */
   private showStateSyncNotification(type: 'success' | 'error' | 'warning' | 'info', message: string): void {
-    try {
-      const { useUIStore } = require('@/stores/uiStore');
-      useUIStore.getState().addNotification({
+    if (this.callbacks.onNotification) {
+      this.callbacks.onNotification({
         type,
         message,
         autoHide: type === 'success', // Auto-hide success, keep errors visible
       });
-    } catch (err) {
-      // Fallback to Logger if store not available
+    } else {
+      // Fallback to Logger if callback not registered
       Logger.info('websocket.notification_fallback', { type, message });
     }
   }
@@ -730,6 +776,8 @@ class WebSocketService {
     try {
       const messageString = JSON.stringify(message);
       this.socket.send(messageString);
+      // BUG-008-1: Track sent messages for diagnostic logging
+      this.messagesSent++;
       debugLog('Sent message', message);
     } catch (error) {
       errorLog('Failed to send WebSocket message', error);
@@ -915,6 +963,26 @@ class WebSocketService {
       this.missedPongs++;
       Logger.warn('websocket.heartbeat_missed_pong', { missedPongs: this.missedPongs, maxMissedPongs: this.maxMissedPongs });
 
+      // BUG-008-2: Emit slow connection warning before reconnect
+      if (this.missedPongs === this.slowConnectionThreshold) {
+        Logger.warn('websocket.slow_connection_detected', {
+          missedPongs: this.missedPongs,
+          threshold: this.slowConnectionThreshold,
+          reconnectAt: this.maxMissedPongs,
+          elapsedSeconds: this.missedPongs * (this.heartbeatTimeout / 1000)
+        });
+        // Update store with slow connection status
+        this.safeStoreUpdate(() => {
+          useWebSocketStore.getState().setConnectionStatus('slow');
+        }, 'slow connection warning');
+        // Notify via callback
+        this.callbacks.onNotification?.({
+          type: 'warning',
+          message: 'Slow connection detected - server response delayed',
+          autoHide: true
+        });
+      }
+
       // Force reconnect if too many missed pongs
       if (this.missedPongs >= this.maxMissedPongs) {
         Logger.error('websocket.heartbeat_reconnect', { reason: 'too_many_missed_pongs', missedPongs: this.missedPongs });
@@ -1028,6 +1096,30 @@ class WebSocketService {
       this.isAuthenticated = false;
       this.disconnect();
     }
+  }
+
+  /**
+   * BUG-008-1: Get human-readable text for WebSocket close codes.
+   */
+  private getCloseReasonText(closeCode: number): string {
+    const closeCodeReasons: Record<number, string> = {
+      1000: 'Normal closure',
+      1001: 'Going away',
+      1002: 'Protocol error',
+      1003: 'Unsupported data',
+      1005: 'No status received',
+      1006: 'Abnormal closure',
+      1007: 'Invalid frame payload data',
+      1008: 'Policy violation',
+      1009: 'Message too big',
+      1010: 'Mandatory extension',
+      1011: 'Internal error',
+      1012: 'Service restart',
+      1013: 'Try again later',
+      1014: 'Bad gateway',
+      1015: 'TLS handshake failure'
+    };
+    return closeCodeReasons[closeCode] || `Unknown close code: ${closeCode}`;
   }
 
   private logWebSocketMessage(message: WSMessage, direction: 'sent' | 'received'): void {

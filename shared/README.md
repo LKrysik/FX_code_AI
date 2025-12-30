@@ -47,8 +47,17 @@ Both Python and TypeScript must stay synchronized with this JSON file:
 
 Tests automatically validate synchronization:
 
-- **Python**: `tests/integration/test_event_type_sync.py`
-- **TypeScript**: `frontend/src/types/__tests__/event-type-sync.test.ts`
+- **Python**: `tests/integration/test_event_type_sync.py` (5 tests)
+- **TypeScript**: `frontend/src/types/__tests__/event-type-sync.test.ts` (8 tests)
+
+Run validation:
+```bash
+# Python
+pytest tests/integration/test_event_type_sync.py -v
+
+# TypeScript
+npm test -- --testPathPattern="event-type-sync"
+```
 
 ---
 

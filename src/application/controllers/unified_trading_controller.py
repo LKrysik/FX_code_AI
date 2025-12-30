@@ -940,6 +940,18 @@ class UnifiedTradingController:
                             session_id  # Now we add indicators to session for symbol tracking
                         )
                         variants_created_count += variants_created
+                    else:
+                        # BUG-004-3 FIX: Log warning when activation fails
+                        # Common cause: strategy_name not found in StrategyManager.strategies
+                        # CODE REVIEW FIX: Renamed from strategy_activation_failed to avoid duplicate with error log
+                        available_strategies = list(self.strategy_manager.strategies.keys()) if self.strategy_manager else []
+                        self.logger.warning("unified_trading_controller.strategy_not_found", {
+                            "session_id": session_id,
+                            "strategy": strategy_name,
+                            "symbol": symbol,
+                            "reason": f"Strategy '{strategy_name}' not found in loaded strategies",
+                            "available_strategies": available_strategies[:10]  # Show first 10
+                        })
 
             # ✅ DIAGNOSTIC: Verify indicators were registered for symbols
             registered_symbols = []

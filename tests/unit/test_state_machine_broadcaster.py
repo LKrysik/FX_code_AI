@@ -90,13 +90,14 @@ class TestStateMachineBroadcasterInitialization:
 
     @pytest.mark.asyncio
     async def test_start_subscribes_to_events(self, broadcaster_with_event_bus, mock_event_bus):
-        """Verify broadcaster subscribes to session events on start"""
+        """Verify broadcaster subscribes to execution events on start"""
         await broadcaster_with_event_bus.start()
 
         assert mock_event_bus.subscribe.call_count == 2
         subscribed_topics = [call[0][0] for call in mock_event_bus.subscribe.call_args_list]
-        assert "session.started" in subscribed_topics
-        assert "session.stopped" in subscribed_topics
+        # BUG-004-3: Changed to execution events for per-instance broadcasts
+        assert "execution.session_started" in subscribed_topics
+        assert "execution.session_completed" in subscribed_topics
         assert broadcaster_with_event_bus._is_running is True
 
     @pytest.mark.asyncio
@@ -170,16 +171,22 @@ class TestBroadcastMethods:
     @pytest.mark.asyncio
     async def test_broadcast_instance_removed(self, broadcaster, mock_connection_manager):
         """Verify instance_removed broadcast sends correct data"""
+        # CODE REVIEW FIX: Changed to dict format matching frontend StateInstance
+        instance_data = {
+            "strategy_id": "pump_peak_short",
+            "symbol": "BTCUSDT"
+        }
         sent_count = await broadcaster.broadcast_instance_removed(
             session_id="session_123",
-            instance_id="inst_1"
+            instance_data=instance_data
         )
 
         assert sent_count == 2
         call_args = mock_connection_manager.send_to_client.call_args_list[0]
         message = call_args[0][1]
         assert message["type"] == "instance_removed"
-        assert message["data"]["instance_id"] == "inst_1"
+        assert message["data"]["strategy_id"] == "pump_peak_short"
+        assert message["data"]["symbol"] == "BTCUSDT"
 
     @pytest.mark.asyncio
     async def test_broadcast_full_update_to_specific_client(self, broadcaster, mock_connection_manager):
@@ -238,31 +245,76 @@ class TestEventHandlers:
 
     @pytest.mark.asyncio
     async def test_on_session_started_broadcasts(self, broadcaster_with_event_bus, mock_connection_manager):
-        """Verify session.started event triggers instance_added broadcast"""
+        """Verify execution.session_started event triggers per-instance broadcasts"""
         await broadcaster_with_event_bus.start()
 
-        # Simulate session.started event
-        session_data = {
-            "session_id": "session_123",
-            "symbols": ["BTCUSDT", "ETHUSDT"],
-            "mode": "paper",
-            "state": "ACTIVE",
-            "client_id": "client_1"
+        # BUG-004-3: Event format now includes session wrapper with parameters.selected_strategies
+        event_data = {
+            "session": {
+                "session_id": "session_123",
+                "symbols": ["BTCUSDT"],
+                "mode": "paper",
+                "status": "running",
+                "parameters": {
+                    "selected_strategies": ["pump_peak_short"]
+                },
+                "start_time": "2025-01-01T00:00:00Z"
+            },
+            "timestamp": "2025-01-01T00:00:00Z"
         }
-        await broadcaster_with_event_bus._on_session_started(session_data)
+        await broadcaster_with_event_bus._on_session_started(event_data)
 
-        assert mock_connection_manager.send_to_client.call_count == 2
+        # Should broadcast 1 instance (1 strategy x 1 symbol)
+        assert mock_connection_manager.send_to_client.call_count == 2  # 2 subscribers
         call_args = mock_connection_manager.send_to_client.call_args_list[0]
         message = call_args[0][1]
         assert message["type"] == "instance_added"
-        assert message["data"]["session_id"] == "session_123"
-        assert message["data"]["symbols"] == ["BTCUSDT", "ETHUSDT"]
+        # BUG-004-3: Now uses strategy_id and symbol format
+        assert message["data"]["strategy_id"] == "pump_peak_short"
+        assert message["data"]["symbol"] == "BTCUSDT"
+        assert message["data"]["state"] == "MONITORING"
+
+    @pytest.mark.asyncio
+    async def test_on_session_started_multiple_strategies_symbols(self, broadcaster_with_event_bus, mock_connection_manager):
+        """BUG-004-3: Verify multiple strategies x symbols generates correct instance count"""
+        await broadcaster_with_event_bus.start()
+
+        # 2 strategies x 3 symbols = 6 instances
+        event_data = {
+            "session": {
+                "session_id": "session_123",
+                "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+                "mode": "paper",
+                "parameters": {
+                    "selected_strategies": ["pump_peak_short", "pump_peak_long"]
+                },
+                "start_time": "2025-01-01T00:00:00Z"
+            },
+            "timestamp": "2025-01-01T00:00:00Z"
+        }
+        await broadcaster_with_event_bus._on_session_started(event_data)
+
+        # 6 instances x 2 subscribers = 12 send_to_client calls
+        assert mock_connection_manager.send_to_client.call_count == 12
+
+        # Verify all instances were broadcast
+        messages = [call[0][1] for call in mock_connection_manager.send_to_client.call_args_list]
+        strategies_seen = set()
+        symbols_seen = set()
+        for msg in messages:
+            if msg["type"] == "instance_added":
+                strategies_seen.add(msg["data"]["strategy_id"])
+                symbols_seen.add(msg["data"]["symbol"])
+
+        assert strategies_seen == {"pump_peak_short", "pump_peak_long"}
+        assert symbols_seen == {"BTCUSDT", "ETHUSDT", "SOLUSDT"}
 
     @pytest.mark.asyncio
     async def test_on_session_stopped_broadcasts(self, broadcaster_with_event_bus, mock_connection_manager):
-        """Verify session.stopped event triggers instance_removed broadcast"""
+        """Verify execution.session_completed event triggers instance_removed broadcast"""
         await broadcaster_with_event_bus.start()
 
+        # Fallback case: no strategies in data, broadcasts session-level removal
         session_data = {"session_id": "session_123"}
         await broadcaster_with_event_bus._on_session_stopped(session_data)
 
@@ -270,6 +322,43 @@ class TestEventHandlers:
         call_args = mock_connection_manager.send_to_client.call_args_list[0]
         message = call_args[0][1]
         assert message["type"] == "instance_removed"
+        # CODE REVIEW FIX: Fallback sends session_id in data
+        assert message["data"]["session_id"] == "session_123"
+
+    @pytest.mark.asyncio
+    async def test_on_session_stopped_multiple_strategies_symbols(self, broadcaster_with_event_bus, mock_connection_manager):
+        """CODE REVIEW FIX: Verify multiple strategies x symbols generates correct removal format"""
+        await broadcaster_with_event_bus.start()
+
+        # 2 strategies x 2 symbols = 4 instance removals
+        event_data = {
+            "session": {
+                "session_id": "session_123",
+                "symbols": ["BTCUSDT", "ETHUSDT"],
+                "parameters": {
+                    "selected_strategies": ["pump_peak_short", "pump_peak_long"]
+                }
+            }
+        }
+        await broadcaster_with_event_bus._on_session_stopped(event_data)
+
+        # 4 instances x 2 subscribers = 8 send_to_client calls
+        assert mock_connection_manager.send_to_client.call_count == 8
+
+        # Verify all instances were broadcast with correct format
+        messages = [call[0][1] for call in mock_connection_manager.send_to_client.call_args_list]
+        strategies_seen = set()
+        symbols_seen = set()
+        for msg in messages:
+            if msg["type"] == "instance_removed":
+                # CODE REVIEW FIX: Verify {strategy_id, symbol} format matching frontend
+                assert "strategy_id" in msg["data"], "instance_removed must have strategy_id"
+                assert "symbol" in msg["data"], "instance_removed must have symbol"
+                strategies_seen.add(msg["data"]["strategy_id"])
+                symbols_seen.add(msg["data"]["symbol"])
+
+        assert strategies_seen == {"pump_peak_short", "pump_peak_long"}
+        assert symbols_seen == {"BTCUSDT", "ETHUSDT"}
 
     @pytest.mark.asyncio
     async def test_on_session_started_missing_id(self, broadcaster_with_event_bus, mock_connection_manager, mock_logger):

@@ -210,8 +210,9 @@ async def create_session(
         if controller is not None:
             try:
                 # Activate strategies for this session
-                # Uses strategy_id as the selected strategy (may be strategy name or ID)
-                selected_strategies = [request.strategy_id]
+                # BUG-004-3 FIX: Use strategy_name, not strategy_id
+                # strategy_id is UUID/database ID, strategy_name matches StrategyManager.strategies dict key
+                selected_strategies = [request.strategy_name]
 
                 await controller._activate_strategies_for_session(
                     session_id=session_id,

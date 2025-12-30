@@ -20,6 +20,44 @@ After comprehensive review of the Unified Trading Dashboard and all trading inte
 
 ---
 
+## 🔴 USER RESEARCH UPDATE (2025-12-30)
+
+> **CRITICAL FINDING:** User interview revealed that the ROOT CAUSE of "nieczytelny" is **DATA QUALITY**, not visual design!
+
+### Interview Summary
+
+| Question | User Answer | Impact on Review |
+|----------|-------------|------------------|
+| "Co było nieczytelne?" | "Dane były błędne lub nieaktualne" | 🔴 Problem to DATA nie DESIGN |
+| "Rozumiesz skróty S1, O1, Z1?" | "Rozumiem wszystkie" | ❌ ID-1 (human labels) = LOW priority |
+| "Wolisz wszystko naraz czy ukryte?" | "Zależy od sytuacji" + wybrał WSZYSTKIE elementy | ❌ Progressive disclosure ODRZUCONE |
+| "Które dane były błędne?" | Wskaźniki, Stan, Pozycje, Sygnały | 🔴 Mapuje do BUG-004 backlog |
+
+### Root Cause Connection
+
+| User Complaint | Matching Bug | Status |
+|----------------|--------------|--------|
+| "Stan strategii błędny" | BUG-004-3, BUG-004-6 | **backlog** |
+| "Wskaźniki błędne (--)" | BUG-004-5 | **backlog** |
+| "Dane pozycji błędne" | BUG-004-3 | **backlog** |
+
+### Revised Priority
+
+| Original Priority | New Priority | Reason |
+|-------------------|--------------|--------|
+| VH-1: Progressive disclosure (P1) | ❌ **REJECTED** | User wants everything visible |
+| ID-1: Human labels (P0) | ⬇️ P3 | User understands abbreviations |
+| **NEW: Fix BUG-004 data issues** | 🔴 **P0** | Root cause of "nieczytelny" |
+| CC-1: Unified colors (P1) | ➡️ P1 | Still valid |
+| ID-2: Context for numbers (P2) | ⬆️ P1 | User "nie rozumiał co widzi" |
+
+### Documents Created
+
+- `_bmad-output/user-research/interview-001.md` - Full interview transcript
+- `_bmad-output/user-research/critical-data-map.md` - What data user needs visible
+
+---
+
 ## Review Scope
 
 ### Files Analyzed
@@ -568,20 +606,37 @@ Before implementing UX changes, verify with user:
 
 ## Conclusion
 
-The trading interface has solid technical foundations but suffers from **information overload**. The primary recommendation is to implement **progressive disclosure** - show essential information prominently, and let users drill down for details.
+### Original Conclusion (Pre-User Research)
 
-**Top 3 Actions:**
-1. Replace all technical state codes with human labels
-2. Reduce visible elements by 50% through progressive disclosure
-3. Unify color system across all components
+~~The trading interface has solid technical foundations but suffers from **information overload**. The primary recommendation is to implement **progressive disclosure**.~~
 
-**Before implementing:** Validate with user that these issues match their experience of "nieczytelny".
+### Revised Conclusion (Post-User Research)
+
+The trading interface suffers from **DATA QUALITY ISSUES**, not visual design problems. User research revealed:
+
+1. **Root cause is DATA**, not DESIGN - all data types were reported as wrong/stale
+2. **Progressive disclosure REJECTED** - user wants all data visible during active position
+3. **Abbreviations understood** - human labels are low priority for this user
+
+**Top 3 Actions (REVISED):**
+
+| Priority | Action | Rationale |
+|----------|--------|-----------|
+| 🔴 P0 | **Fix BUG-004 backlog items** (data sync) | Root cause of "nieczytelny" |
+| 🟡 P1 | Add context to numbers (thresholds, targets) | User "nie rozumiał co widzi" |
+| 🟡 P1 | Unify color system | Still valid, not tested in interview |
+
+**BLOCKED Actions:**
+- ❌ VH-1: Progressive disclosure - **REJECTED by user**
+- ⬇️ ID-1: Human labels - Deprioritized (user knows abbreviations)
+
+**Recommendation:** Do NOT implement UX changes until BUG-004 data issues are fixed.
 
 ---
 
 ## Self-Verification Results
 
-This review was verified using 9 Advanced Elicitation methods:
+This review was verified using 9 Advanced Elicitation methods + User Research:
 
 ### Initial Verification (4 methods)
 
@@ -602,15 +657,29 @@ This review was verified using 9 Advanced Elicitation methods:
 | Confession Paradox (#53) | 🔴 | Avoided hard part: user observation |
 | Sorites Paradox (#56) | ⚠️ | Critical section added post-factum |
 
+### 🔴 User Research Validation (2025-12-30)
+
+| Method | Result | Finding |
+|--------|--------|---------|
+| User Interview (#001) | 🔴 **MAJOR PIVOT** | Root cause = DATA not DESIGN |
+| Critical Data Map | ✅ | User wants ALL data visible |
+| BUG-004 Connection | ✅ | Mapped complaints to existing backlog |
+
 ### Summary of Verification
 
-- **3 items fixed** during verification (wireframe, estimates, stateVocabulary ref)
-- **2 critical risks** identified (progressive disclosure, user validation)
-- **1 confession** made (avoided user observation/testing)
+**Phase 1 (Pre-Research):**
+- 3 items fixed (wireframe, estimates, stateVocabulary ref)
+- 2 critical risks identified
 
-**Overall Verification Score:** 🟡 CONDITIONAL PASS
-- Document is complete and actionable
-- BUT requires user validation before implementation
+**Phase 2 (User Research):**
+- 🔴 **ROOT CAUSE IDENTIFIED:** Data quality, not visual design
+- ❌ **PROGRESSIVE DISCLOSURE REJECTED** by user
+- ⬇️ Human labels deprioritized (user knows abbreviations)
+- 🔴 **BUG-004 identified as P0** - must fix before UX changes
+
+**Overall Verification Score:** ✅ **VALIDATED WITH USER**
+- Original hypothesis DISPROVEN
+- New priority: Fix data issues (BUG-004) before UX polish
 
 ---
 

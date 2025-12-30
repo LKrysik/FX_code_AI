@@ -53,7 +53,7 @@ import {
 import { wsService } from '@/services/websocket';
 import { apiService } from '@/services/api';
 import { useWebSocketStore } from '@/stores/websocketStore';
-import { useTradingStore, useTradingActions, useDashboardStore, useDashboardActions, useUIActions } from '@/stores';
+import { useTradingStore, useTradingActions, useDashboardStore, useDashboardActions, useUIStore, useUIActions } from '@/stores';
 import { AuthGuard } from '@/components/auth';
 import { WalletBalance, TradingPerformance, Strategy } from '@/types/api';
 import { SystemStatusIndicator } from '@/components/common/SystemStatusIndicator';
@@ -241,6 +241,18 @@ const DashboardContent = React.memo(function DashboardContent() {
             details: data.details
           });
         }
+      },
+      // COH-001-4: Clean dependency boundary - store subscribes to service callbacks
+      onStateSync: (data) => {
+        // Update dashboard store with state sync data
+        // Note: positions not currently stored in dashboardStore (future enhancement)
+        if (data.activeSignals) {
+          useDashboardStore.getState().setActiveSignals(data.activeSignals);
+        }
+      },
+      onNotification: (notification) => {
+        // Forward notifications to UI store
+        useUIStore.getState().addNotification(notification);
       }
     });
 

@@ -106,20 +106,19 @@ class StateMachineBroadcaster:
     async def broadcast_instance_removed(
         self,
         session_id: str,
-        instance_id: str
+        instance_data: Dict[str, Any]
     ) -> int:
         """
         Broadcast when a strategy instance is stopped.
 
         Args:
             session_id: Trading session ID
-            instance_id: ID of the removed instance
+            instance_data: Instance info (e.g., {"strategy_id": "...", "symbol": "..."})
 
         Returns:
             Number of clients message was sent to
         """
-        data = {"instance_id": instance_id}
-        message = self._create_message("instance_removed", session_id, data)
+        message = self._create_message("instance_removed", session_id, instance_data)
         return await self._broadcast(message)
 
     async def broadcast_full_update(
@@ -261,8 +260,11 @@ class StateMachineBroadcaster:
         Start the broadcaster by subscribing to session events.
 
         Subscribes to:
-        - session.started: Broadcasts instance_added
-        - session.stopped: Broadcasts instance_removed
+        - execution.session_started: Broadcasts instance_added for each strategy x symbol
+        - execution.session_completed: Broadcasts instance_removed
+
+        BUG-004-3 FIX: Changed from session.started to execution.session_started
+        to get selected_strategies from session parameters for per-instance broadcasts.
         """
         if self._is_running:
             self.logger.warning("state_machine_broadcaster.already_running")
@@ -274,13 +276,14 @@ class StateMachineBroadcaster:
             })
             return
 
-        # Subscribe to session events
-        await self.event_bus.subscribe("session.started", self._on_session_started)
-        await self.event_bus.subscribe("session.stopped", self._on_session_stopped)
+        # Subscribe to execution events (not session events)
+        # BUG-004-3 FIX: execution.session_started contains selected_strategies in parameters
+        await self.event_bus.subscribe("execution.session_started", self._on_session_started)
+        await self.event_bus.subscribe("execution.session_completed", self._on_session_stopped)
 
         self._is_running = True
         self.logger.info("state_machine_broadcaster.started", {
-            "subscribed_topics": ["session.started", "session.stopped"]
+            "subscribed_topics": ["execution.session_started", "execution.session_completed"]
         })
 
     async def stop(self) -> None:
@@ -291,8 +294,9 @@ class StateMachineBroadcaster:
             return
 
         if self.event_bus:
-            await self.event_bus.unsubscribe("session.started", self._on_session_started)
-            await self.event_bus.unsubscribe("session.stopped", self._on_session_stopped)
+            # BUG-004-3 FIX: Unsubscribe from execution events
+            await self.event_bus.unsubscribe("execution.session_started", self._on_session_started)
+            await self.event_bus.unsubscribe("execution.session_completed", self._on_session_stopped)
 
         self._is_running = False
         self.logger.info("state_machine_broadcaster.stopped", {
@@ -301,54 +305,115 @@ class StateMachineBroadcaster:
 
     async def _on_session_started(self, data: Dict[str, Any]) -> None:
         """
-        Handle session.started event from EventBus.
+        Handle execution.session_started event from EventBus.
 
-        Broadcasts instance_added to all state_machines subscribers.
+        BUG-004-3 FIX: Broadcasts instance_added for EACH strategy x symbol combination.
+        Frontend StateOverviewTable expects per-instance format: {strategy_id, symbol, state, since}
 
         Args:
-            data: Session data from event (contains session_id, symbols, mode, etc.)
+            data: Event data containing 'session' dict with full ExecutionSession info
         """
-        session_id = data.get("session_id")
+        # Event format: {"session": {...}, "timestamp": "..."}
+        session_data = data.get("session", data)
+
+        session_id = session_data.get("session_id")
         if not session_id:
             self.logger.warning("state_machine_broadcaster.session_started_missing_id", {
                 "data_keys": list(data.keys())
             })
             return
 
-        instance_data = {
-            "instance_id": session_id,
-            "session_id": session_id,
-            "symbols": data.get("symbols", []),
-            "mode": data.get("mode", "unknown"),
-            "state": data.get("state", "ACTIVE"),
-            "start_time": data.get("start_time"),
-            "client_id": data.get("client_id")
-        }
+        # Extract symbols and selected_strategies from session parameters
+        symbols = session_data.get("symbols", [])
+        parameters = session_data.get("parameters", {})
+        selected_strategies = parameters.get("selected_strategies", [])
+        start_time = session_data.get("start_time") or data.get("timestamp")
 
-        sent_count = await self.broadcast_instance_added(session_id, instance_data)
-        self.logger.info("state_machine_broadcaster.session_started_broadcast", {
-            "session_id": session_id,
-            "sent_to_clients": sent_count
-        })
+        # BUG-004-3 FIX: Broadcast per strategy x symbol instance
+        # Frontend expects: {strategy_id, symbol, state, since}
+        total_sent = 0
+
+        if selected_strategies and symbols:
+            for strategy_name in selected_strategies:
+                for symbol in symbols:
+                    instance_data = {
+                        "strategy_id": strategy_name,
+                        "symbol": symbol,
+                        "state": "MONITORING",
+                        "since": start_time
+                    }
+                    sent_count = await self.broadcast_instance_added(session_id, instance_data)
+                    total_sent += sent_count
+
+            self.logger.info("state_machine_broadcaster.session_started_broadcast", {
+                "session_id": session_id,
+                "strategies": selected_strategies,
+                "symbols": symbols,
+                "instances_broadcast": len(selected_strategies) * len(symbols),
+                "sent_to_clients": total_sent
+            })
+        else:
+            # Fallback: broadcast session-level info if no strategies specified
+            self.logger.warning("state_machine_broadcaster.no_strategies_to_broadcast", {
+                "session_id": session_id,
+                "selected_strategies": selected_strategies,
+                "symbols": symbols
+            })
 
     async def _on_session_stopped(self, data: Dict[str, Any]) -> None:
         """
-        Handle session.stopped event from EventBus.
+        Handle execution.session_completed event from EventBus.
 
-        Broadcasts instance_removed to all state_machines subscribers.
+        BUG-004-3 FIX: Broadcasts instance_removed for EACH strategy x symbol combination.
 
         Args:
-            data: Session data from event (contains session_id)
+            data: Event data containing 'session' dict or session_id
         """
-        session_id = data.get("session_id")
+        # Event format: {"session": {...}} or {"session_id": "..."}
+        session_data = data.get("session", data)
+
+        session_id = session_data.get("session_id") if isinstance(session_data, dict) else data.get("session_id")
         if not session_id:
             self.logger.warning("state_machine_broadcaster.session_stopped_missing_id", {
                 "data_keys": list(data.keys())
             })
             return
 
-        sent_count = await self.broadcast_instance_removed(session_id, session_id)
-        self.logger.info("state_machine_broadcaster.session_stopped_broadcast", {
-            "session_id": session_id,
-            "sent_to_clients": sent_count
-        })
+        # Extract symbols and selected_strategies from session parameters
+        symbols = []
+        selected_strategies = []
+
+        if isinstance(session_data, dict):
+            symbols = session_data.get("symbols", [])
+            parameters = session_data.get("parameters", {})
+            selected_strategies = parameters.get("selected_strategies", [])
+
+        # BUG-004-3 FIX: Broadcast per strategy x symbol instance removal
+        # CODE REVIEW FIX: Send {strategy_id, symbol} format matching frontend StateInstance
+        total_sent = 0
+
+        if selected_strategies and symbols:
+            for strategy_name in selected_strategies:
+                for symbol in symbols:
+                    instance_data = {
+                        "strategy_id": strategy_name,
+                        "symbol": symbol
+                    }
+                    sent_count = await self.broadcast_instance_removed(session_id, instance_data)
+                    total_sent += sent_count
+
+            self.logger.info("state_machine_broadcaster.session_stopped_broadcast", {
+                "session_id": session_id,
+                "strategies": selected_strategies,
+                "symbols": symbols,
+                "instances_removed": len(selected_strategies) * len(symbols),
+                "sent_to_clients": total_sent
+            })
+        else:
+            # Fallback: broadcast session-level removal (no specific instance)
+            instance_data = {"session_id": session_id}
+            sent_count = await self.broadcast_instance_removed(session_id, instance_data)
+            self.logger.info("state_machine_broadcaster.session_stopped_broadcast", {
+                "session_id": session_id,
+                "sent_to_clients": sent_count
+            })

@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict
 
 from fastapi import WebSocket, WebSocketDisconnect
+from websockets.exceptions import ConnectionClosed
 
 from ..core.event_bus import EventBus
 from ..core.logger import StructuredLogger
@@ -987,21 +988,74 @@ class WebSocketAPIServer:
         """Handle messages from connected client"""
         client_ip = await self._get_client_ip_by_id(client_id)
 
+        # BUG-008-1: Track close information for diagnostic logging
+        close_code = 1000  # Default to normal closure
+        close_reason = "Normal closure"
+        was_clean = True
+        initiated_by = "client"
+
         if is_fastapi_websocket:
             # FastAPI WebSocket handling
             try:
                 while True:
                     message = await websocket.receive_text()
                     await self._process_message(client_id, client_ip, message)
-            except WebSocketDisconnect:
-                self.logger.info("websocket_server.fastapi_client_disconnected", {
-                    "client_id": client_id,
-                    "client_ip": client_ip
-                })
+            except WebSocketDisconnect as e:
+                # BUG-008-1: Capture close code from FastAPI disconnect
+                close_code = getattr(e, 'code', 1000)
+                close_reason = getattr(e, 'reason', '') or self._get_close_reason_text(close_code)
+                was_clean = close_code in [1000, 1001]
+                initiated_by = "client" if close_code == 1000 else ("network" if close_code == 1006 else "unknown")
+
+                # BUG-008-1: Enhanced diagnostic logging
+                await self.connection_manager.log_connection_closed(
+                    client_id=client_id,
+                    close_code=close_code,
+                    close_reason=close_reason,
+                    was_clean=was_clean,
+                    initiated_by=initiated_by
+                )
         else:
             # websockets library handling
-            async for message in websocket:
-                await self._process_message(client_id, client_ip, message)
+            try:
+                async for message in websocket:
+                    await self._process_message(client_id, client_ip, message)
+            except ConnectionClosed as e:
+                # BUG-008-1: Capture close code from websockets library
+                close_code = e.code if e.code else 1006
+                close_reason = e.reason if e.reason else self._get_close_reason_text(close_code)
+                was_clean = close_code in [1000, 1001]
+                initiated_by = "client" if close_code == 1000 else ("network" if close_code == 1006 else "unknown")
+
+                # BUG-008-1: Enhanced diagnostic logging
+                await self.connection_manager.log_connection_closed(
+                    client_id=client_id,
+                    close_code=close_code,
+                    close_reason=close_reason,
+                    was_clean=was_clean,
+                    initiated_by=initiated_by
+                )
+
+    def _get_close_reason_text(self, close_code: int) -> str:
+        """BUG-008-1: Get human-readable text for WebSocket close codes."""
+        close_code_reasons = {
+            1000: "Normal closure",
+            1001: "Going away",
+            1002: "Protocol error",
+            1003: "Unsupported data",
+            1005: "No status received",
+            1006: "Abnormal closure",
+            1007: "Invalid frame payload data",
+            1008: "Policy violation",
+            1009: "Message too big",
+            1010: "Mandatory extension",
+            1011: "Internal error",
+            1012: "Service restart",
+            1013: "Try again later",
+            1014: "Bad gateway",
+            1015: "TLS handshake failure"
+        }
+        return close_code_reasons.get(close_code, f"Unknown close code: {close_code}")
 
     async def _process_message(self, client_id: str, client_ip: str, message: str):
         """Process a single WebSocket message"""

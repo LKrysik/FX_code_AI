@@ -223,6 +223,18 @@ export const IndicatorValuesPanel: React.FC<IndicatorValuesProps> = ({
         // Handle both direct data and nested data structures
         const data = message.data || message;
 
+        // BUG-004-5: Diagnostic logging for indicator messages
+        Logger.debug('IndicatorValuesPanel.message_received', {
+          type: message.type,
+          stream: message.stream,
+          symbol: data.symbol,
+          indicator_type: data.indicator_type,
+          indicator: data.indicator,
+          value: data.value,
+          hasIndicators: !!data.indicators,
+          dataKeys: Object.keys(data),
+        });
+
         // Filter by symbol if specified
         if (data.symbol && data.symbol !== symbol) return;
 

@@ -1,6 +1,6 @@
 # Story COH-001-1: Synchronize MessageType Definitions
 
-**Status:** review
+**Status:** done
 **Priority:** HIGH
 **Effort:** M (Medium)
 

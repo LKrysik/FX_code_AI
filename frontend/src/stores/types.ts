@@ -81,7 +81,7 @@ export interface DashboardState {
 export interface WebSocketState {
   // Connection Status
   isConnected: boolean;
-  connectionStatus: 'connected' | 'disconnected' | 'connecting' | 'error' | 'disabled';
+  connectionStatus: 'connected' | 'disconnected' | 'connecting' | 'error' | 'disabled' | 'slow'; // BUG-008-2: Added 'slow' for connection degradation warning
   lastConnected: number | null;
   lastDisconnected: number | null;
 

@@ -1,6 +1,6 @@
 # Story COH-001-2: Unify Logger API Signatures
 
-**Status:** review
+**Status:** done
 **Priority:** MEDIUM
 **Effort:** S (Small)
 
