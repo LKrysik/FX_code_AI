@@ -1,6 +1,6 @@
 # Story BUG-008-1: WebSocket Disconnect Diagnostic Logging
 
-**Status:** review
+**Status:** done
 **Priority:** P0
 **Epic:** BUG-008 WebSocket Stability & Service Health
 
@@ -146,8 +146,8 @@ Logger.warn('websocket.connection_closed', {
 1. [x] Connection close events include all diagnostic fields listed in AC
 2. [x] Abnormal closes logged at WARNING level
 3. [x] Log format follows existing project conventions
-4. [ ] Manual test: close browser tab, verify logs show reason
-5. [ ] Manual test: stop backend, verify frontend logs show reason
+4. [x] Manual test: close browser tab, verify logs show reason (BUG-008-1a PASSED)
+5. [x] Manual test: stop backend, verify frontend logs show reason (BUG-008-1a PASSED)
 6. [x] Documentation updated with log correlation guide
 
 ---
@@ -198,3 +198,4 @@ All acceptance criteria have been implemented:
 | 2025-12-30 | John (PM) | Story created from BUG-008 Epic |
 | 2025-12-30 | Amelia (Dev) | Implementation complete, 21 tests passing, status → review |
 | 2025-12-30 | Amelia (Dev) | POST-VERIFICATION FIXES: (1) Log naming changed from `websocket.*` to `connection_manager.*` for DNA inheritance consistency (2) `connection_sequence_number` marked as DEFERRED - not required for AC4 (3) Test assertions updated to verify exact log name convention |
+| 2025-12-30 | Mr Lu (QA) | Manual testing (BUG-008-1a) PASSED - All 5 scenarios verified. DoD 4 & 5 complete. Status → done |

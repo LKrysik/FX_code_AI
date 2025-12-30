@@ -1,6 +1,6 @@
 # Story BUG-004-4: Symbol Watchlist Population
 
-**Status:** review
+**Status:** done
 **Priority:** P1
 **Effort:** S (Small)
 **Epic:** BUG-004
@@ -188,3 +188,4 @@ This ensures symbols are available immediately from session configuration.
 | 2025-12-30 | Amelia (Dev Agent) | Root cause found: _get_session_symbols() queries tick_prices instead of session config |
 | 2025-12-30 | Amelia (Dev Agent) | Fix implemented: Query data_collection_sessions.symbols with format handling |
 | 2025-12-30 | Amelia (Dev Agent) | 8 unit tests created and passing. Status → review |
+| 2025-12-30 | Code Review | APPROVED: 8 tests passing, root cause fixed. Status → done |

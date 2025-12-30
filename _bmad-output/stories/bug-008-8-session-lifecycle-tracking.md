@@ -1,6 +1,6 @@
 # Story BUG-008-8: Session Lifecycle Tracking
 
-**Status:** review
+**Status:** done
 **Priority:** P1
 **Epic:** BUG-008 WebSocket Stability & Service Health
 
@@ -280,3 +280,4 @@ POST-IMPLEMENTATION VERIFICATION completed using:
 | 2025-12-30 | John (PM) | Story created from BUG-008 Epic |
 | 2025-12-30 | Amelia (Dev) | Implementation complete: session lifecycle models, 45 tests passing, status → review |
 | 2025-12-30 | Amelia (Dev) | POST-VERIFICATION: 7 methods executed, 2 issues fixed (git staging), 1 MEDIUM follow-up noted |
+| 2025-12-30 | Code Review | APPROVED: 45 tests passing, all ACs verified. Status → done |

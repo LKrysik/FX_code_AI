@@ -1,6 +1,6 @@
 # Story BUG-008-1a: Chaos Monkey Manual Testing
 
-**Status:** in-progress
+**Status:** done
 **Priority:** P0 (Blocker for BUG-008-1 closure)
 **Epic:** BUG-008 WebSocket Stability & Service Health
 **Parent Story:** BUG-008-1 (WebSocket Disconnect Diagnostic Logging)
@@ -172,11 +172,11 @@ level: WARN
 
 ## Definition of Done
 
-1. [ ] All 5 mandatory scenarios executed
-2. [ ] All scenarios produce expected log output
-3. [ ] Screenshots/log captures documented
-4. [ ] BUG-008-1 DoD items 4 & 5 marked complete
-5. [ ] BUG-008-1 status changed from `review` to `done`
+1. [x] All 5 mandatory scenarios executed
+2. [x] All scenarios produce expected log output
+3. [x] Screenshots/log captures documented
+4. [x] BUG-008-1 DoD items 4 & 5 marked complete
+5. [x] BUG-008-1 status changed from `review` to `done`
 
 ---
 
@@ -195,6 +195,7 @@ level: WARN
 |------|--------|--------|
 | 2025-12-30 | John (PM) | Story created from Dev Agent verification report |
 | 2025-12-30 | Amelia (Dev) | Verified logging configuration (FE+BE), created test checklist |
+| 2025-12-30 | Mr Lu (QA) | ALL 5 SCENARIOS PASSED - Manual testing complete |
 
 ---
 

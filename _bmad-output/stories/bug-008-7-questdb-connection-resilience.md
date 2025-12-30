@@ -1,6 +1,6 @@
 # Story BUG-008-7: QuestDB Connection Resilience
 
-**Status:** review
+**Status:** done
 **Priority:** P0
 **Epic:** BUG-008 WebSocket Stability & Service Health
 
@@ -264,3 +264,4 @@ All checks passed.
 | 2025-12-30 | Amelia (Dev) | Added 12 more tests for circuit breaker state transitions + retry handler (24 total) |
 | 2025-12-30 | Code Review | FAILED: 1 CRITICAL (conn outside context), 2 HIGH, 3 MEDIUM, 2 LOW - 8 action items added, status → in-progress |
 | 2025-12-30 | Amelia (Dev) | FIXED: 1 CRITICAL + 2 HIGH issues, 24 tests passing, status → review |
+| 2025-12-30 | Code Review | APPROVED: 24 tests passing. 4 remaining items tracked in `_bmad-output/backlog/bug-008-followup-items.md`. Status → done |

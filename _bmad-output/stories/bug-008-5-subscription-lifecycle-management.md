@@ -1,6 +1,6 @@
 # Story BUG-008-5: Subscription Lifecycle Management
 
-**Status:** review
+**Status:** done
 **Priority:** P1
 **Epic:** BUG-008 WebSocket Stability & Service Health
 
@@ -258,3 +258,4 @@ The `SubscriptionRegistry` is designed to work with `MexcWebSocketAdapter`:
 |------|--------|--------|
 | 2025-12-30 | John (PM) | Story created from BUG-008 Epic |
 | 2025-12-30 | Amelia (Dev) | Implementation complete: SubscriptionRegistry, 35 tests passing, status → review |
+| 2025-12-30 | Code Review | APPROVED: 35 tests passing, all ACs verified. Status → done |

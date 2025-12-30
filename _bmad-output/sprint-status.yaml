@@ -65,11 +65,11 @@ development_status:
   # Epic 1A: First Signal Visible (P0)
   # Goal: Trader sees their FIRST signal appear on dashboard
   # ============================================================
-  epic-1a: in-progress
+  epic-1a: done  # ALL 8 stories completed 2025-12-30
   1a-1-signal-display-on-dashboard: done  # Completed 2025-12-27 - SignalCard, RecentSignalsPanel
   1a-2-state-machine-state-badge: done  # Completed 2025-12-27 - StateBadge hero, useStateMachineState hook
   1a-3-indicator-values-panel: done  # Completed 2025-12-27 - IndicatorValuesPanel, 17 tests (review fixes applied)
-  1a-4-human-vocabulary-labels: review  # Completed 2025-12-27 - stateVocabulary.ts, 25 tests
+  1a-4-human-vocabulary-labels: done    # CODE REVIEW PASSED 2025-12-30: 25 tests, centralized vocabulary
   1a-5-statushero-component: done  # Completed 2025-12-27 - StatusHero, useStatusHeroData hook, 30+ tests
   1a-6-signal-type-color-coding: done  # Completed 2025-12-27 - signalColors.ts, 21 tests
   1a-7-first-visit-onboarding-tooltip: done  # Completed 2025-12-30 - useOnboarding hook, WelcomeTooltip, 26 tests, validated
@@ -81,7 +81,7 @@ development_status:
   # Goal: Fix critical bugs blocking Paper Trading session
   # Source: docs/bug_003.md + logs/frontend_error.log + backend.log
   # ============================================================
-  epic-bug-003: in-progress
+  epic-bug-003: done  # ALL 12 stories completed 2025-12-30
   bug-003-1-session-strategy-filtering: done  # FIXED 2025-12-27 - Filter by selected_strategies
   bug-003-2-session-symbol-filtering: done    # FIXED 2025-12-27 - Auto-select from session symbols
   bug-003-3-pump-indicators-api-500: done     # FIXED 2025-12-27 - QuestDB LATEST ON syntax
@@ -102,12 +102,12 @@ development_status:
   # Source: docs/bug_004.md
   # 🔴 PRIORITY ELEVATED by User Research (BUG-003-9) - ROOT CAUSE of "nieczytelny"
   # ============================================================
-  epic-bug-004: in-progress
+  epic-bug-004: done  # ALL 7 stories completed 2025-12-30
   bug-004-0-preflight-data-verification: done      # Verified - data pipeline issues identified
   bug-004-1-invalid-column-side-error: done        # FIXED 2025-12-27 - Changed side→action, execution_status→triggered
   bug-004-2-websocket-ping-pong-stability: done    # FIXED 2025-12-27 - Frontend→heartbeat, backend→status/pong, fixed detection
   bug-004-3-state-machine-instance-registration: done # 🔴 P0 - FIXED + CODE REVIEW PASSED: 47 tests, verified 2025-12-30
-  bug-004-4-symbol-watchlist-population: review   # P1 - FIXED: Query data_collection_sessions.symbols, 8 tests passing
+  bug-004-4-symbol-watchlist-population: done     # P1 - CODE REVIEW PASSED 2025-12-30: 8 tests, root cause fixed
   bug-004-5-indicator-values-data-flow: done             # 🔴 P0 - CODE REVIEW PASSED 2025-12-30: transform function OK
   bug-004-6-condition-progress-inactive: done            # 🔴 P0 - CODE REVIEW PASSED: P1 fixed, WebSocket uses MONITORING
   epic-bug-004-retrospective: optional
@@ -230,7 +230,7 @@ development_status:
   bug-008-6-data-activity-monitoring: ready-for-dev       # P1 - Tune thresholds, pre-close health check
   # Sub-Epic 3: Service Health & Data Quality
   bug-008-7-questdb-connection-resilience: done    # P0 - CODE REVIEW PASSED 2025-12-30: 24 tests, follow-up in backlog
-  bug-008-8-session-lifecycle-tracking: review            # P1 - IMPLEMENTED 2025-12-30: SessionState enum, validation, audit log, 45 tests
+  bug-008-8-session-lifecycle-tracking: done              # P1 - CODE REVIEW PASSED 2025-12-30: 45 tests, lifecycle + audit log
   bug-008-9-stale-data-detection: ready-for-dev           # P2 - Filter/flag data >60s old, freshness indicators
   epic-bug-008-retrospective: optional
 

@@ -1,6 +1,6 @@
 # Story 1A.4: Human Vocabulary Labels
 
-Status: review
+Status: done
 
 ## Story
 
