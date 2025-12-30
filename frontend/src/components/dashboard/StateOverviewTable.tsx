@@ -32,11 +32,14 @@ import {
   Button,
   CircularProgress,
   Skeleton,
+  Chip,
   alpha,
   useTheme,
 } from '@mui/material';
 import { Visibility as ViewIcon } from '@mui/icons-material';
 import StateBadge, { StateMachineState } from './StateBadge';
+// BUG-008-3: Import data freshness hook for AC3/AC4 compliance
+import { useDataFreshness } from '@/hooks/useDataFreshness';
 
 // ============================================================================
 // TYPES
@@ -54,6 +57,8 @@ export interface StateOverviewTableProps {
   instances: StateInstance[];
   onInstanceClick?: (instance: StateInstance) => void;
   isLoading?: boolean;
+  // BUG-008-3: Optional timestamp for data freshness tracking (AC3, AC4)
+  lastUpdateTime?: Date | number | string | null;
 }
 
 // ============================================================================
@@ -200,8 +205,12 @@ const StateOverviewTable: React.FC<StateOverviewTableProps> = ({
   instances,
   onInstanceClick,
   isLoading = false,
+  lastUpdateTime,
 }) => {
   const theme = useTheme();
+
+  // BUG-008-3: Use centralized data freshness hook for AC3/AC4 compliance
+  const { formattedAge, isStale, isVeryStale, opacity } = useDataFreshness(lastUpdateTime);
 
   // Sort instances by priority
   const sortedInstances = useMemo(() => sortInstances(instances), [instances]);
@@ -212,14 +221,42 @@ const StateOverviewTable: React.FC<StateOverviewTableProps> = ({
 
   return (
     <Box>
+      {/* Header with freshness indicator - BUG-008-3 AC3/AC4 */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Typography variant="h6">State Machine Overview</Typography>
-        <Typography variant="caption" color="text.secondary">
-          Session: {sessionId}
-        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          {lastUpdateTime && (
+            <>
+              <Typography
+                variant="caption"
+                color={isStale ? 'warning.main' : 'text.secondary'}
+                sx={{ fontWeight: isStale ? 500 : 400 }}
+              >
+                {formattedAge}
+              </Typography>
+              {isVeryStale && (
+                <Chip
+                  label="STALE"
+                  size="small"
+                  color="warning"
+                  variant="outlined"
+                  sx={{ height: 20, fontSize: '0.65rem', fontWeight: 'bold' }}
+                />
+              )}
+            </>
+          )}
+          <Typography variant="caption" color="text.secondary">
+            Session: {sessionId}
+          </Typography>
+        </Box>
       </Box>
 
-      <TableContainer component={Paper} variant="outlined">
+      {/* Table with opacity degradation when stale - BUG-008-3 AC4 */}
+      <TableContainer
+        component={Paper}
+        variant="outlined"
+        sx={{ opacity: lastUpdateTime ? opacity : 1, transition: 'opacity 0.3s ease' }}
+      >
         <Table size="small" sx={{ minWidth: 650 }}>
           <TableHead>
             <TableRow>

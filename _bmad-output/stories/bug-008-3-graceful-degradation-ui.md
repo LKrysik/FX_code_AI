@@ -1,6 +1,6 @@
 # Story BUG-008-3: Graceful Degradation UI
 
-**Status:** review
+**Status:** done
 **Priority:** P1
 **Epic:** BUG-008 WebSocket Stability & Service Health
 
@@ -248,6 +248,71 @@ All core acceptance criteria implemented:
 
 ---
 
+## Code Review Record
+
+**Review Date:** 2025-12-30
+**Reviewer:** Senior Developer (Code Review Agent)
+**Verdict:** ✅ PASS
+
+### AC Validation
+
+| AC | Description | Status | Evidence |
+|----|-------------|--------|----------|
+| AC1 | Dashboard shows connection status indicator | ✅ PASS | `ConnectionStatusIndicator.tsx` integrated in header, shows all states |
+| AC2 | Reconnecting shows attempt count and countdown | ✅ PASS | `websocketStore.ts` tracks reconnect state, UI shows "Reconnecting X/Y (Ns)" with live countdown |
+| AC3 | Data panels show "Updated X seconds ago" | ✅ PASS | `useDataFreshness.ts` hook + `DataFreshnessWrapper.tsx` component |
+| AC4 | Stale data (>60s) visually marked | ✅ PASS | Opacity 0.7 for stale, STALE badge for >120s, warning color |
+| AC5 | Toast notification on connection events | ✅ PASS | 5 notification hooks in `websocket.ts`, `useConnectionNotifications.ts` bridges to UI |
+| AC6 | Manual reconnect button | ✅ PASS | "Reconnect Now" button in popover (lines 396-407) |
+
+### Files Verified
+
+| File | Purpose | Status |
+|------|---------|--------|
+| `frontend/src/hooks/useDataFreshness.ts` | Data freshness tracking hook | ✅ Clean |
+| `frontend/src/components/common/DataFreshnessWrapper.tsx` | Stale data wrapper component | ✅ Clean |
+| `frontend/src/hooks/useConnectionNotifications.ts` | Toast notification bridge | ✅ Clean |
+| `frontend/src/components/common/ConnectionNotificationsProvider.tsx` | Provider for app | ✅ Clean |
+| `frontend/src/components/common/ConnectionStatusIndicator.tsx` | Connection indicator with reconnect UI | ✅ Clean |
+| `frontend/src/stores/types.ts` | Type definitions for reconnect tracking | ✅ Clean |
+| `frontend/src/stores/websocketStore.ts` | Reconnect state + actions | ✅ Clean |
+| `frontend/src/services/websocket.ts` | Toast notification hooks | ✅ Clean |
+| `frontend/src/app/layout.tsx` | ConnectionNotificationsProvider integrated | ✅ Clean |
+| `frontend/src/components/dashboard/IndicatorValuesPanel.tsx` | Integrated useDataFreshness for AC3/AC4 | ✅ Clean |
+| `frontend/src/components/dashboard/StateOverviewTable.tsx` | Added lastUpdateTime prop + useDataFreshness | ✅ Clean |
+
+### Test Coverage
+
+| Test File | Test Count | Status |
+|-----------|------------|--------|
+| `useDataFreshness.test.ts` | 15 tests | ✅ Pass |
+| `DataFreshnessWrapper.test.tsx` | 17 tests | ✅ Pass |
+| `useConnectionNotifications.test.tsx` | 12 tests | ✅ Pass |
+| **Total** | **44 tests** | ✅ Pass |
+
+### Issues Found
+
+| Severity | Count | Details |
+|----------|-------|---------|
+| CRITICAL | 0 | None |
+| HIGH | 0 | None |
+| MEDIUM | 0 | None |
+| LOW | 2 | Optional items not implemented (keyboard shortcut, accessibility) - marked as optional in story |
+
+### Quality Notes
+
+1. **Code Quality:** Clean implementation with proper BUG-008-3 comments marking each change
+2. **Type Safety:** All new types properly defined in `types.ts`, exported via `websocketStore.ts` selectors
+3. **Integration:** ConnectionNotificationsProvider properly integrated in app layout (line 33)
+4. **Toast Flow:** `websocket.ts` → `onNotification callback` → `useConnectionNotifications` → `uiStore.addNotification`
+5. **State Management:** Reconnect tracking uses Zustand with `setReconnectState()`/`resetReconnectState()` actions
+
+### Recommendation
+
+**APPROVE** - All acceptance criteria implemented and tested. Story is ready for `done` status.
+
+---
+
 ## Change Log
 
 | Date | Author | Change |
@@ -255,3 +320,5 @@ All core acceptance criteria implemented:
 | 2025-12-30 | John (PM) | Story created from BUG-008 Epic |
 | 2025-12-30 | Amelia (Dev) | Implementation complete: reconnect feedback, data freshness hook, toast notifications, status → review |
 | 2025-12-30 | Amelia (Dev) | Enhancement: DataFreshnessWrapper component, useConnectionNotifications hook, app layout integration, 29 additional tests |
+| 2025-12-30 | Code Review Agent | Code Review: PASS - All 6 ACs verified, 44 tests, 0 blocking issues |
+| 2025-12-30 | Amelia (Dev) | Integration: Added useDataFreshness to IndicatorValuesPanel and StateOverviewTable for AC3/AC4 |

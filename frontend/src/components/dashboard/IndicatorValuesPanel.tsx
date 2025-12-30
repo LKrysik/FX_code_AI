@@ -34,6 +34,8 @@ import {
 } from '@mui/icons-material';
 import { wsService, WSMessage } from '@/services/websocket';
 import { useIndicators } from '@/stores/dashboardStore';
+// BUG-008-3: Import data freshness hook for consistent stale data detection (AC3, AC4)
+import { useDataFreshness } from '@/hooks/useDataFreshness';
 
 // ============================================================================
 // Types
@@ -189,6 +191,9 @@ export const IndicatorValuesPanel: React.FC<IndicatorValuesProps> = ({
 
   // Get indicators from store
   const storeIndicators = useIndicators();
+
+  // BUG-008-3: Use centralized data freshness hook for AC3/AC4 compliance
+  const { formattedAge, isStale, isVeryStale, opacity } = useDataFreshness(lastUpdate);
 
   // ========================================
   // Initialize indicator display values
@@ -417,18 +422,7 @@ export const IndicatorValuesPanel: React.FC<IndicatorValuesProps> = ({
     }
   };
 
-  /**
-   * Check if indicator data is stale (older than threshold)
-   * Task 2.4: Handle stale data gracefully
-   */
-  const isDataStale = (lastUpdateTime: string | undefined): boolean => {
-    if (!lastUpdateTime) return true;
-    const updateTime = new Date(lastUpdateTime).getTime();
-    const now = Date.now();
-    return now - updateTime > STALE_THRESHOLD_MS;
-  };
-
-  const isAnyDataStale = lastUpdate ? isDataStale(lastUpdate) : true;
+  // BUG-008-3: Removed local isDataStale - now using centralized useDataFreshness hook
 
   const renderIndicatorRow = (indicator: IndicatorDisplayValue) => {
     const config = MVP_INDICATORS.find((c) => c.key === indicator.key);
@@ -503,7 +497,7 @@ export const IndicatorValuesPanel: React.FC<IndicatorValuesProps> = ({
 
       <Divider sx={{ mb: 1 }} />
 
-      {/* Content */}
+      {/* Content - BUG-008-3 AC4: Apply opacity degradation when stale */}
       {!sessionId ? (
         <Box sx={{ py: 4, textAlign: 'center' }}>
           <Typography variant="body2" color="text.secondary">
@@ -513,26 +507,28 @@ export const IndicatorValuesPanel: React.FC<IndicatorValuesProps> = ({
       ) : loading ? (
         renderLoadingSkeleton()
       ) : (
-        <Box>
+        <Box sx={{ opacity, transition: 'opacity 0.3s ease' }}>
           {Array.from(indicatorValues.values()).map(renderIndicatorRow)}
         </Box>
       )}
 
-      {/* Footer: Last Update + Stale Indicator */}
+      {/* Footer: Last Update + Stale Indicator - BUG-008-3 AC3/AC4 */}
       {sessionId && (
         <Box sx={{ mt: 2, pt: 1, borderTop: 1, borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Typography variant="caption" color="text.secondary">
-            {lastUpdate
-              ? `Last update: ${new Date(lastUpdate).toLocaleTimeString()}`
-              : 'Waiting for data...'}
+          <Typography
+            variant="caption"
+            color={isStale ? 'warning.main' : 'text.secondary'}
+            sx={{ fontWeight: isStale ? 500 : 400 }}
+          >
+            {formattedAge}
           </Typography>
-          {isAnyDataStale && lastUpdate && (
+          {isVeryStale && (
             <Chip
               label="STALE"
               size="small"
               color="warning"
               variant="outlined"
-              sx={{ height: 20, fontSize: '0.65rem' }}
+              sx={{ height: 20, fontSize: '0.65rem', fontWeight: 'bold' }}
             />
           )}
         </Box>
