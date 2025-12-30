@@ -364,3 +364,4 @@ All core acceptance criteria implemented:
 | 2025-12-30 | Amelia (Dev) | Fix: StateOverviewTableIntegration now passes lastUpdateTime prop to enable AC3/AC4 freshness display |
 | 2025-12-30 | Code Review Agent | Advanced Elicitation Round 1: 9 methods, fixes (mobile responsive, 'use client', documentation) |
 | 2025-12-30 | Code Review Agent | Advanced Elicitation Round 2: 9 methods, CRITICAL fix (fake latency removed), documented over-engineering |
+| 2025-12-30 | Amelia (Dev) | Fix: MUI alpha warning in StateOverviewTable - refactored getRowBackgroundColor() with isHover parameter (DRY) |
