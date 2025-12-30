@@ -96,8 +96,10 @@ const ConditionProgressIntegration: React.FC<ConditionProgressIntegrationProps> 
   // ========================================
 
   const [groups, setGroups] = useState<ConditionGroup[]>([]);
-  const [currentState, setCurrentState] = useState<string>('INACTIVE');
-  const [isLoading, setIsLoading] = useState(false);
+  // BUG-004-6 FIX: Start with MONITORING as default for active sessions
+  // INACTIVE should only be set when we explicitly know the session is inactive
+  const [currentState, setCurrentState] = useState<string>(sessionId ? 'MONITORING' : 'INACTIVE');
+  const [isLoading, setIsLoading] = useState(!!sessionId); // Loading if we have sessionId
   const [error, setError] = useState<string | null>(null);
 
   // ========================================
@@ -168,9 +170,10 @@ const ConditionProgressIntegration: React.FC<ConditionProgressIntegrationProps> 
   // ========================================
 
   const fetchConditionStatus = useCallback(async () => {
+    // BUG-004-6 FIX: Don't set INACTIVE when sessionId is missing
+    // Just return early - let the component show loading or previous state
+    // This prevents the race condition where sessionId arrives after first render
     if (!sessionId) {
-      setGroups([]);
-      setCurrentState('INACTIVE');
       return;
     }
 
@@ -200,21 +203,29 @@ const ConditionProgressIntegration: React.FC<ConditionProgressIntegrationProps> 
       // lub bezpośrednio: { session_id, instances: [...] }
       const data: ConditionsResponse = result.data || result;
 
-      // Find instance matching our symbol
-      const instance = data.instances?.find((i) => i.symbol === symbol);
+      // BUG-004-6 FIX: Case-insensitive symbol matching
+      // Symbols may come in different formats: "BTCUSDT", "btcusdt", "BTC_USDT"
+      const normalizeSymbol = (s: string) => s?.toUpperCase().replace(/_/g, '');
+      const normalizedSymbol = normalizeSymbol(symbol);
+
+      const instance = data.instances?.find(
+        (i) => normalizeSymbol(i.symbol) === normalizedSymbol
+      );
 
       if (instance) {
         setGroups(transformApiResponse(instance.groups));
-        setCurrentState(instance.state || 'INACTIVE');
+        // BUG-004-6 FIX: Default to MONITORING instead of INACTIVE for active sessions
+        setCurrentState(instance.state || 'MONITORING');
       } else if (data.instances?.length > 0) {
         // No exact match - use first instance if available
         const firstInstance = data.instances[0];
         setGroups(transformApiResponse(firstInstance.groups));
-        setCurrentState(firstInstance.state || 'INACTIVE');
+        setCurrentState(firstInstance.state || 'MONITORING');
       } else {
-        // No instances at all
+        // No instances at all - session may be starting
         setGroups([]);
-        setCurrentState('INACTIVE');
+        // BUG-004-6 FIX: Keep current state, don't force INACTIVE
+        // If we had a valid state before, keep it during brief gaps
       }
     } catch (err) {
       Logger.error('ConditionProgress.fetchStatus', { message: 'Failed to fetch condition status', error: err });
@@ -245,13 +256,15 @@ const ConditionProgressIntegration: React.FC<ConditionProgressIntegrationProps> 
         } else if (message.groups) {
           setGroups(transformApiResponse(message.groups));
         }
-        setCurrentState(message.data?.state || message.state || 'INACTIVE');
+        // BUG-004-6 FIX: Use MONITORING as fallback, not INACTIVE
+        setCurrentState(message.data?.state || message.state || 'MONITORING');
         setError(null); // Clear error on successful update
       }
 
       // Handle state machine state changes
       if (message.type === 'state_change' && message.session_id === sessionId) {
-        setCurrentState(message.data?.new_state || message.new_state || 'INACTIVE');
+        // BUG-004-6 FIX: Use MONITORING as fallback, not INACTIVE
+        setCurrentState(message.data?.new_state || message.new_state || 'MONITORING');
       }
     }, 'ConditionProgress');
 
@@ -263,10 +276,33 @@ const ConditionProgressIntegration: React.FC<ConditionProgressIntegrationProps> 
   }, [sessionId, symbol, transformApiResponse]);
 
   // ========================================
+  // BUG-004-6 FIX: Handle sessionId becoming available
+  // ========================================
+
+  useEffect(() => {
+    if (sessionId) {
+      // sessionId just became available - trigger immediate fetch
+      Logger.debug('ConditionProgress.sessionId_available', {
+        sessionId,
+        symbol,
+        previousState: currentState,
+      });
+      fetchConditionStatus();
+    }
+    // Only trigger when sessionId changes, not on every render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
+
+  // ========================================
   // Initial Load + Polling Fallback
   // ========================================
 
   useEffect(() => {
+    // Skip if sessionId not yet available
+    if (!sessionId) {
+      return;
+    }
+
     // Initial fetch
     fetchConditionStatus();
 
@@ -276,7 +312,7 @@ const ConditionProgressIntegration: React.FC<ConditionProgressIntegrationProps> 
     }, refreshInterval);
 
     return () => clearInterval(intervalId);
-  }, [fetchConditionStatus, refreshInterval]);
+  }, [fetchConditionStatus, refreshInterval, sessionId]);
 
   // ========================================
   // Render

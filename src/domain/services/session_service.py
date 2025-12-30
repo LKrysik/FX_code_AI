@@ -2,19 +2,35 @@
 Unified Session Lookup Service
 
 ✅ SESSION-003 FIX: Provides consistent session lookup across all endpoints
+✅ BUG-008-8: Session Lifecycle Tracking with enhanced lookup and validation
 
 This service centralizes session lookups to prevent inconsistent behavior:
 - Before: Different endpoints used different lookup strategies
 - After: Single service with unified lookup logic
 
+BUG-008-8 Enhancements:
+- Session ID validation before queries (AC5)
+- Enhanced "not found" responses with reasons (AC4)
+- Session audit logging (AC6)
+
 Lookup Strategy:
-1. Check ExecutionController (for active/running sessions)
-2. Check QuestDB (for completed/stopped sessions)
-3. Return None if not found
+1. Validate session ID format first
+2. Check ExecutionController (for active/running sessions)
+3. Check QuestDB (for completed/stopped sessions)
+4. Return detailed lookup result with reason
 """
 
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
+
+from src.domain.models.session_lifecycle import (
+    SessionState,
+    SessionLookupResult,
+    SessionLookupReason,
+    SessionAuditEntry,
+    validate_session_id,
+    is_valid_transition
+)
 
 
 class SessionService:
@@ -42,6 +58,10 @@ class SessionService:
         self.execution_controller = execution_controller
         self.db_provider = db_provider
         self.logger = logger
+
+        # BUG-008-8 AC6: Audit log for session lifecycle transitions
+        self._audit_log: List[SessionAuditEntry] = []
+        self._max_audit_entries = 1000  # Keep last 1000 entries in memory
 
     async def get_session(self, session_id: str, include_controller_status: bool = True) -> Optional[Dict[str, Any]]:
         """
@@ -274,3 +294,244 @@ class SessionService:
                 )
 
         return (True, None)
+
+    # =========================================================================
+    # BUG-008-8: Enhanced Session Lookup with Validation
+    # =========================================================================
+
+    async def lookup_session(
+        self,
+        session_id: str,
+        include_deleted: bool = False
+    ) -> SessionLookupResult:
+        """
+        BUG-008-8 AC4, AC5: Enhanced session lookup with validation and reason.
+
+        This method provides:
+        - Session ID format validation before database queries
+        - Clear reason when session is not found
+        - Distinction between "never existed" vs "deleted" vs "invalid format"
+
+        Args:
+            session_id: Session ID to lookup
+            include_deleted: If True, returns deleted sessions too
+
+        Returns:
+            SessionLookupResult with found status, reason, and session data
+        """
+        # AC5: Validate session ID format first (fail fast)
+        if not validate_session_id(session_id):
+            self.logger.warning("session_service.invalid_session_id_format", {
+                "session_id": session_id,
+                "reason": "format_validation_failed"
+            })
+            return SessionLookupResult(
+                found=False,
+                reason=SessionLookupReason.INVALID_FORMAT
+            )
+
+        # Check ExecutionController first (for active sessions)
+        if self.execution_controller:
+            controller_status = self.execution_controller.get_execution_status()
+
+            if controller_status and controller_status.get("session_id") == session_id:
+                session_data = {
+                    "session_id": session_id,
+                    "status": controller_status.get("status", "running"),
+                    "state": SessionState.ACTIVE.value,
+                    "mode": controller_status.get("mode"),
+                    "symbols": controller_status.get("symbols", []),
+                    "start_time": controller_status.get("start_time"),
+                    "source": "controller",
+                    "is_active": True
+                }
+                return SessionLookupResult(
+                    found=True,
+                    reason=SessionLookupReason.OK,
+                    session=session_data
+                )
+
+        # Check database (with or without deleted sessions)
+        try:
+            db_session = await self.db_provider.get_session_metadata(
+                session_id,
+                include_deleted=include_deleted
+            )
+
+            if db_session:
+                # Check if session is deleted
+                is_deleted = db_session.get("is_deleted", False)
+                deleted_at = db_session.get("deleted_at")
+
+                if is_deleted and not include_deleted:
+                    return SessionLookupResult(
+                        found=False,
+                        reason=SessionLookupReason.DELETED,
+                        deleted_at=deleted_at
+                    )
+
+                session_data = {
+                    "session_id": db_session.get("session_id"),
+                    "status": db_session.get("status", "completed"),
+                    "state": self._map_status_to_state(db_session.get("status"), is_deleted),
+                    "symbols": db_session.get("symbols", []),
+                    "data_types": db_session.get("data_types", []),
+                    "start_time": db_session.get("start_time"),
+                    "end_time": db_session.get("end_time"),
+                    "records_collected": db_session.get("records_collected", 0),
+                    "created_at": db_session.get("created_at"),
+                    "is_deleted": is_deleted,
+                    "deleted_at": deleted_at,
+                    "source": "database",
+                    "is_active": False
+                }
+
+                reason = SessionLookupReason.DELETED if is_deleted else SessionLookupReason.OK
+
+                return SessionLookupResult(
+                    found=True,
+                    reason=reason,
+                    session=session_data,
+                    deleted_at=deleted_at
+                )
+
+            # Session not found in database
+            self.logger.debug("session_service.session_never_existed", {
+                "session_id": session_id
+            })
+            return SessionLookupResult(
+                found=False,
+                reason=SessionLookupReason.NEVER_EXISTED
+            )
+
+        except Exception as e:
+            # BUG-008-8 AC3: Never log empty error messages
+            error_msg = str(e) if str(e) else type(e).__name__
+            self.logger.error("session_service.lookup_failed", {
+                "session_id": session_id,
+                "error": error_msg,
+                "error_type": type(e).__name__
+            })
+            # Return "never existed" on DB error (graceful degradation)
+            return SessionLookupResult(
+                found=False,
+                reason=SessionLookupReason.NEVER_EXISTED
+            )
+
+    def _map_status_to_state(self, status: Optional[str], is_deleted: bool) -> str:
+        """Map legacy status to SessionState."""
+        if is_deleted:
+            return SessionState.DELETED.value
+
+        status_mapping = {
+            "active": SessionState.ACTIVE.value,
+            "running": SessionState.ACTIVE.value,
+            "paused": SessionState.PAUSED.value,
+            "completed": SessionState.STOPPED.value,
+            "stopped": SessionState.STOPPED.value,
+            "failed": SessionState.STOPPED.value,
+            "creating": SessionState.CREATING.value,
+        }
+        return status_mapping.get(status, SessionState.STOPPED.value)
+
+    # =========================================================================
+    # BUG-008-8: Session Audit Logging (AC6)
+    # =========================================================================
+
+    def log_state_transition(
+        self,
+        session_id: str,
+        old_state: Optional[SessionState],
+        new_state: SessionState,
+        trigger: str,
+        actor: str = "system",
+        reason: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> SessionAuditEntry:
+        """
+        BUG-008-8 AC6: Log session state transition to audit log.
+
+        Args:
+            session_id: Session ID
+            old_state: Previous state (None for new sessions)
+            new_state: New state
+            trigger: What triggered the transition
+            actor: Who/what performed the action
+            reason: Optional reason for transition
+            metadata: Additional context
+
+        Returns:
+            Created audit entry
+        """
+        entry = SessionAuditEntry(
+            session_id=session_id,
+            timestamp=datetime.now(timezone.utc),
+            old_state=old_state,
+            new_state=new_state,
+            trigger=trigger,
+            actor=actor,
+            reason=reason,
+            metadata=metadata or {}
+        )
+
+        # Add to in-memory audit log
+        self._audit_log.append(entry)
+
+        # Trim if exceeds max
+        if len(self._audit_log) > self._max_audit_entries:
+            self._audit_log = self._audit_log[-self._max_audit_entries:]
+
+        # Log the transition
+        self.logger.info("session_service.state_transition", entry.to_dict())
+
+        return entry
+
+    def get_session_audit_log(
+        self,
+        session_id: Optional[str] = None,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """
+        Get audit log entries, optionally filtered by session.
+
+        Args:
+            session_id: Filter by session ID (None for all)
+            limit: Maximum entries to return
+
+        Returns:
+            List of audit log entries as dictionaries
+        """
+        entries = self._audit_log
+
+        if session_id:
+            entries = [e for e in entries if e.session_id == session_id]
+
+        # Return most recent entries
+        return [e.to_dict() for e in entries[-limit:]]
+
+    def validate_state_transition(
+        self,
+        session_id: str,
+        current_state: Optional[SessionState],
+        target_state: SessionState
+    ) -> tuple[bool, Optional[str]]:
+        """
+        Validate if a state transition is allowed.
+
+        Args:
+            session_id: Session ID for error messages
+            current_state: Current session state
+            target_state: Desired new state
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        if is_valid_transition(current_state, target_state):
+            return (True, None)
+
+        current_name = current_state.value if current_state else "None"
+        return (
+            False,
+            f"Invalid state transition for session {session_id}: "
+            f"{current_name} -> {target_state.value}"
+        )

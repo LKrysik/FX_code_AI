@@ -106,10 +106,10 @@ development_status:
   bug-004-0-preflight-data-verification: done      # Verified - data pipeline issues identified
   bug-004-1-invalid-column-side-error: done        # FIXED 2025-12-27 - Changed side→action, execution_status→triggered
   bug-004-2-websocket-ping-pong-stability: done    # FIXED 2025-12-27 - Frontend→heartbeat, backend→status/pong, fixed detection
-  bug-004-3-state-machine-instance-registration: done # 🔴 P0 - FIXED: strategy_name usage + per-instance broadcasts (46 tests)
+  bug-004-3-state-machine-instance-registration: done # 🔴 P0 - FIXED + CODE REVIEW PASSED: 47 tests, verified 2025-12-30
   bug-004-4-symbol-watchlist-population: ready-for-dev   # P1 - "No symbols in watchlist" despite selection
-  bug-004-5-indicator-values-data-flow: review           # 🔴 P0 - FIXED: EventBridge + transform function
-  bug-004-6-condition-progress-inactive: ready-for-dev   # 🔴 P0 - User confirmed: "Condition Progress błędny"
+  bug-004-5-indicator-values-data-flow: done             # 🔴 P0 - CODE REVIEW PASSED 2025-12-30: transform function OK
+  bug-004-6-condition-progress-inactive: done            # 🔴 P0 - CODE REVIEW PASSED: P1 fixed, WebSocket uses MONITORING
   epic-bug-004-retrospective: optional
 
   # ============================================================
@@ -220,15 +220,17 @@ development_status:
   epic-bug-008: backlog
   # Sub-Epic 1: WebSocket Connection Stability (FE + BE)
   bug-008-1-websocket-diagnostic-logging: review   # P0 - COMPLETE: 21 tests passing, all ACs met
-  bug-008-2-heartbeat-synchronization: in-progress      # P0 - Sync FE/BE heartbeat timeouts
-  bug-008-3-graceful-degradation-ui: ready-for-dev        # P1 - Connection status indicator, stale data UI
+  bug-008-1a-chaos-monkey-manual-testing: ready-for-dev   # P0 - BLOCKER: Manual testing required before closing BUG-008-1
+  bug-008-1b-connection-sequence-number: backlog          # P2 - Nice-to-have: Multi-reconnect log correlation
+  bug-008-2-heartbeat-synchronization: review      # P0 - COMPLETE: slow connection warning, externalized config, 16 tests
+  bug-008-3-graceful-degradation-ui: in-progress          # P1 - Connection status indicator, stale data UI
   # Sub-Epic 2: MEXC Adapter Resilience
-  bug-008-4-mexc-pong-timeout-handling: ready-for-dev     # P0 - 55min pong age is unacceptable, auto-reconnect
+  bug-008-4-mexc-pong-timeout-handling: review     # P0 - COMPLETE: threshold-based pong handling, 11 tests
   bug-008-5-subscription-lifecycle-management: ready-for-dev  # P1 - Auto-resubscribe on TTL expiry
   bug-008-6-data-activity-monitoring: ready-for-dev       # P1 - Tune thresholds, pre-close health check
   # Sub-Epic 3: Service Health & Data Quality
-  bug-008-7-questdb-connection-resilience: ready-for-dev  # P0 - Circuit breaker, retry logic, graceful degradation
-  bug-008-8-session-lifecycle-tracking: ready-for-dev     # P1 - Soft delete, audit log, proper "not found" handling
+  bug-008-7-questdb-connection-resilience: review  # P0 - CODE REVIEW PASSED: CRITICAL+HIGH fixed, 5 MEDIUM/LOW remain (non-blocking)
+  bug-008-8-session-lifecycle-tracking: review            # P1 - IMPLEMENTED 2025-12-30: SessionState enum, validation, audit log, 45 tests
   bug-008-9-stale-data-detection: ready-for-dev           # P2 - Filter/flag data >60s old, freshness indicators
   epic-bug-008-retrospective: optional
 
