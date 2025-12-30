@@ -226,7 +226,7 @@ development_status:
   bug-008-3-graceful-degradation-ui: done                 # P1 - CODE REVIEW PASSED 2025-12-30: All 6 ACs verified, 44 tests
   # Sub-Epic 2: MEXC Adapter Resilience
   bug-008-4-mexc-pong-timeout-handling: done       # P0 - CODE REVIEW PASSED 2025-12-30: 92 tests, 26% coverage
-  bug-008-5-subscription-lifecycle-management: review         # P1 - IMPLEMENTED 2025-12-30: SubscriptionRegistry, 35 tests passing
+  bug-008-5-subscription-lifecycle-management: done           # P1 - CODE REVIEW PASSED 2025-12-30: 35 tests, all 6 ACs verified
   bug-008-6-data-activity-monitoring: ready-for-dev       # P1 - Tune thresholds, pre-close health check
   # Sub-Epic 3: Service Health & Data Quality
   bug-008-7-questdb-connection-resilience: done    # P0 - CODE REVIEW PASSED 2025-12-30: 24 tests, follow-up in backlog
