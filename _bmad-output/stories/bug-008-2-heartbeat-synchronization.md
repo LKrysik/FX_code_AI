@@ -1,6 +1,6 @@
 # Story BUG-008-2: Heartbeat Synchronization FE-BE
 
-**Status:** review
+**Status:** done
 **Priority:** P0
 **Epic:** BUG-008 WebSocket Stability & Service Health
 

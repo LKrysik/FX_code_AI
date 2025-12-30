@@ -217,12 +217,12 @@ development_status:
   # Goal: Stable WebSocket connections, proper MEXC handling, service resilience
   # Source: docs/bug-008.md (2025-12-30)
   # ============================================================
-  epic-bug-008: backlog
+  epic-bug-008: in-progress  # Sub-Epic 1 (FE+BE) complete, Sub-Epic 2+3 in review
   # Sub-Epic 1: WebSocket Connection Stability (FE + BE)
-  bug-008-1-websocket-diagnostic-logging: review   # P0 - COMPLETE: 21 tests passing, all ACs met
-  bug-008-1a-chaos-monkey-manual-testing: in-progress      # P0 - Test environment verified, checklist created, REQUIRES MANUAL EXECUTION
+  bug-008-1-websocket-diagnostic-logging: done     # P0 - COMPLETE: 21 tests + manual testing (BUG-008-1a) PASSED 2025-12-30
+  bug-008-1a-chaos-monkey-manual-testing: done             # P0 - ALL 5 SCENARIOS PASSED 2025-12-30
   bug-008-1b-connection-sequence-number: backlog          # P2 - Nice-to-have: Multi-reconnect log correlation
-  bug-008-2-heartbeat-synchronization: review      # P0 - COMPLETE: slow connection warning, externalized config, 16 tests
+  bug-008-2-heartbeat-synchronization: done        # P0 - CODE REVIEW PASSED 2025-12-30: 19 tests, AC6 manual test pending
   bug-008-3-graceful-degradation-ui: done                 # P1 - CODE REVIEW PASSED 2025-12-30: All 6 ACs verified, 44 tests
   # Sub-Epic 2: MEXC Adapter Resilience
   bug-008-4-mexc-pong-timeout-handling: review     # P0 - COMPLETE: threshold-based pong handling, 11 tests
