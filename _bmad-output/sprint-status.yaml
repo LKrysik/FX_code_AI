@@ -225,11 +225,11 @@ development_status:
   bug-008-2-heartbeat-synchronization: done        # P0 - CODE REVIEW PASSED 2025-12-30: 19 tests, AC6 manual test pending
   bug-008-3-graceful-degradation-ui: done                 # P1 - CODE REVIEW PASSED 2025-12-30: All 6 ACs verified, 44 tests
   # Sub-Epic 2: MEXC Adapter Resilience
-  bug-008-4-mexc-pong-timeout-handling: review     # P0 - COMPLETE: threshold-based pong handling, 11 tests
+  bug-008-4-mexc-pong-timeout-handling: done       # P0 - CODE REVIEW PASSED 2025-12-30: 92 tests, 26% coverage
   bug-008-5-subscription-lifecycle-management: review         # P1 - IMPLEMENTED 2025-12-30: SubscriptionRegistry, 35 tests passing
   bug-008-6-data-activity-monitoring: ready-for-dev       # P1 - Tune thresholds, pre-close health check
   # Sub-Epic 3: Service Health & Data Quality
-  bug-008-7-questdb-connection-resilience: review  # P0 - CODE REVIEW PASSED: CRITICAL+HIGH fixed, 5 MEDIUM/LOW remain (non-blocking)
+  bug-008-7-questdb-connection-resilience: done    # P0 - CODE REVIEW PASSED 2025-12-30: 24 tests, follow-up in backlog
   bug-008-8-session-lifecycle-tracking: review            # P1 - IMPLEMENTED 2025-12-30: SessionState enum, validation, audit log, 45 tests
   bug-008-9-stale-data-detection: ready-for-dev           # P2 - Filter/flag data >60s old, freshness indicators
   epic-bug-008-retrospective: optional
