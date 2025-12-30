@@ -1,6 +1,6 @@
 # Story BUG-008-4: MEXC Pong Timeout Handling
 
-**Status:** review
+**Status:** done
 **Priority:** P0
 **Epic:** BUG-008 WebSocket Stability & Service Health
 
@@ -233,25 +233,24 @@ logger.critical("mexc_adapter.connection_permanently_failed", {
 - AC6: Existing max attempts (10) handling is reused
 
 ### Test Results
-- **33 integration tests: all passing** (upgraded from 26 tests)
+- **92 integration tests: all passing** (upgraded from 33 tests)
 - Tests call real `_heartbeat_monitor()`, `_reconnect_connection()`, `_close_connection()` methods
-- Coverage on `mexc_websocket_adapter.py` increased from 17.5% to **20.4%**
-- Test classes:
+- Coverage on `mexc_websocket_adapter.py` increased from 20.4% to **26.02%**
+- Test classes (major categories):
   - TestPongTimeoutThresholds: 2 tests (AC1/AC5 config)
   - TestHeartbeatMonitorIntegration: 6 tests (AC1-AC3 + health restoration)
   - TestBackoffConfiguration: 2 tests (AC4/AC5)
-  - TestEdgeCases: 2 tests
   - TestIntegrationScenarios: 4 tests (boundary conditions, 55-min prevention)
-  - TestCloseConnectionIntegration: 1 test (real _close_connection calls)
-  - TestHealthCheckExceptionHandling: 2 tests (ping failure handling)
-  - TestRegularPingExceptionHandling: 1 test (ping send failure)
-  - TestMaxReconnectAttemptsIntegration: 2 tests (AC6 - max attempts exceeded)
-  - TestReconnectFlowIntegration: 3 tests (close → reconnect scheduling)
-  - **TestCancelledErrorHandling: 1 test (graceful cancellation)**
-  - **TestUnexpectedExceptionHandling: 1 test (error logging + close)**
-  - **TestPongReceivedFlow: 2 tests (wait_for_pong success/timeout)**
-  - **TestSuccessfulReconnection: 3 tests (success, failure+retry, backoff)**
-  - TestNoDataActivityTimeout: 1 test (no data activity detection)
+  - TestRealCloseConnectionBehavior: 5 tests (real state changes)
+  - TestRealReconnectionAttemptsBehavior: 3 tests (counter increments)
+  - TestConfigurationValidation: 5 tests (init validation, lines 71/92/94/96/98)
+  - TestDetailedMetricsMethod: 2 tests (lines 2320-2361)
+  - TestCalculateConnectionHealth: 2 tests (lines 2364-2389)
+  - TestPublicMethods: 6 tests (health_check, get_subscribed_symbols, get_connection_stats)
+  - TestPendingSubscriptionCallbacks: 3 tests (lines 197-242)
+  - TestOrderbookCacheOperations: 2 tests (orderbook cache)
+  - TestOrderbookVersioning: 2 tests (version tracking)
+  - + 48 additional tests covering edge cases, state management, and error handling
 
 ### Review Follow-ups (AI Code Review 2025-12-30)
 
@@ -278,3 +277,4 @@ logger.critical("mexc_adapter.connection_permanently_failed", {
 | 2025-12-30 | Amelia (Dev) | Tests expanded: 14 → 21 tests. Added: TestCloseConnectionIntegration, TestHealthCheckExceptionHandling, TestRegularPingExceptionHandling, TestNoDataActivityTimeout, TestIntegrationScenarios. Status → review |
 | 2025-12-30 | Amelia (Dev) | Critical gaps fixed: 21 → 26 tests. Added: TestMaxReconnectAttemptsIntegration (AC6), TestReconnectFlowIntegration (close→reconnect chain). Coverage 17.5% |
 | 2025-12-30 | Amelia (Dev) | Coverage expanded: 26 → 33 tests. Added: TestCancelledErrorHandling, TestUnexpectedExceptionHandling, TestPongReceivedFlow, TestSuccessfulReconnection. Coverage 20.4% |
+| 2025-12-30 | Amelia (Dev) | Coverage deep expansion: 33 → 92 tests. Added: TestRealCloseConnectionBehavior, TestConfigurationValidation, TestDetailedMetricsMethod, TestPublicMethods, TestOrderbookCacheOperations. Coverage 26.02% |

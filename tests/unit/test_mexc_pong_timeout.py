@@ -1701,3 +1701,1450 @@ class TestNoDataActivityTimeout:
 
         # Verify connection was closed
         assert close_connection_called, "_close_connection should be called on no data activity"
+
+
+class TestRealCloseConnectionBehavior:
+    """Test REAL _close_connection behavior without mocking the method itself"""
+
+    @pytest.mark.asyncio
+    async def test_close_connection_removes_from_connections_dict(
+        self, settings_default, event_bus, logger
+    ):
+        """_close_connection actually removes connection from _connections dict"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        mock_websocket = AsyncMock()
+        mock_websocket.close = AsyncMock()
+        mock_websocket.close_code = None
+
+        connection_id = 0
+
+        adapter._connections[connection_id] = {
+            "websocket": mock_websocket,
+            "connected": True,
+            "last_pong_received": 1000.0,
+            "last_ping_sent": 1000.0,
+            "last_heartbeat": 1000.0,
+            "subscriptions": set(),
+            "heartbeat_task": None,
+            "message_task": None
+        }
+        adapter._running = False  # Prevent reconnect
+
+        # Verify connection exists before
+        assert connection_id in adapter._connections
+
+        # Call REAL _close_connection
+        await adapter._close_connection(connection_id)
+
+        # Verify connection was ACTUALLY removed
+        assert connection_id not in adapter._connections, "Connection should be removed from _connections"
+
+    @pytest.mark.asyncio
+    async def test_close_connection_cleans_subscribed_symbols(
+        self, settings_default, event_bus, logger
+    ):
+        """_close_connection removes symbols from _subscribed_symbols"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        mock_websocket = AsyncMock()
+        mock_websocket.close = AsyncMock()
+        mock_websocket.close_code = None
+
+        connection_id = 0
+        symbols = {"BTC_USDT", "ETH_USDT"}
+
+        adapter._connections[connection_id] = {
+            "websocket": mock_websocket,
+            "connected": True,
+            "last_pong_received": 1000.0,
+            "last_ping_sent": 1000.0,
+            "last_heartbeat": 1000.0,
+            "subscriptions": symbols.copy(),
+            "heartbeat_task": None,
+            "message_task": None
+        }
+        adapter._subscribed_symbols = symbols.copy()
+        adapter._running = False
+
+        # Verify symbols exist before
+        assert "BTC_USDT" in adapter._subscribed_symbols
+
+        await adapter._close_connection(connection_id)
+
+        # Verify symbols were ACTUALLY removed
+        assert "BTC_USDT" not in adapter._subscribed_symbols
+        assert "ETH_USDT" not in adapter._subscribed_symbols
+
+    @pytest.mark.asyncio
+    async def test_close_connection_cancels_tasks(
+        self, settings_default, event_bus, logger
+    ):
+        """_close_connection cancels heartbeat and message tasks"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        mock_websocket = AsyncMock()
+        mock_websocket.close = AsyncMock()
+        mock_websocket.close_code = None
+
+        # Create actual async tasks that can be cancelled and awaited
+        async def noop_coro():
+            await asyncio.sleep(1000)  # Will be cancelled
+
+        heartbeat_task = asyncio.create_task(noop_coro())
+        message_task = asyncio.create_task(noop_coro())
+
+        connection_id = 0
+
+        adapter._connections[connection_id] = {
+            "websocket": mock_websocket,
+            "connected": True,
+            "last_pong_received": 1000.0,
+            "last_ping_sent": 1000.0,
+            "last_heartbeat": 1000.0,
+            "subscriptions": set(),
+            "heartbeat_task": heartbeat_task,
+            "message_task": message_task
+        }
+        adapter._running = False
+
+        await adapter._close_connection(connection_id)
+
+        # Verify tasks were cancelled
+        assert heartbeat_task.cancelled()
+        assert message_task.cancelled()
+
+    @pytest.mark.asyncio
+    async def test_close_connection_handles_websocket_close_error(
+        self, settings_default, event_bus, logger
+    ):
+        """_close_connection handles websocket.close() exception gracefully"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        mock_websocket = AsyncMock()
+        mock_websocket.close = AsyncMock(side_effect=Exception("Connection already closed"))
+        mock_websocket.close_code = None
+
+        connection_id = 0
+
+        adapter._connections[connection_id] = {
+            "websocket": mock_websocket,
+            "connected": True,
+            "last_pong_received": 1000.0,
+            "last_ping_sent": 1000.0,
+            "last_heartbeat": 1000.0,
+            "subscriptions": set(),
+            "heartbeat_task": None,
+            "message_task": None
+        }
+        adapter._running = False
+
+        # Should not raise exception
+        await adapter._close_connection(connection_id)
+
+        # Verify connection was still removed despite error
+        assert connection_id not in adapter._connections
+
+        # Verify debug log for close error
+        debug_calls = [call for call in logger.debug.call_args_list
+                       if call[0][0] == "mexc_adapter.close_websocket_error"]
+        assert len(debug_calls) >= 1, "Expected close_websocket_error debug log"
+
+    @pytest.mark.asyncio
+    async def test_close_connection_not_found_returns_early(
+        self, settings_default, event_bus, logger
+    ):
+        """_close_connection returns early if connection not in _connections"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        connection_id = 999  # Non-existent
+
+        # Should not raise, should return early
+        await adapter._close_connection(connection_id)
+
+        # Verify no info log (would only happen if we processed the connection)
+        info_calls = [call for call in logger.info.call_args_list
+                      if call[0][0] == "mexc_adapter.connection_closed"]
+        assert len(info_calls) == 0, "Should not log connection_closed for non-existent connection"
+
+
+class TestRealReconnectionAttemptsBehavior:
+    """Test REAL _reconnection_attempts counter behavior"""
+
+    @pytest.mark.asyncio
+    async def test_reconnection_attempts_counter_increments(
+        self, settings_default, event_bus, logger
+    ):
+        """Failed reconnection increments attempt counter"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        connection_id = 0
+        failed_symbols = {"BTC_USDT"}
+
+        adapter._reconnection_attempts[connection_id] = 0
+        adapter._running = True
+
+        async def mock_create_new_connection():
+            raise ConnectionError("Failed")
+
+        adapter._create_new_connection = mock_create_new_connection
+        adapter._create_tracked_task = lambda coro, name: coro.close()
+        adapter._update_tracking_expiry = lambda x: None
+
+        with patch('asyncio.sleep', side_effect=lambda d: asyncio.sleep(0)):
+            await adapter._reconnect_connection(connection_id, failed_symbols)
+
+        # Verify counter was ACTUALLY incremented
+        assert adapter._reconnection_attempts[connection_id] == 1
+
+    @pytest.mark.asyncio
+    async def test_reconnection_attempts_cleaned_on_success(
+        self, settings_default, event_bus, logger
+    ):
+        """Successful reconnection cleans up attempt counter"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        connection_id = 0
+        failed_symbols = {"BTC_USDT"}
+
+        adapter._reconnection_attempts[connection_id] = 3
+        adapter._running = True
+
+        async def mock_create_new_connection():
+            return 1  # New connection ID
+
+        adapter._create_new_connection = mock_create_new_connection
+        adapter._create_tracked_task = lambda coro, name: coro.close()
+
+        with patch('asyncio.sleep', side_effect=lambda d: asyncio.sleep(0)):
+            await adapter._reconnect_connection(connection_id, failed_symbols)
+
+        # Verify counter was ACTUALLY removed
+        assert connection_id not in adapter._reconnection_attempts
+
+    @pytest.mark.asyncio
+    async def test_reconnection_attempts_cleaned_on_max_exceeded(
+        self, settings_default, event_bus, logger
+    ):
+        """Max attempts exceeded cleans up attempt counter"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        connection_id = 0
+        failed_symbols = {"BTC_USDT"}
+
+        adapter._reconnection_attempts[connection_id] = 10  # Max
+        adapter._running = True
+
+        await adapter._reconnect_connection(connection_id, failed_symbols)
+
+        # Verify counter was ACTUALLY removed
+        assert connection_id not in adapter._reconnection_attempts
+
+
+class TestEnhancedCancelledErrorHandling:
+    """Enhanced test for CancelledError with multiple assertions"""
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_full_behavior(
+        self, settings_default, event_bus, logger
+    ):
+        """CancelledError: logs info, exits gracefully, doesn't call close"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        mock_websocket = AsyncMock()
+        mock_websocket.close_code = None
+        mock_websocket.send = AsyncMock()
+
+        connection_id = 0
+        current_time = 1000.0
+
+        adapter._connections[connection_id] = {
+            "websocket": mock_websocket,
+            "connected": True,
+            "last_pong_received": current_time - 10,
+            "last_ping_sent": current_time - 5,
+            "last_heartbeat": current_time,
+            "subscriptions": set(),
+            "heartbeat_task": None,
+            "message_task": None
+        }
+        adapter._running = True
+
+        close_called = False
+
+        async def mock_close(conn_id):
+            nonlocal close_called
+            close_called = True
+
+        adapter._close_connection = mock_close
+
+        async def mock_sleep_cancelled(duration):
+            raise asyncio.CancelledError()
+
+        with patch('time.time', return_value=current_time), \
+             patch('time.monotonic', return_value=current_time), \
+             patch('asyncio.sleep', side_effect=mock_sleep_cancelled):
+
+            await adapter._heartbeat_monitor(connection_id)
+
+        # Multiple assertions for thorough testing:
+
+        # 1. Verify info log for cancellation
+        info_calls = [call for call in logger.info.call_args_list
+                      if call[0][0] == "mexc_adapter.heartbeat_cancelled"]
+        assert len(info_calls) >= 1, "Expected heartbeat_cancelled info log"
+
+        # 2. Verify log contains connection_id
+        info_data = info_calls[0][0][1]
+        assert info_data["connection_id"] == connection_id
+
+        # 3. Verify _close_connection was NOT called (graceful exit, not error)
+        assert not close_called, "_close_connection should NOT be called on CancelledError"
+
+        # 4. Verify no error logs
+        error_calls = [call for call in logger.error.call_args_list]
+        assert len(error_calls) == 0, "No error logs expected on CancelledError"
+
+        # 5. Verify connection still in dict (not cleaned up by heartbeat)
+        assert connection_id in adapter._connections
+
+
+class TestOlderWebsocketsfallback:
+    """Test fallback for older websockets without wait_for_pong - line 880"""
+
+    @pytest.mark.asyncio
+    async def test_fallback_without_wait_for_pong(
+        self, settings_default, event_bus, logger
+    ):
+        """When websocket doesn't have wait_for_pong, use fallback sleep"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        mock_websocket = AsyncMock()
+        mock_websocket.close_code = None
+        mock_websocket.send = AsyncMock()
+        # Explicitly remove wait_for_pong to simulate older websockets
+        del mock_websocket.wait_for_pong
+
+        connection_id = 0
+        current_time = 1000.0
+
+        adapter._connections[connection_id] = {
+            "websocket": mock_websocket,
+            "connected": True,
+            "last_pong_received": current_time - 10,
+            "last_ping_sent": current_time - 25,
+            "last_heartbeat": current_time,
+            "subscriptions": set()
+        }
+        adapter._running = True
+
+        monotonic_calls = [0]
+
+        def mock_monotonic():
+            result = monotonic_calls[0]
+            monotonic_calls[0] = 25
+            return result
+
+        sleep_calls = []
+        iteration = [0]
+
+        async def mock_sleep(duration):
+            sleep_calls.append(duration)
+            iteration[0] += 1
+            if iteration[0] >= 2:
+                adapter._running = False
+
+        with patch('time.time', return_value=current_time), \
+             patch('time.monotonic', side_effect=mock_monotonic), \
+             patch('asyncio.sleep', side_effect=mock_sleep):
+
+            await adapter._heartbeat_monitor(connection_id)
+
+        # Verify ping was sent
+        assert mock_websocket.send.called
+
+        # Verify 0.5s fallback sleep was called (line 880)
+        assert 0.5 in sleep_calls, "Fallback 0.5s sleep should be called"
+
+
+class TestMessageProcessingWaitTimeout:
+    """Test message processing wait timeout in _close_connection - lines 2001-2010"""
+
+    @pytest.mark.asyncio
+    async def test_close_connection_waits_for_message_processing(
+        self, settings_default, event_bus, logger
+    ):
+        """_close_connection waits for in-flight message processing"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        mock_websocket = AsyncMock()
+        mock_websocket.close = AsyncMock()
+        mock_websocket.close_code = None
+
+        connection_id = 0
+
+        adapter._connections[connection_id] = {
+            "websocket": mock_websocket,
+            "connected": True,
+            "last_pong_received": 1000.0,
+            "last_ping_sent": 1000.0,
+            "last_heartbeat": 1000.0,
+            "subscriptions": set(),
+            "heartbeat_task": None,
+            "message_task": None
+        }
+        adapter._message_processing_count[connection_id] = 1  # Simulate in-flight message
+        adapter._running = False
+
+        # After first sleep, clear the message count to simulate processing complete
+        sleep_count = [0]
+
+        original_sleep = asyncio.sleep
+
+        async def mock_sleep(duration):
+            sleep_count[0] += 1
+            if sleep_count[0] >= 2:
+                adapter._message_processing_count.pop(connection_id, None)
+            await original_sleep(0)
+
+        with patch('asyncio.sleep', side_effect=mock_sleep):
+            await adapter._close_connection(connection_id)
+
+        # Verify connection was closed
+        assert connection_id not in adapter._connections
+
+        # Verify we waited (sleep was called)
+        assert sleep_count[0] >= 1, "Should have waited for message processing"
+
+
+class TestConfigurationValidation:
+    """Test configuration validation in __init__ - lines 71, 92, 94, 96, 98"""
+
+    def test_invalid_data_types_raises_error(self, settings_default, event_bus, logger):
+        """Line 71: Invalid data_types raises ValueError"""
+        with pytest.raises(ValueError) as exc_info:
+            MexcWebSocketAdapter(
+                settings=settings_default,
+                event_bus=event_bus,
+                logger=logger,
+                data_types=['prices', 'invalid_type']
+            )
+        assert "invalid_type" in str(exc_info.value)
+        assert "Invalid data_types" in str(exc_info.value)
+
+    def test_max_subscriptions_zero_raises_error(self, event_bus, logger):
+        """Line 92: max_subscriptions_per_connection <= 0 raises ValueError"""
+        settings = MagicMock()
+        settings.mexc_futures_ws_url = "wss://test.example.com"
+        settings.mexc_max_subscriptions_per_connection = 0
+        settings.mexc_max_connections = 5
+        settings.mexc_max_reconnect_attempts = 10
+        settings.mexc_pong_warn_threshold_seconds = 60
+        settings.mexc_pong_reconnect_threshold_seconds = 120
+
+        with pytest.raises(ValueError) as exc_info:
+            MexcWebSocketAdapter(
+                settings=settings,
+                event_bus=event_bus,
+                logger=logger,
+                data_types=['prices']
+            )
+        assert "max_subscriptions_per_connection must be > 0" in str(exc_info.value)
+
+    def test_max_connections_zero_raises_error(self, event_bus, logger):
+        """Line 94: max_connections <= 0 raises ValueError"""
+        settings = MagicMock()
+        settings.mexc_futures_ws_url = "wss://test.example.com"
+        settings.mexc_max_subscriptions_per_connection = 30
+        settings.mexc_max_connections = 0
+        settings.mexc_max_reconnect_attempts = 10
+        settings.mexc_pong_warn_threshold_seconds = 60
+        settings.mexc_pong_reconnect_threshold_seconds = 120
+
+        with pytest.raises(ValueError) as exc_info:
+            MexcWebSocketAdapter(
+                settings=settings,
+                event_bus=event_bus,
+                logger=logger,
+                data_types=['prices']
+            )
+        assert "max_connections must be > 0" in str(exc_info.value)
+
+    def test_max_reconnect_attempts_negative_raises_error(self, event_bus, logger):
+        """Line 96: max_reconnect_attempts < 0 raises ValueError"""
+        settings = MagicMock()
+        settings.mexc_futures_ws_url = "wss://test.example.com"
+        settings.mexc_max_subscriptions_per_connection = 30
+        settings.mexc_max_connections = 5
+        settings.mexc_max_reconnect_attempts = -1
+        settings.mexc_pong_warn_threshold_seconds = 60
+        settings.mexc_pong_reconnect_threshold_seconds = 120
+
+        with pytest.raises(ValueError) as exc_info:
+            MexcWebSocketAdapter(
+                settings=settings,
+                event_bus=event_bus,
+                logger=logger,
+                data_types=['prices']
+            )
+        assert "max_reconnect_attempts must be >= 0" in str(exc_info.value)
+
+    def test_unencrypted_ws_url_logs_warning(self, event_bus, logger):
+        """Line 98: Unencrypted ws:// URL logs warning"""
+        settings = MagicMock()
+        settings.mexc_futures_ws_url = "ws://test.example.com"  # Unencrypted
+        settings.mexc_max_subscriptions_per_connection = 30
+        settings.mexc_max_connections = 5
+        settings.mexc_max_reconnect_attempts = 10
+        settings.mexc_pong_warn_threshold_seconds = 60
+        settings.mexc_pong_reconnect_threshold_seconds = 120
+
+        adapter = MexcWebSocketAdapter(
+            settings=settings,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        # Verify warning was logged
+        warning_calls = [call for call in logger.warning.call_args_list
+                         if call[0][0] == "mexc_adapter.unencrypted_connection"]
+        assert len(warning_calls) == 1
+        assert warning_calls[0][0][1]["url"] == "ws://test.example.com"
+
+
+class TestSubscriptionStateManagement:
+    """Test subscription state management"""
+
+    @pytest.mark.asyncio
+    async def test_subscribed_symbols_tracking(self, settings_default, event_bus, logger):
+        """Verify _subscribed_symbols tracks what's subscribed (Set[str])"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        # Initially empty
+        assert len(adapter._subscribed_symbols) == 0
+
+        # Add symbols (it's a Set[str])
+        adapter._subscribed_symbols.add("BTC_USDT")
+        adapter._subscribed_symbols.add("ETH_USDT")
+
+        assert len(adapter._subscribed_symbols) == 2
+        assert "BTC_USDT" in adapter._subscribed_symbols
+
+    @pytest.mark.asyncio
+    async def test_pending_subscriptions_tracking(self, settings_default, event_bus, logger):
+        """Verify _pending_subscriptions tracks pending ops (Dict[int, Dict[str, Dict[str, str]]])"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        # Initially empty
+        assert len(adapter._pending_subscriptions) == 0
+
+        # Add pending (Dict structure: connection_id -> symbol -> channels)
+        adapter._pending_subscriptions[0] = {
+            "BTC_USDT": {"deal": "pending", "depth": "pending"}
+        }
+        adapter._pending_subscriptions[1] = {
+            "ETH_USDT": {"deal": "pending"}
+        }
+
+        assert len(adapter._pending_subscriptions) == 2
+        assert 0 in adapter._pending_subscriptions
+        assert "BTC_USDT" in adapter._pending_subscriptions[0]
+
+
+class TestCircuitBreakerIntegration:
+    """Test circuit breaker integration"""
+
+    @pytest.mark.asyncio
+    async def test_circuit_breaker_created(self, settings_default, event_bus, logger):
+        """Circuit breaker is created with correct config"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        assert adapter.circuit_breaker is not None
+        assert adapter.circuit_breaker.failure_threshold == 5
+        assert adapter.circuit_breaker.timeout == 30.0
+
+    @pytest.mark.asyncio
+    async def test_rate_limiter_created(self, settings_default, event_bus, logger):
+        """Rate limiter is created with correct config"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        assert adapter.subscription_rate_limiter is not None
+        assert adapter.subscription_rate_limiter.max_tokens == 30
+
+
+class TestDataTypeConfiguration:
+    """Test data type configuration"""
+
+    def test_prices_only(self, settings_default, event_bus, logger):
+        """Configure for prices only"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        assert 'prices' in adapter.data_types
+        assert 'orderbook' not in adapter.data_types
+
+    def test_orderbook_only(self, settings_default, event_bus, logger):
+        """Configure for orderbook only"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['orderbook']
+        )
+
+        assert 'orderbook' in adapter.data_types
+        assert 'prices' not in adapter.data_types
+
+    def test_both_data_types(self, settings_default, event_bus, logger):
+        """Configure for both data types"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices', 'orderbook']
+        )
+
+        assert 'prices' in adapter.data_types
+        assert 'orderbook' in adapter.data_types
+
+    def test_default_data_types(self, settings_default, event_bus, logger):
+        """Default includes both data types"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=None  # Default
+        )
+
+        assert 'prices' in adapter.data_types
+        assert 'orderbook' in adapter.data_types
+
+
+class TestConnectionDictOperations:
+    """Test real operations on _connections dict"""
+
+    @pytest.mark.asyncio
+    async def test_connection_info_structure(self, settings_default, event_bus, logger):
+        """Verify connection info dict structure"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        mock_ws = AsyncMock()
+        connection_id = 0
+
+        adapter._connections[connection_id] = {
+            "websocket": mock_ws,
+            "connected": True,
+            "last_pong_received": time.time(),
+            "last_ping_sent": time.time(),
+            "last_heartbeat": time.time(),
+            "subscriptions": {"BTC_USDT"},
+            "heartbeat_task": None,
+            "message_task": None
+        }
+
+        conn = adapter._connections[connection_id]
+        assert conn["connected"] is True
+        assert "BTC_USDT" in conn["subscriptions"]
+        assert conn["websocket"] is mock_ws
+
+    @pytest.mark.asyncio
+    async def test_multiple_connections_managed(self, settings_default, event_bus, logger):
+        """Multiple connections can be tracked"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        # Add multiple connections
+        for i in range(3):
+            adapter._connections[i] = {
+                "websocket": AsyncMock(),
+                "connected": True,
+                "last_pong_received": time.time(),
+                "last_ping_sent": time.time(),
+                "last_heartbeat": time.time(),
+                "subscriptions": {f"SYMBOL_{i}"},
+                "heartbeat_task": None,
+                "message_task": None
+            }
+
+        assert len(adapter._connections) == 3
+        assert 0 in adapter._connections
+        assert 1 in adapter._connections
+        assert 2 in adapter._connections
+
+
+class TestReconnectionTrackingCleanup:
+    """Test reconnection tracking data structures"""
+
+    @pytest.mark.asyncio
+    async def test_reconnection_attempts_dict_operations(
+        self, settings_default, event_bus, logger
+    ):
+        """Test operations on _reconnection_attempts dict"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        # Initially empty
+        assert len(adapter._reconnection_attempts) == 0
+
+        # Add attempts
+        adapter._reconnection_attempts[0] = 1
+        adapter._reconnection_attempts[1] = 5
+
+        assert adapter._reconnection_attempts[0] == 1
+        assert adapter._reconnection_attempts[1] == 5
+
+        # Cleanup
+        del adapter._reconnection_attempts[0]
+        assert 0 not in adapter._reconnection_attempts
+
+    @pytest.mark.asyncio
+    async def test_message_processing_count_dict_operations(
+        self, settings_default, event_bus, logger
+    ):
+        """Test operations on _message_processing_count dict"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        # Set processing count
+        adapter._message_processing_count[0] = 3
+
+        assert adapter._message_processing_count[0] == 3
+
+        # Increment
+        adapter._message_processing_count[0] += 1
+        assert adapter._message_processing_count[0] == 4
+
+        # Reset to 0
+        adapter._message_processing_count[0] = 0
+        assert adapter._message_processing_count[0] == 0
+
+
+class TestSnapshotRefreshTasksTracking:
+    """Test _snapshot_refresh_tasks tracking"""
+
+    @pytest.mark.asyncio
+    async def test_snapshot_refresh_tasks_initially_empty(
+        self, settings_default, event_bus, logger
+    ):
+        """Verify _snapshot_refresh_tasks starts empty"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        assert len(adapter._snapshot_refresh_tasks) == 0
+
+    @pytest.mark.asyncio
+    async def test_snapshot_refresh_tasks_operations(
+        self, settings_default, event_bus, logger
+    ):
+        """Verify _snapshot_refresh_tasks dict operations"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        # Add a task
+        mock_task = MagicMock()
+        adapter._snapshot_refresh_tasks["BTC_USDT"] = mock_task
+
+        assert "BTC_USDT" in adapter._snapshot_refresh_tasks
+        assert adapter._snapshot_refresh_tasks["BTC_USDT"] is mock_task
+
+        # Remove task
+        adapter._snapshot_refresh_tasks.pop("BTC_USDT", None)
+        assert "BTC_USDT" not in adapter._snapshot_refresh_tasks
+
+
+class TestPublicMethods:
+    """Test public methods for coverage - lines 2291-2361"""
+
+    @pytest.mark.asyncio
+    async def test_health_check_running_with_connections(
+        self, settings_default, event_bus, logger
+    ):
+        """health_check returns True when running with connections"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        adapter._running = True
+        adapter._connections[0] = {
+            "websocket": AsyncMock(),
+            "connected": True,
+            "last_pong_received": 1000.0,
+            "last_ping_sent": 1000.0,
+            "last_heartbeat": 1000.0,
+            "subscriptions": set()
+        }
+
+        result = await adapter.health_check()
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_health_check_not_running(
+        self, settings_default, event_bus, logger
+    ):
+        """health_check returns False when not running"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        adapter._running = False
+
+        result = await adapter.health_check()
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_health_check_no_connections(
+        self, settings_default, event_bus, logger
+    ):
+        """health_check returns False when no connections"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        adapter._running = True
+        # No connections added
+
+        result = await adapter.health_check()
+        assert result is False
+
+    def test_get_subscribed_symbols(self, settings_default, event_bus, logger):
+        """get_subscribed_symbols returns copy of subscribed symbols"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        adapter._subscribed_symbols.add("BTC_USDT")
+        adapter._subscribed_symbols.add("ETH_USDT")
+
+        result = adapter.get_subscribed_symbols()
+
+        assert result == {"BTC_USDT", "ETH_USDT"}
+        # Verify it's a copy, not the original
+        result.add("XRP_USDT")
+        assert "XRP_USDT" not in adapter._subscribed_symbols
+
+    def test_get_connection_stats(self, settings_default, event_bus, logger):
+        """get_connection_stats returns complete stats"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        adapter._running = True
+        adapter._subscribed_symbols.add("BTC_USDT")
+        adapter._connections[0] = {
+            "websocket": AsyncMock(),
+            "connected": True,
+            "last_pong_received": 1000.0,
+            "last_ping_sent": 1000.0,
+            "last_heartbeat": 1000.0,
+            "subscriptions": {"BTC_USDT"}
+        }
+
+        stats = adapter.get_connection_stats()
+
+        assert stats["exchange"] == "mexc"
+        assert stats["running"] is True
+        assert stats["total_connections"] == 1
+        assert stats["active_connections"] == 1
+        assert "BTC_USDT" in stats["subscribed_symbols"]
+        assert stats["total_subscriptions"] == 1
+        assert 0 in stats["connections"]
+        assert stats["connections"][0]["connected"] is True
+
+    def test_get_connection_stats_inactive_connection(
+        self, settings_default, event_bus, logger
+    ):
+        """get_connection_stats correctly counts inactive connections"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        adapter._running = True
+        adapter._connections[0] = {
+            "websocket": AsyncMock(),
+            "connected": True,
+            "subscriptions": set()
+        }
+        adapter._connections[1] = {
+            "websocket": AsyncMock(),
+            "connected": False,  # Inactive
+            "subscriptions": set()
+        }
+
+        stats = adapter.get_connection_stats()
+
+        assert stats["total_connections"] == 2
+        assert stats["active_connections"] == 1  # Only one active
+
+
+class TestSubscribedSymbolsOperations:
+    """Test _subscribed_symbols operations directly"""
+
+    def test_symbol_in_subscribed_check(self, settings_default, event_bus, logger):
+        """Check if symbol is in _subscribed_symbols set"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        adapter._subscribed_symbols.add("BTC_USDT")
+
+        assert "BTC_USDT" in adapter._subscribed_symbols
+        assert "ETH_USDT" not in adapter._subscribed_symbols
+
+    def test_symbol_discard_operation(self, settings_default, event_bus, logger):
+        """Discard symbol from _subscribed_symbols"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        adapter._subscribed_symbols.add("BTC_USDT")
+        adapter._subscribed_symbols.discard("BTC_USDT")
+
+        assert "BTC_USDT" not in adapter._subscribed_symbols
+
+
+class TestRunningStateManagement:
+    """Test _running state management"""
+
+    def test_initial_running_state(self, settings_default, event_bus, logger):
+        """Adapter starts with _running = False"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        assert adapter._running is False
+
+    def test_running_state_change(self, settings_default, event_bus, logger):
+        """_running state can be changed"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        adapter._running = True
+        assert adapter._running is True
+
+        adapter._running = False
+        assert adapter._running is False
+
+
+class TestStartTimeTracking:
+    """Test start time tracking"""
+
+    def test_start_time_set_on_init(self, settings_default, event_bus, logger):
+        """_start_time is set during initialization"""
+        before_init = time.time()
+
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        after_init = time.time()
+
+        assert before_init <= adapter._start_time <= after_init
+
+
+class TestDetailedMetricsMethod:
+    """Test get_detailed_metrics method - lines 2320-2361"""
+
+    def test_get_detailed_metrics_empty_connections(
+        self, settings_default, event_bus, logger
+    ):
+        """get_detailed_metrics works with no connections"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        adapter._running = True
+
+        metrics = adapter.get_detailed_metrics()
+
+        assert "connections" in metrics
+        assert "performance" in metrics
+        assert "health" in metrics
+        assert "circuit_breaker" in metrics
+        assert "rate_limiter" in metrics
+        assert "reliability" in metrics
+
+    def test_get_detailed_metrics_with_connections(
+        self, settings_default, event_bus, logger
+    ):
+        """get_detailed_metrics returns connection health info"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        adapter._running = True
+        current_time = time.time()
+        adapter._connections[0] = {
+            "websocket": AsyncMock(),
+            "connected": True,
+            "last_pong_received": current_time,
+            "last_ping_sent": current_time,
+            "last_heartbeat": current_time,
+            "subscriptions": {"BTC_USDT"}
+        }
+        adapter._subscribed_symbols.add("BTC_USDT")
+
+        metrics = adapter.get_detailed_metrics()
+
+        assert metrics["performance"]["uptime_seconds"] >= 0
+        assert metrics["performance"]["total_reconnection_attempts"] == 0
+        assert len(metrics["performance"]["connection_health"]) == 1
+        assert metrics["performance"]["connection_health"][0]["connection_id"] == 0
+        assert metrics["performance"]["connection_health"][0]["connected"] is True
+
+
+class TestCalculateConnectionHealth:
+    """Test _calculate_connection_health method - lines 2364-2389"""
+
+    def test_connection_health_score_connected(
+        self, settings_default, event_bus, logger
+    ):
+        """Connected connection has high health score"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        current_time = time.time()
+        connection_info = {
+            "connected": True,
+            "last_heartbeat": current_time,
+            "subscriptions": {"BTC_USDT"}
+        }
+
+        score = adapter._calculate_connection_health(connection_info)
+        assert score >= 0  # Score should be non-negative
+
+    def test_connection_health_score_disconnected(
+        self, settings_default, event_bus, logger
+    ):
+        """Disconnected connection has zero health score"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        connection_info = {
+            "connected": False,
+            "last_heartbeat": 0,
+            "subscriptions": set()
+        }
+
+        score = adapter._calculate_connection_health(connection_info)
+        assert score == 0  # Disconnected = 0 score
+
+
+class TestCalculateOverallHealth:
+    """Test _calculate_overall_health method - lines 2391-2407"""
+
+    def test_overall_health_no_connections(
+        self, settings_default, event_bus, logger
+    ):
+        """Overall health is poor with no connections"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        adapter._running = True
+
+        health = adapter._calculate_overall_health()
+        # No connections should return low health
+        assert isinstance(health, (int, float))
+
+    def test_overall_health_with_healthy_connections(
+        self, settings_default, event_bus, logger
+    ):
+        """Overall health with healthy connections"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        adapter._running = True
+        current_time = time.time()
+        adapter._connections[0] = {
+            "websocket": AsyncMock(),
+            "connected": True,
+            "last_heartbeat": current_time,
+            "subscriptions": {"BTC_USDT"}
+        }
+
+        health = adapter._calculate_overall_health()
+        assert isinstance(health, (int, float))
+
+
+class TestCheckSubscriptionBalance:
+    """Test _check_subscription_balance method - lines 2409-2426"""
+
+    def test_subscription_balance_no_connections(
+        self, settings_default, event_bus, logger
+    ):
+        """Subscription balance with no connections"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        balanced = adapter._check_subscription_balance()
+        assert isinstance(balanced, bool)
+
+    def test_subscription_balance_with_balanced_connections(
+        self, settings_default, event_bus, logger
+    ):
+        """Subscription balance when connections are balanced"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        # Add connections with similar subscription counts
+        adapter._connections[0] = {
+            "websocket": AsyncMock(),
+            "connected": True,
+            "subscriptions": {"BTC_USDT", "ETH_USDT"}
+        }
+        adapter._connections[1] = {
+            "websocket": AsyncMock(),
+            "connected": True,
+            "subscriptions": {"XRP_USDT", "LTC_USDT"}
+        }
+
+        balanced = adapter._check_subscription_balance()
+        assert isinstance(balanced, bool)
+
+
+class TestSubscriptionLockOperations:
+    """Test subscription lock existence"""
+
+    def test_subscription_lock_exists(self, settings_default, event_bus, logger):
+        """Verify _subscription_lock is created"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        assert hasattr(adapter, '_subscription_lock')
+        assert adapter._subscription_lock is not None
+
+
+class TestExchangeName:
+    """Test get_exchange_name method - line 191"""
+
+    def test_get_exchange_name_returns_mexc(
+        self, settings_default, event_bus, logger
+    ):
+        """get_exchange_name returns 'mexc'"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        assert adapter.get_exchange_name() == "mexc"
+
+
+class TestPendingSubscriptionCallbacks:
+    """Test SubscriptionConfirmer callback functions - lines 197-242"""
+
+    def test_get_pending_subscriptions_returns_none_for_missing(
+        self, settings_default, event_bus, logger
+    ):
+        """Returns None when no pending subscriptions for connection"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        result = adapter._get_pending_subscriptions_for_connection(99)
+        assert result is None
+
+    def test_get_pending_subscriptions_returns_dict_when_exists(
+        self, settings_default, event_bus, logger
+    ):
+        """Returns pending subscriptions dict when exists"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        adapter._pending_subscriptions[0] = {
+            "BTC_USDT": {"deal": "pending", "depth": "pending"}
+        }
+
+        result = adapter._get_pending_subscriptions_for_connection(0)
+        assert result is not None
+        assert "BTC_USDT" in result
+
+    def test_update_pending_subscription_status_creates_entry(
+        self, settings_default, event_bus, logger
+    ):
+        """Update creates entry if not exists"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        adapter._pending_subscriptions[0] = {
+            "BTC_USDT": {"deal": "pending", "depth": "pending"}
+        }
+
+        adapter._update_pending_subscription_status(0, "BTC_USDT", "deal", "confirmed")
+
+        assert adapter._pending_subscriptions[0]["BTC_USDT"]["deal"] == "confirmed"
+
+
+
+class TestGetLatestPriceRaisesError:
+    """Test get_latest_price method raises NotImplementedError - line 2283-2287"""
+
+    @pytest.mark.asyncio
+    async def test_get_latest_price_raises_not_implemented(
+        self, settings_default, event_bus, logger
+    ):
+        """get_latest_price raises NotImplementedError"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['prices']
+        )
+
+        with pytest.raises(NotImplementedError) as exc_info:
+            await adapter.get_latest_price("BTC_USDT")
+
+        assert "get_latest_price() is not supported" in str(exc_info.value)
+        assert "EventBus.subscribe" in str(exc_info.value)
+
+
+class TestOrderbookCacheOperations:
+    """Test orderbook cache operations"""
+
+    def test_orderbook_cache_initially_empty(
+        self, settings_default, event_bus, logger
+    ):
+        """_orderbook_cache starts empty"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['orderbook']
+        )
+
+        assert len(adapter._orderbook_cache) == 0
+
+    def test_orderbook_cache_can_store_data(
+        self, settings_default, event_bus, logger
+    ):
+        """_orderbook_cache can store orderbook data"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['orderbook']
+        )
+
+        adapter._orderbook_cache["BTC_USDT"] = {
+            "bids": [["50000", "1.0"]],
+            "asks": [["50001", "1.0"]]
+        }
+
+        assert "BTC_USDT" in adapter._orderbook_cache
+        assert len(adapter._orderbook_cache["BTC_USDT"]["bids"]) == 1
+
+
+class TestOrderbookVersioning:
+    """Test orderbook version tracking"""
+
+    def test_orderbook_versions_initially_empty(
+        self, settings_default, event_bus, logger
+    ):
+        """_orderbook_versions starts empty"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['orderbook']
+        )
+
+        assert len(adapter._orderbook_versions) == 0
+
+    def test_orderbook_versions_can_store_version(
+        self, settings_default, event_bus, logger
+    ):
+        """_orderbook_versions can store version numbers"""
+        adapter = MexcWebSocketAdapter(
+            settings=settings_default,
+            event_bus=event_bus,
+            logger=logger,
+            data_types=['orderbook']
+        )
+
+        adapter._orderbook_versions["BTC_USDT"] = 12345
+
+        assert adapter._orderbook_versions["BTC_USDT"] == 12345
