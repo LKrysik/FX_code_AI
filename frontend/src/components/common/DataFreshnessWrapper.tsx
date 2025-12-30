@@ -5,10 +5,25 @@
  * ==============================
  * BUG-008-3: Wrapper component that displays data freshness indicators.
  *
+ * STATUS: OPTIONAL UTILITY - Not currently used in production.
+ * Existing components use useDataFreshness hook directly for more control.
+ * This wrapper is available for future panels that need quick integration.
+ *
  * Features:
  * - Shows "Updated X seconds ago" in header (AC3)
  * - Visual degradation (opacity 0.7) for stale data >60s (AC4)
  * - STALE badge for very old data >120s (AC4)
+ *
+ * When to use this vs useDataFreshness hook:
+ * - Use DataFreshnessWrapper: When you want automatic visual treatment (opacity, badge, header)
+ *   for an entire section with minimal code changes
+ * - Use useDataFreshness hook: When you need fine-grained control over how freshness
+ *   is displayed (custom styling, partial application, integration with existing UI)
+ *
+ * Current usage:
+ * - IndicatorValuesPanel: Uses useDataFreshness hook directly (custom header integration)
+ * - StateOverviewTable: Uses useDataFreshness hook directly (custom header integration)
+ * - Future panels: Can use this wrapper for quick integration
  *
  * Usage:
  * ```tsx

@@ -280,6 +280,7 @@ All core acceptance criteria implemented:
 | `frontend/src/app/layout.tsx` | ConnectionNotificationsProvider integrated | ✅ Clean |
 | `frontend/src/components/dashboard/IndicatorValuesPanel.tsx` | Integrated useDataFreshness for AC3/AC4 | ✅ Clean |
 | `frontend/src/components/dashboard/StateOverviewTable.tsx` | Added lastUpdateTime prop + useDataFreshness | ✅ Clean |
+| `frontend/src/components/dashboard/StateOverviewTable.integration.tsx` | Added lastUpdateTime state tracking + prop passing | ✅ Clean |
 
 ### Test Coverage
 
@@ -313,6 +314,44 @@ All core acceptance criteria implemented:
 
 ---
 
+## Manual E2E Verification Procedure (AC5 - Toast Notifications)
+
+**Purpose:** Verify toast notifications work end-to-end when WebSocket connection is lost/restored.
+
+### Prerequisites
+- Frontend running on `localhost:3000`
+- Backend running on `localhost:8000`
+- Browser DevTools open (Network tab)
+
+### Test Steps
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Open dashboard at `/dashboard` | Connection indicator shows "Connected" (green) |
+| 2 | Stop backend server (Ctrl+C) | Within 5s: Warning toast "Connection lost" appears, indicator shows "Reconnecting 1/5" |
+| 3 | Wait 10 seconds | Indicator shows countdown, attempts increment (2/5, 3/5...) |
+| 4 | Start backend server again | Within 5s: Success toast "Connection restored", indicator shows "Connected" |
+| 5 | (Alternative) Wait until max retries | Error toast "Unable to connect to server" appears (no auto-hide) |
+
+### Test for Data Freshness (AC3, AC4)
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Open dashboard with active session | IndicatorValuesPanel shows "Just now" or "Updated Xs ago" |
+| 2 | Stop backend for 60+ seconds | Panel shows "Updated 1m ago" in warning color |
+| 3 | Stop backend for 120+ seconds | Panel shows "STALE" badge, opacity reduced to 0.7 |
+
+### Test for Mobile Responsiveness
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Open DevTools, toggle device toolbar (Ctrl+Shift+M) | - |
+| 2 | Select iPhone SE (375px width) | Connection indicator fits in header without overflow |
+| 3 | Click indicator | Popover opens, fits on screen (max-width: 280px) |
+| 4 | Trigger reconnecting state | Label shows "Reconnecting..." with ellipsis if too long |
+
+---
+
 ## Change Log
 
 | Date | Author | Change |
@@ -322,3 +361,6 @@ All core acceptance criteria implemented:
 | 2025-12-30 | Amelia (Dev) | Enhancement: DataFreshnessWrapper component, useConnectionNotifications hook, app layout integration, 29 additional tests |
 | 2025-12-30 | Code Review Agent | Code Review: PASS - All 6 ACs verified, 44 tests, 0 blocking issues |
 | 2025-12-30 | Amelia (Dev) | Integration: Added useDataFreshness to IndicatorValuesPanel and StateOverviewTable for AC3/AC4 |
+| 2025-12-30 | Amelia (Dev) | Fix: StateOverviewTableIntegration now passes lastUpdateTime prop to enable AC3/AC4 freshness display |
+| 2025-12-30 | Code Review Agent | Advanced Elicitation Round 1: 9 methods, fixes (mobile responsive, 'use client', documentation) |
+| 2025-12-30 | Code Review Agent | Advanced Elicitation Round 2: 9 methods, CRITICAL fix (fake latency removed), documented over-engineering |

@@ -8,7 +8,7 @@
  *
  * AC1: Always visible in header/navbar
  * AC2: Green = connected, Yellow = reconnecting, Red = disconnected
- * AC3: Click shows connection details (latency, last message time)
+ * AC3: Click shows connection details (last message time; latency requires future ping/pong impl)
  * AC4: Updates within 2 seconds of connection change
  * AC5: Shows "disabled" state when WebSocket intentionally off
  *
@@ -96,15 +96,15 @@ export function ConnectionStatusIndicator() {
     }));
   }, [connectionStatus]);
 
-  // Simulate latency tracking (in real implementation, this would come from ping/pong)
+  // Track last message time on connection
+  // Note: Real latency measurement requires ping/pong implementation (future enhancement)
   useEffect(() => {
     if (isConnected) {
-      // Update last message time on connection
       lastMessageRef.current = Date.now();
       setDetails(prev => ({
         ...prev,
         lastMessageTime: Date.now(),
-        latency: Math.floor(Math.random() * 50) + 10, // Simulated 10-60ms
+        // Latency intentionally not set - would require ping/pong measurement
       }));
     }
   }, [isConnected]);
@@ -261,6 +261,13 @@ export function ConnectionStatusIndicator() {
         sx={{
           cursor: 'pointer',
           fontSize: '0.75rem',
+          // BUG-008-3: Mobile responsive - prevent label overflow
+          maxWidth: { xs: 150, sm: 200, md: 'none' },
+          '& .MuiChip-label': {
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          },
           '&:hover': {
             backgroundColor: 'action.hover',
           },
@@ -282,7 +289,8 @@ export function ConnectionStatusIndicator() {
           horizontal: 'right',
         }}
       >
-        <Box sx={{ p: 2, minWidth: 250 }}>
+        {/* BUG-008-3: Mobile responsive popover */}
+        <Box sx={{ p: 2, minWidth: { xs: 220, sm: 250 }, maxWidth: { xs: 280, sm: 320 } }}>
           <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
             Connection Status
           </Typography>
@@ -304,7 +312,7 @@ export function ConnectionStatusIndicator() {
             <ListItem disableGutters>
               <ListItemText
                 primary="Latency"
-                secondary={details.latency ? `${details.latency}ms` : 'N/A'}
+                secondary={details.latency ? `${details.latency}ms` : 'Not measured'}
               />
             </ListItem>
 

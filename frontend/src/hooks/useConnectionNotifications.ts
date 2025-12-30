@@ -42,6 +42,8 @@ export function useConnectionNotifications() {
   const previousStatusRef = useRef<ConnectionStatus>(connectionStatus);
   const hasNotifiedDisconnectRef = useRef(false);
   const hasNotifiedConnectRef = useRef(false);
+  const hasNotifiedFinalAttemptRef = useRef(false);
+  const previousReconnectAttemptsRef = useRef(reconnectAttempts);
 
   // Register wsService notification callback
   useEffect(() => {
@@ -118,15 +120,7 @@ export function useConnectionNotifications() {
         hasNotifiedDisconnectRef.current = true;
         hasNotifiedConnectRef.current = false;
       }
-
-      // Notify on final attempt
-      if (reconnectAttempts === maxReconnectAttempts) {
-        addNotification({
-          type: 'error',
-          message: `Final reconnection attempt (${reconnectAttempts}/${maxReconnectAttempts})`,
-          autoHide: false,
-        });
-      }
+      // Note: Final attempt notification is handled in separate useEffect below
       return;
     }
 
@@ -140,6 +134,33 @@ export function useConnectionNotifications() {
       return;
     }
   }, [connectionStatus, reconnectAttempts, maxReconnectAttempts, addNotification]);
+
+  // Detect final reconnection attempt (fires when attempts change, not just status)
+  useEffect(() => {
+    const previousAttempts = previousReconnectAttemptsRef.current;
+    previousReconnectAttemptsRef.current = reconnectAttempts;
+
+    // Reset flag when connection is restored
+    if (connectionStatus === 'connected') {
+      hasNotifiedFinalAttemptRef.current = false;
+      return;
+    }
+
+    // Notify on final attempt (only once)
+    if (
+      connectionStatus === 'reconnecting' &&
+      reconnectAttempts === maxReconnectAttempts &&
+      previousAttempts < maxReconnectAttempts &&
+      !hasNotifiedFinalAttemptRef.current
+    ) {
+      addNotification({
+        type: 'error',
+        message: `Final reconnection attempt (${reconnectAttempts}/${maxReconnectAttempts})`,
+        autoHide: false,
+      });
+      hasNotifiedFinalAttemptRef.current = true;
+    }
+  }, [reconnectAttempts, maxReconnectAttempts, connectionStatus, addNotification]);
 
   // Detect permanent failure (max reconnects reached)
   useEffect(() => {

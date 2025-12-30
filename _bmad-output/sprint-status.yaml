@@ -107,7 +107,7 @@ development_status:
   bug-004-1-invalid-column-side-error: done        # FIXED 2025-12-27 - Changed side→action, execution_status→triggered
   bug-004-2-websocket-ping-pong-stability: done    # FIXED 2025-12-27 - Frontend→heartbeat, backend→status/pong, fixed detection
   bug-004-3-state-machine-instance-registration: done # 🔴 P0 - FIXED + CODE REVIEW PASSED: 47 tests, verified 2025-12-30
-  bug-004-4-symbol-watchlist-population: ready-for-dev   # P1 - "No symbols in watchlist" despite selection
+  bug-004-4-symbol-watchlist-population: review   # P1 - FIXED: Query data_collection_sessions.symbols, 8 tests passing
   bug-004-5-indicator-values-data-flow: done             # 🔴 P0 - CODE REVIEW PASSED 2025-12-30: transform function OK
   bug-004-6-condition-progress-inactive: done            # 🔴 P0 - CODE REVIEW PASSED: P1 fixed, WebSocket uses MONITORING
   epic-bug-004-retrospective: optional
@@ -223,7 +223,7 @@ development_status:
   bug-008-1a-chaos-monkey-manual-testing: ready-for-dev   # P0 - BLOCKER: Manual testing required before closing BUG-008-1
   bug-008-1b-connection-sequence-number: backlog          # P2 - Nice-to-have: Multi-reconnect log correlation
   bug-008-2-heartbeat-synchronization: review      # P0 - COMPLETE: slow connection warning, externalized config, 16 tests
-  bug-008-3-graceful-degradation-ui: review               # P1 - COMPLETE: DataFreshnessWrapper, useConnectionNotifications, 44 tests
+  bug-008-3-graceful-degradation-ui: done                 # P1 - CODE REVIEW PASSED 2025-12-30: All 6 ACs verified, 44 tests
   # Sub-Epic 2: MEXC Adapter Resilience
   bug-008-4-mexc-pong-timeout-handling: review     # P0 - COMPLETE: threshold-based pong handling, 11 tests
   bug-008-5-subscription-lifecycle-management: review         # P1 - IMPLEMENTED 2025-12-30: SubscriptionRegistry, 35 tests passing
