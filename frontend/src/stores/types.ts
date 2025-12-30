@@ -81,9 +81,14 @@ export interface DashboardState {
 export interface WebSocketState {
   // Connection Status
   isConnected: boolean;
-  connectionStatus: 'connected' | 'disconnected' | 'connecting' | 'error' | 'disabled' | 'slow'; // BUG-008-2: Added 'slow' for connection degradation warning
+  connectionStatus: 'connected' | 'disconnected' | 'connecting' | 'reconnecting' | 'error' | 'disabled' | 'slow'; // BUG-008-2: Added 'slow' for connection degradation warning, BUG-008-3: Added 'reconnecting'
   lastConnected: number | null;
   lastDisconnected: number | null;
+
+  // BUG-008-3: Reconnection tracking (AC2)
+  reconnectAttempts: number;
+  maxReconnectAttempts: number;
+  nextRetryAt: number | null; // Timestamp when next retry will occur
 
   // Message Stats
   messagesReceived: number;
@@ -105,6 +110,10 @@ export interface WebSocketState {
   incrementMessagesSent: () => void;
   setLastError: (error: string | null) => void;
   resetStats: () => void;
+
+  // BUG-008-3: Reconnection actions
+  setReconnectState: (attempts: number, maxAttempts: number, nextRetryAt: number | null) => void;
+  resetReconnectState: () => void;
 
   // SEC-0-3: State sync actions
   setLastSyncTime: (time: Date | null) => void;

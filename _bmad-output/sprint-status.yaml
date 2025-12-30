@@ -223,10 +223,10 @@ development_status:
   bug-008-1a-chaos-monkey-manual-testing: ready-for-dev   # P0 - BLOCKER: Manual testing required before closing BUG-008-1
   bug-008-1b-connection-sequence-number: backlog          # P2 - Nice-to-have: Multi-reconnect log correlation
   bug-008-2-heartbeat-synchronization: review      # P0 - COMPLETE: slow connection warning, externalized config, 16 tests
-  bug-008-3-graceful-degradation-ui: in-progress          # P1 - Connection status indicator, stale data UI
+  bug-008-3-graceful-degradation-ui: review               # P1 - COMPLETE: DataFreshnessWrapper, useConnectionNotifications, 44 tests
   # Sub-Epic 2: MEXC Adapter Resilience
   bug-008-4-mexc-pong-timeout-handling: review     # P0 - COMPLETE: threshold-based pong handling, 11 tests
-  bug-008-5-subscription-lifecycle-management: ready-for-dev  # P1 - Auto-resubscribe on TTL expiry
+  bug-008-5-subscription-lifecycle-management: review         # P1 - IMPLEMENTED 2025-12-30: SubscriptionRegistry, 35 tests passing
   bug-008-6-data-activity-monitoring: ready-for-dev       # P1 - Tune thresholds, pre-close health check
   # Sub-Epic 3: Service Health & Data Quality
   bug-008-7-questdb-connection-resilience: review  # P0 - CODE REVIEW PASSED: CRITICAL+HIGH fixed, 5 MEDIUM/LOW remain (non-blocking)

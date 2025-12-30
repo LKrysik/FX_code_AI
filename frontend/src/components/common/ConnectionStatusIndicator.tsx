@@ -54,12 +54,14 @@ interface ConnectionDetails {
 }
 
 export function ConnectionStatusIndicator() {
-  const { isConnected, connectionStatus } = useWebSocketConnection();
+  const { isConnected, connectionStatus, reconnectAttempts, maxReconnectAttempts, nextRetryAt } = useWebSocketConnection();
   // SEC-0-3: Track sync status
   const syncStatus = useWebSocketStore(state => state.syncStatus);
   const lastSyncTime = useWebSocketStore(state => state.lastSyncTime);
   const [isSyncing, setIsSyncing] = useState(false);
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+  // BUG-008-3: Countdown timer state (AC2)
+  const [countdown, setCountdown] = useState<number | null>(null);
   const [details, setDetails] = useState<ConnectionDetails>({
     status: connectionStatus,
     latency: null,
@@ -67,6 +69,21 @@ export function ConnectionStatusIndicator() {
     url: 'ws://***:8000/ws',
     reconnectAttempts: 0,
   });
+
+  // BUG-008-3: Update countdown timer every second (AC2)
+  useEffect(() => {
+    if (nextRetryAt && connectionStatus === 'reconnecting') {
+      const updateCountdown = () => {
+        const remaining = Math.max(0, Math.ceil((nextRetryAt - Date.now()) / 1000));
+        setCountdown(remaining);
+      };
+      updateCountdown();
+      const interval = setInterval(updateCountdown, 1000);
+      return () => clearInterval(interval);
+    } else {
+      setCountdown(null);
+    }
+  }, [nextRetryAt, connectionStatus]);
 
   // Track last message time
   const lastMessageRef = useRef<number | null>(null);
@@ -99,6 +116,10 @@ export function ConnectionStatusIndicator() {
         return '#10B981'; // Green
       case 'connecting':
         return '#F59E0B'; // Yellow/Amber
+      case 'reconnecting':
+        return '#F59E0B'; // Yellow/Amber (BUG-008-3)
+      case 'slow':
+        return '#F59E0B'; // Yellow/Amber
       case 'disconnected':
         return '#EF4444'; // Red
       case 'error':
@@ -117,6 +138,12 @@ export function ConnectionStatusIndicator() {
         return 'Connected';
       case 'connecting':
         return 'Connecting...';
+      case 'reconnecting':
+        // BUG-008-3: Show attempt count and countdown (AC2)
+        const countdownText = countdown !== null && countdown > 0 ? ` (${countdown}s)` : '';
+        return `Reconnecting ${reconnectAttempts}/${maxReconnectAttempts}${countdownText}`;
+      case 'slow':
+        return 'Slow Connection';
       case 'disconnected':
         return 'Disconnected';
       case 'error':
@@ -134,6 +161,8 @@ export function ConnectionStatusIndicator() {
       case 'connected':
         return 'success';
       case 'connecting':
+      case 'reconnecting': // BUG-008-3
+      case 'slow':
         return 'warning';
       case 'disconnected':
       case 'error':
@@ -217,7 +246,8 @@ export function ConnectionStatusIndicator() {
             sx={{
               fontSize: 12,
               color: getStatusColor(),
-              animation: connectionStatus === 'connecting'
+              // BUG-008-3: Pulse animation for connecting and reconnecting
+              animation: (connectionStatus === 'connecting' || connectionStatus === 'reconnecting')
                 ? `${pulse} 1.5s ease-in-out infinite`
                 : 'none',
             }}
@@ -311,10 +341,40 @@ export function ConnectionStatusIndicator() {
                 secondary={formatLastSync()}
               />
             </ListItem>
+
+            {/* BUG-008-3: Reconnection progress details (AC2) */}
+            {connectionStatus === 'reconnecting' && (
+              <>
+                <ListItem disableGutters>
+                  <ListItemText
+                    primary="Reconnect Attempt"
+                    secondary={`${reconnectAttempts} of ${maxReconnectAttempts}`}
+                  />
+                </ListItem>
+                {countdown !== null && countdown > 0 && (
+                  <ListItem disableGutters>
+                    <ListItemText
+                      primary="Next Retry In"
+                      secondary={`${countdown} seconds`}
+                    />
+                  </ListItem>
+                )}
+              </>
+            )}
           </List>
 
-          {/* Show warning for non-connected states */}
-          {connectionStatus !== 'connected' && connectionStatus !== 'disabled' && (
+          {/* BUG-008-3: Reconnecting progress bar (AC2) */}
+          {connectionStatus === 'reconnecting' && (
+            <Box sx={{ mt: 1, p: 1, bgcolor: 'warning.light', borderRadius: 1 }}>
+              <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <RefreshIcon sx={{ fontSize: 14, animation: 'spin 1s linear infinite', '@keyframes spin': { from: { transform: 'rotate(0deg)' }, to: { transform: 'rotate(360deg)' } } }} />
+                Attempting to reconnect... ({reconnectAttempts}/{maxReconnectAttempts})
+              </Typography>
+            </Box>
+          )}
+
+          {/* Show warning for non-connected states (but not when reconnecting, as it has its own message) */}
+          {connectionStatus !== 'connected' && connectionStatus !== 'disabled' && connectionStatus !== 'reconnecting' && (
             <Box sx={{ mt: 1, p: 1, bgcolor: 'warning.light', borderRadius: 1 }}>
               <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                 <WarningIcon sx={{ fontSize: 14 }} />

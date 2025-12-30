@@ -16,6 +16,11 @@ const initialState = {
   lastConnected: null as number | null,
   lastDisconnected: null as number | null,
 
+  // BUG-008-3: Reconnection tracking (AC2)
+  reconnectAttempts: 0,
+  maxReconnectAttempts: 5,
+  nextRetryAt: null as number | null,
+
   // Message Stats
   messagesReceived: 0,
   messagesSent: 0,
@@ -90,6 +95,23 @@ export const useWebSocketStore = create<WebSocketState>()(
           });
         },
 
+        // BUG-008-3: Reconnection actions (AC2)
+        setReconnectState: (attempts: number, maxAttempts: number, nextRetryAt: number | null) => {
+          set({
+            reconnectAttempts: attempts,
+            maxReconnectAttempts: maxAttempts,
+            nextRetryAt,
+            connectionStatus: attempts > 0 ? 'reconnecting' : 'disconnected',
+          });
+        },
+
+        resetReconnectState: () => {
+          set({
+            reconnectAttempts: 0,
+            nextRetryAt: null,
+          });
+        },
+
         // SEC-0-3: State sync actions
         setLastSyncTime: (time: Date | null) => {
           set({
@@ -116,6 +138,10 @@ export const useWebSocketConnection = () => useWebSocketStore(state => ({
   connectionStatus: state.connectionStatus,
   lastConnected: state.lastConnected,
   lastDisconnected: state.lastDisconnected,
+  // BUG-008-3: Reconnection tracking (AC2)
+  reconnectAttempts: state.reconnectAttempts,
+  maxReconnectAttempts: state.maxReconnectAttempts,
+  nextRetryAt: state.nextRetryAt,
 }));
 
 export const useWebSocketStats = () => useWebSocketStore(state => ({

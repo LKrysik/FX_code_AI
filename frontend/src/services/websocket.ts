@@ -175,6 +175,8 @@ class WebSocketService {
       this.reconnectAttempts = 0; // Reset on successful connection
       this.safeStoreUpdate(() => {
         useWebSocketStore.getState().setConnectionStatus('connecting');
+        // BUG-008-3: Reset reconnect state on successful open
+        useWebSocketStore.getState().resetReconnectState();
       }, 'connection open');
       // Backend sends welcome message immediately, no handshake needed
       // Heartbeat will start after receiving welcome message
@@ -217,6 +219,15 @@ class WebSocketService {
       this.callbacks.onDisconnect?.(event.reason || 'Unknown reason');
       this.stopHeartbeat();
 
+      // BUG-008-3: Toast notification on connection lost (AC5)
+      if (isAbnormalClose) {
+        this.callbacks.onNotification?.({
+          type: 'warning',
+          message: `Connection lost: ${closeReasonText}`,
+          autoHide: true
+        });
+      }
+
       // Auto-reconnect if not intentionally closed
       if (event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
         const disconnectError = {
@@ -229,14 +240,46 @@ class WebSocketService {
 
         if (recoveryStrategy.shouldRetry) {
           const delay = this.getReconnectDelay();
+          const nextRetryAt = Date.now() + delay;
+
+          // BUG-008-3: Update store with reconnect state before starting timer
+          this.reconnectAttempts++;
+          this.safeStoreUpdate(() => {
+            useWebSocketStore.getState().setReconnectState(
+              this.reconnectAttempts,
+              this.maxReconnectAttempts,
+              nextRetryAt
+            );
+          }, 'reconnect state update');
+
+          // BUG-008-3: Toast notification on first reconnect attempt (AC5)
+          if (this.reconnectAttempts === 1) {
+            this.callbacks.onNotification?.({
+              type: 'info',
+              message: 'Reconnecting to server...',
+              autoHide: true
+            });
+          }
+
+          debugLog(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts}) with exponential backoff delay ${delay}ms`);
+
           setTimeout(() => {
-            this.reconnectAttempts++;
-            debugLog(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts}) with exponential backoff delay ${delay}ms`);
             this.connect();
           }, delay);
         } else {
           logUnifiedError(unifiedError);
         }
+      } else if (event.code !== 1000 && this.reconnectAttempts >= this.maxReconnectAttempts) {
+        // BUG-008-3: Toast notification on permanent failure (AC5)
+        this.callbacks.onNotification?.({
+          type: 'error',
+          message: 'Connection failed. Please refresh the page to reconnect.',
+          autoHide: false // Keep visible so user sees it
+        });
+        Logger.error('websocket.permanent_connection_failure', {
+          attempts: this.reconnectAttempts,
+          maxAttempts: this.maxReconnectAttempts
+        });
       }
     };
 
@@ -561,6 +604,10 @@ class WebSocketService {
     // Backend sends 'status: connected' instead of 'handshake_ack'
     if (message.type === 'status' && message.status === 'connected') {
       debugLog('Handshake accepted', message);
+
+      // BUG-008-3: Track if this was a reconnection for toast notification
+      const wasReconnecting = this.reconnectAttempts > 0;
+
       this.isConnected = true;
 
       // BUG-008-1: Capture client_id for correlation logging
@@ -572,6 +619,16 @@ class WebSocketService {
         useWebSocketStore.getState().setConnected(true);
         useWebSocketStore.getState().setConnectionStatus('connected');
       }, 'handshake response');
+
+      // BUG-008-3: Toast notification on reconnection success (AC5)
+      if (wasReconnecting) {
+        this.callbacks.onNotification?.({
+          type: 'success',
+          message: 'Connection restored',
+          autoHide: true
+        });
+      }
+
       this.flushSubscriptions();
       this.startHeartbeat(); // Start heartbeat after successful handshake
 

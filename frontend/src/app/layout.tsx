@@ -4,6 +4,7 @@ import ThemeProvider from '@/components/theme/ThemeProvider'
 import Layout from '@/components/layout/Layout'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import NotificationProvider from '@/components/common/NotificationProvider'
+import ConnectionNotificationsProvider from '@/components/common/ConnectionNotificationsProvider'
 import CsrfInitializer from '@/components/common/CsrfInitializer'
 import FrontendLogInitializer from '@/components/common/FrontendLogInitializer'
 
@@ -29,6 +30,7 @@ export default function RootLayout({
             <Layout>
               {children}
               <NotificationProvider />
+              <ConnectionNotificationsProvider />
             </Layout>
           </ErrorBoundary>
         </ThemeProvider>

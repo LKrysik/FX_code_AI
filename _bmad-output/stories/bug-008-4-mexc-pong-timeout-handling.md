@@ -1,6 +1,6 @@
 # Story BUG-008-4: MEXC Pong Timeout Handling
 
-**Status:** review
+**Status:** in-progress
 **Priority:** P0
 **Epic:** BUG-008 WebSocket Stability & Service Health
 
@@ -43,7 +43,7 @@ Log evidence shows extreme pong delays without action:
 3. **AC3:** Consecutive timeout counter escalates action severity
 4. **AC4:** Reconnection uses exponential backoff (1s, 2s, 4s, 8s, max 30s)
 5. **AC5:** Maximum reconnection attempts configurable (default: 10)
-6. **AC6:** After max attempts, escalate to ERROR and notify (optional: alert system)
+6. **AC6:** After max attempts, escalate to CRITICAL and notify (optional: alert system)
 
 ---
 
@@ -63,7 +63,7 @@ Log evidence shows extreme pong delays without action:
   - [x] `_reconnect_connection()` method already exists
   - [x] Exponential backoff: min(2^attempt, 30) with jitter
   - [x] Attempt count tracked per connection
-  - [x] Jitter: base_delay * 0.1 * hash % 100 / 100
+  - [x] Jitter: random.uniform(0, 0.25) added to base_delay
 
 - [x] Task 4: Implement max attempts handling (AC: 6)
   - [x] After max_attempts (10), stop reconnecting
@@ -74,6 +74,19 @@ Log evidence shows extreme pong delays without action:
   - [x] On first warning, send health check ping
   - [x] Track `health_check_sent` flag to avoid duplicate pings
   - [x] Reset flag on pong health restored
+
+### Review Follow-ups (AI)
+
+- [x] [AI-Review][HIGH] Uncommitted frontend changes belong to BUG-008-3, not BUG-008-4 - **RECLASSIFIED: Not a BUG-008-4 issue** (separate story scope)
+- [x] [AI-Review][HIGH] Untracked file for BUG-008-5 polluting working directory - **RECLASSIFIED: Not a BUG-008-4 issue** (future work item)
+
+**Deep Verification (2025-12-30):** AC1-AC6 implementation logic VERIFIED via pytest (11→14 tests) and code flow analysis. Reconnect chain confirmed: `_heartbeat_monitor()` → `_close_connection()` → `_reconnect_connection()`.
+- [x] [AI-Review][MEDIUM] Tests simulate heartbeat logic manually instead of calling actual _heartbeat_monitor - refactor to integration test [tests/unit/test_mexc_pong_timeout.py:149-159] ✅ FIXED - Tests now call real `_heartbeat_monitor()` with mocked time
+- [ ] [AI-Review][MEDIUM] Story File List incomplete vs commit 8bcff2c (21 files changed, only 3 documented) - update File List or create separate stories
+- [ ] [AI-Review][MEDIUM] DoD item #6 still unchecked: "Integration test: simulate network partition" - complete or document why skipped
+- [x] [AI-Review][MEDIUM] Test file has 65 lines uncommitted changes - commit or stash [tests/unit/test_mexc_pong_timeout.py] ✅ FIXED - Tests completely rewritten as proper integration tests (14 tests)
+- [ ] [AI-Review][LOW] AC4 backoff formula includes 16s step not mentioned in story (1,2,4,8,16,30 vs 1,2,4,8,30) - update story or implementation
+- [ ] [AI-Review][LOW] BUG-008-5 work undocumented - create story or remove file
 
 ---
 
@@ -138,17 +151,18 @@ def get_backoff_delay(attempt: int) -> float:
 
 ```python
 # WARNING at 60s
-logger.warning("mexc_adapter.pong_timeout_warning", {
+logger.warning("mexc_adapter.pong_age_exceeded_warn_threshold", {
     "connection_id": conn_id,
     "last_pong_age_seconds": age,
-    "action": "health_check_initiated"
+    "threshold_seconds": 60
 })
 
 # ERROR at 120s
-logger.error("mexc_adapter.pong_timeout_reconnecting", {
+logger.error("mexc_adapter.pong_age_exceeded_reconnect_threshold", {
     "connection_id": conn_id,
     "last_pong_age_seconds": age,
-    "action": "connection_closed_for_reconnect"
+    "threshold_seconds": 120,
+    "action": "closing_for_reconnect"
 })
 
 # CRITICAL after max attempts
@@ -167,7 +181,7 @@ logger.critical("mexc_adapter.connection_permanently_failed", {
 2. [x] Reconnection uses exponential backoff (min(2^attempt, 30) with jitter)
 3. [x] Max attempts limit prevents infinite loops (10 attempts default)
 4. [x] Logs clearly show timeout progression (warn/error/info events)
-5. [x] Unit tests cover all timeout scenarios (11 tests passing)
+5. [x] Unit tests cover all timeout scenarios (14 integration tests passing, call real `_heartbeat_monitor()`)
 6. [ ] Integration test: simulate network partition, verify recovery (REQUIRES MANUAL TEST)
 
 ---
@@ -179,8 +193,6 @@ logger.critical("mexc_adapter.connection_permanently_failed", {
 - `src/infrastructure/config/settings.py` - Added `mexc_pong_warn_threshold_seconds`, `mexc_pong_reconnect_threshold_seconds` fields to `ExchangeSettings`
 - `tests/unit/test_mexc_pong_timeout.py` - Fixed test fixtures to use Pydantic model properly
 
-**Added:**
-- `tests/unit/test_mexc_pong_timeout.py` - 11 unit tests for pong timeout handling
 
 ---
 
@@ -196,8 +208,18 @@ logger.critical("mexc_adapter.connection_permanently_failed", {
 - AC6: Existing max attempts (10) handling is reused
 
 ### Test Results
-- 11 unit tests: all passing
-- Tests cover: threshold configuration, warning triggers, reconnect triggers, health restoration, backoff calculation
+- **14 integration tests: all passing** (upgraded from 11 passive tests)
+- Tests call real `_heartbeat_monitor()` method with mocked time/sleep
+- Coverage on `mexc_websocket_adapter.py` increased from 9% to 15%
+- Tests cover: AC1 (warn threshold), AC2 (reconnect threshold), AC3 (consecutive timeouts), health restoration, backoff, edge cases
+
+### Review Follow-ups (AI Code Review 2025-12-30)
+
+- [x] [AI-Review][HIGH] Tests enhanced to verify actual behavior - Added logging and action assertions
+- [x] [AI-Review][HIGH] Dev Notes log event names corrected - Now match implementation
+- [x] [AI-Review][MEDIUM] Duplicate File List entry removed
+- [x] [AI-Review][MEDIUM] Jitter documentation updated to match implementation
+- [x] [AI-Review][MEDIUM] AC6 severity corrected to CRITICAL
 
 ---
 
@@ -208,3 +230,7 @@ logger.critical("mexc_adapter.connection_permanently_failed", {
 | 2025-12-30 | John (PM) | Story created from BUG-008 Epic |
 | 2025-12-30 | Amelia (Dev) | Implemented: threshold-based pong handling, 11 tests |
 | 2025-12-30 | Amelia (Dev) | Fixed: Added missing settings fields to ExchangeSettings, fixed test fixtures |
+| 2025-12-30 | Amelia (Dev) | Code Review: Found 2 HIGH, 4 MEDIUM, 2 LOW issues - 8 action items created. Status → in-progress |
+| 2025-12-30 | Code Review | Fixed: 2 HIGH, 3 MEDIUM issues - tests enhanced, docs corrected |
+| 2025-12-30 | Amelia (Dev) | Tests completely rewritten as proper integration tests (14 tests, 15% coverage on adapter) |
+| 2025-12-30 | Amelia (Dev) | Deep Verification: Ran pytest (14 passed), verified AC1-AC6 logic, confirmed reconnect flow. Reclassified H1/H2 as non-issues. |

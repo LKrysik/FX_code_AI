@@ -22,7 +22,8 @@ import {
 
 // Status Types
 export type SystemStatusType = 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
-export type WebSocketStatusType = 'connected' | 'disconnected' | 'connecting' | 'error';
+// BUG-008-3: Added 'reconnecting', 'slow', 'disabled' states
+export type WebSocketStatusType = 'connected' | 'disconnected' | 'connecting' | 'reconnecting' | 'error' | 'slow' | 'disabled';
 export type OverallStatusType = 'healthy' | 'warning' | 'error';
 export type SessionStatusType = 'running' | 'active' | 'stopped' | 'completed' | 'failed' | 'error';
 export type SignalType = 'pump' | 'dump';
@@ -59,8 +60,12 @@ export const getWebSocketStatusColor = (status: WebSocketStatusType): 'success' 
   switch (status) {
     case 'connected': return 'success';
     case 'connecting': return 'warning';
+    case 'reconnecting': return 'warning'; // BUG-008-3
+    case 'slow': return 'warning'; // BUG-008-3
     case 'disconnected': return 'warning';
     case 'error': return 'error';
+    case 'disabled': return 'default'; // BUG-008-3
+    default: return 'default';
   }
 };
 
@@ -68,8 +73,12 @@ export const getWebSocketStatusIcon = (status: WebSocketStatusType): React.React
   switch (status) {
     case 'connected': return <WifiIcon fontSize="small" color="success" />;
     case 'connecting': return <CircularProgress size={16} color="warning" />;
+    case 'reconnecting': return <CircularProgress size={16} color="warning" />; // BUG-008-3
+    case 'slow': return <WarningIcon fontSize="small" color="warning" />; // BUG-008-3
     case 'disconnected': return <WifiOffIcon fontSize="small" color="warning" />;
     case 'error': return <CloudOffIcon fontSize="small" color="error" />;
+    case 'disabled': return <WifiOffIcon fontSize="small" color="disabled" />; // BUG-008-3
+    default: return <WifiOffIcon fontSize="small" color="disabled" />;
   }
 };
 
@@ -77,8 +86,12 @@ export const getWebSocketStatusText = (status: WebSocketStatusType): string => {
   switch (status) {
     case 'connected': return 'Connected';
     case 'connecting': return 'Connecting...';
+    case 'reconnecting': return 'Reconnecting...'; // BUG-008-3
+    case 'slow': return 'Slow Connection'; // BUG-008-3
     case 'disconnected': return 'Disconnected';
     case 'error': return 'Connection Error';
+    case 'disabled': return 'Disabled'; // BUG-008-3
+    default: return 'Unknown';
   }
 };
 
@@ -179,10 +192,15 @@ export const convertWebSocketStatusToOverall = (status: WebSocketStatusType): Ov
     case 'connected':
       return 'healthy';
     case 'connecting':
+    case 'reconnecting': // BUG-008-3
+    case 'slow': // BUG-008-3
     case 'disconnected':
+    case 'disabled': // BUG-008-3
       return 'warning';
     case 'error':
       return 'error';
+    default:
+      return 'warning';
   }
 };
 

@@ -7,7 +7,8 @@ import { Logger } from './frontendLogService';
 
 interface HealthStatus {
   backend: 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
-  websocket: 'connected' | 'disconnected' | 'connecting' | 'error' | 'disabled';
+  // BUG-008-3: Added 'reconnecting' and 'slow' states
+  websocket: 'connected' | 'disconnected' | 'connecting' | 'reconnecting' | 'error' | 'slow' | 'disabled';
   overall: 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
   lastUpdated: number;
 }
@@ -127,27 +128,40 @@ class GlobalHealthService {
     }
   }
 
-  private mapWebSocketStatus(status: string): 'connected' | 'disconnected' | 'connecting' | 'error' {
+  // BUG-008-3: Updated to handle reconnecting, slow, disabled states
+  private mapWebSocketStatus(status: string): HealthStatus['websocket'] {
     switch (status) {
       case 'connected':
         return 'connected';
       case 'connecting':
         return 'connecting';
+      case 'reconnecting':
+        return 'reconnecting';
+      case 'slow':
+        return 'slow';
       case 'disconnected':
         return 'disconnected';
       case 'error':
         return 'error';
+      case 'disabled':
+        return 'disabled';
       default:
         return 'disconnected';
     }
   }
 
+  // BUG-008-3: Updated websocket parameter type to include all states
   private calculateOverallStatus(
     backend: 'healthy' | 'degraded' | 'unhealthy' | 'unknown',
-    websocket: 'connected' | 'disconnected' | 'connecting' | 'error' | 'disabled'
+    websocket: HealthStatus['websocket']
   ): 'healthy' | 'degraded' | 'unhealthy' | 'unknown' {
     // WebSocket connection is critical for real-time features
     if (websocket === 'error' || websocket === 'disconnected') {
+      return 'degraded';
+    }
+
+    // Reconnecting/slow indicates degraded service
+    if (websocket === 'reconnecting' || websocket === 'slow') {
       return 'degraded';
     }
 
