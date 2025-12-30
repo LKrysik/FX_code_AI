@@ -134,30 +134,26 @@ function sortInstances(instances: StateInstance[]): StateInstance[] {
 
 /**
  * Get row background color based on state
+ * @param state - Current state machine state
+ * @param theme - MUI theme object
+ * @param isHover - If true, returns hover color (higher alpha for visibility)
  */
-function getRowBackgroundColor(state: StateMachineState, theme: any): string {
-  switch (state) {
-    case 'POSITION_ACTIVE':
-      return alpha(theme.palette.error.main, 0.08);
-    case 'SIGNAL_DETECTED':
-      return alpha(theme.palette.warning.main, 0.08);
-    default:
-      return 'transparent';
-  }
-}
+function getRowBackgroundColor(
+  state: StateMachineState,
+  theme: any,
+  isHover: boolean = false
+): string {
+  // Alpha values: normal = 0.08, hover = 0.15 (more visible)
+  const alphaValue = isHover ? 0.15 : 0.08;
 
-/**
- * Get row hover background color based on state
- * Uses higher alpha (0.15) for colored rows to make hover more visible
- */
-function getRowHoverBackgroundColor(state: StateMachineState, theme: any): string {
   switch (state) {
     case 'POSITION_ACTIVE':
-      return alpha(theme.palette.error.main, 0.15);
+      return alpha(theme.palette.error.main, alphaValue);
     case 'SIGNAL_DETECTED':
-      return alpha(theme.palette.warning.main, 0.15);
+      return alpha(theme.palette.warning.main, alphaValue);
     default:
-      return alpha(theme.palette.action.hover, 0.04);
+      // Default: transparent for normal, subtle hover for interaction feedback
+      return isHover ? alpha(theme.palette.action.hover, 0.04) : 'transparent';
   }
 }
 
@@ -300,7 +296,7 @@ const StateOverviewTable: React.FC<StateOverviewTableProps> = ({
                     sx={{
                       backgroundColor: rowBgColor,
                       '&:hover': {
-                        backgroundColor: getRowHoverBackgroundColor(instance.state, theme),
+                        backgroundColor: getRowBackgroundColor(instance.state, theme, true),
                       },
                       cursor: onInstanceClick ? 'pointer' : 'default',
                     }}
