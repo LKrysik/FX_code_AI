@@ -1,6 +1,6 @@
 # Story COH-001-2: Unify Logger API Signatures
 
-**Status:** pending
+**Status:** review
 **Priority:** MEDIUM
 **Effort:** S (Small)
 
@@ -42,19 +42,19 @@ Logger.info('event.name', { key: 'value', count: 42 });
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Document current APIs (AC: 1, 2)
-  - [ ] Create logging style guide
-  - [ ] Document event type naming convention: `module.action`
-  - [ ] List all log levels and their usage
+- [x] Task 1: Document current APIs (AC: 1, 2)
+  - [x] Create logging style guide (`docs/LOGGING_STYLE_GUIDE.md`)
+  - [x] Document event type naming convention: `module.action`
+  - [x] List all log levels and their usage
 
-- [ ] Task 2: Align frontend Logger (AC: 3, 4)
-  - [ ] Make `data` parameter required (or provide empty object default)
-  - [ ] Add TypeScript overloads for backwards compat if needed
-  - [ ] Ensure consistent behavior
+- [x] Task 2: Align frontend Logger (AC: 3, 4)
+  - [x] Make `data` parameter required with default `{}`
+  - [x] No TypeScript overloads needed (backwards compat via default)
+  - [x] Consistent behavior verified
 
-- [ ] Task 3: Update usage patterns (AC: 3)
-  - [ ] Search for Logger calls without data parameter
-  - [ ] Add empty object where needed: `Logger.info('event', {})`
+- [x] Task 3: Update usage patterns (AC: 3)
+  - [x] Searched for Logger calls without data parameter - **none found**
+  - [x] All 426 Logger calls across 72 files already include data
 
 ## Dev Notes
 
@@ -86,8 +86,38 @@ info(eventType: string, data: Record<string, unknown> = {}): void
 
 ---
 
+## Dev Agent Record
+
+### Implementation Plan
+- Created comprehensive logging style guide
+- Updated frontend Logger to use explicit default `{}` for data parameter
+- Verified all 426 existing Logger calls already include data
+
+### Completion Notes
+- APIs were already more aligned than story indicated
+- Backend: `data: Dict[str, Any] = None` (optional with internal default)
+- Frontend: Updated to `data: Record<string, unknown> = {}` (explicit default)
+- All 426 Logger calls in 72 files already include data parameter
+- No code changes needed beyond Logger API update
+
+### Debug Log
+- No issues encountered
+
+---
+
+## File List
+
+**New Files:**
+- `docs/LOGGING_STYLE_GUIDE.md` - Comprehensive logging documentation
+
+**Modified Files:**
+- `frontend/src/services/frontendLogService.ts` - Updated data parameter to have explicit default
+
+---
+
 ## Change Log
 
 | Date | Author | Change |
 |------|--------|--------|
 | 2025-12-29 | John (PM) | Story created from Coherence Analysis |
+| 2025-12-30 | Amelia (Dev Agent) | Implemented: style guide + frontend Logger API alignment |

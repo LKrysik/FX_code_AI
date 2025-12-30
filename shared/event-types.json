@@ -1,0 +1,100 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "Single source of truth for event type constants shared between backend (Python) and frontend (TypeScript)",
+  "version": "1.0.0",
+  "lastUpdated": "2025-12-30",
+  "eventTypes": [
+    "market.price_update",
+    "market.orderbook_update",
+    "market.volume_update",
+    "market.ticker_update",
+    "pump.detected",
+    "dump.detected",
+    "reversal.detected",
+    "signal.detected",
+    "order.placed",
+    "order.filled",
+    "order.rejected",
+    "order.cancelled",
+    "order.expired",
+    "position.opening",
+    "position.opened",
+    "position.closing",
+    "position.closed",
+    "position.updated",
+    "risk.stop_loss_triggered",
+    "risk.take_profit_triggered",
+    "risk.emergency_condition_detected",
+    "risk.limit_exceeded",
+    "entry.conditions_passed",
+    "entry.conditions_failed",
+    "entry.signal_generated",
+    "system.startup",
+    "system.shutdown",
+    "system.error",
+    "system.health_check",
+    "exchange.connected",
+    "exchange.disconnected",
+    "exchange.error",
+    "exchange.reconnecting",
+    "config.loaded",
+    "config.updated",
+    "config.error"
+  ],
+  "categories": {
+    "marketData": [
+      "market.price_update",
+      "market.orderbook_update",
+      "market.volume_update",
+      "market.ticker_update"
+    ],
+    "signalDetection": [
+      "pump.detected",
+      "dump.detected",
+      "reversal.detected",
+      "signal.detected"
+    ],
+    "trading": [
+      "order.placed",
+      "order.filled",
+      "order.rejected",
+      "order.cancelled",
+      "order.expired"
+    ],
+    "position": [
+      "position.opening",
+      "position.opened",
+      "position.closing",
+      "position.closed",
+      "position.updated"
+    ],
+    "riskManagement": [
+      "risk.stop_loss_triggered",
+      "risk.take_profit_triggered",
+      "risk.emergency_condition_detected",
+      "risk.limit_exceeded"
+    ],
+    "entrySystem": [
+      "entry.conditions_passed",
+      "entry.conditions_failed",
+      "entry.signal_generated"
+    ],
+    "system": [
+      "system.startup",
+      "system.shutdown",
+      "system.error",
+      "system.health_check"
+    ],
+    "exchange": [
+      "exchange.connected",
+      "exchange.disconnected",
+      "exchange.error",
+      "exchange.reconnecting"
+    ],
+    "configuration": [
+      "config.loaded",
+      "config.updated",
+      "config.error"
+    ]
+  }
+}

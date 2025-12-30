@@ -1,6 +1,6 @@
 # Story COH-001-5: Fix Strategy Indicator Validation
 
-**Status:** pending
+**Status:** in-progress
 **Priority:** CRITICAL
 **Blocks:** Strategy save functionality
 

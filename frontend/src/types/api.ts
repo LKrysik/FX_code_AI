@@ -187,3 +187,8 @@ export interface TradingSession {
   start_time?: string;
   metrics?: Record<string, any>;
 }
+
+// Re-export EventType constants for convenience
+// Story COH-001-3: TypeScript EventType Definitions
+export { EventType, isEventType, getEventCategory, getEventAction } from './events';
+export type { EventTypeValue } from './events';

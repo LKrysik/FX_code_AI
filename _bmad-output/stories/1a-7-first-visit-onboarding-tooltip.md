@@ -1,6 +1,6 @@
 # Story 1A.7: First-Visit Onboarding Tooltip
 
-Status: in-progress
+Status: review
 
 ## Story
 
@@ -118,10 +118,26 @@ export function WelcomeTooltip({ onDismiss }: { onDismiss: () => void }) {
 ## Dev Agent Record
 
 ### Agent Model Used
-{{agent_model_name_version}}
+Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 ### Debug Log References
+N/A - No debug issues encountered
 
 ### Completion Notes List
+- Implemented `useOnboarding` hook with localStorage persistence for first-visit detection
+- Created `WelcomeTooltip` component with MUI Paper, Fade animation, and List for features
+- Hook provides `showOnboarding`, `dismissOnboarding`, and `resetOnboarding` functions
+- Tooltip is non-blocking (fixed position, no backdrop) and mobile-friendly (responsive maxWidth)
+- Integrated into dashboard page - tooltip appears on first visit, dismisses on "Got it!" click
+- All 26 tests passing (9 for useOnboarding hook, 17 for WelcomeTooltip component)
 
 ### File List
+- `frontend/src/hooks/useOnboarding.ts` (NEW)
+- `frontend/src/hooks/__tests__/useOnboarding.test.tsx` (NEW)
+- `frontend/src/components/onboarding/WelcomeTooltip.tsx` (NEW)
+- `frontend/src/components/onboarding/index.ts` (NEW)
+- `frontend/src/components/onboarding/__tests__/WelcomeTooltip.test.tsx` (NEW)
+- `frontend/src/app/dashboard/page.tsx` (MODIFIED - added imports and WelcomeTooltip integration)
+
+### Change Log
+- 2025-12-30: Story implemented with useOnboarding hook, WelcomeTooltip component, and dashboard integration. 26 tests added.

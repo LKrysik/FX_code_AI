@@ -26,6 +26,9 @@ export interface WSCallbacks {
   onSessionUpdate?: (data: any) => void;
   onStrategyUpdate?: (data: any) => void;
   onHealthCheck?: (data: any) => void;
+  // COH-001-4: Clean dependency boundary - store subscribes to service
+  onStateSync?: (data: { positions?: any[]; activeSignals?: any[]; timestamp: string }) => void;
+  onNotification?: (notification: { type: 'success' | 'error' | 'warning' | 'info'; message: string; autoHide?: boolean }) => void;
 }
 
 class WebSocketService {

@@ -129,28 +129,415 @@
     "workers": 4,
     "webServer": null
   },
-  "suites": [],
-  "errors": [
+  "suites": [
     {
-      "message": "Error: Playwright Test did not expect test.describe() to be called here.\nMost common reasons include:\n- You are calling test.describe() in a configuration file.\n- You are calling test.describe() in a file that is imported by the configuration file.\n- You have two different versions of @playwright/test. This usually happens\n  when one of the dependencies in your package.json depends on @playwright/test.",
-      "stack": "Error: Playwright Test did not expect test.describe() to be called here.\nMost common reasons include:\n- You are calling test.describe() in a configuration file.\n- You are calling test.describe() in a file that is imported by the configuration file.\n- You have two different versions of @playwright/test. This usually happens\n  when one of the dependencies in your package.json depends on @playwright/test.\n    at TestTypeImpl._currentSuite (C:\\Users\\lukasz.krysik\\Desktop\\FXcrypto\\FX_code_AI_v2\\frontend\\node_modules\\playwright\\lib\\common\\testType.js:75:13)\n    at TestTypeImpl._describe (C:\\Users\\lukasz.krysik\\Desktop\\FXcrypto\\FX_code_AI_v2\\frontend\\node_modules\\playwright\\lib\\common\\testType.js:115:24)\n    at Function.describe (C:\\Users\\lukasz.krysik\\Desktop\\FXcrypto\\FX_code_AI_v2\\frontend\\node_modules\\playwright\\lib\\transform\\transform.js:275:12)\n    at Object.<anonymous> (C:\\Users\\lukasz.krysik\\Desktop\\FXcrypto\\FX_code_AI_v2\\frontend\\tests\\e2e\\flows\\critical-paths.e2e.spec.ts:120:6)",
-      "location": {
-        "file": "C:\\Users\\lukasz.krysik\\Desktop\\FXcrypto\\FX_code_AI_v2\\frontend\\tests\\e2e\\flows\\critical-paths.e2e.spec.ts",
-        "column": 6,
-        "line": 120
-      },
-      "snippet": "\u001b[90m   at \u001b[39mflows\\critical-paths.e2e.spec.ts:120\n\n\u001b[0m \u001b[90m 118 |\u001b[39m \u001b[90m// ============================================\u001b[39m\n \u001b[90m 119 |\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 120 |\u001b[39m test\u001b[33m.\u001b[39mdescribe(\u001b[32m'[P0] Dashboard - Critical Path'\u001b[39m\u001b[33m,\u001b[39m () \u001b[33m=>\u001b[39m {\n \u001b[90m     |\u001b[39m      \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 121 |\u001b[39m   test\u001b[33m.\u001b[39mbeforeEach(\u001b[36masync\u001b[39m ({ network }) \u001b[33m=>\u001b[39m {\n \u001b[90m 122 |\u001b[39m     \u001b[90m// CRITICAL: Mock API BEFORE navigation (network-first pattern)\u001b[39m\n \u001b[90m 123 |\u001b[39m     \u001b[36mawait\u001b[39m network\u001b[33m.\u001b[39mmock({\u001b[0m"
-    },
-    {
-      "message": "Error: No tests found.\nMake sure that arguments are regular expressions matching test files.\nYou may need to escape symbols like \"$\" or \"*\" and quote the arguments.",
-      "stack": "Error: No tests found.\nMake sure that arguments are regular expressions matching test files.\nYou may need to escape symbols like \"$\" or \"*\" and quote the arguments."
+      "title": "flows\\trading-modes.e2e.spec.ts",
+      "file": "flows/trading-modes.e2e.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "[P1] Live Trading Session Flow",
+          "file": "flows/trading-modes.e2e.spec.ts",
+          "line": 117,
+          "column": 6,
+          "specs": [
+            {
+              "title": "[P1] User can access Live trading mode",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "e2e",
+                  "projectName": "e2e",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fc2ba156d4c4f3561130-3d8582fa681d99fa2fcb",
+              "file": "flows/trading-modes.e2e.spec.ts",
+              "line": 144,
+              "column": 7
+            },
+            {
+              "title": "[P1] Live mode can be selected",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "e2e",
+                  "projectName": "e2e",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fc2ba156d4c4f3561130-50208f8263393f95eea4",
+              "file": "flows/trading-modes.e2e.spec.ts",
+              "line": 158,
+              "column": 7
+            },
+            {
+              "title": "[P1] Live mode shows risk warnings",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "e2e",
+                  "projectName": "e2e",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fc2ba156d4c4f3561130-e3073fbfc9e24c94599a",
+              "file": "flows/trading-modes.e2e.spec.ts",
+              "line": 183,
+              "column": 7
+            },
+            {
+              "title": "[P1] Live session start requires confirmation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "e2e",
+                  "projectName": "e2e",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fc2ba156d4c4f3561130-0ff3941e1610e4420093",
+              "file": "flows/trading-modes.e2e.spec.ts",
+              "line": 206,
+              "column": 7
+            },
+            {
+              "title": "[P1] Live session displays real account balance",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "e2e",
+                  "projectName": "e2e",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fc2ba156d4c4f3561130-63dbf150c488a5d966fc",
+              "file": "flows/trading-modes.e2e.spec.ts",
+              "line": 246,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "[P1] Backtesting Session Flow",
+          "file": "flows/trading-modes.e2e.spec.ts",
+          "line": 278,
+          "column": 6,
+          "specs": [
+            {
+              "title": "[P1] User can access Backtest mode",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "e2e",
+                  "projectName": "e2e",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fc2ba156d4c4f3561130-30a583a36f2d4aab5655",
+              "file": "flows/trading-modes.e2e.spec.ts",
+              "line": 309,
+              "column": 7
+            },
+            {
+              "title": "[P1] Backtest mode can be selected",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "e2e",
+                  "projectName": "e2e",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fc2ba156d4c4f3561130-23639aad9271a33d9a94",
+              "file": "flows/trading-modes.e2e.spec.ts",
+              "line": 323,
+              "column": 7
+            },
+            {
+              "title": "[P1] Backtest mode shows date range configuration",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "e2e",
+                  "projectName": "e2e",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fc2ba156d4c4f3561130-47cdf1e595391dbbc2ef",
+              "file": "flows/trading-modes.e2e.spec.ts",
+              "line": 342,
+              "column": 7
+            },
+            {
+              "title": "[P1] Backtest can be started",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "e2e",
+                  "projectName": "e2e",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fc2ba156d4c4f3561130-c70e04318adc625d8f2b",
+              "file": "flows/trading-modes.e2e.spec.ts",
+              "line": 364,
+              "column": 7
+            },
+            {
+              "title": "[P1] Backtest results are displayed",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "e2e",
+                  "projectName": "e2e",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fc2ba156d4c4f3561130-80303e11e1e55912bac4",
+              "file": "flows/trading-modes.e2e.spec.ts",
+              "line": 402,
+              "column": 7
+            },
+            {
+              "title": "[P1] Backtest shows trade history",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "e2e",
+                  "projectName": "e2e",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fc2ba156d4c4f3561130-572756bdd7c2658f7885",
+              "file": "flows/trading-modes.e2e.spec.ts",
+              "line": 435,
+              "column": 7
+            },
+            {
+              "title": "[P1] Backtest metrics are formatted correctly",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "e2e",
+                  "projectName": "e2e",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fc2ba156d4c4f3561130-57fcebb705f174049a90",
+              "file": "flows/trading-modes.e2e.spec.ts",
+              "line": 461,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "[P1] Mode Switching",
+          "file": "flows/trading-modes.e2e.spec.ts",
+          "line": 494,
+          "column": 6,
+          "specs": [
+            {
+              "title": "[P1] Can switch between all three modes",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "e2e",
+                  "projectName": "e2e",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fc2ba156d4c4f3561130-eac36b0abdeeef047b3e",
+              "file": "flows/trading-modes.e2e.spec.ts",
+              "line": 509,
+              "column": 7
+            },
+            {
+              "title": "[P1] Strategy selection persists across mode switch",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "e2e",
+                  "projectName": "e2e",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fc2ba156d4c4f3561130-b790f549e7d288af3dac",
+              "file": "flows/trading-modes.e2e.spec.ts",
+              "line": 532,
+              "column": 7
+            },
+            {
+              "title": "[P1] Symbol selection persists across mode switch",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "e2e",
+                  "projectName": "e2e",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fc2ba156d4c4f3561130-b330ab077f0da85bd745",
+              "file": "flows/trading-modes.e2e.spec.ts",
+              "line": 565,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "[P2] Mode-Specific UI Elements",
+          "file": "flows/trading-modes.e2e.spec.ts",
+          "line": 598,
+          "column": 6,
+          "specs": [
+            {
+              "title": "[P2] Paper mode shows simulation indicator",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "e2e",
+                  "projectName": "e2e",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fc2ba156d4c4f3561130-70e2a213a2324ceda501",
+              "file": "flows/trading-modes.e2e.spec.ts",
+              "line": 613,
+              "column": 7
+            },
+            {
+              "title": "[P2] Backtest mode shows historical data selector",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "e2e",
+                  "projectName": "e2e",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fc2ba156d4c4f3561130-ab2167e9bb4350accf8b",
+              "file": "flows/trading-modes.e2e.spec.ts",
+              "line": 634,
+              "column": 7
+            },
+            {
+              "title": "[P2] Live mode shows real trading disclaimer",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "e2e",
+                  "projectName": "e2e",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fc2ba156d4c4f3561130-b25f43d6cee61aaa5f5e",
+              "file": "flows/trading-modes.e2e.spec.ts",
+              "line": 655,
+              "column": 7
+            }
+          ]
+        }
+      ]
     }
   ],
+  "errors": [],
   "stats": {
-    "startTime": "2025-12-30T00:10:59.035Z",
-    "duration": 21274.692000000003,
+    "startTime": "2025-12-30T00:22:17.342Z",
+    "duration": 2300.343,
     "expected": 0,
-    "skipped": 0,
+    "skipped": 18,
     "unexpected": 0,
     "flaky": 0
   }

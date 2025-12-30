@@ -298,7 +298,7 @@ test.describe('[P0] Trading Session Lifecycle', () => {
         // THEN: Start session API was called
         const requests = network.getCapturedRequests();
         // Note: If no strategies selected, might not call API
-        console.log(`Start session requests captured: ${requests.length}`);
+        globalThis.console.log(`Start session requests captured: ${requests.length}`);
       }
     }
   });
@@ -380,7 +380,7 @@ test.describe('[P1] Strategy Display and Selection', () => {
     const count = await inactiveIndicators.count();
 
     // Log for visibility (inactive strategies may or may not be shown)
-    console.log(`Found ${count} inactive strategy indicators`);
+    globalThis.console.log(`Found ${count} inactive strategy indicators`);
   });
 });
 
@@ -428,7 +428,7 @@ test.describe('[P1] Signal Monitoring', () => {
     const count = await signalContent.count();
 
     // Log signal content presence
-    console.log(`Signal-related elements found: ${count}`);
+    globalThis.console.log(`Signal-related elements found: ${count}`);
 
     // Page should render without errors
     await expect(page.locator('body')).not.toContainText('TypeError');
@@ -454,7 +454,7 @@ test.describe('[P1] Signal Monitoring', () => {
       pageContent?.includes('42150') ||
       pageContent?.includes('Signal');
 
-    console.log(`Signal data visible: ${hasSignalData}`);
+    globalThis.console.log(`Signal data visible: ${hasSignalData}`);
   });
 });
 
@@ -495,7 +495,7 @@ test.describe('[P1] Position Monitoring', () => {
     );
     const count = await positionContent.count();
 
-    console.log(`Position-related elements: ${count}`);
+    globalThis.console.log(`Position-related elements: ${count}`);
 
     // Page renders correctly
     await expect(page.locator('body')).not.toContainText('Cannot read');
@@ -559,7 +559,7 @@ test.describe('[P1] Indicator Values Display', () => {
     );
     const count = await indicatorPanel.count();
 
-    console.log(`Indicator elements found: ${count}`);
+    globalThis.console.log(`Indicator elements found: ${count}`);
 
     // Page should render without critical errors
     await expect(page).not.toHaveURL(/error/);

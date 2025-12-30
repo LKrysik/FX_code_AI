@@ -72,8 +72,8 @@ development_status:
   1a-4-human-vocabulary-labels: review  # Completed 2025-12-27 - stateVocabulary.ts, 25 tests
   1a-5-statushero-component: done  # Completed 2025-12-27 - StatusHero, useStatusHeroData hook, 30+ tests
   1a-6-signal-type-color-coding: done  # Completed 2025-12-27 - signalColors.ts, 21 tests
-  1a-7-first-visit-onboarding-tooltip: in-progress
-  1a-8-quick-start-option: in-progress  # Started 2025-12-30
+  1a-7-first-visit-onboarding-tooltip: review  # Completed 2025-12-30 - useOnboarding hook, WelcomeTooltip, 26 tests
+  1a-8-quick-start-option: done  # Completed 2025-12-30 - QuickStartButton, quickStartStrategy.ts, verified
   epic-1a-retrospective: optional
 
   # ============================================================
@@ -90,8 +90,9 @@ development_status:
   bug-003-6-active-positions-display: done    # FIXED 2025-12-27 - Correct API URL
   bug-003-7-page-refresh-flickering: done     # FIXED 2025-12-27 - Background refresh without loading
   bug-003-8-condition-progress-collapse: done # FIXED 2025-12-27 - Controlled accordion state
-  bug-003-9-ux-designer-review: ready-for-dev    # Requires UX Designer agent review
-  bug-003-10-e2e-test-coverage: ready-for-dev    # Requires TEA agent for E2E tests
+  bug-003-9-ux-designer-review: review    # UX Review completed 2025-12-30 - 15 issues, 3 user stories, 9 verification methods
+  bug-003-9a-ux-validation-plan: ready-for-dev  # BLOCKING - User research before UX implementation
+  bug-003-10-e2e-test-coverage: done    # Completed 2025-12-30 - 56 E2E tests
   bug-003-11-order-persistence-oserror: done  # FIXED 2025-12-27 - Milliseconds timestamp conversion
   epic-bug-003-retrospective: optional
 
@@ -203,11 +204,11 @@ development_status:
   # Source: _bmad-output/coherence-analysis-report.md (2025-12-29)
   # ============================================================
   epic-coh-001: in-progress
-  coh-001-1-synchronize-messagetype: ready-for-dev      # Sync MessageType enum BE↔FE
-  coh-001-2-unify-logger-api: ready-for-dev             # Consistent Logger API
-  coh-001-3-typescript-eventtype: ready-for-dev         # Create TS EventType constants
+  coh-001-1-synchronize-messagetype: review      # Sync MessageType enum BE↔FE - Completed 2025-12-30
+  coh-001-2-unify-logger-api: review             # Consistent Logger API - Completed 2025-12-30
+  coh-001-3-typescript-eventtype: review         # EventType constants + sync tests - Completed 2025-12-30, 55+ tests
   coh-001-4-refactor-dynamic-imports: ready-for-dev     # Clean store dependencies
-  coh-001-5-strategy-indicator-validation: ready-for-dev # CRITICAL - Fix UUID validation
+  coh-001-5-strategy-indicator-validation: in-progress # CRITICAL - Started 2025-12-30
   epic-coh-001-retrospective: optional
 
   # ============================================================

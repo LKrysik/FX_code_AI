@@ -241,28 +241,28 @@ class FrontendLogService {
   /**
    * Log an info-level event
    * @param eventType - Event type identifier (e.g., 'user.login', 'api.success')
-   * @param data - Optional structured data to include in the log
+   * @param data - Structured data to include in the log (default: empty object)
    */
-  info(eventType: string, data?: Record<string, unknown>): void {
+  info(eventType: string, data: Record<string, unknown> = {}): void {
     this._log('info', eventType, data);
   }
 
   /**
    * Log a warning-level event
    * @param eventType - Event type identifier (e.g., 'api.slow_response', 'validation.warning')
-   * @param data - Optional structured data to include in the log
+   * @param data - Structured data to include in the log (default: empty object)
    */
-  warn(eventType: string, data?: Record<string, unknown>): void {
+  warn(eventType: string, data: Record<string, unknown> = {}): void {
     this._log('warn', eventType, data);
   }
 
   /**
    * Log an error-level event
    * @param eventType - Event type identifier (e.g., 'api.failed', 'component.error')
-   * @param data - Optional structured data to include in the log
+   * @param data - Structured data to include in the log (default: empty object)
    * @param error - Optional Error object for stack trace
    */
-  error(eventType: string, data?: Record<string, unknown>, error?: Error): void {
+  error(eventType: string, data: Record<string, unknown> = {}, error?: Error): void {
     this.addLog({
       level: 'error',
       eventType,
@@ -281,9 +281,9 @@ class FrontendLogService {
   /**
    * Log a debug-level event (only in development mode)
    * @param eventType - Event type identifier
-   * @param data - Optional structured data to include in the log
+   * @param data - Structured data to include in the log (default: empty object)
    */
-  debug(eventType: string, data?: Record<string, unknown>): void {
+  debug(eventType: string, data: Record<string, unknown> = {}): void {
     if (this.isDevelopment()) {
       this._log('debug', eventType, data);
     }

@@ -7,6 +7,7 @@ SEC-0-2: Enhanced with security validation to prevent JSON injection attacks.
 from __future__ import annotations
 
 import hashlib
+import re
 from typing import Any, Dict, List, Set, Optional
 
 from ...core.logger import get_logger
@@ -49,6 +50,13 @@ except ImportError:
 ALLOWED_CONDITION_OPERATORS: Set[str] = {">", "<", ">=", "<=", "==", "!="}
 
 ALLOWED_POSITION_SIZE_TYPES: Set[str] = {"fixed", "percentage"}
+
+# COH-001-5: UUID pattern for indicator variant IDs from frontend
+# Matches standard UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+UUID_PATTERN = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    re.IGNORECASE
+)
 
 ALLOWED_CALCULATION_MODES: Set[str] = {"ABSOLUTE", "RELATIVE_TO_ENTRY"}
 
@@ -94,7 +102,11 @@ def _log_security_rejection(
 
 def validate_indicator_id(indicator_id: str, field_path: str, errors: List[str], payload: Optional[Dict] = None) -> bool:
     """
-    SEC-0-2: Validate indicator ID against allowlist.
+    SEC-0-2 + COH-001-5: Validate indicator ID.
+
+    Accepts two formats (backwards compatible):
+    1. UUID format - indicator variant IDs from frontend (e.g., 'e15a3064-424c-4f7a-8b8b-77a04e3e7ab3')
+    2. Type names - indicator type names from allowlist (e.g., 'RSI', 'SMA')
 
     Returns True if valid, False if rejected.
     """
@@ -102,16 +114,26 @@ def validate_indicator_id(indicator_id: str, field_path: str, errors: List[str],
         errors.append(f"{field_path} must be a string")
         return False
 
-    # Normalize: strip whitespace and uppercase
-    normalized = indicator_id.strip().upper()
+    # Normalize: strip whitespace
+    normalized = indicator_id.strip()
 
-    # Check against allowlist
-    if normalized not in ALLOWED_INDICATOR_TYPES:
+    if not normalized:
+        errors.append(f"{field_path} cannot be empty")
+        return False
+
+    # COH-001-5: Accept UUID format (indicator variant IDs from frontend)
+    # UUIDs are safe - only contain hex chars and dashes
+    if UUID_PATTERN.match(normalized):
+        # Valid UUID format - skip type allowlist check
+        # Still perform injection pattern check below for defense in depth
+        pass
+    # Also accept known indicator TYPE names (backwards compatibility)
+    elif normalized.upper() not in ALLOWED_INDICATOR_TYPES:
         errors.append(f"{field_path} contains unknown indicator type: '{indicator_id}'")
         _log_security_rejection(field_path, indicator_id, "Unknown indicator type", payload)
         return False
 
-    # Check for injection patterns (extra safety)
+    # Check for injection patterns (extra safety - defense in depth)
     dangerous_patterns = ["<script", "javascript:", "eval(", "exec(", "__", "${", "{{"]
     for pattern in dangerous_patterns:
         if pattern.lower() in indicator_id.lower():

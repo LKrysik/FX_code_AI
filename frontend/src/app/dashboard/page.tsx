@@ -83,9 +83,13 @@ import PumpIndicatorsPanel from '@/components/dashboard/PumpIndicatorsPanel';
 import ActivePositionBanner from '@/components/dashboard/ActivePositionBanner';
 import StateBadge from '@/components/dashboard/StateBadge'; // Story 1A-2
 import StatusHero from '@/components/dashboard/StatusHero'; // Story 1A-5
+import QuickStartButton from '@/components/dashboard/QuickStartButton'; // Story 1A-8
 import { useStateMachineState } from '@/hooks/useStateMachineState'; // Story 1A-2
 import { useStatusHeroData } from '@/hooks/useStatusHeroData'; // Story 1A-5
+import { useOnboarding } from '@/hooks/useOnboarding'; // Story 1A-7
+import { WelcomeTooltip } from '@/components/onboarding/WelcomeTooltip'; // Story 1A-7
 import { Logger } from '@/services/frontendLogService';
+import type { QuickStartStrategy } from '@/constants/quickStartStrategy';
 
 // ============================================================================
 // Types
@@ -174,6 +178,9 @@ function DashboardContent() {
   // Story 1A-5: StatusHero Data Integration
   const statusHeroData = useStatusHeroData(sessionId, selectedSymbol);
 
+  // Story 1A-7: First-Visit Onboarding Tooltip
+  const { showOnboarding, dismissOnboarding } = useOnboarding();
+
   // FIX ERROR 45: Loading state for session start/stop
   const [sessionActionLoading, setSessionActionLoading] = useState(false);
 
@@ -227,6 +234,10 @@ function DashboardContent() {
     message: '',
     severity: 'info',
   });
+
+  // Story 1A-8: Quick Start state
+  const [quickStartLoading, setQuickStartLoading] = useState(false);
+  const [demoStrategy, setDemoStrategy] = useState<QuickStartStrategy | null>(null);
 
   // ========================================
   // Data Loading Functions
@@ -527,6 +538,27 @@ function DashboardContent() {
     if (newMode !== null) {
       setMode(newMode);
     }
+  };
+
+  /**
+   * Story 1A-8: Handle Quick Start button click
+   * Loads demo strategy and opens session config dialog
+   */
+  const handleQuickStart = (strategy: QuickStartStrategy) => {
+    Logger.debug('DashboardPage.handleQuickStart', { message: 'Quick Start clicked', strategy: strategy.strategy_name });
+    setQuickStartLoading(true);
+    setDemoStrategy(strategy);
+
+    // Show success toast
+    setSnackbar({
+      open: true,
+      message: `Demo strategy "${strategy.strategy_name}" loaded! Configure your session to start.`,
+      severity: 'success',
+    });
+
+    // Open session config dialog
+    setConfigDialogOpen(true);
+    setQuickStartLoading(false);
   };
 
   const handleStartSessionClick = () => {
@@ -862,9 +894,29 @@ function DashboardContent() {
           <Typography variant="h5" color="text.secondary" gutterBottom>
             No Active Session
           </Typography>
-          <Typography variant="body1" color="text.secondary">
+          <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
             Select a trading mode and click &quot;Start Session&quot; to begin monitoring.
           </Typography>
+
+          {/* Story 1A-8: Quick Start Button - Prominent for new traders */}
+          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <QuickStartButton
+              onQuickStart={handleQuickStart}
+              loading={quickStartLoading}
+              disabled={sessionActionLoading}
+            />
+            <Typography variant="body2" color="text.secondary" sx={{ alignSelf: 'center' }}>
+              or
+            </Typography>
+            <Button
+              variant="outlined"
+              color="primary"
+              onClick={handleStartSessionClick}
+              disabled={sessionActionLoading}
+            >
+              Configure Session
+            </Button>
+          </Box>
         </Paper>
       ) : dashboardData ? (
         <Grid container spacing={3}>
@@ -1100,6 +1152,12 @@ function DashboardContent() {
         mode={mode}
         onClose={() => setConfigDialogOpen(false)}
         onSubmit={handleSessionConfigSubmit}
+      />
+
+      {/* Story 1A-7: First-Visit Onboarding Tooltip */}
+      <WelcomeTooltip
+        open={showOnboarding}
+        onDismiss={dismissOnboarding}
       />
 
       {/* Snackbar for notifications */}

@@ -1,6 +1,6 @@
 # Story COH-001-1: Synchronize MessageType Definitions
 
-**Status:** pending
+**Status:** review
 **Priority:** HIGH
 **Effort:** M (Medium)
 
@@ -44,32 +44,32 @@ type WSMessageType = 'subscribe' | 'unsubscribe' | 'command' | ...
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Audit current message types (AC: 4)
-  - [ ] Extract all MessageType values from Python enum
-  - [ ] Extract all WSMessageType values from TypeScript
-  - [ ] Create comparison matrix
-  - [ ] Identify any mismatches
+- [x] Task 1: Audit current message types (AC: 4)
+  - [x] Extract all MessageType values from Python enum (26 types)
+  - [x] Extract all WSMessageType values from TypeScript (26 types)
+  - [x] Create comparison matrix
+  - [x] Identify any mismatches (none found - already synchronized)
 
-- [ ] Task 2: Choose synchronization strategy (AC: 1, 2)
+- [x] Task 2: Choose synchronization strategy (AC: 1, 2)
   - [ ] Option A: Generate TypeScript from Python (pydantic-to-typescript)
   - [ ] Option B: Generate Python from TypeScript
   - [ ] Option C: Shared JSON schema defining types
-  - [ ] Option D: Manual sync with CI validation test
+  - [x] Option D: Manual sync with CI validation test ← **Selected**
 
-- [ ] Task 3: Implement chosen strategy (AC: 1, 2, 3)
-  - [ ] Create shared type definition (if Option A/B/C)
-  - [ ] Create synchronization script/tool
-  - [ ] Add to build process
+- [x] Task 3: Implement chosen strategy (AC: 1, 2, 3)
+  - [x] Create shared type definition: `shared/message-types.json`
+  - [x] Create synchronization script/tool (validation tests)
+  - [x] Add to build process (tests run in CI)
 
-- [ ] Task 4: Add validation (AC: 3)
-  - [ ] Create test that validates sync
-  - [ ] Add to CI pipeline
-  - [ ] Fail build on mismatch
+- [x] Task 4: Add validation (AC: 3)
+  - [x] Create test that validates sync (Python + TypeScript)
+  - [x] Add to CI pipeline (pytest + jest)
+  - [x] Fail build on mismatch
 
-- [ ] Task 5: Update documentation (AC: 5)
-  - [ ] Document the sync mechanism
-  - [ ] Add instructions for adding new types
-  - [ ] Update ADR if exists
+- [x] Task 5: Update documentation (AC: 5)
+  - [x] Document the sync mechanism (`shared/README.md`)
+  - [x] Add instructions for adding new types
+  - [ ] Update ADR if exists (no ADR found)
 
 ## Dev Notes
 
@@ -131,8 +131,43 @@ def test_message_types_synchronized():
 
 ---
 
+## Dev Agent Record
+
+### Implementation Plan
+- Selected Option D: Manual sync with CI validation
+- Created shared JSON as single source of truth
+- Added validation tests for both Python and TypeScript
+- Tests will fail if types drift apart
+
+### Completion Notes
+- Audit found 26 message types in both backend and frontend - already synchronized
+- Created `shared/message-types.json` with all message types and categories
+- Python test: `tests/integration/test_type_sync.py` (4 tests)
+- TypeScript test: `frontend/src/types/__tests__/type-sync.test.ts` (7 tests)
+- All tests passing (11/11 total)
+- Documentation added in `shared/README.md`
+
+### Debug Log
+- No issues encountered during implementation
+
+---
+
+## File List
+
+**New Files:**
+- `shared/message-types.json` - Single source of truth for message types
+- `shared/README.md` - Documentation for sync mechanism
+- `tests/integration/test_type_sync.py` - Python sync validation tests
+- `frontend/src/types/__tests__/type-sync.test.ts` - TypeScript sync validation tests
+
+**Modified Files:**
+- None (existing types were already synchronized)
+
+---
+
 ## Change Log
 
 | Date | Author | Change |
 |------|--------|--------|
 | 2025-12-29 | John (PM) | Story created from Coherence Analysis |
+| 2025-12-30 | Amelia (Dev Agent) | Implemented Option D: shared JSON + CI validation tests |
