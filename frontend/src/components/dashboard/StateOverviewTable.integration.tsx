@@ -42,6 +42,8 @@ const StateOverviewTableIntegration: React.FC<StateOverviewIntegrationProps> = (
   const [instances, setInstances] = useState<StateInstance[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // BUG-008-3: Track last update time for data freshness (AC3/AC4)
+  const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
 
   // BUG-007.1: Use shared WebSocket connection status from store
   const wsConnected = useWebSocketStore((state) => state.isConnected);
@@ -72,6 +74,8 @@ const StateOverviewTableIntegration: React.FC<StateOverviewIntegrationProps> = (
       const data = result.data || result;
 
       setInstances(data.instances || []);
+      // BUG-008-3: Update freshness timestamp on data load
+      setLastUpdateTime(new Date());
     } catch (err: any) {
       console.error('Failed to fetch state machines:', err);
       setError(err.message || 'Failed to load state machines');
@@ -102,6 +106,8 @@ const StateOverviewTableIntegration: React.FC<StateOverviewIntegrationProps> = (
           : instance
       )
     );
+    // BUG-008-3: Update freshness timestamp on state change
+    setLastUpdateTime(new Date());
   }, []);
 
   const handleInstanceAdded = useCallback((data: StateInstance) => {
@@ -122,6 +128,8 @@ const StateOverviewTableIntegration: React.FC<StateOverviewIntegrationProps> = (
 
       return [...prev, data];
     });
+    // BUG-008-3: Update freshness timestamp on instance added
+    setLastUpdateTime(new Date());
   }, []);
 
   const handleInstanceRemoved = useCallback((data: {
@@ -136,6 +144,8 @@ const StateOverviewTableIntegration: React.FC<StateOverviewIntegrationProps> = (
           )
       )
     );
+    // BUG-008-3: Update freshness timestamp on instance removed
+    setLastUpdateTime(new Date());
   }, []);
 
   // ========================================
@@ -201,6 +211,8 @@ const StateOverviewTableIntegration: React.FC<StateOverviewIntegrationProps> = (
         case 'full_update':
           if (message.data?.instances) {
             setInstances(message.data.instances);
+            // BUG-008-3: Update freshness timestamp on full update
+            setLastUpdateTime(new Date());
           }
           break;
 
@@ -258,6 +270,7 @@ const StateOverviewTableIntegration: React.FC<StateOverviewIntegrationProps> = (
         instances={instances}
         onInstanceClick={handleInstanceClick}
         isLoading={isLoading}
+        lastUpdateTime={lastUpdateTime}  // BUG-008-3: Enable data freshness display (AC3/AC4)
       />
 
       {/* Debug Info (Development Only) */}

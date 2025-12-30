@@ -1,6 +1,6 @@
 # Story BUG-008-1a: Chaos Monkey Manual Testing
 
-**Status:** ready-for-dev
+**Status:** in-progress
 **Priority:** P0 (Blocker for BUG-008-1 closure)
 **Epic:** BUG-008 WebSocket Stability & Service Health
 **Parent Story:** BUG-008-1 (WebSocket Disconnect Diagnostic Logging)
@@ -194,3 +194,51 @@ level: WARN
 | Date | Author | Change |
 |------|--------|--------|
 | 2025-12-30 | John (PM) | Story created from Dev Agent verification report |
+| 2025-12-30 | Amelia (Dev) | Verified logging configuration (FE+BE), created test checklist |
+
+---
+
+## Dev Agent Record
+
+### Pre-Test Verification (2025-12-30)
+
+**Logging Configuration Verified:**
+
+| Component | Event Type | File:Line |
+|-----------|------------|-----------|
+| Frontend | `websocket.connection_opened` | `websocket.ts:169-173` |
+| Frontend | `websocket.connection_closed` | `websocket.ts:196-211` |
+| Backend | `connection_manager.connection_closed` | `connection_manager.py:815-817` |
+| Backend | Close code capture | `websocket_server.py:1004-1016` |
+
+**Fields Logged:**
+- `close_code` (1000, 1001, 1006, etc.)
+- `close_reason` (human-readable text)
+- `was_clean` (boolean)
+- `duration_seconds`
+- `messages_sent` / `messages_received`
+- `initiated_by` (client/server/network)
+
+**Log Level Selection:**
+- INFO for normal closes (1000, 1001)
+- WARN for abnormal closes (1006, etc.)
+
+### Test Execution Checklist
+
+Created `bug-008-1a-test-checklist.md` with:
+- Pre-test setup commands (backend, frontend, log monitoring)
+- 5 test scenarios with step-by-step instructions
+- Expected vs actual result capture forms
+- Summary table for all ACs
+
+---
+
+## File List
+
+**New Files:**
+- `_bmad-output/stories/bug-008-1a-test-checklist.md` - Manual test execution checklist
+
+**Verified Files (no changes):**
+- `frontend/src/services/websocket.ts` - Frontend logging OK
+- `src/api/websocket_server.py` - Backend close code capture OK
+- `src/api/connection_manager.py` - Backend logging OK

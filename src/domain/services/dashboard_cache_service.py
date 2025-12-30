@@ -376,19 +376,65 @@ class DashboardCacheService:
             })
 
     async def _get_session_symbols(self, session_id: str) -> List[str]:
-        """Get symbols associated with session."""
+        """
+        Get symbols associated with session.
+
+        BUG-004-4 FIX: Query from data_collection_sessions.symbols instead of tick_prices.
+        This ensures symbols are available immediately when session starts, not after
+        WebSocket delivers first tick data.
+        """
         try:
+            # BUG-004-4 FIX: Query session configuration, not tick data
             query = """
-                SELECT DISTINCT symbol
-                FROM tick_prices
+                SELECT symbols
+                FROM data_collection_sessions
                 WHERE session_id = $1
-                LIMIT 20
+                  AND is_deleted = false
+                LIMIT 1
             """
 
             async with self.questdb.pg_pool.acquire() as conn:
-                rows = await conn.fetch(query, session_id)
+                row = await conn.fetchrow(query, session_id)
 
-            return [row['symbol'] for row in rows]
+            if not row or not row['symbols']:
+                logger.debug("dashboard_cache_service.no_session_symbols", {
+                    "session_id": session_id,
+                    "reason": "session not found or no symbols configured"
+                })
+                return []
+
+            # symbols is stored as comma-separated string or JSON array
+            symbols_raw = row['symbols']
+
+            # Handle different storage formats
+            if isinstance(symbols_raw, str):
+                # Try JSON parse first (e.g., '["BTC_USDT","ETH_USDT"]')
+                if symbols_raw.startswith('['):
+                    import json
+                    try:
+                        symbols = json.loads(symbols_raw)
+                    except json.JSONDecodeError:
+                        # Fallback to comma-separated
+                        symbols = [s.strip() for s in symbols_raw.split(',') if s.strip()]
+                else:
+                    # Comma-separated format
+                    symbols = [s.strip() for s in symbols_raw.split(',') if s.strip()]
+            elif isinstance(symbols_raw, (list, tuple)):
+                symbols = list(symbols_raw)
+            else:
+                logger.warning("dashboard_cache_service.unexpected_symbols_format", {
+                    "session_id": session_id,
+                    "symbols_type": type(symbols_raw).__name__
+                })
+                return []
+
+            logger.debug("dashboard_cache_service.session_symbols_loaded", {
+                "session_id": session_id,
+                "symbols_count": len(symbols),
+                "symbols": symbols[:5]  # Log first 5 for debugging
+            })
+
+            return symbols[:20]  # Limit to 20 symbols
 
         except Exception as e:
             # BUG-008-7 FIX: Log exception instead of silent swallow

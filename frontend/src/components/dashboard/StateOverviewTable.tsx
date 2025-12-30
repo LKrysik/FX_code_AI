@@ -288,7 +288,7 @@ const StateOverviewTable: React.FC<StateOverviewTableProps> = ({
                         backgroundColor:
                           rowBgColor === 'transparent'
                             ? alpha(theme.palette.action.hover, 0.04)
-                            : alpha(rowBgColor, 1.5),
+                            : alpha(theme.palette.action.hover, 0.08),
                       },
                       cursor: onInstanceClick ? 'pointer' : 'default',
                     }}
