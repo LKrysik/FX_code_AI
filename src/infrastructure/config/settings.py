@@ -99,8 +99,12 @@ class ExchangeSettings(BaseSettings):
     mexc_futures_ws_url: str = Field(default="wss://contract.mexc.com/edge", description="MEXC Futures WebSocket URL")
     mexc_max_subscriptions_per_connection: int = Field(default=30, description="Max subscriptions per WebSocket connection")
     mexc_max_connections: int = Field(default=5, description="Maximum WebSocket connections")
-    mexc_max_reconnect_attempts: int = Field(default=5, description="Maximum reconnection attempts")
-    
+    mexc_max_reconnect_attempts: int = Field(default=10, description="Maximum reconnection attempts")
+
+    # BUG-008-4: Pong timeout thresholds for proactive connection health
+    mexc_pong_warn_threshold_seconds: int = Field(default=60, description="Pong age threshold for WARNING log")
+    mexc_pong_reconnect_threshold_seconds: int = Field(default=120, description="Pong age threshold for reconnect")
+
     # Bybit (for future use)
     bybit_enabled: bool = Field(default=False)
     bybit_api_key: str = Field(default="")

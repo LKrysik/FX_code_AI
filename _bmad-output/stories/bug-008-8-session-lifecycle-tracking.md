@@ -1,6 +1,6 @@
 # Story BUG-008-8: Session Lifecycle Tracking
 
-**Status:** backlog
+**Status:** review
 **Priority:** P1
 **Epic:** BUG-008 WebSocket Stability & Service Health
 
@@ -179,14 +179,97 @@ class SessionAuditEntry:
 
 ## Definition of Done
 
-1. [ ] Session states are explicit and tracked
-2. [ ] Soft delete implemented (deleted sessions queryable)
-3. [ ] Session creation is atomic
-4. [ ] "Not found" includes reason
-5. [ ] Session ID validated before queries
-6. [ ] Audit log captures all transitions
-7. [ ] Migration script for existing sessions
-8. [ ] Unit tests for all lookup scenarios
+1. [x] Session states are explicit and tracked
+2. [x] Soft delete implemented (deleted sessions queryable)
+3. [x] Session creation is atomic
+4. [x] "Not found" includes reason
+5. [x] Session ID validated before queries
+6. [x] Audit log captures all transitions
+7. [ ] Migration script for existing sessions (deferred - existing sessions use is_deleted)
+8. [x] Unit tests for all lookup scenarios (45 tests passing)
+
+---
+
+## Dev Agent Record
+
+**Implementation Date:** 2025-12-30
+**Agent:** Amelia (Dev)
+
+### Implementation Summary
+
+All acceptance criteria implemented:
+
+1. **Session Lifecycle States (AC1):**
+   - Created `SessionState` enum: CREATING, ACTIVE, PAUSED, STOPPED, DELETED
+   - Defined valid state transitions in `VALID_STATE_TRANSITIONS`
+   - `is_valid_transition()` validates transitions
+
+2. **Soft Delete (AC2):**
+   - `lookup_session()` with `include_deleted` parameter
+   - Deleted sessions return `SessionLookupReason.DELETED`
+   - Can query deleted sessions with `include_deleted=True`
+
+3. **Session Creation Atomic (AC3):**
+   - Existing implementation uses transactions in `data_collection_persistence_service.py`
+   - State machine ensures proper CREATING → ACTIVE transition
+
+4. **Enhanced Not Found Responses (AC4):**
+   - `SessionLookupResult` class with `reason` field
+   - Reasons: OK, INVALID_FORMAT, NEVER_EXISTED, DELETED, ARCHIVED
+   - `to_dict()` for API responses
+
+5. **Session ID Validation (AC5):**
+   - `validate_session_id()` validates format before DB queries
+   - Pattern: `exec_YYYYMMDD_HHMMSS_xxxxxxxx` (and legacy variants)
+   - Fail-fast validation in `lookup_session()`
+
+6. **Session Audit Log (AC6):**
+   - `SessionAuditEntry` dataclass for audit entries
+   - `log_state_transition()` creates and logs entries
+   - `get_session_audit_log()` retrieves filtered entries
+   - In-memory storage with configurable max entries
+
+### Files Created
+
+| File | Description |
+|------|-------------|
+| `src/domain/models/session_lifecycle.py` | SessionState enum, validation, audit models |
+| `tests/unit/test_session_lifecycle.py` | 45 unit tests for all ACs |
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `src/domain/services/session_service.py` | Added `lookup_session()`, audit log methods, validation |
+
+### Test Coverage
+
+- **TestSessionStates:** 3 tests (AC1)
+- **TestStateTransitions:** 6 tests (AC1)
+- **TestSessionIdValidation:** 12 tests (AC5)
+- **TestSessionLookupResult:** 6 tests (AC4)
+- **TestSessionLookupReason:** 1 test (AC4)
+- **TestSessionAuditEntry:** 3 tests (AC6)
+- **TestSessionServiceLookup:** 6 tests (integration)
+- **TestSessionServiceAuditLog:** 5 tests (AC6)
+- **TestEdgeCases:** 3 tests
+
+### Verification
+
+POST-IMPLEMENTATION VERIFICATION completed using:
+- #70 Scope Integrity Check - 6/6 ACs covered ✅
+- #72 Closure Check - No TODO/TBD markers ✅
+- #74 Grounding Check - 2 assumptions noted (audit log in-memory)
+- #79 DNA Inheritance - 7/7 conventions followed ✅
+- #80 Transplant Rejection - 45/45 tests pass, files staged ✅
+- #35 Failure Mode Analysis - All failure modes mitigated ✅
+- #56 Sorites Paradox - Critical element (SessionState) has adequate test coverage ✅
+
+### Review Follow-ups (AI Code Review 2025-12-30)
+
+- [x] [AI-Review][HIGH] Stage test file in git - `test_session_lifecycle.py` was untracked [FIXED]
+- [x] [AI-Review][HIGH] Stage model file in git - `session_lifecycle.py` was untracked [FIXED]
+- [ ] [AI-Review][MEDIUM] Audit log persistence - Currently in-memory only (max 1000 entries), consider DB persistence in future iteration
 
 ---
 
@@ -195,3 +278,5 @@ class SessionAuditEntry:
 | Date | Author | Change |
 |------|--------|--------|
 | 2025-12-30 | John (PM) | Story created from BUG-008 Epic |
+| 2025-12-30 | Amelia (Dev) | Implementation complete: session lifecycle models, 45 tests passing, status → review |
+| 2025-12-30 | Amelia (Dev) | POST-VERIFICATION: 7 methods executed, 2 issues fixed (git staging), 1 MEDIUM follow-up noted |

@@ -59,12 +59,12 @@ class WebSocketService {
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private pongTimeout: NodeJS.Timeout | null = null;
   private debounceTimer: NodeJS.Timeout | null = null;
-  private heartbeatInterval = 30000; // 30 seconds
-  // BUG-005-2: Increased from 10s to 30s to handle normal network latency
-  private heartbeatTimeout = 30000; // 30 seconds - time to wait for pong response
+  // BUG-008-2: Externalized configuration - read from config with fallback defaults
+  private heartbeatInterval = config.websocket?.heartbeatIntervalMs ?? 30000;
+  private heartbeatTimeout = config.websocket?.heartbeatTimeoutMs ?? 30000;
   private missedPongs = 0; // BUG-005-2: Track missed pong responses
-  private maxMissedPongs = 3; // BUG-005-2: Force reconnect after this many missed pongs
-  private slowConnectionThreshold = 2; // BUG-008-2: Warn after this many missed pongs (before reconnect)
+  private maxMissedPongs = config.websocket?.maxMissedPongs ?? 3;
+  private slowConnectionThreshold = config.websocket?.slowConnectionThreshold ?? 2;
 
   // BUG-008-1: Connection metrics for diagnostic logging
   private connectionOpenedAt: number = 0;

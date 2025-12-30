@@ -54,7 +54,14 @@ class MockWebSocket {
 // Mock config
 jest.mock('@/utils/config', () => ({
   config: {
-    wsUrl: 'ws://localhost:8080/ws'
+    wsUrl: 'ws://localhost:8080/ws',
+    // BUG-008-2: Include websocket heartbeat configuration
+    websocket: {
+      heartbeatIntervalMs: 30000,
+      heartbeatTimeoutMs: 30000,
+      maxMissedPongs: 3,
+      slowConnectionThreshold: 2,
+    },
   },
   debugLog: jest.fn(),
   errorLog: jest.fn()
@@ -686,6 +693,28 @@ describe('BUG-008-2: Slow Connection Warning Tests', () => {
 
       // Verify callback is set without errors
       expect(mockNotificationCallback).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('AC5: Externalized configuration', () => {
+    test('config.websocket contains heartbeat settings', async () => {
+      const { config } = await import('@/utils/config');
+
+      expect(config.websocket).toBeDefined();
+      expect(config.websocket.heartbeatIntervalMs).toBeGreaterThan(0);
+      expect(config.websocket.heartbeatTimeoutMs).toBeGreaterThan(0);
+      expect(config.websocket.maxMissedPongs).toBeGreaterThan(0);
+      expect(config.websocket.slowConnectionThreshold).toBeGreaterThan(0);
+    });
+
+    test('config.websocket has correct default values', async () => {
+      const { config } = await import('@/utils/config');
+
+      // Default values as documented
+      expect(config.websocket.heartbeatIntervalMs).toBe(30000);
+      expect(config.websocket.heartbeatTimeoutMs).toBe(30000);
+      expect(config.websocket.maxMissedPongs).toBe(3);
+      expect(config.websocket.slowConnectionThreshold).toBe(2);
     });
   });
 });

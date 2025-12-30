@@ -812,6 +812,6 @@ class ConnectionManager:
         is_abnormal = close_code not in [1000, 1001]
 
         if is_abnormal:
-            self.logger.warning("websocket.connection_closed", log_data)
+            self.logger.warning("connection_manager.connection_closed", log_data)
         else:
-            self.logger.info("websocket.connection_closed", log_data)
+            self.logger.info("connection_manager.connection_closed", log_data)

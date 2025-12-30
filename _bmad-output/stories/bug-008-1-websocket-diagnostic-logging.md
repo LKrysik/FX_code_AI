@@ -64,7 +64,7 @@ This provides zero insight into WHY connections close. Without diagnostic data:
 
 - [x] Task 4: Create correlation ID system (AC: 4)
   - [x] Ensure client_id is logged consistently on both sides
-  - [x] Add connection_sequence_number for multi-reconnect scenarios
+  - [ ] Add connection_sequence_number for multi-reconnect scenarios (DEFERRED - not required for AC4, future enhancement)
   - [x] Document log correlation procedure
 
 ---
@@ -197,3 +197,4 @@ All acceptance criteria have been implemented:
 |------|--------|--------|
 | 2025-12-30 | John (PM) | Story created from BUG-008 Epic |
 | 2025-12-30 | Amelia (Dev) | Implementation complete, 21 tests passing, status → review |
+| 2025-12-30 | Amelia (Dev) | POST-VERIFICATION FIXES: (1) Log naming changed from `websocket.*` to `connection_manager.*` for DNA inheritance consistency (2) `connection_sequence_number` marked as DEFERRED - not required for AC4 (3) Test assertions updated to verify exact log name convention |

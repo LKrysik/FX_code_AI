@@ -1,6 +1,6 @@
 # Story BUG-008-3: Graceful Degradation UI
 
-**Status:** backlog
+**Status:** in-progress
 **Priority:** P1
 **Epic:** BUG-008 WebSocket Stability & Service Health
 
@@ -43,34 +43,34 @@ When WebSocket connection is lost or degraded:
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create ConnectionStatusIndicator component (AC: 1)
-  - [ ] Create `frontend/src/components/ConnectionStatusIndicator.tsx`
-  - [ ] States: Connected (green), Connecting (yellow pulse), Reconnecting (orange), Disconnected (red)
-  - [ ] Position: top-right corner of dashboard (non-intrusive)
-  - [ ] Tooltip shows detailed connection info
+- [x] Task 1: Create ConnectionStatusIndicator component (AC: 1) **ALREADY EXISTS**
+  - [x] Create `frontend/src/components/common/ConnectionStatusIndicator.tsx` (Story 0-6)
+  - [x] States: Connected (green), Connecting (yellow pulse), Disconnected (red)
+  - [x] Position: in header (non-intrusive Chip component)
+  - [x] Click shows detailed connection info via Popover
 
 - [ ] Task 2: Enhance reconnection feedback (AC: 2)
-  - [ ] Show reconnection attempt number (1/5, 2/5, etc.)
+  - [ ] Expose reconnectAttempts from wsService to UI via store
+  - [ ] Show reconnection attempt number (1/5, 2/5, etc.) in indicator
   - [ ] Show countdown to next retry
-  - [ ] Show exponential backoff time
+  - [ ] Update ConnectionStatusIndicator to display reconnecting state details
 
 - [ ] Task 3: Add data freshness indicators (AC: 3, 4)
-  - [ ] Create `useDataFreshness` hook
-  - [ ] Track last update timestamp per data stream
+  - [ ] Create `frontend/src/hooks/useDataFreshness.ts` hook
+  - [ ] Track last update timestamp per data stream (state_machines, indicators, prices)
   - [ ] Show "Updated X seconds ago" in panel headers
   - [ ] Apply visual degradation (opacity 0.7) for stale data (>60s)
   - [ ] Add "STALE" badge for very old data (>120s)
 
-- [ ] Task 4: Implement connection notifications (AC: 5)
-  - [ ] Toast on connection lost: "Connection lost. Reconnecting..."
-  - [ ] Toast on reconnection: "Connection restored"
-  - [ ] Toast on permanent failure: "Unable to connect. Check network."
-  - [ ] Use existing toast/notification system
+- [x] Task 4: Implement connection notifications (AC: 5) **PARTIALLY EXISTS**
+  - [x] Warning shown in ConnectionStatusIndicator popover: "Real-time data may be stale"
+  - [ ] Add toast notification on connection lost (via react-hot-toast or MUI Snackbar)
+  - [ ] Add toast notification on reconnection success
+  - [ ] Add toast notification on permanent failure
 
-- [ ] Task 5: Add manual reconnect button (AC: 6)
-  - [ ] Add "Reconnect" button in disconnected state
-  - [ ] Add "Reconnect" option in settings/menu
-  - [ ] Keyboard shortcut: Ctrl+Shift+R (optional)
+- [x] Task 5: Add manual reconnect button (AC: 6) **ALREADY EXISTS**
+  - [x] "Reconnect Now" button in popover when disconnected (line 336-347)
+  - [ ] Add keyboard shortcut: Ctrl+Shift+R (optional - low priority)
 
 ---
 

@@ -458,7 +458,8 @@ class TestDisconnectLoggingIntegration:
 
     def test_log_event_name_is_connection_closed(self, mock_logger, mock_connection):
         """
-        Verify the log event name is 'websocket.connection_closed'.
+        Verify the log event name is 'connection_manager.connection_closed'.
+        DNA Inheritance: follows project convention of 'connection_manager.*' prefix.
         """
         from src.api.connection_manager import ConnectionManager
 
@@ -473,7 +474,7 @@ class TestDisconnectLoggingIntegration:
             was_clean=True
         ))
 
-        # Verify event name
+        # Verify event name follows connection_manager.* convention
         log_call_args = mock_logger.info.call_args
         event_name = log_call_args[0][0]
-        assert "connection_closed" in event_name
+        assert event_name == "connection_manager.connection_closed"

@@ -80,8 +80,13 @@ class MexcWebSocketAdapter(IMarketDataProvider):
         self.ws_url = getattr(settings, 'mexc_futures_ws_url', "wss://contract.mexc.com/edge")
         self.max_subscriptions_per_connection = getattr(settings, 'mexc_max_subscriptions_per_connection', 30)
         self.max_connections = getattr(settings, 'mexc_max_connections', 5)
-        self.max_reconnect_attempts = getattr(settings, 'mexc_max_reconnect_attempts', 5)
-        
+        self.max_reconnect_attempts = getattr(settings, 'mexc_max_reconnect_attempts', 10)
+
+        # BUG-008-4: Pong timeout thresholds for proactive connection health
+        # These thresholds trigger action BEFORE 55-minute stale connections occur
+        self.pong_warn_threshold_seconds = getattr(settings, 'mexc_pong_warn_threshold_seconds', 60)
+        self.pong_reconnect_threshold_seconds = getattr(settings, 'mexc_pong_reconnect_threshold_seconds', 120)
+
         # Configuration validation
         if self.max_subscriptions_per_connection <= 0:
             raise ValueError("max_subscriptions_per_connection must be > 0")
@@ -746,7 +751,14 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                     await self._close_connection(connection_id)
     
     async def _heartbeat_monitor(self, connection_id: int) -> None:
-        """Monitor connection health with precise timing and reliable ping/pong"""
+        """
+        BUG-008-4: Enhanced heartbeat monitor with threshold-based pong timeout handling.
+
+        Implements proactive connection health monitoring:
+        - AC1: Pong age > 60s triggers WARNING + health check ping
+        - AC2: Pong age > 120s triggers connection close + reconnect
+        - AC3: Consecutive timeouts escalate action severity
+        """
         connection_info = self._connections.get(connection_id)
         if not connection_info:
             return
@@ -756,7 +768,7 @@ class MexcWebSocketAdapter(IMarketDataProvider):
         pong_timeout = 30.0   # 30 seconds to receive pong (must be > ping_interval)
         max_no_data = 120.0   # 2 minutes without any data (faster detection)
         consecutive_timeouts = 0
-        max_consecutive_timeouts = 2  # Faster reconnection (reduced from 3)
+        health_check_sent = False  # BUG-008-4: Track if health check was sent
 
         last_ping_time = time.monotonic()
         last_data_time = time.monotonic()
@@ -767,8 +779,67 @@ class MexcWebSocketAdapter(IMarketDataProvider):
 
             try:
                 current_time = time.monotonic()
+                current_wall_time = time.time()
 
-                # Check if it's time to send a ping
+                # BUG-008-4: Always check pong age against thresholds (AC1, AC2)
+                last_pong_received = connection_info.get("last_pong_received", current_wall_time)
+                last_pong_age = current_wall_time - last_pong_received
+
+                # AC2: Pong age > RECONNECT_THRESHOLD (120s) - IMMEDIATE close and reconnect
+                if last_pong_age > self.pong_reconnect_threshold_seconds:
+                    self.logger.error("mexc_adapter.pong_age_exceeded_reconnect_threshold", {
+                        "connection_id": connection_id,
+                        "last_pong_age_seconds": round(last_pong_age, 2),
+                        "threshold_seconds": self.pong_reconnect_threshold_seconds,
+                        "consecutive_timeouts": consecutive_timeouts,
+                        "action": "closing_connection_for_reconnect"
+                    })
+                    await self._close_connection(connection_id)
+                    break
+
+                # AC1: Pong age > WARN_THRESHOLD (60s) - WARNING + health check
+                elif last_pong_age > self.pong_warn_threshold_seconds:
+                    consecutive_timeouts += 1
+
+                    self.logger.warning("mexc_adapter.pong_age_exceeded_warn_threshold", {
+                        "connection_id": connection_id,
+                        "last_pong_age_seconds": round(last_pong_age, 2),
+                        "threshold_seconds": self.pong_warn_threshold_seconds,
+                        "consecutive_timeouts": consecutive_timeouts,
+                        "action": "health_check_initiated" if not health_check_sent else "awaiting_pong"
+                    })
+
+                    # AC1: Send health check ping on first warning (if not already sent)
+                    if not health_check_sent:
+                        websocket = connection_info.get("websocket")
+                        if websocket and websocket.close_code is None:
+                            try:
+                                health_ping = {"method": "ping", "param": {}}
+                                await websocket.send(json.dumps(health_ping))
+                                connection_info["last_ping_sent"] = current_wall_time
+                                health_check_sent = True
+                                self.logger.info("mexc_adapter.health_check_ping_sent", {
+                                    "connection_id": connection_id,
+                                    "last_pong_age_seconds": round(last_pong_age, 2)
+                                })
+                            except Exception as e:
+                                self.logger.error("mexc_adapter.health_check_ping_failed", {
+                                    "connection_id": connection_id,
+                                    "error": str(e)
+                                })
+
+                # Pong age is healthy - reset counters
+                elif last_pong_age < self.pong_warn_threshold_seconds:
+                    if consecutive_timeouts > 0:
+                        self.logger.info("mexc_adapter.pong_health_restored", {
+                            "connection_id": connection_id,
+                            "last_pong_age_seconds": round(last_pong_age, 2),
+                            "previous_consecutive_timeouts": consecutive_timeouts
+                        })
+                    consecutive_timeouts = 0
+                    health_check_sent = False
+
+                # Regular ping interval check (send ping every 20s)
                 if current_time - last_ping_time >= ping_interval:
                     websocket = connection_info["websocket"]
                     if not websocket or websocket.close_code is not None:
@@ -782,12 +853,12 @@ class MexcWebSocketAdapter(IMarketDataProvider):
 
                     try:
                         await websocket.send(json.dumps(ping_message))
-                        connection_info["last_ping_sent"] = time.time()
+                        connection_info["last_ping_sent"] = current_wall_time
                         last_ping_time = current_time
 
                         self.logger.debug("mexc_adapter.ping_sent", {
                             "connection_id": connection_id,
-                            "timestamp": time.time()
+                            "timestamp": current_wall_time
                         })
 
                         # Wait for pong response with timeout - version-aware implementation
@@ -797,6 +868,7 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                                 await asyncio.wait_for(websocket.wait_for_pong(), timeout=pong_timeout)
                                 connection_info["last_pong_received"] = time.time()
                                 consecutive_timeouts = 0  # Reset on successful pong
+                                health_check_sent = False
 
                                 self.logger.debug("mexc_adapter.pong_received", {
                                     "connection_id": connection_id,
@@ -804,43 +876,15 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                                 })
                             else:
                                 # Fallback for older websockets versions - rely on message loop pong detection
-                                # The pong will be detected by _handle_message when "pong" channel is received
-                                # Wait a short time to allow pong processing, but don't block indefinitely
-                                await asyncio.sleep(0.1)  # Brief wait for pong processing
-
-                                # Check if pong was received recently (within reasonable time)
-                                last_pong_age = time.time() - connection_info.get("last_pong_received", 0)
-                                if last_pong_age < pong_timeout:
-                                    consecutive_timeouts = 0  # Reset on recent pong
-                                    self.logger.debug("mexc_adapter.pong_detected_via_message_loop", {
-                                        "connection_id": connection_id,
-                                        "last_pong_age": last_pong_age,
-                                        "timestamp": time.time()
-                                    })
-                                else:
-                                    # No recent pong detected
-                                    consecutive_timeouts += 1
-                                    self.logger.warning("mexc_adapter.no_recent_pong_detected", {
-                                        "connection_id": connection_id,
-                                        "last_pong_age": last_pong_age,
-                                        "consecutive_timeouts": consecutive_timeouts
-                                    })
+                                # Wait briefly to allow pong processing
+                                await asyncio.sleep(0.5)
 
                         except asyncio.TimeoutError:
-                            consecutive_timeouts += 1
-                            self.logger.warning("mexc_adapter.pong_timeout", {
+                            # Don't increment consecutive_timeouts here - threshold checks handle it
+                            self.logger.debug("mexc_adapter.pong_wait_timeout", {
                                 "connection_id": connection_id,
-                                "consecutive_timeouts": consecutive_timeouts,
-                                "timeout_seconds": pong_timeout
+                                "note": "threshold_check_will_handle_escalation"
                             })
-
-                            if consecutive_timeouts >= max_consecutive_timeouts:
-                                self.logger.error("mexc_adapter.max_pong_timeouts", {
-                                    "connection_id": connection_id,
-                                    "action": "closing_connection"
-                                })
-                                await self._close_connection(connection_id)
-                                break
 
                     except Exception as send_error:
                         self.logger.error("mexc_adapter.ping_send_failed", {
@@ -851,7 +895,6 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                         break
 
                 # Check for data activity (updated by message loop)
-                current_wall_time = time.time()
                 last_heartbeat = connection_info.get("last_heartbeat", current_wall_time)
                 if current_wall_time - last_heartbeat > max_no_data:
                     self.logger.error("mexc_adapter.no_data_activity", {

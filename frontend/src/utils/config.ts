@@ -11,6 +11,13 @@ export interface AppConfig {
   appVersion: string;
   enableDebugMode: boolean;
   enableMockData: boolean;
+  // BUG-008-2: Heartbeat configuration
+  websocket: {
+    heartbeatIntervalMs: number;
+    heartbeatTimeoutMs: number;
+    maxMissedPongs: number;
+    slowConnectionThreshold: number;
+  };
 }
 
 export const getAppConfig = (): AppConfig => {
@@ -37,6 +44,13 @@ export const getAppConfig = (): AppConfig => {
     appVersion: process.env.NEXT_PUBLIC_APP_VERSION || '1.0.0',
     enableDebugMode: process.env.NEXT_PUBLIC_ENABLE_DEBUG_MODE === 'true',
     enableMockData: process.env.NEXT_PUBLIC_ENABLE_MOCK_DATA === 'true', // Default to false - use real API data
+    // BUG-008-2: Heartbeat configuration with externalized defaults
+    websocket: {
+      heartbeatIntervalMs: parseInt(process.env.NEXT_PUBLIC_WS_HEARTBEAT_INTERVAL_MS || '30000', 10),
+      heartbeatTimeoutMs: parseInt(process.env.NEXT_PUBLIC_WS_HEARTBEAT_TIMEOUT_MS || '30000', 10),
+      maxMissedPongs: parseInt(process.env.NEXT_PUBLIC_WS_MAX_MISSED_PONGS || '3', 10),
+      slowConnectionThreshold: parseInt(process.env.NEXT_PUBLIC_WS_SLOW_CONNECTION_THRESHOLD || '2', 10),
+    },
   };
 };
 
