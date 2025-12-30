@@ -345,6 +345,15 @@ class WebSocketService {
         // This ensures completion/failure events are processed by the UI
         this.emitSessionUpdate(message);
         break;
+      // BUG-007 fix: State machine broadcast messages
+      case 'state_change':
+      case 'instance_added':
+      case 'instance_removed':
+      case 'full_update':
+        // Forward state machine messages to session update listeners
+        // This enables real-time state updates for dashboard components
+        this.emitSessionUpdate(message);
+        break;
       default:
         debugLog('Unhandled message type', message.type, message);
     }
@@ -376,7 +385,12 @@ class WebSocketService {
       'comprehensive_health_check',
       'data',
       'execution_result',
-      'status' // For pong responses
+      'status', // For pong responses
+      // BUG-007 fix: State machine broadcast messages
+      'state_change',
+      'instance_added',
+      'instance_removed',
+      'full_update'
     ];
 
     // Check if message type is relevant
@@ -1030,7 +1044,7 @@ class WebSocketService {
       Logger.debug('websocket.message', {
         direction,
         type: message.type,
-        stream: message.stream,
+        stream: message.stream ?? 'N/A',  // BUG-007.5: Graceful fallback for undefined stream
         hasData: !!message.data,
         dataKeys: message.data ? Object.keys(message.data) : [],
         timestamp: logEntry.timestamp,

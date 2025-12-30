@@ -13,11 +13,15 @@
  * - Uses new endpoint defined in state_machine_routes.py:280
  * - Backend returns condition groups with current indicator values
  * - Conditions evaluated against cached values from IndicatorEngine
+ *
+ * BUG-007.1c: Refactored to use shared wsService singleton instead of
+ * standalone WebSocket connection (ADR-001 compliance)
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Logger } from '@/services/frontendLogService';
 import ConditionProgress, { ConditionGroup, Condition } from './ConditionProgress';
+import { wsService, WSMessage } from '@/services/websocket';
 
 // ============================================================================
 // Props
@@ -100,7 +104,7 @@ const ConditionProgressIntegration: React.FC<ConditionProgressIntegrationProps> 
   // Transform API Response to UI Format
   // ========================================
 
-  const transformApiResponse = (apiGroups: APIConditionGroup[]): ConditionGroup[] => {
+  const transformApiResponse = useCallback((apiGroups: APIConditionGroup[]): ConditionGroup[] => {
     return apiGroups.map((apiGroup): ConditionGroup => {
       const section = GROUP_ID_TO_SECTION[apiGroup.id] || 'S1';
 
@@ -133,7 +137,7 @@ const ConditionProgressIntegration: React.FC<ConditionProgressIntegrationProps> 
         all_met,
       };
     });
-  };
+  }, []);
 
   /**
    * Normalize operator to UI format
@@ -220,83 +224,43 @@ const ConditionProgressIntegration: React.FC<ConditionProgressIntegrationProps> 
       setIsLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, symbol]);
+  }, [sessionId, symbol, transformApiResponse]);
 
   // ========================================
-  // WebSocket Integration
+  // WebSocket Integration via wsService (BUG-007.1c)
   // ========================================
 
   useEffect(() => {
     if (!sessionId) return;
 
-    // WebSocket URL from environment or default
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://127.0.0.1:8080/ws';
-    let ws: WebSocket | null = null;
+    // Subscribe to conditions stream
+    wsService.subscribe('conditions', { session_id: sessionId, symbol });
 
-    try {
-      ws = new WebSocket(wsUrl);
-
-      ws.onopen = () => {
-        Logger.debug('ConditionProgress.wsConnected', { message: 'WebSocket connected' });
-
-        // Subscribe to condition updates for this session
-        ws?.send(
-          JSON.stringify({
-            type: 'subscribe',
-            channel: 'conditions',
-            session_id: sessionId,
-            symbol: symbol,
-          })
-        );
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
-
-          // Handle condition update messages
-          if (message.type === 'condition_update' && message.session_id === sessionId) {
-            setGroups(message.groups || []);
-            setCurrentState(message.state || 'INACTIVE');
-            setError(null); // Clear error on successful update
-          }
-
-          // Handle state machine state changes
-          if (message.type === 'state_change' && message.session_id === sessionId) {
-            setCurrentState(message.new_state || 'INACTIVE');
-          }
-        } catch (err) {
-          Logger.error('ConditionProgress.wsMessage', { message: 'WebSocket message parse error', error: err });
+    // Add listener for condition update messages
+    const cleanup = wsService.addSessionUpdateListener((message: WSMessage) => {
+      // Handle condition update messages
+      if (message.type === 'condition_update' && message.session_id === sessionId) {
+        if (message.data?.groups) {
+          setGroups(transformApiResponse(message.data.groups));
+        } else if (message.groups) {
+          setGroups(transformApiResponse(message.groups));
         }
-      };
-
-      ws.onerror = (err) => {
-        Logger.error('ConditionProgress.wsError', { message: 'WebSocket error', error: err });
-        setError('WebSocket connection error');
-      };
-
-      ws.onclose = () => {
-        Logger.debug('ConditionProgress.wsClosed', { message: 'WebSocket disconnected' });
-      };
-    } catch (err) {
-      Logger.error('ConditionProgress.wsInit', { message: 'WebSocket initialization error', error: err });
-      setError('Failed to initialize WebSocket');
-    }
-
-    // Cleanup on unmount or sessionId change
-    return () => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(
-          JSON.stringify({
-            type: 'unsubscribe',
-            channel: 'conditions',
-            session_id: sessionId,
-          })
-        );
-        ws.close();
+        setCurrentState(message.data?.state || message.state || 'INACTIVE');
+        setError(null); // Clear error on successful update
       }
+
+      // Handle state machine state changes
+      if (message.type === 'state_change' && message.session_id === sessionId) {
+        setCurrentState(message.data?.new_state || message.new_state || 'INACTIVE');
+      }
+    }, 'ConditionProgress');
+
+    // Cleanup on unmount
+    return () => {
+      cleanup();
+      wsService.unsubscribe('conditions');
     };
-  }, [sessionId, symbol]);
+  }, [sessionId, symbol, transformApiResponse]);
 
   // ========================================
   // Initial Load + Polling Fallback

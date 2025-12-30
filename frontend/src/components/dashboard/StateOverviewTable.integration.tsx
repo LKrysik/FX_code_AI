@@ -4,9 +4,12 @@
  *
  * Demonstrates integration with:
  * - REST API for initial data
- * - WebSocket for real-time updates
+ * - WebSocket for real-time updates via wsService singleton (BUG-007 fix)
  * - Error handling and retry logic
  * - Navigation to detail views
+ *
+ * BUG-007.1: Refactored to use shared wsService singleton instead of
+ * standalone WebSocket connection (ADR-001 compliance)
  */
 
 'use client';
@@ -14,6 +17,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Box, Alert, Button, Container, Typography } from '@mui/material';
 import StateOverviewTable, { StateInstance } from './StateOverviewTable';
+import { wsService, WSMessage } from '@/services/websocket';
+import { useWebSocketStore } from '@/stores/websocketStore';
 
 // ============================================================================
 // INTEGRATION COMPONENT
@@ -22,14 +27,12 @@ import StateOverviewTable, { StateInstance } from './StateOverviewTable';
 interface StateOverviewIntegrationProps {
   sessionId: string;
   apiUrl?: string;
-  wsUrl?: string;
   onNavigateToDetail?: (instance: StateInstance) => void;
 }
 
 const StateOverviewTableIntegration: React.FC<StateOverviewIntegrationProps> = ({
   sessionId,
   apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080',
-  wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://127.0.0.1:8080/ws',
   onNavigateToDetail,
 }) => {
   // ========================================
@@ -39,8 +42,9 @@ const StateOverviewTableIntegration: React.FC<StateOverviewIntegrationProps> = (
   const [instances, setInstances] = useState<StateInstance[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [wsConnected, setWsConnected] = useState(false);
-  const [ws, setWs] = useState<WebSocket | null>(null);
+
+  // BUG-007.1: Use shared WebSocket connection status from store
+  const wsConnected = useWebSocketStore((state) => state.isConnected);
 
   // ========================================
   // REST API - Initial Load
@@ -77,99 +81,10 @@ const StateOverviewTableIntegration: React.FC<StateOverviewIntegrationProps> = (
   }, [sessionId, apiUrl]);
 
   // ========================================
-  // WebSocket - Real-time Updates
-  // ========================================
-
-  const connectWebSocket = useCallback(() => {
-    if (!sessionId || !wsUrl) return;
-
-    try {
-      // UWAGA: WebSocket endpoint /ws/state-machines/{sessionId} NIE ISTNIEJE w backendzie
-      // Używamy głównego WS endpoint /ws z subscription model
-      // TODO: Backend powinien obsługiwać channel 'state_machines' z session_id
-      const socket = new WebSocket(wsUrl);
-
-      socket.onopen = () => {
-        console.log('WebSocket connected');
-        setWsConnected(true);
-        setError(null);
-
-        // Subscribe do kanału state_machines
-        // UWAGA: Backend musi obsługiwać ten typ wiadomości w websocket_server.py
-        socket.send(JSON.stringify({
-          type: 'subscribe',
-          channel: 'state_machines',
-          session_id: sessionId
-        }));
-      };
-
-      socket.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
-
-          // Handle different message types
-          switch (message.type) {
-            case 'state_change':
-              handleStateChange(message.data);
-              break;
-
-            case 'instance_added':
-              handleInstanceAdded(message.data);
-              break;
-
-            case 'instance_removed':
-              handleInstanceRemoved(message.data);
-              break;
-
-            case 'full_update':
-              setInstances(message.data.instances || []);
-              break;
-
-            case 'error':
-              console.error('WebSocket error message received:', message.data);
-              setError(message.data?.message || 'Unknown server error');
-              break;
-
-            default:
-              console.warn('Unknown WebSocket message type:', message.type);
-          }
-        } catch (err) {
-          console.error('Error parsing WebSocket message:', err);
-        }
-      };
-
-      socket.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        setWsConnected(false);
-      };
-
-      socket.onclose = () => {
-        console.log('WebSocket disconnected');
-        setWsConnected(false);
-
-        // Attempt reconnect after 5 seconds
-        setTimeout(() => {
-          console.log('Attempting to reconnect WebSocket...');
-          connectWebSocket();
-        }, 5000);
-      };
-
-      setWs(socket);
-
-      return () => {
-        socket.close();
-      };
-    } catch (err) {
-      console.error('Failed to connect WebSocket:', err);
-      setError('WebSocket connection failed');
-    }
-  }, [sessionId, wsUrl]);
-
-  // ========================================
   // WebSocket Event Handlers
   // ========================================
 
-  const handleStateChange = (data: {
+  const handleStateChange = useCallback((data: {
     strategy_id: string;
     symbol: string;
     state: string;
@@ -187,9 +102,9 @@ const StateOverviewTableIntegration: React.FC<StateOverviewIntegrationProps> = (
           : instance
       )
     );
-  };
+  }, []);
 
-  const handleInstanceAdded = (data: StateInstance) => {
+  const handleInstanceAdded = useCallback((data: StateInstance) => {
     setInstances((prev) => {
       // Check if already exists
       const exists = prev.some(
@@ -207,9 +122,9 @@ const StateOverviewTableIntegration: React.FC<StateOverviewIntegrationProps> = (
 
       return [...prev, data];
     });
-  };
+  }, []);
 
-  const handleInstanceRemoved = (data: {
+  const handleInstanceRemoved = useCallback((data: {
     strategy_id: string;
     symbol: string;
   }) => {
@@ -221,7 +136,7 @@ const StateOverviewTableIntegration: React.FC<StateOverviewIntegrationProps> = (
           )
       )
     );
-  };
+  }, []);
 
   // ========================================
   // Click Handler
@@ -249,22 +164,59 @@ const StateOverviewTableIntegration: React.FC<StateOverviewIntegrationProps> = (
     }
   }, [sessionId, fetchInstances]);
 
-  // WebSocket connection
+  // BUG-007.1: WebSocket subscription via wsService singleton
   useEffect(() => {
-    if (sessionId) {
-      const cleanup = connectWebSocket();
-      return cleanup;
-    }
-  }, [sessionId, connectWebSocket]);
+    if (!sessionId) return;
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (ws) {
-        ws.close();
+    // Subscribe to state_machines stream
+    wsService.subscribe('state_machines', { session_id: sessionId });
+
+    // Add listener for state machine updates
+    const cleanup = wsService.addSessionUpdateListener((message: WSMessage) => {
+      // Only process state_machines stream messages
+      if (message.stream !== 'state_machines' &&
+          !['state_change', 'instance_added', 'instance_removed', 'full_update'].includes(message.type)) {
+        return;
       }
+
+      switch (message.type) {
+        case 'state_change':
+          if (message.data) {
+            handleStateChange(message.data);
+          }
+          break;
+
+        case 'instance_added':
+          if (message.data) {
+            handleInstanceAdded(message.data);
+          }
+          break;
+
+        case 'instance_removed':
+          if (message.data) {
+            handleInstanceRemoved(message.data);
+          }
+          break;
+
+        case 'full_update':
+          if (message.data?.instances) {
+            setInstances(message.data.instances);
+          }
+          break;
+
+        case 'error':
+          console.error('WebSocket error message received:', message.data);
+          setError(message.data?.message || 'Unknown server error');
+          break;
+      }
+    }, 'StateOverviewTable');
+
+    // Cleanup on unmount
+    return () => {
+      cleanup();
+      wsService.unsubscribe('state_machines');
     };
-  }, [ws]);
+  }, [sessionId, handleStateChange, handleInstanceAdded, handleInstanceRemoved]);
 
   // ========================================
   // Render

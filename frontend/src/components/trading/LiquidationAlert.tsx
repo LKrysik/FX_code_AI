@@ -6,7 +6,7 @@
  * Real-time liquidation risk monitoring for leveraged positions.
  *
  * Features:
- * - WebSocket-powered real-time updates
+ * - WebSocket-powered real-time updates via wsService singleton (BUG-007.1b fix)
  * - Color-coded severity levels (CRITICAL, HIGH, MEDIUM)
  * - Distance to liquidation percentage display
  * - Toast notifications for critical warnings (<10%)
@@ -17,6 +17,9 @@
  * - CRITICAL (<10%): Red, immediate action required
  * - HIGH (10-20%): Orange, close monitoring needed
  * - MEDIUM (20-30%): Yellow, elevated risk
+ *
+ * BUG-007.1b: Refactored to use shared wsService singleton instead of
+ * standalone WebSocket connection (ADR-001 compliance)
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
@@ -39,6 +42,7 @@ import {
   TrendingDown as TrendingDownIcon,
 } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
+import { wsService, WSMessage } from '@/services/websocket';
 
 interface LiquidationWarning {
   session_id: string;
@@ -70,110 +74,71 @@ export default function LiquidationAlert({
   const [dismissedWarnings, setDismissedWarnings] = useState<Set<string>>(new Set());
   const { enqueueSnackbar } = useSnackbar();
 
-  // WebSocket connection
+  // BUG-007.1b: WebSocket connection via wsService singleton
   useEffect(() => {
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://127.0.0.1:8080/ws';
-    let ws: WebSocket | null = null;
-    let reconnectTimeout: NodeJS.Timeout;
-    let isConnecting = false;
+    // Subscribe to paper trading stream (includes liquidation warnings)
+    wsService.subscribe('paper_trading', {});
 
-    const connect = () => {
-      if (isConnecting) return;
-      isConnecting = true;
+    // Add listener for liquidation warning events
+    const cleanup = wsService.addSessionUpdateListener((message: WSMessage) => {
+      // Handle liquidation warning events
+      if (message.type === 'paper_trading.liquidation_warning' ||
+          (message.data && message.data.event === 'paper_trading.liquidation_warning')) {
+        const warning: LiquidationWarning = message.data || message;
 
-      ws = new WebSocket(wsUrl);
+        // Filter by session if specified
+        if (sessionId && warning.session_id !== sessionId) {
+          return;
+        }
 
-      ws.onopen = () => {
-        Logger.info('LiquidationAlert.connect', { message: 'WebSocket connected' });
-        isConnecting = false;
+        // Update warnings map
+        const key = `${warning.session_id}:${warning.symbol}`;
+        setWarnings((prev) => {
+          const updated = new Map(prev);
+          updated.set(key, warning);
+          return updated;
+        });
 
-        // Subscribe to paper trading events (includes liquidation warnings)
-        ws?.send(
-          JSON.stringify({
-            type: 'subscribe',
-            stream: 'paper_trading',
-          })
-        );
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-
-          // Handle liquidation warning events
-          if (data.event === 'paper_trading.liquidation_warning') {
-            const warning: LiquidationWarning = data;
-
-            // Filter by session if specified
-            if (sessionId && warning.session_id !== sessionId) {
-              return;
+        // Show toast notification for critical warnings
+        if (enableToastNotifications && warning.warning_level === 'CRITICAL') {
+          enqueueSnackbar(
+            `CRITICAL: ${warning.symbol} position is ${warning.distance_pct.toFixed(1)}% from liquidation!`,
+            {
+              variant: 'error',
+              autoHideDuration: null,  // Don't auto-hide critical warnings
+              action: (key) => (
+                <IconButton
+                  size="small"
+                  color="inherit"
+                  onClick={() => {
+                    // Close snackbar but don't dismiss the main alert
+                    (window as any).closeSnackbar?.(key);
+                  }}
+                >
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              ),
             }
+          );
+        }
 
-            // Update warnings map
-            const key = `${warning.session_id}:${warning.symbol}`;
+        // Auto-hide non-critical warnings after delay
+        if (warning.warning_level !== 'CRITICAL' && autoHideDelay > 0) {
+          setTimeout(() => {
             setWarnings((prev) => {
               const updated = new Map(prev);
-              updated.set(key, warning);
+              updated.delete(key);
               return updated;
             });
-
-            // Show toast notification for critical warnings
-            if (enableToastNotifications && warning.warning_level === 'CRITICAL') {
-              enqueueSnackbar(
-                `CRITICAL: ${warning.symbol} position is ${warning.distance_pct.toFixed(1)}% from liquidation!`,
-                {
-                  variant: 'error',
-                  autoHideDuration: null,  // Don't auto-hide critical warnings
-                  action: (key) => (
-                    <IconButton
-                      size="small"
-                      color="inherit"
-                      onClick={() => {
-                        // Close snackbar but don't dismiss the main alert
-                        (window as any).closeSnackbar?.(key);
-                      }}
-                    >
-                      <CloseIcon fontSize="small" />
-                    </IconButton>
-                  ),
-                }
-              );
-            }
-
-            // Auto-hide non-critical warnings after delay
-            if (warning.warning_level !== 'CRITICAL' && autoHideDelay > 0) {
-              setTimeout(() => {
-                setWarnings((prev) => {
-                  const updated = new Map(prev);
-                  updated.delete(key);
-                  return updated;
-                });
-              }, autoHideDelay);
-            }
-          }
-        } catch (error) {
-          Logger.error('LiquidationAlert.onMessage', { message: 'Error parsing WebSocket message', error });
+          }, autoHideDelay);
         }
-      };
-
-      ws.onerror = (error) => {
-        Logger.error('LiquidationAlert.onError', { message: 'WebSocket error', error });
-      };
-
-      ws.onclose = () => {
-        Logger.info('LiquidationAlert.onClose', { message: 'WebSocket disconnected, reconnecting in 5s...' });
-        isConnecting = false;
-        reconnectTimeout = setTimeout(connect, 5000);
-      };
-    };
-
-    connect();
-
-    return () => {
-      if (ws) {
-        ws.close();
       }
-      clearTimeout(reconnectTimeout);
+    }, 'LiquidationAlert');
+
+    // Cleanup on unmount
+    return () => {
+      cleanup();
+      wsService.unsubscribe('paper_trading');
     };
   }, [sessionId, enableToastNotifications, autoHideDelay, enqueueSnackbar]);
 

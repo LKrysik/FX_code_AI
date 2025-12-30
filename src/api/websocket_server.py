@@ -26,6 +26,7 @@ from .auth_handler import AuthHandler, AuthResult, UserSession, Permission
 from .subscription_manager import SubscriptionManager
 from .event_bridge import EventBridge
 from .broadcast_provider import BroadcastProvider
+from .websocket.broadcasters import StateMachineBroadcaster
 from ..domain.services.strategy_manager import StrategyManager
 from .response_envelope import ensure_envelope
 from ..core.input_sanitizer import sanitizer
@@ -400,6 +401,14 @@ class WebSocketAPIServer:
             logger=self.logger
         )
 
+        # State machine broadcaster for real-time state updates (BUG-007 fix)
+        self.state_machine_broadcaster = StateMachineBroadcaster(
+            subscription_manager=self.subscription_manager,
+            connection_manager=self.connection_manager,
+            event_bus=self.event_bus,
+            logger=self.logger
+        )
+
         self.message_router = MessageRouter(logger=self.logger)
 
         # Initialize broadcast provider for WebSocket message broadcasting
@@ -659,6 +668,9 @@ class WebSocketAPIServer:
             # Start EventBridge
             await self.event_bridge.start()
 
+            # Start state machine broadcaster (BUG-007 fix)
+            await self.state_machine_broadcaster.start()
+
             # Register message handlers
             self._register_message_handlers()
 
@@ -709,6 +721,9 @@ class WebSocketAPIServer:
             # Start EventBridge
             await self.event_bridge.start()
 
+            # Start state machine broadcaster (BUG-007 fix)
+            await self.state_machine_broadcaster.start()
+
             # Register message handlers
             self._register_message_handlers()
 
@@ -743,6 +758,9 @@ class WebSocketAPIServer:
 
             # Stop EventBridge
             await self.event_bridge.stop()
+
+            # Stop state machine broadcaster (BUG-007 fix)
+            await self.state_machine_broadcaster.stop()
 
             # Stop broadcast provider
             await self.broadcast_provider.stop()
@@ -1386,6 +1404,31 @@ class WebSocketAPIServer:
                     self.subscription_manager.confirm_subscription(client_id, subscription_type)
                 except Exception:
                     pass
+
+                # BUG-007: Send full_update for state_machines subscriptions
+                if subscription_type == "state_machines":
+                    try:
+                        session_id = current.get("session_id") if isinstance(current, dict) else None
+                        if session_id:
+                            # Get current state machine instances from controller
+                            instances = []
+                            if self.controller:
+                                try:
+                                    instances = self.controller.get_state_machine_instances(session_id) or []
+                                except (AttributeError, Exception):
+                                    instances = []
+                            asyncio.create_task(
+                                self.state_machine_broadcaster.broadcast_full_update(
+                                    client_id=client_id,
+                                    session_id=session_id,
+                                    instances=instances
+                                )
+                            )
+                    except Exception as e:
+                        self.logger.warning("websocket_server.state_machines_full_update_failed", {
+                            "client_id": client_id,
+                            "error": str(e)
+                        })
 
                 # Seed initial messages to ensure clients start receiving data promptly
                 try:

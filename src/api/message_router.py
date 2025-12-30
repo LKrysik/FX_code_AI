@@ -404,7 +404,8 @@ class MessageValidator:
             "market_data", "indicators", "signals", "orders", "positions",
             "portfolio", "execution_status", "system_health",
             "health_check",  # Added missing stream type
-            "comprehensive_health_check"  # Also add this variant
+            "comprehensive_health_check",  # Also add this variant
+            "state_machines"  # BUG-007 fix: Real-time state machine updates
         ]
         if stream not in valid_streams:
             errors.append(f"Invalid stream type: {stream}. Must be one of: {valid_streams}")

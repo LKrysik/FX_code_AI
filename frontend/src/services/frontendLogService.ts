@@ -319,14 +319,26 @@ class FrontendLogService {
 
   /**
    * Flush logs to backend
+   * BUG-007.4: Only send ERROR and WARN levels to backend to reduce log noise
    */
   private async flush(sync = false): Promise<void> {
     if (this.logBuffer.length === 0) {
       return;
     }
 
-    const logsToSend = [...this.logBuffer];
+    // BUG-007.4: Filter to only ERROR and WARN levels for backend
+    // DEBUG and INFO stay in browser console only
+    const logsToSend = this.logBuffer.filter(
+      log => log.level === 'error' || log.level === 'warn'
+    );
+
+    // Clear entire buffer (DEBUG/INFO discarded from backend persistence)
     this.logBuffer = [];
+
+    // If no ERROR/WARN logs, nothing to send
+    if (logsToSend.length === 0) {
+      return;
+    }
 
     const payload = {
       logs: logsToSend,

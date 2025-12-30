@@ -72,8 +72,8 @@ development_status:
   1a-4-human-vocabulary-labels: review  # Completed 2025-12-27 - stateVocabulary.ts, 25 tests
   1a-5-statushero-component: done  # Completed 2025-12-27 - StatusHero, useStatusHeroData hook, 30+ tests
   1a-6-signal-type-color-coding: done  # Completed 2025-12-27 - signalColors.ts, 21 tests
-  1a-7-first-visit-onboarding-tooltip: ready-for-dev
-  1a-8-quick-start-option: ready-for-dev
+  1a-7-first-visit-onboarding-tooltip: in-progress
+  1a-8-quick-start-option: in-progress  # Started 2025-12-30
   epic-1a-retrospective: optional
 
   # ============================================================
@@ -109,6 +109,23 @@ development_status:
   bug-004-5-indicator-values-data-flow: backlog    # All indicators show "--"
   bug-004-6-condition-progress-inactive: backlog   # Condition Progress shows "INACTIVE"
   epic-bug-004-retrospective: optional
+
+  # ============================================================
+  # Epic BUG-007: WebSocket Connection Stability & Logging Fix (P1)
+  # Goal: Fix WebSocket instability, dual-connection anti-pattern, logging issues
+  # Source: docs/bug_007.md + Advanced Elicitation findings
+  # ============================================================
+  epic-bug-007: done  # ALL 9 stories completed 2025-12-29
+  bug-007-0-backend-state-machines-broadcaster: done  # Completed 2025-12-29 - StateMachineBroadcaster, 17 tests
+  bug-007-1-refactor-stateoverviewtable: done  # Completed 2025-12-29 - wsService integration
+  bug-007-1b-refactor-liquidationalert: done  # Completed 2025-12-29 - wsService integration
+  bug-007-1c-refactor-conditionprogress: done  # Completed 2025-12-29 - wsService integration
+  bug-007-1d-refactor-pumpindicatorspanel: done  # Completed 2025-12-29 - wsService integration
+  bug-007-2-add-state-machines-valid-streams: done  # Completed 2025-12-29 - Added to valid_streams
+  bug-007-3-extend-wsservice-state-machines: done  # Completed 2025-12-29 - wsService message routing
+  bug-007-4-filter-debug-logs: done  # Completed 2025-12-29 - Only ERROR/WARN sent to backend
+  bug-007-5-cleanup-stream-undefined: done  # Completed 2025-12-29 - Nullish coalescing fallback
+  epic-bug-007-retrospective: optional
 
   # ============================================================
   # Epic 1B: First Successful Backtest (P0)
@@ -179,6 +196,19 @@ development_status:
   4-12-full-screen-critical-errors: backlog
   4-13-reconnect-banner: backlog
   epic-4-retrospective: optional
+
+  # ============================================================
+  # Epic COH-001: Coherence Improvements (P1 - Technical Debt)
+  # Goal: Fix backend-frontend coherence issues from analysis
+  # Source: _bmad-output/coherence-analysis-report.md (2025-12-29)
+  # ============================================================
+  epic-coh-001: in-progress
+  coh-001-1-synchronize-messagetype: ready-for-dev      # Sync MessageType enum BE↔FE
+  coh-001-2-unify-logger-api: ready-for-dev             # Consistent Logger API
+  coh-001-3-typescript-eventtype: ready-for-dev         # Create TS EventType constants
+  coh-001-4-refactor-dynamic-imports: ready-for-dev     # Clean store dependencies
+  coh-001-5-strategy-indicator-validation: ready-for-dev # CRITICAL - Fix UUID validation
+  epic-coh-001-retrospective: optional
 
   # ============================================================
   # Epic 5: Dashboard Experience Polish (P3)

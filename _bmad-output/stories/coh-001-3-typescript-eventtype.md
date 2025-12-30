@@ -1,0 +1,159 @@
+# Story COH-001-3: Create TypeScript EventType Definitions
+
+**Status:** pending
+**Priority:** MEDIUM
+**Effort:** M (Medium)
+
+---
+
+## Story
+
+As a **frontend developer handling backend events**,
+I want **TypeScript types for all EventType constants**,
+so that **I get autocompletion and type safety when working with events**.
+
+## Problem Statement
+
+**Backend** (`src/core/events.py`) has comprehensive EventType:
+```python
+class EventType:
+    # Market Data Events
+    MARKET_PRICE_UPDATE = "market.price_update"
+    MARKET_ORDERBOOK_UPDATE = "market.orderbook_update"
+
+    # Signal Detection Events
+    PUMP_DETECTED = "pump.detected"
+    DUMP_DETECTED = "dump.detected"
+
+    # Trading Events
+    ORDER_PLACED = "order.placed"
+    ORDER_FILLED = "order.filled"
+    # ... 40+ event types
+```
+
+**Frontend** has NO equivalent - event types are hardcoded strings:
+```typescript
+// Scattered across codebase:
+if (message.type === 'pump.detected') { ... }
+if (message.type === 'order.placed') { ... }
+```
+
+**Issues:**
+1. No autocompletion for event types
+2. Typos cause silent failures
+3. No single reference for available events
+4. Hard to discover what events exist
+
+## Acceptance Criteria
+
+1. **AC1:** TypeScript EventType constant object exists
+2. **AC2:** All backend EventType values are included
+3. **AC3:** Frontend code uses EventType constants, not strings
+4. **AC4:** Adding new event requires update in both places (with CI check)
+5. **AC5:** Autocomplete works in IDE
+
+## Tasks / Subtasks
+
+- [ ] Task 1: Create TypeScript EventType (AC: 1, 2)
+  - [ ] Create `frontend/src/types/events.ts`
+  - [ ] Mirror all EventType constants from Python
+  - [ ] Use `as const` for literal types
+
+- [ ] Task 2: Add synchronization test (AC: 4)
+  - [ ] Create shared JSON or generate from Python
+  - [ ] Add CI test to verify sync
+
+- [ ] Task 3: Refactor frontend usage (AC: 3, 5)
+  - [ ] Find all hardcoded event type strings
+  - [ ] Replace with EventType constants
+  - [ ] Verify autocomplete works
+
+## Dev Notes
+
+### TypeScript EventType Definition
+
+```typescript
+// frontend/src/types/events.ts
+export const EventType = {
+  // Market Data Events
+  MARKET_PRICE_UPDATE: 'market.price_update',
+  MARKET_ORDERBOOK_UPDATE: 'market.orderbook_update',
+  MARKET_VOLUME_UPDATE: 'market.volume_update',
+  MARKET_TICKER_UPDATE: 'market.ticker_update',
+
+  // Signal Detection Events
+  PUMP_DETECTED: 'pump.detected',
+  DUMP_DETECTED: 'dump.detected',
+  REVERSAL_DETECTED: 'reversal.detected',
+  SIGNAL_DETECTED: 'signal.detected',
+
+  // Trading Events
+  ORDER_PLACED: 'order.placed',
+  ORDER_FILLED: 'order.filled',
+  ORDER_REJECTED: 'order.rejected',
+  ORDER_CANCELLED: 'order.cancelled',
+  ORDER_EXPIRED: 'order.expired',
+
+  // Position Events
+  POSITION_OPENING: 'position.opening',
+  POSITION_OPENED: 'position.opened',
+  POSITION_CLOSING: 'position.closing',
+  POSITION_CLOSED: 'position.closed',
+  POSITION_UPDATED: 'position.updated',
+
+  // Risk Management Events
+  STOP_LOSS_TRIGGERED: 'risk.stop_loss_triggered',
+  TAKE_PROFIT_TRIGGERED: 'risk.take_profit_triggered',
+  EMERGENCY_CONDITION_DETECTED: 'risk.emergency_condition_detected',
+  RISK_LIMIT_EXCEEDED: 'risk.limit_exceeded',
+
+  // System Events
+  SYSTEM_STARTUP: 'system.startup',
+  SYSTEM_SHUTDOWN: 'system.shutdown',
+  SYSTEM_ERROR: 'system.error',
+  SYSTEM_HEALTH_CHECK: 'system.health_check',
+
+  // Exchange Events
+  EXCHANGE_CONNECTED: 'exchange.connected',
+  EXCHANGE_DISCONNECTED: 'exchange.disconnected',
+  EXCHANGE_ERROR: 'exchange.error',
+  EXCHANGE_RECONNECTING: 'exchange.reconnecting',
+} as const;
+
+export type EventTypeValue = typeof EventType[keyof typeof EventType];
+```
+
+### Usage Example
+
+```typescript
+import { EventType } from '@/types/events';
+
+// Before (hardcoded string)
+if (message.type === 'pump.detected') { ... }
+
+// After (with constant)
+if (message.type === EventType.PUMP_DETECTED) { ... }
+```
+
+### Affected Files
+
+**New:**
+- `frontend/src/types/events.ts`
+
+**Modified:**
+- `frontend/src/services/websocket.ts`
+- `frontend/src/stores/dashboardStore.ts`
+- Various components handling events
+
+## References
+
+- [Coherence Analysis Report - Test 78]
+- [Backend events.py]
+
+---
+
+## Change Log
+
+| Date | Author | Change |
+|------|--------|--------|
+| 2025-12-29 | John (PM) | Story created from Coherence Analysis |

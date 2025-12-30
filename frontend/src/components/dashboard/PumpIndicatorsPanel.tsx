@@ -21,6 +21,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Logger } from '@/services/frontendLogService';
+import { wsService, WSMessage } from '@/services/websocket';
 import {
   Box,
   Paper,
@@ -501,84 +502,55 @@ const PumpIndicatorsPanel: React.FC<PumpIndicatorsPanelProps> = ({
   }, [sessionId, symbol]);
 
   // ========================================
-  // WebSocket Integration
+  // WebSocket Integration via wsService (BUG-007.1d)
   // ========================================
 
   useEffect(() => {
     if (!sessionId) return;
 
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://127.0.0.1:8080/ws';
-    let ws: WebSocket | null = null;
+    // Subscribe to indicators stream
+    wsService.subscribe('indicators', { session_id: sessionId, symbol });
 
-    try {
-      ws = new WebSocket(wsUrl);
+    // Add listener for indicator update messages
+    const cleanup = wsService.addSessionUpdateListener((message: WSMessage) => {
+      // Handle indicator update messages
+      if (
+        message.type === 'indicator_update' &&
+        message.session_id === sessionId &&
+        (message.symbol === symbol || message.data?.symbol === symbol)
+      ) {
+        const now = Date.now();
+        const indicatorType = message.indicator_type || message.data?.indicator_type;
+        const value = message.value ?? message.data?.value;
 
-      ws.onopen = () => {
-        Logger.debug('PumpIndicatorsPanel.wsConnected', { sessionId, symbol });
-        ws?.send(
-          JSON.stringify({
-            type: 'subscribe',
-            channel: 'indicators',
-            session_id: sessionId,
-            symbol: symbol,
-          })
-        );
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
-
-          if (
-            message.type === 'indicator_update' &&
-            message.session_id === sessionId &&
-            message.symbol === symbol
-          ) {
-            const now = Date.now();
-
-            // Update pump magnitude
-            if (message.indicator_type?.toLowerCase().includes('pump_magnitude')) {
-              setPumpMagnitude(message.value);
-              magnitudeHistoryRef.current = [
-                ...magnitudeHistoryRef.current.slice(-HISTORY_SIZE + 1),
-                { timestamp: now, value: message.value },
-              ];
-              setMagnitudeHistory([...magnitudeHistoryRef.current]);
-            }
-
-            // Update velocity
-            if (message.indicator_type?.toLowerCase().includes('velocity')) {
-              setPriceVelocity(message.value);
-              velocityHistoryRef.current = [
-                ...velocityHistoryRef.current.slice(-HISTORY_SIZE + 1),
-                { timestamp: now, value: message.value },
-              ];
-              setVelocityHistory([...velocityHistoryRef.current]);
-            }
+        if (indicatorType && value !== undefined) {
+          // Update pump magnitude
+          if (indicatorType.toLowerCase().includes('pump_magnitude')) {
+            setPumpMagnitude(value);
+            magnitudeHistoryRef.current = [
+              ...magnitudeHistoryRef.current.slice(-HISTORY_SIZE + 1),
+              { timestamp: now, value },
+            ];
+            setMagnitudeHistory([...magnitudeHistoryRef.current]);
           }
-        } catch (err) {
-          Logger.error('PumpIndicatorsPanel.wsMessage', { message: 'WS message parse error', error: err });
+
+          // Update velocity
+          if (indicatorType.toLowerCase().includes('velocity')) {
+            setPriceVelocity(value);
+            velocityHistoryRef.current = [
+              ...velocityHistoryRef.current.slice(-HISTORY_SIZE + 1),
+              { timestamp: now, value },
+            ];
+            setVelocityHistory([...velocityHistoryRef.current]);
+          }
         }
-      };
-
-      ws.onerror = (err) => {
-        Logger.error('PumpIndicatorsPanel.wsError', { message: 'WebSocket error', error: err });
-      };
-    } catch (err) {
-      Logger.error('PumpIndicatorsPanel.wsInit', { message: 'WebSocket init error', error: err });
-    }
-
-    return () => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(
-          JSON.stringify({
-            type: 'unsubscribe',
-            channel: 'indicators',
-            session_id: sessionId,
-          })
-        );
-        ws.close();
       }
+    }, 'PumpIndicatorsPanel');
+
+    // Cleanup on unmount
+    return () => {
+      cleanup();
+      wsService.unsubscribe('indicators');
     };
   }, [sessionId, symbol]);
 

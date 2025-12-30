@@ -1,6 +1,6 @@
 # Story 1A.7: First-Visit Onboarding Tooltip
 
-Status: ready-for-dev
+Status: in-progress
 
 ## Story
 
@@ -18,28 +18,28 @@ so that **I understand where signals will appear and how to start**.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Detect First Visit** (AC: 1, 4)
-  - [ ] 1.1 Check localStorage for `hasSeenOnboarding` flag
-  - [ ] 1.2 Show tooltip if flag is not set
-  - [ ] 1.3 Set flag after dismissal
-  - [ ] 1.4 Provide "Reset onboarding" option in settings (optional)
+- [x] **Task 1: Detect First Visit** (AC: 1, 4)
+  - [x] 1.1 Check localStorage for `hasSeenOnboarding` flag
+  - [x] 1.2 Show tooltip if flag is not set
+  - [x] 1.3 Set flag after dismissal
+  - [x] 1.4 Provide "Reset onboarding" option in settings (optional)
 
-- [ ] **Task 2: Create Tooltip Content** (AC: 2, 3)
-  - [ ] 2.1 Write friendly welcome message
-  - [ ] 2.2 Highlight key dashboard areas
-  - [ ] 2.3 Add "Got it!" dismiss button
+- [x] **Task 2: Create Tooltip Content** (AC: 2, 3)
+  - [x] 2.1 Write friendly welcome message
+  - [x] 2.2 Highlight key dashboard areas
+  - [x] 2.3 Add "Got it!" dismiss button
   - [ ] 2.4 Optional: multi-step tour (if time permits)
 
-- [ ] **Task 3: Tooltip Component** (AC: 5)
-  - [ ] 3.1 Use MUI Tooltip or Popper component
-  - [ ] 3.2 Position near StatusHero
-  - [ ] 3.3 Ensure non-blocking (can click through)
-  - [ ] 3.4 Add subtle animation
+- [x] **Task 3: Tooltip Component** (AC: 5)
+  - [x] 3.1 Use MUI Tooltip or Popper component
+  - [x] 3.2 Position near StatusHero
+  - [x] 3.3 Ensure non-blocking (can click through)
+  - [x] 3.4 Add subtle animation
 
-- [ ] **Task 4: Styling** (AC: 5)
-  - [ ] 4.1 Friendly, welcoming design
-  - [ ] 4.2 Match overall theme
-  - [ ] 4.3 Mobile-friendly positioning
+- [x] **Task 4: Styling** (AC: 5)
+  - [x] 4.1 Friendly, welcoming design
+  - [x] 4.2 Match overall theme
+  - [x] 4.3 Mobile-friendly positioning
 
 ## Dev Notes
 
