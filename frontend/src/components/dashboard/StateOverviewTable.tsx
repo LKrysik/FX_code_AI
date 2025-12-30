@@ -146,6 +146,21 @@ function getRowBackgroundColor(state: StateMachineState, theme: any): string {
   }
 }
 
+/**
+ * Get row hover background color based on state
+ * Uses higher alpha (0.15) for colored rows to make hover more visible
+ */
+function getRowHoverBackgroundColor(state: StateMachineState, theme: any): string {
+  switch (state) {
+    case 'POSITION_ACTIVE':
+      return alpha(theme.palette.error.main, 0.15);
+    case 'SIGNAL_DETECTED':
+      return alpha(theme.palette.warning.main, 0.15);
+    default:
+      return alpha(theme.palette.action.hover, 0.04);
+  }
+}
+
 // ============================================================================
 // LOADING SKELETON
 // ============================================================================
@@ -285,10 +300,7 @@ const StateOverviewTable: React.FC<StateOverviewTableProps> = ({
                     sx={{
                       backgroundColor: rowBgColor,
                       '&:hover': {
-                        backgroundColor:
-                          rowBgColor === 'transparent'
-                            ? alpha(theme.palette.action.hover, 0.04)
-                            : alpha(theme.palette.action.hover, 0.08),
+                        backgroundColor: getRowHoverBackgroundColor(instance.state, theme),
                       },
                       cursor: onInstanceClick ? 'pointer' : 'default',
                     }}
