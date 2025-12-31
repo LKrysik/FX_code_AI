@@ -506,7 +506,9 @@ const PumpIndicatorsPanel: React.FC<PumpIndicatorsPanelProps> = ({
   // ========================================
 
   useEffect(() => {
-    if (!sessionId) return;
+    // BUG-009 FIX: Check both sessionId AND symbol before subscribing
+    // Without symbol, backend returns "Indicator subscription must specify symbol or symbols"
+    if (!sessionId || !symbol) return;
 
     // Subscribe to indicators stream
     wsService.subscribe('indicators', { session_id: sessionId, symbol });

@@ -405,7 +405,8 @@ class MessageValidator:
             "portfolio", "execution_status", "system_health",
             "health_check",  # Added missing stream type
             "comprehensive_health_check",  # Also add this variant
-            "state_machines"  # BUG-007 fix: Real-time state machine updates
+            "state_machines",  # BUG-007 fix: Real-time state machine updates
+            "conditions"  # BUG-009 fix: ConditionProgress component subscribes to this
         ]
         if stream not in valid_streams:
             errors.append(f"Invalid stream type: {stream}. Must be one of: {valid_streams}")

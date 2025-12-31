@@ -331,7 +331,9 @@ export const IndicatorValuesPanel: React.FC<IndicatorValuesProps> = ({
   );
 
   useEffect(() => {
-    if (!sessionId) return;
+    // BUG-009 FIX: Check both sessionId AND symbol before subscribing
+    // Without symbol, backend returns "Indicator subscription must specify symbol or symbols"
+    if (!sessionId || !symbol) return;
 
     // Set up WebSocket callback for indicators
     wsService.setCallbacks({

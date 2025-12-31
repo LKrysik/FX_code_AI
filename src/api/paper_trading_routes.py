@@ -214,18 +214,55 @@ async def create_session(
                 # strategy_id is UUID/database ID, strategy_name matches StrategyManager.strategies dict key
                 selected_strategies = [request.strategy_name]
 
+                # BUG-009 FIX: Log BEFORE activation with full context
+                logger.info("paper_trading_api.activating_strategies_START", {
+                    "session_id": session_id,
+                    "strategy_name": request.strategy_name,
+                    "strategy_id": request.strategy_id,
+                    "symbols": request.symbols,
+                    "selected_strategies": selected_strategies
+                })
+
                 await controller._activate_strategies_for_session(
                     session_id=session_id,
                     symbols=request.symbols,
                     selected_strategies=selected_strategies
                 )
 
-                strategies_activated = True
-                logger.info("paper_trading_api.strategies_activated", {
-                    "session_id": session_id,
-                    "strategy_id": request.strategy_id,
-                    "symbols": request.symbols
-                })
+                # BUG-009 FIX: Verify activation actually created state machine instances
+                # by checking StrategyManager directly
+                active_strategies_count = 0
+                if hasattr(controller, 'strategy_manager') and controller.strategy_manager:
+                    for symbol in request.symbols:
+                        active = controller.strategy_manager.get_active_strategies_for_symbol(symbol)
+                        active_strategies_count += len(active)
+
+                if active_strategies_count == 0:
+                    # This is the silent failure case - activation ran but nothing was activated
+                    logger.error("paper_trading_api.activation_SILENT_FAILURE", {
+                        "session_id": session_id,
+                        "strategy_name": request.strategy_name,
+                        "symbols": request.symbols,
+                        "active_strategies_count": 0,
+                        "symptom": "State Machine Overview will show 'No active instances'",
+                        "possible_causes": [
+                            "Strategy not found in StrategyManager.strategies",
+                            "Strategy name mismatch (check exact name spelling)",
+                            "No strategies loaded from database",
+                            "StrategyManager.activate_strategy_for_symbol() returned False"
+                        ],
+                        "action_required": "Check unified_trading_controller logs for strategy_not_found warnings"
+                    })
+                    strategies_activated = False
+                else:
+                    strategies_activated = True
+                    logger.info("paper_trading_api.strategies_activated_SUCCESS", {
+                        "session_id": session_id,
+                        "strategy_name": request.strategy_name,
+                        "symbols": request.symbols,
+                        "active_strategies_count": active_strategies_count,
+                        "verification": "State Machine Overview should show active instances"
+                    })
 
             except Exception as activation_err:
                 # Log error but don't fail session creation
@@ -238,10 +275,15 @@ async def create_session(
                     "error_type": type(activation_err).__name__
                 })
         else:
-            logger.warning("paper_trading_api.no_unified_controller", {
+            # BUG-009 FIX: Changed from WARNING to ERROR - this is a CRITICAL issue
+            # that blocks the entire state machine functionality
+            logger.error("paper_trading_api.no_unified_controller_CRITICAL", {
                 "session_id": session_id,
-                "impact": "strategies_not_activated",
-                "solution": "Ensure unified_controller is passed to initialize_paper_trading_dependencies()"
+                "impact": "STATE_MACHINES_WILL_NOT_START",
+                "symptom": "State Machine Overview will show 'No active instances'",
+                "root_cause": "unified_controller is None - not injected during server startup",
+                "solution": "Check unified_server.py - ensure ws_controller is passed to initialize_paper_trading_dependencies()",
+                "action_required": "IMMEDIATE - paper trading is non-functional without this"
             })
 
         # Build response with activation status

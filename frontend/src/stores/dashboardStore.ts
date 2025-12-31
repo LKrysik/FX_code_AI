@@ -142,22 +142,51 @@ export const useDashboardStore = create<DashboardState>()(
             );
           };
 
-          // Validate response structure
-          if (response && response.data && Array.isArray(response.data.market_data)) {
-            const marketData = response.data.market_data;
+          // BUG-009 FIX: Improved response validation with better diagnostics
+          // Try multiple possible response structures for compatibility
+          let marketData: any[] = [];
 
+          if (response && response.data && Array.isArray(response.data.market_data)) {
+            // Standard structure: { data: { market_data: [...] } }
+            marketData = response.data.market_data;
+          } else if (response && Array.isArray(response.data)) {
+            // Alternative structure: { data: [...] }
+            marketData = response.data;
+          } else if (response && Array.isArray(response.market_data)) {
+            // Alternative structure: { market_data: [...] }
+            marketData = response.market_data;
+          } else if (Array.isArray(response)) {
+            // Direct array response
+            marketData = response;
+          }
+
+          if (marketData.length > 0) {
             // Validate all items
             const validMarketData = marketData.filter(isValidMarketData);
 
             if (validMarketData.length !== marketData.length) {
-              Logger.warn('dashboardStore.invalidMarketData', { message: `Filtered out ${marketData.length - validMarketData.length} invalid market data items` });
+              Logger.warn('dashboardStore.invalidMarketData', {
+                message: `Filtered out ${marketData.length - validMarketData.length} invalid market data items`,
+                totalItems: marketData.length,
+                validItems: validMarketData.length
+              });
             }
 
             set({ marketData: validMarketData, marketDataLoading: false });
             Logger.debug('dashboardStore.fetchMarketData', { message: 'Market data fetched successfully', count: validMarketData.length });
             return validMarketData;
           } else {
-            Logger.warn('dashboardStore.invalidMarketDataResponse', { message: 'Invalid market data response structure', response });
+            // BUG-009 FIX: Log detailed structure for debugging
+            Logger.warn('dashboardStore.invalidMarketDataResponse', {
+              message: 'Invalid market data response structure',
+              hasResponse: !!response,
+              hasData: !!(response?.data),
+              dataType: typeof response?.data,
+              hasMarketData: !!(response?.data?.market_data),
+              marketDataType: typeof response?.data?.market_data,
+              responseKeys: response ? Object.keys(response) : [],
+              dataKeys: response?.data ? Object.keys(response.data) : []
+            });
             // Fallback to empty array if no data
             set({ marketData: [], marketDataLoading: false });
             return [];

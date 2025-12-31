@@ -697,27 +697,37 @@ class WebSocketService {
         throw new Error('Invalid state snapshot response');
       }
 
-      const snapshot = result.data;
+      // BUG-009 FIX: Add null safety for snapshot object and its properties
+      const snapshot = result.data ?? {};
+      const snapshotTimestamp = snapshot.timestamp ?? new Date().toISOString();
+      const snapshotPositions = snapshot.positions ?? [];
+      const snapshotSignals = snapshot.active_signals ?? [];
+      const snapshotState = snapshot.state_machine_state ?? 'unknown';
+
       Logger.info('websocket.state_snapshot_received', {
-        timestamp: snapshot.timestamp,
-        positions: snapshot.positions?.length || 0,
-        signals: snapshot.active_signals?.length || 0,
-        state: snapshot.state_machine_state
+        timestamp: snapshotTimestamp,
+        positions: snapshotPositions.length,
+        signals: snapshotSignals.length,
+        state: snapshotState,
+        // BUG-009: Log if we had to use defaults (indicates API issue)
+        usedDefaults: !snapshot.timestamp || !snapshot.positions || !snapshot.active_signals
       });
 
       // Update stores with snapshot data via callback (COH-001-4: clean dependency boundary)
       this.safeStoreUpdate(() => {
         // Notify subscribers of state sync data
         if (this.callbacks.onStateSync) {
+          // BUG-009 FIX: Pass validated/defaulted values, not raw undefined
           this.callbacks.onStateSync({
-            positions: snapshot.positions,
-            activeSignals: snapshot.active_signals,
-            timestamp: snapshot.timestamp
+            positions: snapshotPositions,
+            activeSignals: snapshotSignals,
+            timestamp: snapshotTimestamp
           });
         }
 
         // Mark sync as complete
-        useWebSocketStore.getState().setLastSyncTime?.(new Date(snapshot.timestamp));
+        // BUG-009 FIX: Use validated timestamp to avoid Invalid Date
+        useWebSocketStore.getState().setLastSyncTime?.(new Date(snapshotTimestamp));
         useWebSocketStore.getState().setSyncStatus?.('synced');
       }, 'state sync');
 

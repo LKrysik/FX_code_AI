@@ -890,9 +890,15 @@ class UnifiedTradingController:
             selected_strategies: List of strategy names to activate
         """
         if not hasattr(self, 'strategy_manager') or self.strategy_manager is None:
-            self.logger.warning("unified_trading_controller.strategy_activation_skipped", {
-                "reason": "strategy_manager not configured",
-                "session_id": session_id
+            # BUG-009 FIX: Changed from WARNING to ERROR - this is a critical failure
+            self.logger.error("unified_trading_controller.strategy_activation_CRITICAL_FAILURE", {
+                "reason": "strategy_manager is None or not configured",
+                "session_id": session_id,
+                "symbols": symbols,
+                "selected_strategies": selected_strategies,
+                "symptom": "State Machine Overview will show 'No active instances'",
+                "root_cause": "StrategyManager was not injected into UnifiedTradingController",
+                "solution": "Check container/server initialization - StrategyManager must be injected"
             })
             return
 
@@ -907,6 +913,22 @@ class UnifiedTradingController:
                 "session_id": session_id,
                 "count": loaded_count
             })
+
+            # BUG-009 FIX: Log ERROR if no strategies were loaded
+            if loaded_count == 0:
+                available_in_manager = list(self.strategy_manager.strategies.keys()) if self.strategy_manager.strategies else []
+                self.logger.error("unified_trading_controller.NO_STRATEGIES_LOADED", {
+                    "session_id": session_id,
+                    "loaded_count": 0,
+                    "strategies_already_in_manager": available_in_manager,
+                    "symptom": "No strategies will be activated - State Machine Overview will show 'No active instances'",
+                    "possible_causes": [
+                        "QuestDB is empty (no strategies saved)",
+                        "QuestDB connection failed",
+                        "Strategy table does not exist"
+                    ],
+                    "action_required": "Check QuestDB connection and strategy data"
+                })
 
             # If no specific strategies selected, activate all enabled strategies
             if not selected_strategies:
@@ -958,15 +980,30 @@ class UnifiedTradingController:
             if hasattr(self, 'indicator_engine') and self.indicator_engine:
                 registered_symbols = list(self.indicator_engine._indicators_by_symbol.keys())
 
-            self.logger.info("unified_trading_controller.session_strategies_activated", {
-                "session_id": session_id,
-                "activated_count": activated_count,
-                "variants_created": variants_created_count,
-                "symbols": symbols,
-                "strategies": selected_strategies,
-                "indicators_registered_for_symbols": registered_symbols,
-                "engine_id": id(self.indicator_engine) if self.indicator_engine else None
-            })
+            # BUG-009 FIX: Log ERROR if no strategies were activated (critical failure)
+            if activated_count == 0:
+                self.logger.error("unified_trading_controller.ZERO_STRATEGIES_ACTIVATED", {
+                    "session_id": session_id,
+                    "activated_count": 0,
+                    "symbols": symbols,
+                    "selected_strategies": selected_strategies,
+                    "available_strategies": list(self.strategy_manager.strategies.keys())[:20],
+                    "symptom": "State Machine Overview will show 'No active instances'",
+                    "root_cause": "None of the selected strategies were found in StrategyManager.strategies",
+                    "likely_fix": "Verify strategy name matches exactly (case-sensitive)",
+                    "action_required": "Compare selected_strategies with available_strategies above"
+                })
+            else:
+                self.logger.info("unified_trading_controller.session_strategies_activated_OK", {
+                    "session_id": session_id,
+                    "activated_count": activated_count,
+                    "variants_created": variants_created_count,
+                    "symbols": symbols,
+                    "strategies": selected_strategies,
+                    "indicators_registered_for_symbols": registered_symbols,
+                    "engine_id": id(self.indicator_engine) if self.indicator_engine else None,
+                    "verification": "State Machine Overview should show active instances"
+                })
 
         except Exception as e:
             self.logger.error("unified_trading_controller.strategy_activation_failed", {

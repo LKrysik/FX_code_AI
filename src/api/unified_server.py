@@ -421,11 +421,39 @@ def create_unified_app():
 
         # Initialize paper trading routes (TIER 1.2)
         # BUG-005-1 FIX: Pass unified controller for strategy activation
+        # BUG-009 FIX: Validate ws_controller before injection
+        if ws_controller is None:
+            logger.error("unified_server.CRITICAL_ws_controller_is_None", {
+                "impact": "Paper trading state machines will NOT work",
+                "symptom": "State Machine Overview will show 'No active instances'",
+                "root_cause": "container.create_unified_trading_controller() returned None",
+                "action_required": "Check container initialization logs for errors"
+            })
+        else:
+            # Verify ws_controller has strategy_manager
+            has_strategy_manager = hasattr(ws_controller, 'strategy_manager') and ws_controller.strategy_manager is not None
+            if not has_strategy_manager:
+                logger.error("unified_server.CRITICAL_strategy_manager_missing", {
+                    "impact": "Paper trading state machines will NOT work",
+                    "symptom": "State Machine Overview will show 'No active instances'",
+                    "root_cause": "ws_controller.strategy_manager is None",
+                    "action_required": "Check UnifiedTradingController initialization"
+                })
+            else:
+                logger.info("unified_server.ws_controller_validation_passed", {
+                    "controller_id": id(ws_controller),
+                    "has_strategy_manager": True,
+                    "strategy_manager_id": id(ws_controller.strategy_manager)
+                })
+
         paper_trading_routes_module.initialize_paper_trading_dependencies(
             persistence_service=paper_trading_persistence,
             unified_controller=ws_controller  # BUG-005-1: Enable strategy activation pipeline
         )
-        logger.info("paper_trading_routes initialized with QuestDB persistence and strategy activation")
+        logger.info("paper_trading_routes initialized with QuestDB persistence and strategy activation", {
+            "unified_controller_injected": ws_controller is not None,
+            "controller_has_strategy_manager": hasattr(ws_controller, 'strategy_manager') and ws_controller.strategy_manager is not None if ws_controller else False
+        })
 
         # Agent 6: Initialize live trading routes with dependencies
         # ✅ AGENT 0 INTEGRATION: Wire LiveOrderManager to trading_routes
@@ -3154,7 +3182,14 @@ def create_unified_app():
                 "state": session_status
             })
 
-            return _json_ok(snapshot)
+            # BUG-009 FIX: Frontend expects { success: true, data: ... } format
+            # _json_ok wraps in { type: "response", data: ... } which doesn't have 'success'
+            # Return direct JSONResponse with expected format
+            return JSONResponse(content={
+                "success": True,
+                "data": snapshot,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            })
 
         except Exception as e:
             logger.error("state_snapshot_error", {"error": str(e)})

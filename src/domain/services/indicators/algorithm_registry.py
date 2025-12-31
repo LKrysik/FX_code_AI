@@ -131,21 +131,56 @@ class IndicatorAlgorithmRegistry:
                 })
                 return 0
             
-            # Find algorithm classes and instances
+            # BUG-009 FIX: Two-pass algorithm to avoid double registration
+            # Problem: Modules have BOTH class definition AND module-level instance
+            # Old code registered both, causing "algorithm_overwrite" warning
+            # Solution: First collect instances, then only register classes if no instance exists
+
             members_count = 0
+
+            # Pass 1: Collect all instances and their indicator types
+            instances_by_type: Dict[str, Any] = {}
             for name, obj in inspect.getmembers(module):
                 members_count += 1
-                if self._is_algorithm_class(obj):
-                    # Instantiate and register algorithm class
-                    try:
-                        algorithm = obj()
-                        self.register_algorithm(algorithm)
-                        discovered_count += 1
+                if self._is_algorithm_instance(obj):
+                    indicator_type = obj.get_indicator_type()
+                    instances_by_type[indicator_type] = (name, obj)
 
+            # Pass 2: Register instances first (they are the preferred form)
+            for indicator_type, (name, obj) in instances_by_type.items():
+                self.register_algorithm(obj)
+                discovered_count += 1
+                self.logger.info("indicator_algorithm_registry.algorithm_instance_registered", {
+                    "module": module_name,
+                    "instance_name": name,
+                    "indicator_type": indicator_type
+                })
+
+            # Pass 3: Register classes ONLY if no instance of that type was found
+            for name, obj in inspect.getmembers(module):
+                if self._is_algorithm_class(obj):
+                    try:
+                        # Create temporary instance to get indicator type
+                        temp_instance = obj()
+                        indicator_type = temp_instance.get_indicator_type()
+
+                        # Skip if instance already registered for this type
+                        if indicator_type in instances_by_type:
+                            self.logger.debug("indicator_algorithm_registry.class_skipped_instance_exists", {
+                                "module": module_name,
+                                "class_name": name,
+                                "indicator_type": indicator_type,
+                                "reason": "module-level instance already registered"
+                            })
+                            continue
+
+                        # No instance exists, register the class
+                        self.register_algorithm(temp_instance)
+                        discovered_count += 1
                         self.logger.info("indicator_algorithm_registry.algorithm_class_registered", {
                             "module": module_name,
                             "class_name": name,
-                            "indicator_type": algorithm.get_indicator_type()
+                            "indicator_type": indicator_type
                         })
                     except Exception as e:
                         self.logger.warning("indicator_algorithm_registry.algorithm_instantiation_failed", {
@@ -153,17 +188,6 @@ class IndicatorAlgorithmRegistry:
                             "class_name": name,
                             "error": str(e)
                         })
-
-                elif self._is_algorithm_instance(obj):
-                    # Register algorithm instance directly
-                    self.register_algorithm(obj)
-                    discovered_count += 1
-
-                    self.logger.info("indicator_algorithm_registry.algorithm_instance_registered", {
-                        "module": module_name,
-                        "instance_name": name,
-                        "indicator_type": obj.get_indicator_type()
-                    })
 
             self.logger.info("indicator_algorithm_registry.module_inspection_complete", {
                 "module": module_name,
