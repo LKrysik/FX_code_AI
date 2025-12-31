@@ -74,7 +74,7 @@ development_status:
   1a-6-signal-type-color-coding: done  # Completed 2025-12-27 - signalColors.ts, 21 tests
   1a-7-first-visit-onboarding-tooltip: done  # Completed 2025-12-30 - useOnboarding hook, WelcomeTooltip, 26 tests, validated
   1a-8-quick-start-option: done  # Completed 2025-12-30 - QuickStartButton, quickStartStrategy.ts, verified
-  epic-1a-retrospective: optional
+  epic-1a-retrospective: done  # Combined retrospective 2025-12-30
 
   # ============================================================
   # Epic BUG-003: Paper Trading Session Critical Fixes (P0)
@@ -94,7 +94,7 @@ development_status:
   bug-003-9a-ux-validation-plan: done  # User research completed - Progressive disclosure REJECTED
   bug-003-10-e2e-test-coverage: done    # Completed 2025-12-30 - 56 E2E tests
   bug-003-11-order-persistence-oserror: done  # FIXED 2025-12-27 - Milliseconds timestamp conversion
-  epic-bug-003-retrospective: optional
+  epic-bug-003-retrospective: done  # Combined retrospective 2025-12-30
 
   # ============================================================
   # Epic BUG-004: WebSocket & Dashboard Real-Time Data Fixes (P0)
@@ -110,7 +110,7 @@ development_status:
   bug-004-4-symbol-watchlist-population: done     # P1 - CODE REVIEW PASSED 2025-12-30: 8 tests, root cause fixed
   bug-004-5-indicator-values-data-flow: done             # 🔴 P0 - CODE REVIEW PASSED 2025-12-30: transform function OK
   bug-004-6-condition-progress-inactive: done            # 🔴 P0 - CODE REVIEW PASSED: P1 fixed, WebSocket uses MONITORING
-  epic-bug-004-retrospective: optional
+  epic-bug-004-retrospective: done  # Combined retrospective 2025-12-30
 
   # ============================================================
   # Epic BUG-007: WebSocket Connection Stability & Logging Fix (P1)
@@ -127,7 +127,7 @@ development_status:
   bug-007-3-extend-wsservice-state-machines: done  # Completed 2025-12-29 - wsService message routing
   bug-007-4-filter-debug-logs: done  # Completed 2025-12-29 - Only ERROR/WARN sent to backend
   bug-007-5-cleanup-stream-undefined: done  # Completed 2025-12-29 - Nullish coalescing fallback
-  epic-bug-007-retrospective: optional
+  epic-bug-007-retrospective: done  # Combined retrospective 2025-12-30
 
   # ============================================================
   # Epic 1B: First Successful Backtest (P0)
@@ -210,14 +210,14 @@ development_status:
   coh-001-3-typescript-eventtype: done          # EventType constants + sync tests - Completed 2025-12-30, 60+ tests, validated
   coh-001-4-refactor-dynamic-imports: done      # Clean store dependencies - Code review passed 2025-12-30
   coh-001-5-strategy-indicator-validation: done # CRITICAL - Completed 2025-12-30, UUID support, 28 tests, verified
-  epic-coh-001-retrospective: optional
+  epic-coh-001-retrospective: done  # Combined retrospective 2025-12-30
 
   # ============================================================
   # Epic BUG-008: WebSocket Stability & Service Health (P0)
   # Goal: Stable WebSocket connections, proper MEXC handling, service resilience
   # Source: docs/bug-008.md (2025-12-30)
   # ============================================================
-  epic-bug-008: in-progress  # Sub-Epic 1 (FE+BE) complete, Sub-Epic 2+3 in review
+  epic-bug-008: done  # ALL required stories complete 2025-12-30 (bug-008-1b P2 optional deferred)
   # Sub-Epic 1: WebSocket Connection Stability (FE + BE)
   bug-008-1-websocket-diagnostic-logging: done     # P0 - COMPLETE: 21 tests + manual testing (BUG-008-1a) PASSED 2025-12-30
   bug-008-1a-chaos-monkey-manual-testing: done             # P0 - ALL 5 SCENARIOS PASSED 2025-12-30
@@ -227,11 +227,11 @@ development_status:
   # Sub-Epic 2: MEXC Adapter Resilience
   bug-008-4-mexc-pong-timeout-handling: done       # P0 - CODE REVIEW PASSED 2025-12-30: 92 tests, 26% coverage
   bug-008-5-subscription-lifecycle-management: done           # P1 - CODE REVIEW PASSED 2025-12-30: 35 tests, all 6 ACs verified
-  bug-008-6-data-activity-monitoring: ready-for-dev       # P1 - Tune thresholds, pre-close health check
+  bug-008-6-data-activity-monitoring: done                 # P1 - CODE REVIEW PASSED 2025-12-30: 22 tests, symbol-aware thresholds
   # Sub-Epic 3: Service Health & Data Quality
   bug-008-7-questdb-connection-resilience: done    # P0 - CODE REVIEW PASSED 2025-12-30: 24 tests, follow-up in backlog
   bug-008-8-session-lifecycle-tracking: done              # P1 - CODE REVIEW PASSED 2025-12-30: 45 tests, lifecycle + audit log
-  bug-008-9-stale-data-detection: ready-for-dev           # P2 - Filter/flag data >60s old, freshness indicators
+  bug-008-9-stale-data-detection: done                     # P2 - CODE REVIEW PASSED 2025-12-30: 37 tests, FreshnessTracker
   epic-bug-008-retrospective: optional
 
   # ============================================================

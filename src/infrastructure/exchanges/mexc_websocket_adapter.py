@@ -87,6 +87,13 @@ class MexcWebSocketAdapter(IMarketDataProvider):
         self.pong_warn_threshold_seconds = getattr(settings, 'mexc_pong_warn_threshold_seconds', 60)
         self.pong_reconnect_threshold_seconds = getattr(settings, 'mexc_pong_reconnect_threshold_seconds', 120)
 
+        # BUG-008-6: Data activity monitoring thresholds per symbol volume category
+        self.activity_threshold_high_volume = getattr(settings, 'mexc_activity_threshold_high_volume', 60)
+        self.activity_threshold_medium_volume = getattr(settings, 'mexc_activity_threshold_medium_volume', 120)
+        self.activity_threshold_low_volume = getattr(settings, 'mexc_activity_threshold_low_volume', 300)
+        self.pre_close_health_check_timeout = getattr(settings, 'mexc_pre_close_health_check_timeout', 10)
+        self.message_type_buffer_size = 5  # Track last 5 message types per connection
+
         # Configuration validation
         if self.max_subscriptions_per_connection <= 0:
             raise ValueError("max_subscriptions_per_connection must be > 0")
@@ -150,7 +157,26 @@ class MexcWebSocketAdapter(IMarketDataProvider):
 
         # Task lifecycle management - prevent dangling tasks
         self._active_tasks = set()
-        
+
+        # BUG-008-6: Data activity monitoring state
+        from .symbol_volume_classifier import SymbolVolumeClassifier, create_classifier_from_settings
+        # Load configurable symbol lists from settings (or use defaults if not set)
+        high_volume_symbols_config = getattr(settings, 'mexc_high_volume_symbols', None)
+        medium_volume_symbols_config = getattr(settings, 'mexc_medium_volume_symbols', None)
+
+        self._symbol_classifier = create_classifier_from_settings(
+            high_threshold=self.activity_threshold_high_volume,
+            medium_threshold=self.activity_threshold_medium_volume,
+            low_threshold=self.activity_threshold_low_volume,
+            high_volume_symbols=high_volume_symbols_config,
+            medium_volume_symbols=medium_volume_symbols_config,
+        )
+        self._last_message_types: Dict[int, List[str]] = {}  # connection_id -> list of last N message types
+        self._inactivity_close_count = 0  # AC6: Track inactivity closes
+        self._false_positive_count = 0  # AC6: Track false positives
+        self._inactivity_close_timestamps: Dict[str, float] = {}  # symbol -> close timestamp for FP detection
+        self._health_check_pending: Dict[int, bool] = {}  # connection_id -> True if health check in progress
+
         # Rate limiting for debug logs to prevent spam
         self._debug_log_rates = {}  # symbol -> last_log_time for price/depth updates
         self._message_count = 0  # Counter for message batching
@@ -189,6 +215,235 @@ class MexcWebSocketAdapter(IMarketDataProvider):
     def get_exchange_name(self) -> str:
         """Get exchange name"""
         return "mexc"
+
+    # ===== BUG-008-6: Data Activity Monitoring Methods =====
+
+    def get_activity_threshold_for_symbol(self, symbol: str) -> int:
+        """
+        Get activity timeout threshold for a specific symbol.
+
+        AC1: Threshold varies by symbol volume category.
+        AC3: HIGH=60s, MEDIUM=120s, LOW=300s.
+
+        Args:
+            symbol: Trading pair symbol (e.g., "BTCUSDT")
+
+        Returns:
+            Timeout threshold in seconds
+        """
+        return self._symbol_classifier.get_threshold(symbol)
+
+    def _record_message_type(self, connection_id: int, message_type: str) -> None:
+        """
+        Record message type for activity tracking.
+
+        AC4/AC5: Track last N message types to distinguish quiet market vs dead connection.
+
+        Args:
+            connection_id: WebSocket connection ID
+            message_type: Type of message received (trade, orderbook, ping, etc.)
+        """
+        if connection_id not in self._last_message_types:
+            self._last_message_types[connection_id] = []
+
+        buffer = self._last_message_types[connection_id]
+        buffer.append(message_type)
+
+        # Keep only last N messages
+        if len(buffer) > self.message_type_buffer_size:
+            self._last_message_types[connection_id] = buffer[-self.message_type_buffer_size:]
+
+    def _get_last_message_types(self, connection_id: int) -> List[str]:
+        """Get list of last N message types for a connection."""
+        return self._last_message_types.get(connection_id, [])
+
+    def _record_inactivity_close(self, symbol: str, connection_id: int) -> None:
+        """
+        Record connection closed due to inactivity.
+
+        AC6: Track closes for false positive rate calculation.
+
+        Args:
+            symbol: Symbol that triggered the close
+            connection_id: Connection ID that was closed
+        """
+        self._inactivity_close_count += 1
+        self._inactivity_close_timestamps[symbol] = time.time()
+        self.logger.info("mexc_adapter.inactivity_close_recorded", {
+            "symbol": symbol,
+            "connection_id": connection_id,
+            "total_inactivity_closes": self._inactivity_close_count,
+        })
+        # AC6: Log metrics after every inactivity close
+        self._log_activity_monitoring_metrics()
+
+    def _record_reconnection_with_data(
+        self,
+        symbol: str,
+        connection_id: int,
+        seconds_since_close: float
+    ) -> None:
+        """
+        Record reconnection that received data quickly after close.
+
+        AC6: This may indicate a false positive (closed healthy connection).
+
+        Args:
+            symbol: Symbol that reconnected
+            connection_id: New connection ID
+            seconds_since_close: Time since previous close
+        """
+        # If data received within 30 seconds of close, consider it a potential false positive
+        if seconds_since_close < 30:
+            self._false_positive_count += 1
+            self.logger.warning("mexc_adapter.potential_false_positive_detected", {
+                "symbol": symbol,
+                "connection_id": connection_id,
+                "seconds_since_close": round(seconds_since_close, 2),
+                "total_false_positives": self._false_positive_count,
+                "total_inactivity_closes": self._inactivity_close_count,
+                "false_positive_rate": round(
+                    self._false_positive_count / max(1, self._inactivity_close_count) * 100, 2
+                ),
+            })
+
+    def _check_false_positive_on_data(self, symbol: str, connection_id: int) -> None:
+        """
+        Check if receiving data for this symbol indicates a false positive close.
+
+        AC6: Called when data arrives to detect if we closed a healthy connection.
+
+        Args:
+            symbol: Symbol that received data
+            connection_id: Current connection ID
+        """
+        if not symbol:
+            return
+
+        close_timestamp = self._inactivity_close_timestamps.get(symbol)
+        if close_timestamp is not None:
+            seconds_since_close = time.time() - close_timestamp
+            if seconds_since_close < 30:
+                # Data arrived within 30s of closing - potential false positive
+                self._record_reconnection_with_data(symbol, connection_id, seconds_since_close)
+
+            # Clear the timestamp after checking (avoid counting same close twice)
+            self._inactivity_close_timestamps.pop(symbol, None)
+
+    def get_activity_monitoring_metrics(self) -> Dict[str, Any]:
+        """
+        Get current activity monitoring metrics for AC6 compliance.
+
+        Returns dict with:
+        - inactivity_close_count: Total connections closed for inactivity
+        - false_positive_count: Connections that received data shortly after close
+        - false_positive_rate: Percentage of closes that were likely false positives
+
+        AC6 target: false_positive_rate < 5%
+        """
+        total_closes = max(1, self._inactivity_close_count)  # Avoid division by zero
+        fp_rate = round(self._false_positive_count / total_closes * 100, 2)
+
+        return {
+            "inactivity_close_count": self._inactivity_close_count,
+            "false_positive_count": self._false_positive_count,
+            "false_positive_rate_percent": fp_rate,
+            "ac6_compliant": fp_rate < 5.0,
+        }
+
+    def _log_activity_monitoring_metrics(self) -> None:
+        """
+        Log current activity monitoring metrics.
+
+        AC6: Called periodically and on significant events to track false positive rate.
+        """
+        metrics = self.get_activity_monitoring_metrics()
+
+        if metrics["inactivity_close_count"] > 0:
+            log_level = "warning" if not metrics["ac6_compliant"] else "info"
+            getattr(self.logger, log_level)("mexc_adapter.activity_monitoring_metrics", {
+                **metrics,
+                "threshold_high_volume": self.activity_threshold_high_volume,
+                "threshold_medium_volume": self.activity_threshold_medium_volume,
+                "threshold_low_volume": self.activity_threshold_low_volume,
+            })
+
+    async def _perform_pre_close_health_check(
+        self,
+        connection_id: int,
+        symbol: str
+    ) -> bool:
+        """
+        Perform health check before closing connection for inactivity.
+
+        AC2: Before closing, send subscription refresh and wait for response.
+
+        Args:
+            connection_id: WebSocket connection ID
+            symbol: Symbol to refresh subscription for
+
+        Returns:
+            True if health check succeeded (connection is healthy), False otherwise
+        """
+        connection_info = self._connections.get(connection_id)
+        if not connection_info:
+            return False
+
+        websocket = connection_info.get("websocket")
+        if not websocket or websocket.close_code is not None:
+            return False
+
+        # Mark health check in progress
+        self._health_check_pending[connection_id] = True
+
+        try:
+            # Send subscription refresh
+            refresh_message = {
+                "method": "sub.deal",
+                "param": {"symbol": symbol}
+            }
+            await websocket.send(json.dumps(refresh_message))
+
+            self.logger.info("mexc_adapter.pre_close_health_check_sent", {
+                "connection_id": connection_id,
+                "symbol": symbol,
+                "timeout_seconds": self.pre_close_health_check_timeout,
+            })
+
+            # Wait for response (activity update will reset heartbeat)
+            start_time = time.time()
+            initial_heartbeat = connection_info.get("last_heartbeat", 0)
+
+            while time.time() - start_time < self.pre_close_health_check_timeout:
+                await asyncio.sleep(0.5)
+
+                # Check if heartbeat was updated
+                current_heartbeat = connection_info.get("last_heartbeat", 0)
+                if current_heartbeat > initial_heartbeat:
+                    self.logger.info("mexc_adapter.pre_close_health_check_passed", {
+                        "connection_id": connection_id,
+                        "symbol": symbol,
+                        "action": "connection_healthy_timer_reset",
+                    })
+                    return True
+
+            # No response within timeout
+            self.logger.warning("mexc_adapter.pre_close_health_check_failed", {
+                "connection_id": connection_id,
+                "symbol": symbol,
+                "action": "proceeding_with_close",
+            })
+            return False
+
+        except Exception as e:
+            self.logger.error("mexc_adapter.pre_close_health_check_error", {
+                "connection_id": connection_id,
+                "symbol": symbol,
+                "error": str(e),
+            })
+            return False
+        finally:
+            self._health_check_pending[connection_id] = False
 
     # ===== SubscriptionConfirmer Callback Functions =====
     # These methods provide SubscriptionConfirmer with access to adapter state
@@ -604,8 +859,12 @@ class MexcWebSocketAdapter(IMarketDataProvider):
         try:
             async for message in websocket:
                 try:
-                    await self._handle_message(message, connection_id)
-                    connection_info["last_heartbeat"] = time.time()
+                    # BUG-008-6 AC4: _handle_message returns True if data message received
+                    # Only data messages (trade, orderbook) reset activity timer
+                    # Ping/pong does NOT reset timer (distinguishes quiet market vs dead connection)
+                    is_data_message = await self._handle_message(message, connection_id)
+                    if is_data_message:
+                        connection_info["last_heartbeat"] = time.time()
                     # Reset error counters on successful processing
                     consecutive_transient_errors = 0
                     consecutive_json_errors = 0
@@ -766,7 +1025,7 @@ class MexcWebSocketAdapter(IMarketDataProvider):
         # Use monotonic clock for precise timing - TRADING OPTIMIZED
         ping_interval = 20.0  # 20 seconds between pings (faster for trading)
         pong_timeout = 30.0   # 30 seconds to receive pong (must be > ping_interval)
-        max_no_data = 120.0   # 2 minutes without any data (faster detection)
+        # BUG-008-6: max_no_data now determined dynamically per symbol via get_activity_threshold_for_symbol()
         consecutive_timeouts = 0
         health_check_sent = False  # BUG-008-4: Track if health check was sent
 
@@ -894,15 +1153,55 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                         await self._close_connection(connection_id)
                         break
 
-                # Check for data activity (updated by message loop)
+                # BUG-008-6: Check for data activity with symbol-aware thresholds
                 last_heartbeat = connection_info.get("last_heartbeat", current_wall_time)
-                if current_wall_time - last_heartbeat > max_no_data:
+                subscriptions = connection_info.get("subscriptions", set())
+
+                # Determine the applicable threshold based on subscribed symbols
+                # Use the MINIMUM threshold among all subscribed symbols (most conservative)
+                if subscriptions:
+                    applicable_threshold = min(
+                        self.get_activity_threshold_for_symbol(sym) for sym in subscriptions
+                    )
+                    representative_symbol = next(iter(subscriptions))
+                    volume_category = self._symbol_classifier.get_category(representative_symbol)
+                else:
+                    applicable_threshold = self.activity_threshold_medium_volume
+                    representative_symbol = "UNKNOWN"
+                    volume_category = None
+
+                inactivity_age = current_wall_time - last_heartbeat
+
+                if inactivity_age > applicable_threshold:
+                    # AC2: Perform pre-close health check before closing
+                    if subscriptions and not self._health_check_pending.get(connection_id, False):
+                        health_check_passed = await self._perform_pre_close_health_check(
+                            connection_id, representative_symbol
+                        )
+                        if health_check_passed:
+                            # Health check passed, connection is healthy - continue monitoring
+                            continue
+
+                    # AC5: Enhanced logging with context
+                    last_message_types = self._get_last_message_types(connection_id)
+
                     self.logger.error("mexc_adapter.no_data_activity", {
                         "connection_id": connection_id,
                         "last_activity": last_heartbeat,
-                        "max_age_seconds": max_no_data,
+                        "inactivity_age_seconds": round(inactivity_age, 2),
+                        "threshold_seconds": applicable_threshold,
+                        "volume_category": volume_category.value if volume_category else "unknown",
+                        "symbols": list(subscriptions)[:5],  # First 5 symbols
+                        "last_message_types": last_message_types,
+                        "health_check_attempted": True,
+                        "health_check_response": False,
                         "action": "closing_connection"
                     })
+
+                    # AC6: Record the close for false positive tracking
+                    if representative_symbol != "UNKNOWN":
+                        self._record_inactivity_close(representative_symbol, connection_id)
+
                     await self._close_connection(connection_id)
                     break
 
@@ -1010,13 +1309,28 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                     break
                 await asyncio.sleep(0.2)  # Increased from 0.05 to 0.2 for better CPU efficiency
 
-    async def _handle_message(self, message: str, connection_id: int) -> None:
-        """Handle incoming WebSocket message"""
+    async def _handle_message(self, message: str, connection_id: int) -> bool:
+        """
+        Handle incoming WebSocket message.
+
+        BUG-008-6 AC4: Returns True if this was a DATA message (trade, orderbook, depth)
+        that should reset the activity timer. Returns False for non-data messages
+        (pong, subscription responses) which should NOT reset the timer.
+
+        This distinction is crucial for AC4: "Activity monitoring distinguishes
+        between 'no trades' and 'dead connection'".
+
+        Returns:
+            True if data message received (resets activity timer)
+            False if non-data message (does NOT reset activity timer)
+        """
         # ✅ FIX (Propozycja #1B): Increment counter to track in-flight message processing
         # This prevents race condition: _close_connection() will wait for this to complete
         self._message_processing_count[connection_id] = (
             self._message_processing_count.get(connection_id, 0) + 1
         )
+
+        is_data_message = False  # BUG-008-6: Track if this is a data message
 
         try:
             # Offload JSON parsing to thread pool for performance
@@ -1042,7 +1356,12 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                 
                 # Handle market data - futures deal format
                 elif channel == "push.deal":
+                    symbol = data.get("symbol", "")
                     await self._handle_futures_deal_data(data)
+                    # BUG-008-6: Track message type and check false positives
+                    self._record_message_type(connection_id, "trade")
+                    self._check_false_positive_on_data(symbol, connection_id)
+                    is_data_message = True  # AC4: Trade data resets activity timer
 
                 # Handle market data - futures depth format
                 # ✅ CORRECTED: MEXC uses TWO separate channels for orderbook data:
@@ -1050,17 +1369,30 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                 # - push.depth.full: full snapshots (from sub.depth.full) - RESET cache
                 # Both channels exist and serve different purposes (verified by test_mexc_depth_subscription.py)
                 elif channel == "push.depth":
+                    symbol = data.get("symbol", "")
                     await self._handle_futures_depth_data(data, is_snapshot=False)
+                    # BUG-008-6: Track message type and check false positives
+                    self._record_message_type(connection_id, "orderbook")
+                    self._check_false_positive_on_data(symbol, connection_id)
+                    is_data_message = True  # AC4: Orderbook data resets activity timer
 
                 # Handle market data - futures depth full snapshot format
                 elif channel == "push.depth.full":
+                    symbol = data.get("symbol", "")
                     await self._handle_futures_depth_data(data, is_snapshot=True)
+                    # BUG-008-6: Track message type and check false positives
+                    self._record_message_type(connection_id, "depth_snapshot")
+                    self._check_false_positive_on_data(symbol, connection_id)
+                    is_data_message = True  # AC4: Depth snapshot resets activity timer
 
                 # Handle pong messages - update last_pong_received to track connection health
                 elif channel == "pong":
                     if connection_id in self._connections:
                         self._connections[connection_id]["last_pong_received"] = time.time()
-                    
+                    # BUG-008-6: Track ping/pong (does NOT reset activity timer per AC4)
+                    self._record_message_type(connection_id, "ping_pong")
+                    # AC4: Pong does NOT set is_data_message - it does NOT reset activity timer
+
                     self.logger.debug("mexc_adapter.pong_received", {
                         "connection_id": connection_id,
                         "timestamp": data.get("data")
@@ -1097,6 +1429,9 @@ class MexcWebSocketAdapter(IMarketDataProvider):
                 self._message_processing_count.pop(connection_id, None)
             else:
                 self._message_processing_count[connection_id] = count
+
+        # BUG-008-6 AC4: Return whether this was a data message
+        return is_data_message
 
     async def _handle_futures_subscription_response(self, data: dict, connection_id: int) -> None:
         """

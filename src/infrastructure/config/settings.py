@@ -105,6 +105,24 @@ class ExchangeSettings(BaseSettings):
     mexc_pong_warn_threshold_seconds: int = Field(default=60, description="Pong age threshold for WARNING log")
     mexc_pong_reconnect_threshold_seconds: int = Field(default=120, description="Pong age threshold for reconnect")
 
+    # BUG-008-6: Data activity monitoring thresholds per symbol volume category
+    mexc_activity_threshold_high_volume: int = Field(default=60, description="Activity threshold for high volume symbols (BTC, ETH)")
+    mexc_activity_threshold_medium_volume: int = Field(default=120, description="Activity threshold for medium volume symbols")
+    mexc_activity_threshold_low_volume: int = Field(default=300, description="Activity threshold for low volume/unknown symbols")
+    mexc_pre_close_health_check_timeout: int = Field(default=10, description="Timeout for pre-close health check in seconds")
+
+    # BUG-008-6: Configurable symbol volume classification
+    # High volume symbols - top trading pairs with frequent activity (default: top 10)
+    mexc_high_volume_symbols: str = Field(
+        default="BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,DOGEUSDT,ADAUSDT,AVAXUSDT,TRXUSDT,TONUSDT",
+        description="Comma-separated list of high volume symbols (60s threshold)"
+    )
+    # Medium volume symbols - common altcoins (default: top 11-50)
+    mexc_medium_volume_symbols: str = Field(
+        default="DOTUSDT,LINKUSDT,MATICUSDT,SHIBUSDT,LTCUSDT,ATOMUSDT,NEARUSDT,APTUSDT,OPUSDT,ARBUSDT,FILUSDT,INJUSDT,SUIUSDT,SEIUSDT,PEPEUSDT",
+        description="Comma-separated list of medium volume symbols (120s threshold)"
+    )
+
     # Bybit (for future use)
     bybit_enabled: bool = Field(default=False)
     bybit_api_key: str = Field(default="")
