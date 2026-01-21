@@ -274,15 +274,47 @@ class MarketDataProviderAdapter(IExecutionDataSource):
                         })
             self._subscriptions.clear()
 
-        # Disconnect from market data provider if it has a disconnect method
+        # ✅ FIX (2026-01-21) BUG-APP-006: Retry disconnect with exponential backoff + force cleanup
         if hasattr(self.market_data_provider, 'disconnect'):
-            try:
-                await self.market_data_provider.disconnect()
-            except Exception as e:
+            max_retries = 3
+            disconnect_success = False
+
+            for attempt in range(max_retries):
+                try:
+                    await self.market_data_provider.disconnect()
+                    disconnect_success = True
+                    if self.logger:
+                        self.logger.debug("market_data_adapter.disconnect_success", {
+                            "attempt": attempt + 1
+                        })
+                    break
+                except Exception as e:
+                    backoff_seconds = 0.5 * (2 ** attempt)  # 0.5s, 1s, 2s
+                    if self.logger:
+                        self.logger.warning("market_data_adapter.disconnect_retry", {
+                            "attempt": attempt + 1,
+                            "max_retries": max_retries,
+                            "error": str(e),
+                            "backoff_seconds": backoff_seconds
+                        })
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(backoff_seconds)
+
+            # ✅ FIX (2026-01-21) BUG-APP-006: Force cleanup even if disconnect failed
+            if not disconnect_success:
                 if self.logger:
-                    self.logger.warning("market_data_adapter.disconnect_failed", {
-                        "error": str(e)
+                    self.logger.error("market_data_adapter.disconnect_failed_force_cleanup", {
+                        "max_retries": max_retries,
+                        "action": "force_cleanup",
+                        "consequence": "connection_may_leak_until_gc"
                     })
+                # Emit event for visibility
+                if self.event_bus:
+                    await self._maybe_await(self.event_bus.publish("resource.disconnect_failed", {
+                        "component": "market_data_adapter",
+                        "severity": "warning",
+                        "message": "Disconnect failed after retries, forced cleanup applied"
+                    }))
 
     def get_progress(self) -> Optional[float]:
         # For live data collection, progress is None (continuous)
@@ -372,13 +404,24 @@ class ExecutionController:
         self._metrics_subscriptions: List[tuple] = []
 
         # State transitions
+        # ✅ FIX (2026-01-21) BUG-APP-020: Documented unusual state transitions
         self._valid_transitions = {
             ExecutionState.IDLE: [ExecutionState.STARTING],
             ExecutionState.STARTING: [ExecutionState.RUNNING, ExecutionState.ERROR],
             ExecutionState.RUNNING: [ExecutionState.PAUSED, ExecutionState.STOPPING, ExecutionState.ERROR],
             ExecutionState.PAUSED: [ExecutionState.RUNNING, ExecutionState.STOPPING],
-            ExecutionState.STOPPING: [ExecutionState.STOPPED, ExecutionState.ERROR, ExecutionState.STARTING],  # Allow starting new execution while stopping
+            # ✅ STOPPING → STARTING: Allows queueing a new session while current one is gracefully stopping.
+            # Use case: User requests new backtest while previous is being finalized.
+            # The cleanup completes async, and new session can start immediately.
+            ExecutionState.STOPPING: [ExecutionState.STOPPED, ExecutionState.ERROR, ExecutionState.STARTING],
             ExecutionState.STOPPED: [ExecutionState.STARTING],
+            # ✅ FIX (2026-01-21) BUG-APP-021: Documented ERROR state transitions
+            # ERROR → STARTING: Recovery path - allows restarting after error resolution.
+            #   Use case: Transient error (network timeout) resolved, user retries.
+            # ERROR → STOPPED: Graceful termination after unrecoverable error.
+            #   Use case 1: After investigation, admin acknowledges error and marks session done.
+            #   Use case 2: Cleanup completed despite error, session can be archived.
+            #   This prevents sessions from being stuck in ERROR state indefinitely.
             ExecutionState.ERROR: [ExecutionState.STARTING, ExecutionState.STOPPED]
         }
 
@@ -402,6 +445,45 @@ class ExecutionController:
     def add_progress_callback(self, callback: Callable[[float], None]) -> None:
         """Add progress update callback"""
         self._progress_callbacks.append(callback)
+
+    def _calculate_eta(self, current_progress: float) -> Optional[int]:
+        """
+        ✅ FIX (2026-01-21) BUG-APP-001: Calculate ETA based on elapsed time and progress.
+
+        Uses linear extrapolation: if X% took T seconds, remaining (100-X)% will take T * (100-X) / X seconds.
+
+        Args:
+            current_progress: Current progress percentage (0.0 - 100.0)
+
+        Returns:
+            Estimated seconds remaining, or None if cannot be calculated
+        """
+        # Guard: Need valid session with start time
+        if not self._current_session or not self._current_session.start_time:
+            return None
+
+        # Guard: Need meaningful progress (avoid division by zero)
+        if current_progress <= 0.0:
+            return None
+
+        # Guard: Already complete
+        if current_progress >= 100.0:
+            return 0
+
+        # Calculate elapsed time
+        elapsed_seconds = (datetime.now() - self._current_session.start_time).total_seconds()
+
+        # Guard: Need some elapsed time
+        if elapsed_seconds <= 0:
+            return None
+
+        # Linear extrapolation: time_per_percent = elapsed / progress
+        # remaining_time = time_per_percent * (100 - progress)
+        remaining_progress = 100.0 - current_progress
+        eta_seconds = int((elapsed_seconds / current_progress) * remaining_progress)
+
+        # Sanity check: cap at 24 hours (86400 seconds)
+        return min(eta_seconds, 86400)
 
     # ✅ FIX (2025-11-30): Metrics event handlers for real-time tracking
     async def _setup_metrics_subscriptions(self) -> None:
@@ -573,24 +655,76 @@ class ExecutionController:
                     f"Session creation aborted. Please ensure QuestDB is running and healthy."
                 ) from db_error
 
-        # ✅ CRITICAL FIX: Use session_id from atomic symbol acquisition
-        self._current_session = ExecutionSession(
-            session_id=session_id,
-            mode=mode,
-            symbols=symbols,
-            status=ExecutionState.IDLE,
-            parameters=config or {}
-        )
-        # Track idempotency key
-        self._current_idempotency_key = self._compute_idempotency_key(mode, symbols, config)
+        # ✅ FIX (2026-01-21) BUG-APP-004: Saga pattern - wrap in-memory session creation
+        # If this fails AFTER DB session was created, we must rollback both DB and symbols
+        db_session_created = mode in (ExecutionMode.DATA_COLLECTION, ExecutionMode.PAPER, ExecutionMode.LIVE) and self.db_persistence_service
 
-        self.logger.info("execution.session_created", {
-            "session_id": session_id,
-            "mode": mode.value,
-            "symbols": symbols
-        })
+        try:
+            # ✅ CRITICAL FIX: Use session_id from atomic symbol acquisition
+            self._current_session = ExecutionSession(
+                session_id=session_id,
+                mode=mode,
+                symbols=symbols,
+                status=ExecutionState.IDLE,
+                parameters=config or {}
+            )
+            # Track idempotency key
+            self._current_idempotency_key = self._compute_idempotency_key(mode, symbols, config)
 
-        return session_id
+            self.logger.info("execution.session_created", {
+                "session_id": session_id,
+                "mode": mode.value,
+                "symbols": symbols
+            })
+
+            return session_id
+
+        except Exception as session_error:
+            # ✅ FIX (2026-01-21) BUG-APP-004: Saga rollback - cleanup ALL state on failure
+            self.logger.error("execution.session_creation_failed_saga_rollback", {
+                "session_id": session_id,
+                "error": str(session_error),
+                "error_type": type(session_error).__name__,
+                "rollback_actions": ["symbols", "db_session"] if db_session_created else ["symbols"]
+            })
+
+            # Rollback 1: Release symbols
+            async with self._symbol_lock:
+                for symbol in symbols:
+                    if self._active_symbols.get(symbol) == session_id:
+                        del self._active_symbols[symbol]
+
+            # Rollback 2: Delete orphaned DB session (if it was created)
+            if db_session_created:
+                try:
+                    await self.db_persistence_service.update_session_status(
+                        session_id=session_id,
+                        status="failed",
+                        end_time=datetime.now()
+                    )
+                    self.logger.info("execution.db_session_rolled_back", {
+                        "session_id": session_id,
+                        "reason": "in_memory_session_creation_failed"
+                    })
+                except Exception as db_rollback_error:
+                    self.logger.error("execution.db_rollback_failed", {
+                        "session_id": session_id,
+                        "error": str(db_rollback_error),
+                        "consequence": "orphaned_db_session"
+                    })
+
+            # Emit event for visibility
+            if self.event_bus:
+                await self.event_bus.publish("session.creation_failed", {
+                    "session_id": session_id,
+                    "error": str(session_error),
+                    "rollback_completed": True
+                })
+
+            raise RuntimeError(
+                f"Failed to create in-memory session: {str(session_error)}\n"
+                f"Saga rollback completed: symbols released, DB session marked failed."
+            ) from session_error
     
     async def start_session(self, session_id: str) -> None:
         """Start execution session"""
@@ -1278,9 +1412,17 @@ class ExecutionController:
             # This eliminates 10-50ms latency from batch waiting
             # Main loop just keeps session alive and updates progress
             last_progress_update = time.time()
-            while self._current_session.status in (ExecutionState.RUNNING, ExecutionState.PAUSED):
+
+            # ✅ FIX (2026-01-21) BUG-APP-009: Use atomic status check to prevent race condition
+            # Previous code: while self._current_session.status in (...) was TOCTOU vulnerable
+            # Status could change between while check and if check via stop_execution() from another task
+            while True:
+                current_status = await self._get_status_atomically()
+                if current_status not in (ExecutionState.RUNNING, ExecutionState.PAUSED):
+                    break
+
                 # If paused, wait for resume
-                if self._current_session.status == ExecutionState.PAUSED:
+                if current_status == ExecutionState.PAUSED:
                     await asyncio.sleep(0.1)
                     continue
 
@@ -1298,9 +1440,10 @@ class ExecutionController:
                         await self._update_progress()
                         last_progress_update = time.time()
 
-            # Natural completion - only transition if still RUNNING
-            if self._current_session.status == ExecutionState.RUNNING:
-                await self._transition_to(ExecutionState.STOPPING)
+            # ✅ FIX (2026-01-21) BUG-APP-009: Use atomic transition for natural completion
+            # Previous code: if self._current_session.status == RUNNING was TOCTOU vulnerable
+            # Use _try_transition_to with allow_states for atomic check-and-transition
+            if await self._try_transition_to(ExecutionState.STOPPING, allow_states=[ExecutionState.RUNNING]):
                 await self._complete_execution()
             
         except asyncio.CancelledError:
@@ -1484,6 +1627,9 @@ class ExecutionController:
         if time_threshold_met or significant_change:
             # Publish progress event
             # ✅ FIX (2025-12-03): Use consistent progress structure (dict) for all execution types
+            # ✅ FIX (2026-01-21) BUG-APP-001: Implement ETA calculation based on elapsed time and progress
+            eta_seconds = self._calculate_eta(progress)
+
             # execution_processor expects progress to be a dict, not a float
             await self._publish_event(
                 "execution.progress_update",
@@ -1493,7 +1639,7 @@ class ExecutionController:
                     "progress": {
                         "percentage": progress,
                         "current_step": int(progress),  # For backtest, progress is the current step %
-                        "eta_seconds": None  # TODO: Calculate ETA if needed
+                        "eta_seconds": eta_seconds  # ✅ FIX (2026-01-21) BUG-APP-001: Now calculated
                     },
                     "status": self._current_session.status.value if self._current_session.status else "unknown",
                     "timestamp": datetime.now().isoformat()

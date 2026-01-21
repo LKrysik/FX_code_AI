@@ -24,29 +24,42 @@ class LiveDataSource(IExecutionDataSource):
     Live data source for real-time trading.
     Wraps existing market data provider.
     """
-    
-    def __init__(self, 
+
+    def __init__(self,
                  market_data_provider: IMarketDataProvider,
                  symbols: List[str],
-                 logger: Optional[StructuredLogger] = None):
+                 logger: Optional[StructuredLogger] = None,
+                 event_bus=None):
         self.market_data_provider = market_data_provider
         self.symbols = symbols
         self.logger = logger
+        self.event_bus = event_bus  # ✅ FIX (2026-01-21) BUG-APP-018: Add event_bus for data loss alerts
 
         # ✅ MEMORY LEAK FIX: Background task tracking with strong references
         self._background_tasks: set = set()
 
         # State
-        self._is_streaming = False
+        # ✅ FIX (2026-01-21) BUG-APP-010: Replace boolean with asyncio.Event for thread-safe signaling
+        # Boolean _is_streaming was checked without synchronization in multiple coroutines
+        # asyncio.Event.is_set() is atomic and safe for concurrent access
+        self._stop_event = asyncio.Event()
         self._data_queues: Dict[str, asyncio.Queue] = {}
         self._consumer_tasks: List[asyncio.Task] = []  # Legacy list, use _background_tasks instead
-    
+
+        # ✅ FIX (2026-01-21) BUG-APP-018: Data loss tracking
+        # Track dropped packets per symbol to detect sustained data loss
+        # RISK MINIMIZED: Silent data loss → detected and alerted
+        self._dropped_packets: Dict[str, int] = {}
+        self._dropped_packets_threshold = 10  # Alert after 10 drops per symbol
+        self._dropped_packets_window_start: Dict[str, float] = {}
+        self._dropped_packets_window_seconds = 60.0  # Reset counter every 60 seconds
+
     async def start_stream(self) -> None:
         """Start live data streaming"""
-        if self._is_streaming:
-            return
-        
-        self._is_streaming = True
+        if not self._stop_event.is_set() and self._background_tasks:
+            return  # Already streaming
+
+        self._stop_event.clear()  # Clear stop signal = streaming active
         
         # Connect to market data provider
         await self.market_data_provider.connect()
@@ -70,7 +83,7 @@ class LiveDataSource(IExecutionDataSource):
     
     async def get_next_batch(self) -> Optional[List[Dict[str, Any]]]:
         """Get next batch of live data"""
-        if not self._is_streaming:
+        if self._stop_event.is_set():
             return None
         
         batch = []
@@ -93,7 +106,7 @@ class LiveDataSource(IExecutionDataSource):
     
     async def stop_stream(self) -> None:
         """Stop live data streaming"""
-        self._is_streaming = False
+        self._stop_event.set()  # Signal stop to all consumers
 
         # ✅ MEMORY LEAK FIX: Cancel all background tasks (prevents dangling task warnings)
         for task in self._background_tasks:
@@ -106,8 +119,9 @@ class LiveDataSource(IExecutionDataSource):
 
         # Clear the task set
         self._background_tasks.clear()
-        self._consumer_tasks.clear()  # Also clear legacy list
-        
+        # ✅ FIX (2026-01-21) BUG-APP-013: Removed duplicate _consumer_tasks.clear() call (was at line 122 and 135)
+        self._consumer_tasks.clear()  # Clear legacy list once
+
         # Disconnect from market data provider
         try:
             await self.market_data_provider.disconnect()
@@ -116,18 +130,79 @@ class LiveDataSource(IExecutionDataSource):
                 self.logger.error("live_data.disconnect_error", {
                     "error": str(e)
                 })
-        
+
         # Clear queues
         self._data_queues.clear()
-        self._consumer_tasks.clear()
-        
+        # Note: _consumer_tasks already cleared above
+
         if self.logger:
             self.logger.info("live_data.stream_stopped")
     
     def get_progress(self) -> Optional[float]:
         """Live trading has no progress concept"""
         return None
-    
+
+    async def _track_data_loss(self, symbol: str) -> None:
+        """
+        Track dropped packets and alert when threshold exceeded.
+
+        ✅ FIX (2026-01-21) BUG-APP-018: Data loss detection and alerting
+        RISK MINIMIZED: Silent data loss → detected, tracked, and alerted via event_bus
+        File: data_sources.py, Lines: 144-178
+
+        Behavior:
+        - Counts dropped packets per symbol within a time window
+        - Resets counter after window expires (prevents false alerts from brief spikes)
+        - Emits data_quality.data_loss event when threshold exceeded
+        - Escalates log level from WARNING to ERROR when sustained loss detected
+        """
+        current_time = time.time()
+
+        # Initialize or reset window if expired
+        window_start = self._dropped_packets_window_start.get(symbol, 0)
+        if current_time - window_start > self._dropped_packets_window_seconds:
+            self._dropped_packets[symbol] = 0
+            self._dropped_packets_window_start[symbol] = current_time
+
+        # Increment counter
+        self._dropped_packets[symbol] = self._dropped_packets.get(symbol, 0) + 1
+        dropped_count = self._dropped_packets[symbol]
+
+        # Check threshold
+        if dropped_count >= self._dropped_packets_threshold:
+            # Escalate to ERROR - sustained data loss detected
+            if self.logger:
+                self.logger.error("live_data.data_loss_critical", {
+                    "symbol": symbol,
+                    "dropped_count": dropped_count,
+                    "window_seconds": self._dropped_packets_window_seconds,
+                    "threshold": self._dropped_packets_threshold,
+                    "impact": "Trading decisions may be based on stale data"
+                })
+
+            # Emit event for monitoring system (follows GENE-DI-1 pattern)
+            if self.event_bus:
+                await self.event_bus.publish("data_quality.data_loss", {
+                    "symbol": symbol,
+                    "dropped_count": dropped_count,
+                    "window_seconds": self._dropped_packets_window_seconds,
+                    "severity": "error",
+                    "source": "live_data_source",
+                    "recommendation": "Check network, reduce symbols, or increase queue size"
+                })
+
+            # Reset counter after alert to prevent alert spam
+            self._dropped_packets[symbol] = 0
+            self._dropped_packets_window_start[symbol] = current_time
+        else:
+            # Below threshold - log as warning
+            if self.logger:
+                self.logger.warning("live_data.queue_full", {
+                    "symbol": symbol,
+                    "dropped_count": dropped_count,
+                    "threshold": self._dropped_packets_threshold
+                })
+
     async def _consume_symbol_data(self, symbol: str) -> None:
         """Consume data for a specific symbol and normalize format for pipeline"""
         try:
@@ -139,7 +214,7 @@ class LiveDataSource(IExecutionDataSource):
                 OrderBook = None   # type: ignore
 
             async for market_data in self.market_data_provider.get_market_data_stream(symbol):
-                if not self._is_streaming:
+                if self._stop_event.is_set():
                     break
                 
                 # Normalize to dict expected by execution pipeline
@@ -179,11 +254,11 @@ class LiveDataSource(IExecutionDataSource):
                         await self._data_queues[symbol].put(payload)
                     except asyncio.QueueEmpty:
                         pass
-                    
-                    if self.logger:
-                        self.logger.warning("live_data.queue_full", {
-                            "symbol": symbol
-                        })
+
+                    # ✅ FIX (2026-01-21) BUG-APP-018: Track data loss and alert when threshold exceeded
+                    # RISK MINIMIZED: Silent data loss is now detected, tracked, and alerted
+                    # File: data_sources.py, Lines: 185-220
+                    await self._track_data_loss(symbol)
         
         except asyncio.CancelledError:
             return
@@ -250,16 +325,24 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
         self._cursors: Dict[str, Optional[int]] = {}  # symbol -> last timestamp (microseconds) or None
         self._rows_processed: Dict[str, int] = {}  # symbol -> count of rows processed (for progress)
         self._total_rows: Dict[str, int] = {}  # symbol -> total row count
-        self._is_streaming = False
-        self._exhausted_symbols: set = set()
+        # ✅ FIX (2026-01-21) BUG-APP-010: Replace boolean with asyncio.Event for thread-safe signaling
+        self._stop_event = asyncio.Event()
+        self._exhausted_symbols: set = set()  # Symbols with all data read (normal completion)
         self._replay_task: Optional[asyncio.Task] = None
-        
+
+        # ✅ FIX (2026-01-21) BUG-APP-022: Graceful degradation for QuestDB failures
+        # RISK MINIMIZED: Single failure no longer marks symbol as exhausted
+        # Retry with backoff, distinguish failed from exhausted, emit degradation events
+        self._failed_symbols: set = set()  # Symbols that failed after retries (error state)
+        self._retry_counts: Dict[str, int] = {}  # Track retries per symbol
+        self._max_retries = 3  # Retry up to 3 times before marking as failed
+
     async def start_stream(self) -> None:
         """Initialize streaming from QuestDB and start replay task"""
-        if self._is_streaming:
-            return
+        if not self._stop_event.is_set() and self._replay_task and not self._replay_task.done():
+            return  # Already streaming
 
-        self._is_streaming = True
+        self._stop_event.clear()  # Clear stop signal = streaming active
 
         # Count total rows for each symbol (for progress tracking)
         for symbol in self.symbols:
@@ -314,7 +397,7 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
             tick_count = 0
             batch_count = 0
 
-            while self._is_streaming:
+            while not self._stop_event.is_set():
                 # Fetch next batch using existing logic
                 batch = await self._fetch_next_batch()
 
@@ -323,7 +406,7 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
                     if self.logger:
                         self.logger.info("questdb_historical.replay_complete", {
                             "session_id": self.session_id,
-                            "total_processed": sum(self._cursors.values()),
+                            "total_processed": sum(self._rows_processed.values()),
                             "total_batches": batch_count,
                             "total_ticks": tick_count
                         })
@@ -339,7 +422,7 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
 
                 # Publish each tick to EventBus (same as live data)
                 for tick in batch:
-                    if not self._is_streaming:
+                    if self._stop_event.is_set():
                         break
 
                     tick_count += 1
@@ -409,22 +492,24 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
     async def _fetch_next_batch(self) -> Optional[List[Dict[str, Any]]]:
         """
         Fetch next batch of data from QuestDB.
-        
+
         Returns:
             List of market data dictionaries or None if stream ended
         """
-        if not self._is_streaming:
+        if self._stop_event.is_set():
             return None
-        
-        # Check if all symbols are exhausted
-        if len(self._exhausted_symbols) >= len(self.symbols):
+
+        # ✅ FIX (2026-01-21) BUG-APP-022: Check both exhausted AND failed symbols
+        # RISK MINIMIZED: Distinguish between "data complete" and "data unavailable"
+        completed_symbols = self._exhausted_symbols | self._failed_symbols
+        if len(completed_symbols) >= len(self.symbols):
             return None
-        
+
         batch = []
-        
+
         # Read from all active symbols in round-robin fashion
         for symbol in list(self.symbols):
-            if symbol in self._exhausted_symbols:
+            if symbol in self._exhausted_symbols or symbol in self._failed_symbols:
                 continue
             
             if len(batch) >= self.batch_size:
@@ -485,18 +570,57 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
                     self._rows_processed[symbol] = self._rows_processed.get(symbol, 0) + len(rows)
                 
             except Exception as e:
+                # ✅ FIX (2026-01-21) BUG-APP-022: Retry with exponential backoff
+                # RISK MINIMIZED: Transient QuestDB failures no longer mark symbol as exhausted
+                # File: data_sources.py, Lines: 570-620
+                retry_count = self._retry_counts.get(symbol, 0)
+
+                if retry_count < self._max_retries:
+                    # Retry with exponential backoff
+                    self._retry_counts[symbol] = retry_count + 1
+                    backoff_seconds = 0.5 * (2 ** retry_count)  # 0.5s, 1s, 2s
+
+                    if self.logger:
+                        self.logger.warning("questdb_historical.batch_read_retry", {
+                            "session_id": self.session_id,
+                            "symbol": symbol,
+                            "retry_attempt": retry_count + 1,
+                            "max_retries": self._max_retries,
+                            "backoff_seconds": backoff_seconds,
+                            "error": str(e),
+                            "error_type": type(e).__name__
+                        })
+
+                    await asyncio.sleep(backoff_seconds)
+                    # Don't mark as exhausted - will retry on next batch fetch
+                    continue
+
+                # Max retries exceeded - mark as FAILED (not exhausted)
+                self._failed_symbols.add(symbol)
+
                 if self.logger:
-                    self.logger.error("questdb_historical.batch_read_failed", {
+                    self.logger.error("questdb_historical.data_source_failed", {
                         "session_id": self.session_id,
                         "symbol": symbol,
                         "last_timestamp": last_timestamp,
                         "rows_processed": self._rows_processed.get(symbol, 0),
+                        "retry_attempts": retry_count + 1,
                         "error": str(e),
-                        "error_type": type(e).__name__
+                        "error_type": type(e).__name__,
+                        "impact": "Symbol data incomplete - backtest results may be inaccurate"
                     })
-                
-                # Mark symbol as exhausted on error
-                self._exhausted_symbols.add(symbol)
+
+                # Emit degradation event (follows GENE-DI-1 pattern)
+                if self.event_bus:
+                    await self.event_bus.publish("data_quality.source_degraded", {
+                        "session_id": self.session_id,
+                        "symbol": symbol,
+                        "rows_processed": self._rows_processed.get(symbol, 0),
+                        "total_rows": self._total_rows.get(symbol, 0),
+                        "severity": "error",
+                        "source": "questdb_historical",
+                        "impact": "Backtest running on incomplete data"
+                    })
         
         # No data available
         if not batch:
@@ -506,7 +630,7 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
     
     async def stop_stream(self) -> None:
         """Stop streaming and cancel all background tasks"""
-        self._is_streaming = False
+        self._stop_event.set()  # Signal stop to replay task
 
         # ✅ MEMORY LEAK FIX: Cancel all background tasks (prevents dangling task warnings)
         for task in self._background_tasks:
@@ -521,16 +645,35 @@ class QuestDBHistoricalDataSource(IExecutionDataSource):
         self._background_tasks.clear()
         self._replay_task = None
 
+        # ✅ FIX (2026-01-21) BUG-APP-012: Close QuestDB provider to prevent connection leak
+        if self.db_provider and hasattr(self.db_provider, 'db') and self.db_provider.db:
+            try:
+                await self.db_provider.db.close()
+                if self.logger:
+                    self.logger.debug("questdb_historical.db_provider_closed", {
+                        "session_id": self.session_id
+                    })
+            except Exception as close_error:
+                if self.logger:
+                    self.logger.warning("questdb_historical.db_provider_close_failed", {
+                        "session_id": self.session_id,
+                        "error": str(close_error)
+                    })
+
         if self.logger:
             # ✅ FIX (2025-11-30): Use _rows_processed for counting, not _cursors (which now stores timestamps)
             total_processed = sum(self._rows_processed.values())
             total_available = sum(self._total_rows.values())
 
+            # ✅ FIX (2026-01-21) BUG-APP-022: Include failed symbols in summary
             self.logger.info("questdb_historical.stream_stopped", {
                 "session_id": self.session_id,
                 "total_processed": total_processed,
                 "total_available": total_available,
-                "symbols_completed": len(self._exhausted_symbols)
+                "symbols_completed": len(self._exhausted_symbols),
+                "symbols_failed": len(self._failed_symbols),
+                "failed_symbols_list": list(self._failed_symbols) if self._failed_symbols else [],
+                "data_quality": "complete" if not self._failed_symbols else "degraded"
             })
     
     def get_progress(self) -> Optional[float]:

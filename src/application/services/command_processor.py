@@ -312,8 +312,18 @@ class AsyncCommandProcessor:
     
     async def _execute_command_async(self, command_id: str) -> None:
         """Execute command asynchronously"""
-        command_execution = self._active_commands[command_id]
-        
+        # ✅ FIX (2026-01-21) BUG-APP-011: Access _active_commands under lock
+        # Previous code accessed dict without lock - command could be removed by cancel_command()
+        # between task creation and this access, causing KeyError
+        async with self._main_lock:
+            command_execution = self._active_commands.get(command_id)
+            if not command_execution:
+                self.logger.warning("command.not_found_on_execution", {
+                    "command_id": command_id,
+                    "reason": "Command may have been cancelled before execution started"
+                })
+                return
+
         try:
             # Validation phase
             command_execution.status = CommandStatus.VALIDATING
@@ -517,8 +527,22 @@ class AsyncCommandProcessor:
                 "Use GET /api/data-collection/sessions to list available sessions."
             )
         else:
+            # ✅ FIX (2026-01-21) BUG-APP-024: Validate session_id format before database query
+            # Session IDs follow pattern: exec_YYYYMMDD_HHMMSS_XXXXXXXX (e.g., exec_20260121_143052_a1b2c3d4)
+            import re
+            session_id_pattern = r'^exec_\d{8}_\d{6}_[a-f0-9]{8}$'
+            if not re.match(session_id_pattern, session_id):
+                errors.append(
+                    f"Invalid session_id format: '{session_id}'. "
+                    "Expected format: exec_YYYYMMDD_HHMMSS_XXXXXXXX (e.g., exec_20260121_143052_a1b2c3d4). "
+                    "Use GET /api/data-collection/sessions to list valid session IDs."
+                )
+
+        if not errors:
             # ✅ CRITICAL FIX: Validate session exists in QuestDB
             # Prevents invalid session_ids from consuming resources
+            # ✅ FIX (2026-01-21) BUG-APP-012: Ensure QuestDBProvider is closed after validation
+            questdb_provider = None
             try:
                 questdb_provider = QuestDBProvider(
                     ilp_host='127.0.0.1',
@@ -543,6 +567,16 @@ class AsyncCommandProcessor:
                     f"Data collection session '{session_id}' not found. "
                     "Use GET /api/data-collection/sessions to list available sessions."
                 )
+            finally:
+                # ✅ FIX (2026-01-21) BUG-APP-012: Always close QuestDBProvider to prevent connection leak
+                if questdb_provider:
+                    try:
+                        await questdb_provider.close()
+                    except Exception as close_error:
+                        self.logger.warning("command_processor.questdb_close_failed", {
+                            "context": "session_validation",
+                            "error": str(close_error)
+                        })
 
         # Check required parameters
         if "symbols" not in parameters:
@@ -890,51 +924,63 @@ class AsyncCommandProcessor:
                 if item.is_dir() and item.name.endswith("_USDT"):
                     symbols.append(item.name)
         
-        return symbols[:10]  # Limit to first 10 symbols for safety
+        # ✅ FIX (2026-01-21) BUG-APP-019: Log warning when symbols are truncated
+        max_symbols = 10
+        if len(symbols) > max_symbols:
+            self.logger.warning("command_processor.symbols_truncated", {
+                "total_found": len(symbols),
+                "max_allowed": max_symbols,
+                "returned": max_symbols,
+                "truncated_symbols": symbols[max_symbols:]
+            })
+        return symbols[:max_symbols]
 
     async def _get_session_symbols(self, session_id: str) -> List[str]:
         """
         Get symbols from session metadata in QuestDB.
-        
+
         ✅ STEP 4.2: Helper method to retrieve symbols from data collection session
-        
+        ✅ FIX (2026-01-21) BUG-APP-012: Ensure QuestDBProvider is closed after use
+
         Args:
             session_id: Data collection session ID
-            
+
         Returns:
             List of symbol strings
-            
+
         Raises:
             ValueError: If session not found or has no symbols
         """
-        # Create temporary QuestDB provider
-        questdb_provider = QuestDBProvider(
-            ilp_host='127.0.0.1',
-            ilp_port=9009,
-            pg_host='127.0.0.1',
-            pg_port=8812
-        )
-        questdb_data_provider = QuestDBDataProvider(questdb_provider, self.logger)
-        
+        # ✅ FIX (2026-01-21) BUG-APP-012: Track provider for cleanup
+        questdb_provider = None
         try:
+            # Create temporary QuestDB provider
+            questdb_provider = QuestDBProvider(
+                ilp_host='127.0.0.1',
+                ilp_port=9009,
+                pg_host='127.0.0.1',
+                pg_port=8812
+            )
+            questdb_data_provider = QuestDBDataProvider(questdb_provider, self.logger)
+
             # Get session metadata
             metadata = await questdb_data_provider.get_session_metadata(session_id)
-            
+
             if not metadata:
                 raise ValueError(f"Data collection session '{session_id}' not found in QuestDB")
-            
+
             symbols = metadata.get('symbols', [])
-            
+
             if not symbols:
                 raise ValueError(f"Session '{session_id}' has no symbols")
-            
+
             self.logger.info("command_processor.session_symbols_resolved", {
                 "session_id": session_id,
                 "symbols": symbols
             })
-            
+
             return symbols
-            
+
         except Exception as e:
             self.logger.error("command_processor.get_session_symbols_failed", {
                 "session_id": session_id,
@@ -942,3 +988,14 @@ class AsyncCommandProcessor:
                 "error_type": type(e).__name__
             })
             raise
+        finally:
+            # ✅ FIX (2026-01-21) BUG-APP-012: Always close QuestDBProvider to prevent connection leak
+            if questdb_provider:
+                try:
+                    await questdb_provider.close()
+                except Exception as close_error:
+                    self.logger.warning("command_processor.questdb_close_failed", {
+                        "context": "get_session_symbols",
+                        "session_id": session_id,
+                        "error": str(close_error)
+                    })

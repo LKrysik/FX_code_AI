@@ -83,12 +83,39 @@ class TradingOrchestrator:
                 self.logger.error("trading_orchestrator.completion_error", {"error": str(e)})
 
     async def _consume_symbol(self, symbol: str) -> None:
+        """
+        ✅ FIX (2026-01-21) BUG-APP-003: Documented intentional event-driven architecture.
+
+        This method iterates over the market data stream to trigger event emissions.
+        The actual processing happens via EventBus subscribers (pump detection, indicators, etc.).
+
+        The `pass` statement is intentional - iterating the async generator is the side effect
+        that causes market data to be published to the EventBus.
+
+        Architecture:
+            get_market_data_stream() → yields MarketData → EventBus.publish('market.price_update')
+            Subscribers: PumpDetectionUseCase, StreamingIndicatorEngine, etc.
+        """
+        consumed_count = 0
         try:
             async for md in self.market_data.get_market_data_stream(symbol):
-                # Market data is now consumed via EventBus
-                # The pump detection use case subscribes to 'market.price_update' events
-                # No direct call needed here - event-driven architecture
+                # ✅ FIX (2026-01-21) BUG-APP-003: Track consumption for observability
+                consumed_count += 1
+
+                # Market data is consumed via EventBus - iterating triggers event emission
+                # No direct processing needed - event-driven architecture by design
                 pass
+
         except asyncio.CancelledError:
+            self.logger.debug("trading_orchestrator.symbol_consumption_cancelled", {
+                "symbol": symbol,
+                "consumed_count": consumed_count
+            })
             return
+
+        # Log completion
+        self.logger.info("trading_orchestrator.symbol_consumption_completed", {
+            "symbol": symbol,
+            "consumed_count": consumed_count
+        })
 

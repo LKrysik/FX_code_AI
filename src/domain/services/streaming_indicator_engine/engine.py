@@ -275,10 +275,22 @@ class StreamingIndicatorEngine:
         
         categories = self._algorithm_registry.get_categories()
         return {
-            "indicators": indicators, 
-            "total_count": len(indicators), 
+            "indicators": indicators,
+            "total_count": len(indicators),
             "categories": categories
         }
+
+    def get_registered_symbols(self) -> List[str]:
+        """
+        ✅ FIX (2026-01-21) BUG-APP-017: Public getter for registered symbols.
+
+        Returns list of symbols that have indicators registered.
+        This replaces direct access to private _indicators_by_symbol.
+
+        Returns:
+            List of symbol strings with registered indicators
+        """
+        return list(self._indicators_by_symbol.keys())
 
     def get_system_indicators_by_category(self, category: str) -> Dict[str, Any]:
         """Get system indicators filtered by category"""

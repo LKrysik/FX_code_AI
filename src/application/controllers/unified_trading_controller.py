@@ -358,16 +358,40 @@ class UnifiedTradingController:
                         "strategy_name": strategy_name
                     })
                 except Exception as e:
-                    # Don't fail backtest if session creation fails
-                    self.logger.error("unified_trading_controller.backtest_session_creation_failed", {
+                    # ✅ FIX (2026-01-21) BUG-APP-007: Track persistence failure and warn prominently
+                    # RISK MINIMIZED: Backtest results may be lost → user is now warned
+                    # File: unified_trading_controller.py, Lines: 360-385
+
+                    # Log as ERROR with high visibility
+                    self.logger.error("unified_trading_controller.CRITICAL_persistence_failed", {
                         "session_id": session_id,
-                        "error": str(e)
+                        "error": str(e),
+                        "impact": "BACKTEST RESULTS WILL NOT BE SAVED",
+                        "recommendation": "Check database connection and retry"
                     })
+
+                    # Store failure state in execution controller session metrics
+                    # This makes it accessible via GET /api/execution/status
+                    if self.execution_controller and self.execution_controller._current_session:
+                        self.execution_controller._current_session.metrics["persistence_status"] = "failed"
+                        self.execution_controller._current_session.metrics["persistence_error"] = str(e)
+
+                    # Emit event for monitoring (follows GENE-DI-1 pattern)
+                    if self.event_bus:
+                        await self.event_bus.publish("data_quality.persistence_failed", {
+                            "session_id": session_id,
+                            "error": str(e),
+                            "severity": "warning",
+                            "impact": "Results will not be persisted"
+                        })
 
             self.logger.info("unified_trading_controller.backtest_started", {
                 "session_id": session_id,
                 "symbols": symbols,
-                "strategies_activated": True
+                "strategies_activated": True,
+                "persistence_status": "ok" if not (self.execution_controller and
+                    self.execution_controller._current_session and
+                    self.execution_controller._current_session.metrics.get("persistence_status") == "failed") else "failed"
             })
 
             return session_id
@@ -778,9 +802,19 @@ class UnifiedTradingController:
     
     async def _setup_default_indicators(self) -> None:
         """Setup default indicators for common symbols"""
-        # This would be configured based on trading strategy
-        default_symbols = ["ALU_USDT", "ARIA_USDT"]  # Example symbols
-        
+        # ✅ FIX (2026-01-21) BUG-APP-002: Load from configuration instead of hardcoding
+        # Default symbols can be configured via environment or config file
+        import os
+        default_symbols_str = os.environ.get("FX_DEFAULT_SYMBOLS", "")
+        if default_symbols_str:
+            default_symbols = [s.strip() for s in default_symbols_str.split(",") if s.strip()]
+        else:
+            # Fallback to empty list - indicators will be set up per-session based on strategy
+            default_symbols = []
+            self.logger.info("unified_trading_controller.no_default_symbols", {
+                "info": "No FX_DEFAULT_SYMBOLS configured, indicators will be set up per-session"
+            })
+
         for symbol in default_symbols:
             # Add common indicators
             self.indicator_engine.add_indicator(symbol, IndicatorType.SMA, period=20)
@@ -976,11 +1010,13 @@ class UnifiedTradingController:
                         })
 
             # ✅ DIAGNOSTIC: Verify indicators were registered for symbols
+            # ✅ FIX (2026-01-21) BUG-APP-017: Use public getter instead of private attribute
             registered_symbols = []
             if hasattr(self, 'indicator_engine') and self.indicator_engine:
-                registered_symbols = list(self.indicator_engine._indicators_by_symbol.keys())
+                registered_symbols = self.indicator_engine.get_registered_symbols()
 
             # BUG-009 FIX: Log ERROR if no strategies were activated (critical failure)
+            # ✅ FIX (2026-01-21) BUG-APP-005: Track strategy activation status in session metrics + emit event
             if activated_count == 0:
                 self.logger.error("unified_trading_controller.ZERO_STRATEGIES_ACTIVATED", {
                     "session_id": session_id,
@@ -993,6 +1029,28 @@ class UnifiedTradingController:
                     "likely_fix": "Verify strategy name matches exactly (case-sensitive)",
                     "action_required": "Compare selected_strategies with available_strategies above"
                 })
+
+                # ✅ FIX (2026-01-21) BUG-APP-005: Track in session metrics for visibility
+                if self.execution_controller and self.execution_controller._current_session:
+                    self.execution_controller._current_session.metrics["strategy_activation_status"] = "failed"
+                    self.execution_controller._current_session.metrics["strategy_activation_error"] = "No strategies activated"
+                    self.execution_controller._current_session.metrics["strategy_activation_details"] = {
+                        "requested": selected_strategies,
+                        "available": list(self.strategy_manager.strategies.keys())[:20],
+                        "activated": 0
+                    }
+
+                # ✅ FIX (2026-01-21) BUG-APP-005: Emit event for user notification
+                if self.event_bus:
+                    await self.event_bus.publish("session.strategy_activation_warning", {
+                        "session_id": session_id,
+                        "status": "failed",
+                        "severity": "critical",
+                        "message": "ZERO strategies activated - session will not generate signals",
+                        "requested_strategies": selected_strategies,
+                        "available_strategies": list(self.strategy_manager.strategies.keys())[:10]
+                    })
+
             else:
                 self.logger.info("unified_trading_controller.session_strategies_activated_OK", {
                     "session_id": session_id,
@@ -1005,13 +1063,37 @@ class UnifiedTradingController:
                     "verification": "State Machine Overview should show active instances"
                 })
 
+                # ✅ FIX (2026-01-21) BUG-APP-005: Track success status
+                if self.execution_controller and self.execution_controller._current_session:
+                    self.execution_controller._current_session.metrics["strategy_activation_status"] = "ok"
+                    self.execution_controller._current_session.metrics["strategy_activation_count"] = activated_count
+
         except Exception as e:
             self.logger.error("unified_trading_controller.strategy_activation_failed", {
                 "session_id": session_id,
                 "error": str(e),
                 "error_type": type(e).__name__
             })
+
+            # ✅ FIX (2026-01-21) BUG-APP-005: Track exception in session metrics
+            if self.execution_controller and self.execution_controller._current_session:
+                self.execution_controller._current_session.metrics["strategy_activation_status"] = "error"
+                self.execution_controller._current_session.metrics["strategy_activation_error"] = str(e)
+                self.execution_controller._current_session.metrics["strategy_activation_error_type"] = type(e).__name__
+
+            # ✅ FIX (2026-01-21) BUG-APP-005: Emit event for user notification
+            if self.event_bus:
+                await self.event_bus.publish("session.strategy_activation_failed", {
+                    "session_id": session_id,
+                    "status": "error",
+                    "severity": "high",
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "message": "Strategy activation failed with exception - session may not function correctly"
+                })
+
             # Don't raise - allow session to start even if strategy activation fails
+            # User is now notified via event and metrics are tracked
 
     async def _create_indicator_variants_for_strategy(self, strategy_name: str, symbol: str, session_id: str = None) -> int:
         """
