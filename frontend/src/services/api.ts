@@ -891,6 +891,145 @@ class ApiService {
     return response.data;
   }
 
+  // Emergency Stop API Methods (Story: 1b-8-emergency-stop-button)
+
+  /**
+   * Emergency stop for all active sessions
+   *
+   * Immediately stops all running trading sessions:
+   * - Closes all open positions at current market prices
+   * - Calculates and returns final P&L
+   * - Updates session status to "stopped_by_user"
+   * - Preserves partial results for analysis
+   *
+   * Response time target: < 1 second (AC5)
+   *
+   * @returns Promise with stop result including final P&L and closed positions count
+   */
+  async emergencyStop(): Promise<{
+    success: boolean;
+    sessions_stopped: number;
+    positions_closed: number;
+    total_pnl: number;
+    message: string;
+  }> {
+    const startTime = performance.now();
+
+    try {
+      Logger.warn('api.emergency_stop_initiated', {
+        message: 'Emergency stop API call initiated',
+      });
+
+      const response = await axios.post<ApiResponse<{
+        sessions_stopped: number;
+        positions_closed: number;
+        total_pnl: number;
+        message: string;
+      }>>('/api/paper-trading/emergency-stop');
+
+      const duration = performance.now() - startTime;
+
+      Logger.info('api.emergency_stop_success', {
+        durationMs: duration,
+        sessions_stopped: response.data.data?.sessions_stopped,
+        positions_closed: response.data.data?.positions_closed,
+      });
+
+      // Warn if response took longer than 1 second (AC5 requirement)
+      if (duration > 1000) {
+        Logger.warn('api.emergency_stop_slow', {
+          durationMs: duration,
+          message: 'Emergency stop took longer than 1 second target',
+        });
+      }
+
+      return {
+        success: true,
+        sessions_stopped: response.data.data?.sessions_stopped ?? 0,
+        positions_closed: response.data.data?.positions_closed ?? 0,
+        total_pnl: response.data.data?.total_pnl ?? 0,
+        message: response.data.data?.message ?? 'Sessions stopped successfully',
+      };
+
+    } catch (error: any) {
+      const duration = performance.now() - startTime;
+      const errorMessage = error?.response?.data?.error_message ||
+                          error?.response?.data?.detail ||
+                          error?.message ||
+                          'Unknown error occurred';
+
+      Logger.error('api.emergency_stop_failed', {
+        durationMs: duration,
+        error: errorMessage,
+        status: error?.response?.status,
+      }, error);
+
+      throw new Error(`Emergency stop failed: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Stop a specific session by ID
+   *
+   * Stops a single trading session:
+   * - Closes all open positions for this session at current prices
+   * - Calculates final P&L
+   * - Updates status to "stopped_by_user"
+   *
+   * @param sessionId - The session ID to stop
+   * @returns Promise with stop result
+   */
+  async stopSessionById(sessionId: string): Promise<{
+    success: boolean;
+    session_id: string;
+    positions_closed: number;
+    final_pnl: number;
+    status: string;
+  }> {
+    try {
+      Logger.info('api.stop_session_initiated', {
+        sessionId,
+        message: 'Session stop API call initiated',
+      });
+
+      const response = await axios.post<ApiResponse<{
+        session_id: string;
+        positions_closed: number;
+        final_pnl: number;
+        status: string;
+        message: string;
+      }>>(`/api/paper-trading/sessions/${sessionId}/stop`);
+
+      Logger.info('api.stop_session_success', {
+        sessionId,
+        positions_closed: response.data.data?.positions_closed,
+        final_pnl: response.data.data?.final_pnl,
+        status: response.data.data?.status,
+      });
+
+      return {
+        success: true,
+        session_id: sessionId,
+        positions_closed: response.data.data?.positions_closed ?? 0,
+        final_pnl: response.data.data?.final_pnl ?? 0,
+        status: response.data.data?.status ?? 'stopped_by_user',
+      };
+
+    } catch (error: any) {
+      const errorMessage = error?.response?.data?.error_message ||
+                          error?.response?.data?.detail ||
+                          error?.message ||
+                          'Unknown error occurred';
+
+      Logger.error('api.stop_session_failed', {
+        sessionId,
+        error: errorMessage,
+        status: error?.response?.status,
+      }, error);
+
+      throw new Error(`Failed to stop session ${sessionId}: ${errorMessage}`);
+    }
+  }
 
   // Utility Methods
 

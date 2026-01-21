@@ -1,6 +1,6 @@
 # Story BUG-008-9: Stale Data Detection & Handling
 
-**Status:** backlog
+**Status:** done
 **Priority:** P2
 **Epic:** BUG-008 WebSocket Stability & Service Health
 
@@ -228,3 +228,6 @@ function DataAgeIndicator({ freshness }: { freshness: DataFreshness }) {
 | Date | Author | Change |
 |------|--------|--------|
 | 2025-12-30 | John (PM) | Story created from BUG-008 Epic |
+| 2025-12-30 | Amelia (Dev) | Backend: data_freshness.py module (FreshnessStatus, FreshnessMetadata, FreshnessTracker), 37 tests passing |
+| 2025-12-30 | Amelia (Dev) | Frontend: Already implemented in BUG-008-3 (DataFreshnessWrapper.tsx, useDataFreshness.ts) |
+| 2025-12-30 | Code Review | APPROVED: 37 tests (95.8% coverage), 6/6 ACs verified. Status → done |

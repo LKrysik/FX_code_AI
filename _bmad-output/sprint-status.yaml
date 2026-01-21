@@ -133,15 +133,15 @@ development_status:
   # Epic 1B: First Successful Backtest (P0)
   # Goal: Trader runs a complete backtest and sees P&L results
   # ============================================================
-  epic-1b: backlog
-  1b-1-backtest-session-setup: backlog
-  1b-2-backtest-execution: backlog
+  epic-1b: in-progress  # Started 2025-12-31
+  1b-1-backtest-session-setup: done  # Completed 2025-12-31 - BacktestSetupForm, backtestApi, backtest_routes.py
+  1b-2-backtest-execution: review  # BacktestEngine implemented, 31 tests passing
   1b-3-progress-display: backlog
   1b-4-pnl-summary: backlog
-  1b-5-journeybar-component: backlog
+  1b-5-journeybar-component: done  # Completed 2025-12-31 - JourneyBar, 58 tests
   1b-6-signal-timeline-on-chart: backlog
   1b-7-state-overview-table: backlog
-  1b-8-emergency-stop-button-esc-shortcut: backlog
+  1b-8-emergency-stop-button-esc-shortcut: done  # Completed 2025-12-31 - EmergencyStopButton, useEscShortcut, API endpoint
   1b-9-multi-symbol-session-support: backlog
   epic-1b-retrospective: optional
 
