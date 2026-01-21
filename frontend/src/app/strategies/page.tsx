@@ -198,7 +198,8 @@ export default function StrategiesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [customConfig, setCustomConfig] = useState<any>({});
   const [loading, setLoading] = useState(true);
-  const [indicatorVariants] = useState<IndicatorVariant[]>([]);
+  // BUG-DV-035 FIX: Add setter to load indicator variants
+  const [indicatorVariants, setIndicatorVariants] = useState<IndicatorVariant[]>([]);
   const [snackbar, setSnackbar] = useState<{open: boolean, message: string, severity: 'success' | 'error' | 'info' | 'warning'}>({
     open: false,
     message: '',
@@ -209,8 +210,31 @@ export default function StrategiesPage() {
   useEffect(() => {
     loadStrategies();
     loadUserStrategies();
+    loadIndicatorVariants(); // BUG-DV-035 FIX: Load indicator variants
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // BUG-DV-035 FIX: Load indicator variants for embedded builder
+  const loadIndicatorVariants = async () => {
+    try {
+      const apiVariants = await apiService.getVariants();
+      const mappedVariants: IndicatorVariant[] = (apiVariants || []).map((variant: any) => ({
+        id: variant.variant_id || variant.id || '',
+        name: variant.name || variant.variant_id || '',
+        baseType: variant.base_type || variant.baseType || variant.category || 'custom',
+        parameters: variant.parameters || {},
+        type: (variant.type || 'general') as IndicatorVariant['type'],
+        description: variant.description || '',
+        isActive: variant.is_active ?? variant.isActive ?? true,
+        lastValue: variant.last_value ?? variant.lastValue,
+        lastUpdate: variant.last_update ?? variant.lastUpdate,
+      }));
+      setIndicatorVariants(mappedVariants);
+    } catch (error) {
+      console.warn('Failed to load indicator variants:', error);
+      setIndicatorVariants([]);
+    }
+  };
 
   const loadStrategies = async () => {
     try {
@@ -524,13 +548,66 @@ export default function StrategiesPage() {
   };
 
   const handleValidateStrategy = async (strategy: Strategy5Section): Promise<StrategyValidationResult> => {
-    // TODO: Implement validation logic
-    return {
-      isValid: true,
-      errors: [],
-      warnings: [],
-      sectionErrors: {}
-    };
+    // BUG-DV-034 FIX: Implement real validation instead of always returning true
+    try {
+      // Convert 5-section to API format for validation
+      const strategyAPIFormat = {
+        strategy_name: strategy.name,
+        s1_signal: strategy.s1_signal,
+        z1_entry: strategy.z1_entry,
+        o1_cancel: strategy.o1_cancel,
+        ze1_close: strategy.ze1_close,
+        emergency_exit: strategy.emergency_exit,
+        description: `5-section strategy: ${strategy.name}`
+      };
+      const response = await apiService.validateStrategy(strategyAPIFormat);
+      return {
+        isValid: response.data.isValid,
+        errors: response.data.errors || [],
+        warnings: response.data.warnings || [],
+        sectionErrors: {},
+      };
+    } catch (error: any) {
+      // Fallback to basic local validation if server validation fails
+      Logger.warn('StrategiesPage.handleValidateStrategy', { message: 'Server validation failed, falling back to local validation', error });
+
+      const errors: string[] = [];
+      const warnings: string[] = [];
+
+      // Required field validation
+      if (!strategy.name.trim()) {
+        errors.push('Strategy name is required');
+      }
+
+      // Section validation
+      if (strategy.s1_signal.conditions.length === 0) {
+        errors.push('S1 Signal section must have at least one condition');
+      }
+
+      if (strategy.z1_entry.conditions.length === 0) {
+        errors.push('Z1 Entry section must have at least one condition');
+      }
+
+      if (strategy.ze1_close.conditions.length === 0) {
+        errors.push('ZE1 Close section must have at least one condition');
+      }
+
+      // Optional warnings
+      if (strategy.o1_cancel.conditions.length === 0) {
+        warnings.push('O1 Cancel section has no conditions - orders may never be cancelled');
+      }
+
+      if (strategy.emergency_exit.conditions.length === 0) {
+        warnings.push('Emergency exit has no conditions - consider adding for risk management');
+      }
+
+      return {
+        isValid: errors.length === 0,
+        errors,
+        warnings,
+        sectionErrors: {},
+      };
+    }
   };
 
   return (

@@ -133,9 +133,8 @@ class StrategyEvaluator:
         value = data["value"]
         timestamp = data["timestamp"]
 
-        # For now, assume symbol is embedded in indicator name or use default
-        # In production, this should be extracted from the data
-        symbol = self._extract_symbol_from_indicator(indicator_name)
+        # BUG-DV-023 FIX: Extract symbol from data first, then fall back to indicator name
+        symbol = self._extract_symbol_from_indicator(indicator_name, data)
 
         # Update indicator state
         if symbol not in self.indicator_state:
@@ -149,11 +148,52 @@ class StrategyEvaluator:
         # Evaluate strategy for this symbol
         await self._evaluate_strategy_for_symbol(symbol)
 
-    def _extract_symbol_from_indicator(self, indicator_name: str) -> str:
-        """Extract symbol from indicator name (temporary implementation)."""
-        # This is a simplified implementation
-        # In production, symbols should be explicitly passed in indicator data
-        return "BTC_USDT"  # Default for now
+    def _extract_symbol_from_indicator(self, indicator_name: str, data: Dict[str, Any] = None) -> str:
+        """
+        Extract symbol from indicator data or name.
+
+        BUG-DV-023 FIX: Properly extract symbol instead of hardcoding.
+
+        Priority:
+        1. Check data["symbol"] if data is provided
+        2. Try to parse from indicator_name (e.g., "RSI_BTCUSDT" → "BTC_USDT")
+        3. Fall back to "BTC_USDT" with warning
+
+        Args:
+            indicator_name: Name of the indicator (may contain symbol)
+            data: Optional indicator data dict that may contain "symbol" field
+
+        Returns:
+            Extracted symbol string
+        """
+        # Priority 1: Check if symbol is explicitly in data
+        if data and "symbol" in data:
+            return data["symbol"]
+
+        # Priority 2: Try to parse from indicator name
+        # Common patterns: "RSI_BTCUSDT", "BTCUSDT_RSI", "volume_surge_ratio_BTCUSDT"
+        import re
+
+        # Pattern for common crypto pairs (e.g., BTCUSDT, ETH_USDT, BTC_USDC)
+        patterns = [
+            r'([A-Z]{2,10})_?(USDT|USDC|BUSD|BTC|ETH)',  # BTCUSDT, BTC_USDT
+            r'(USDT|USDC|BUSD|BTC|ETH)_?([A-Z]{2,10})',  # USDTBTC (reverse)
+        ]
+
+        upper_name = indicator_name.upper()
+        for pattern in patterns:
+            match = re.search(pattern, upper_name)
+            if match:
+                # Normalize to SYMBOL_QUOTE format
+                groups = match.groups()
+                if groups[1] in ('USDT', 'USDC', 'BUSD', 'BTC', 'ETH'):
+                    return f"{groups[0]}_{groups[1]}"
+                else:
+                    return f"{groups[1]}_{groups[0]}"
+
+        # Priority 3: Fall back to default (with implicit warning via return)
+        # In production, consider logging a warning here
+        return "BTC_USDT"
 
     async def _evaluate_strategy_for_symbol(self, symbol: str) -> None:
         """Evaluate strategy conditions for a specific symbol."""

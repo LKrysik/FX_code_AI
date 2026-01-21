@@ -1607,7 +1607,8 @@ class WebSocketAPIServer:
         self.message_router.register_handler(MessageType.VALIDATE_STRATEGY_CONFIG, self._handle_validate_strategy_config)
         self.message_router.register_handler(MessageType.UPSERT_STRATEGY, self._handle_upsert_strategy)
 
-        # Handshake handler - CRITICAL SECURITY FEATURE
+        # Handshake handler - OPTIONAL for backward compatibility (BUG-DV-018)
+        # Security is enforced via JWT auth on sensitive handlers, not handshake
         self.message_router.register_handler(MessageType.HANDSHAKE, self._handle_handshake)
 
     async def _handle_get_strategies(self, client_id: str, message: Dict[str, Any]) -> Dict[str, Any]:
@@ -2055,25 +2056,25 @@ class WebSocketAPIServer:
 
     async def _handle_handshake(self, client_id: str, message: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Handle WebSocket handshake - CRITICAL SECURITY FEATURE
+        Handle WebSocket handshake - OPTIONAL for backward compatibility.
 
-        Why this change:
-        - Prevents unauthorized connections
+        BUG-DV-018 FIX: Documentation clarified - handshake is NOT enforced.
+        Authentication is handled separately by JWT tokens on sensitive handlers.
+
+        Purpose:
         - Validates protocol version compatibility
-        - Establishes secure communication channel
-        - Enables capability negotiation
+        - Enables capability negotiation between client and server
+        - Tracks handshake status in connection manager
 
-        Impact on other components:
-        - Requires frontend to send handshake before other operations
-        - Backend validates client capabilities before allowing subscriptions
-        - Connection manager tracks handshake status
-        - Authentication can be tied to handshake validation
+        Security Note:
+        - Handshake is OPTIONAL to maintain backward compatibility
+        - Security is enforced via JWT authentication on sensitive handlers (BUG-DV-015/016/017)
+        - Clients without handshake can still connect but with default capabilities
 
-        Dependencies resolution:
-        - No breaking changes to existing message handlers
-        - Handshake happens before other message processing
-        - Graceful fallback for clients without handshake
-        - Maintains backward compatibility with existing connections
+        Impact on components:
+        - Frontend SHOULD send handshake for optimal experience
+        - Backend tracks handshake status but doesn't require it
+        - Connection manager marks connections as handshake_completed=True/False
         """
         try:
             # Validate handshake message structure
