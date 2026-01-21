@@ -542,10 +542,11 @@ class BacktestEngine:
         volume_ratio = volume / avg_volume if avg_volume > 0 else 1.0
 
         # Entry condition: positive momentum + volume surge
+        # BUG-DV-003 FIX: Use UPPERCASE for consistency with MEXC API
         if price_change_pct > 0.1 and volume_ratio > 1.5:
             return {
                 "signal_type": "S1",
-                "side": "buy",
+                "side": "BUY",
                 "price": candle_data.get("close", 0),
                 "quantity": self.config.initial_balance * 0.02 / candle_data.get("close", 1),  # 2% of balance
                 "reason": f"Price momentum {price_change_pct:.2f}%, Volume ratio {volume_ratio:.2f}"
@@ -577,20 +578,22 @@ class BacktestEngine:
         position.update_unrealized_pnl(current_price)
 
         # Check stop loss
+        # BUG-DV-003 FIX: Use UPPERCASE for consistency with MEXC API
         if position.unrealized_pnl_pct <= -self.config.stop_loss_percent:
             return {
                 "signal_type": "E1",
-                "side": "sell" if position.quantity > 0 else "cover",
+                "side": "SELL" if position.quantity > 0 else "COVER",
                 "price": current_price,
                 "quantity": abs(position.quantity),
                 "reason": f"Stop loss triggered at {position.unrealized_pnl_pct:.2f}%"
             }
 
         # Check take profit
+        # BUG-DV-003 FIX: Use UPPERCASE for consistency with MEXC API
         if position.unrealized_pnl_pct >= self.config.take_profit_percent:
             return {
                 "signal_type": "ZE1",
-                "side": "sell" if position.quantity > 0 else "cover",
+                "side": "SELL" if position.quantity > 0 else "COVER",
                 "price": current_price,
                 "quantity": abs(position.quantity),
                 "reason": f"Take profit triggered at {position.unrealized_pnl_pct:.2f}%"
@@ -614,15 +617,16 @@ class BacktestEngine:
             Order ID if executed, None if failed
         """
         try:
-            side = signal.get("side", "buy").lower()
+            # BUG-DV-003 FIX: Normalize to UPPERCASE for consistency with MEXC API
+            side = signal.get("side", "BUY").upper()
 
-            if side == "buy":
+            if side == "BUY":
                 order_type = OrderType.BUY
-            elif side == "sell":
+            elif side == "SELL":
                 order_type = OrderType.SELL
-            elif side == "short":
+            elif side == "SHORT":
                 order_type = OrderType.SHORT
-            elif side == "cover":
+            elif side == "COVER":
                 order_type = OrderType.COVER
             else:
                 self.logger.warning("backtest_engine.invalid_signal_side", {"side": side})
@@ -936,12 +940,13 @@ class BacktestEngine:
                     pass
 
             # 8. Close any remaining positions at end
+            # BUG-DV-003 FIX: Use UPPERCASE for consistency with MEXC API
             final_positions = await self.order_manager.get_all_positions()
             for position_dict in final_positions:
                 if position_dict.get("quantity", 0) != 0:
                     close_signal = {
                         "signal_type": "CLOSE",
-                        "side": "sell" if position_dict["quantity"] > 0 else "cover",
+                        "side": "SELL" if position_dict["quantity"] > 0 else "COVER",
                         "price": candles[-1].close if candles else 0,
                         "quantity": abs(position_dict["quantity"]),
                         "reason": "End of backtest period"

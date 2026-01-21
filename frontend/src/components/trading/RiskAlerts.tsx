@@ -14,8 +14,8 @@
 
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useSocketSubscription, WSMessage } from '@/hooks/useSocketSubscription';
 import { Logger } from '@/services/frontendLogService';
 
 // ========================================
@@ -55,23 +55,6 @@ export default function RiskAlerts({
   const alertsEndRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const { lastMessage, isConnected } = useWebSocket({
-    onMessage: (message: WebSocketMessage) => {
-      // Listen for risk alert events from live_trading stream
-      if (message.type === 'data' && message.stream === 'live_trading') {
-        const data = message.data;
-        if (data.alert_type || data.severity) {
-          // This is a risk alert
-          handleNewAlert(data);
-        }
-      }
-      // Also listen for direct risk_alert events
-      else if (message.type === 'risk_alert' || message.stream === 'risk_alert') {
-        handleNewAlert(message.data);
-      }
-    }
-  });
-
   // Initialize audio for critical alerts
   useEffect(() => {
     if (typeof window !== 'undefined' && playSound) {
@@ -80,8 +63,9 @@ export default function RiskAlerts({
     }
   }, [playSound]);
 
-  // Handle new alert
-  const handleNewAlert = (alertData: any) => {
+  // BUG-DV-031 FIX: Use unified WebSocket subscription instead of duplicate hook
+  // Handle new alert (moved to useCallback for proper hook ordering)
+  const handleNewAlert = useCallback((alertData: any) => {
     const alert: RiskAlert = {
       alert_id: alertData.alert_id || `alert_${Date.now()}`,
       session_id: alertData.session_id || session_id || 'unknown',
@@ -116,7 +100,26 @@ export default function RiskAlerts({
     setTimeout(() => {
       alertsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, 100);
-  };
+  }, [session_id, maxAlerts, playSound]);
+
+  // Subscribe to WebSocket messages using the unified service
+  const { isConnected } = useSocketSubscription(
+    (message: WSMessage) => {
+      // Listen for risk alert events from live_trading stream
+      if (message.type === 'data' && message.stream === 'live_trading') {
+        const data = message.data;
+        if (data?.alert_type || data?.severity) {
+          // This is a risk alert
+          handleNewAlert(data);
+        }
+      }
+      // Also listen for direct risk_alert events
+      else if (message.type === 'risk_alert' || message.stream === 'risk_alert') {
+        handleNewAlert(message.data);
+      }
+    },
+    'RiskAlerts'
+  );
 
   // Acknowledge alert
   const acknowledgeAlert = (alert_id: string) => {

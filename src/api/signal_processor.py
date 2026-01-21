@@ -679,14 +679,36 @@ class SignalProcessor:
         }
 
     async def _get_market_context(self, symbol: str) -> Dict[str, Any]:
-        """Get market context for symbol with caching"""
+        """
+        Get market context for symbol with caching and graceful fallback.
+
+        BUG-DV-021 FIX: Instead of raising NotImplementedError on cache miss,
+        return safe fallback values to allow signal processing to continue.
+        """
         # Try cache first
         cached = await self._get_cached_market_data(symbol)
         if cached:
             return cached
 
-        # Real implementation required - fetch from MEXC API
-        raise NotImplementedError("Real MEXC API integration required for market context")
+        # BUG-DV-021 FIX: Graceful degradation with safe fallback values
+        # Instead of crashing, return conservative default values
+        # This allows signal processing to continue while logging the gap
+        if self.logger:
+            self.logger.warning("signal_processor.market_context_fallback", {
+                "symbol": symbol,
+                "reason": "Cache miss and no API integration configured",
+                "using": "fallback_values"
+            })
+
+        return {
+            "market_cap_rank": 1000,  # Conservative assumption (unknown coin)
+            "liquidity_usdt": 0,      # Unknown liquidity
+            "spread_pct": None,       # Unknown spread
+            "volume_24h": 0,          # Unknown volume
+            "price_change_24h_pct": None,
+            "source": "fallback",     # Marker to indicate fallback data
+            "timestamp": None
+        }
 
     async def _get_technical_analysis(self, symbol: str, signal: Dict[str, Any]) -> Dict[str, Any]:
         """Get technical analysis for signal"""

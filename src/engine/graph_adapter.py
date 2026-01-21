@@ -806,8 +806,17 @@ class LiveGraphExecutor:
 graph_adapter: Optional[GraphAdapter] = None
 live_executor: Optional[LiveGraphExecutor] = None
 
-def get_graph_adapter() -> GraphAdapter:
-    """Get or create the global graph adapter instance."""
+def get_graph_adapter(indicator_engine: Optional['StreamingIndicatorEngine'] = None) -> GraphAdapter:
+    """Get or create the global graph adapter instance.
+
+    BUG-DV-020 FIX: Accept indicator_engine as parameter for proper DI.
+    When called from Container, indicator_engine should be provided.
+    When called without (fallback), indicator_engine will be None.
+
+    Args:
+        indicator_engine: Optional StreamingIndicatorEngine instance from Container.
+                         If None, graph-based indicator calculations will not work.
+    """
     global graph_adapter
     if graph_adapter is None:
         # ✅ REFACTORING FIX: Don't try to import global singletons that no longer exist
@@ -816,25 +825,34 @@ def get_graph_adapter() -> GraphAdapter:
         try:
             from ..core.state_persistence_manager import state_persistence_manager
             from ..core.event_bus import event_bus
-            # ❌ REMOVED: streaming_indicator_engine global instance no longer exists
-            # streaming_indicator_engine should be injected via Container, not imported as singleton
 
             graph_adapter = GraphAdapter(
                 state_persistence_manager=state_persistence_manager,
-                indicator_engine=None,  # ✅ FIX: indicator_engine should be injected via DI
+                indicator_engine=indicator_engine,  # BUG-DV-020 FIX: Use injected engine
                 event_bus=event_bus
             )
         except ImportError:
             # Fallback without dependencies
-            graph_adapter = GraphAdapter()
+            graph_adapter = GraphAdapter(indicator_engine=indicator_engine)
+
+    # BUG-DV-020 FIX: Update indicator_engine if provided and current is None
+    elif indicator_engine is not None and graph_adapter.indicator_engine is None:
+        graph_adapter.indicator_engine = indicator_engine
 
     return graph_adapter
 
-def get_live_executor(event_bus=None) -> LiveGraphExecutor:
-    """Get or create the global live executor instance."""
+def get_live_executor(event_bus=None, indicator_engine=None) -> LiveGraphExecutor:
+    """Get or create the global live executor instance.
+
+    BUG-DV-020 FIX: Accept indicator_engine to pass to graph_adapter.
+
+    Args:
+        event_bus: Optional EventBus for event propagation
+        indicator_engine: Optional StreamingIndicatorEngine from Container
+    """
     global live_executor
     if live_executor is None:
-        adapter = get_graph_adapter()
+        adapter = get_graph_adapter(indicator_engine=indicator_engine)
         if event_bus is None:
             # Try to import global event_bus for backward compatibility
             try:

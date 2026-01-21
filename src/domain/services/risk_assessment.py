@@ -58,6 +58,40 @@ class EntryConditions:
     max_entry_delay: int = 45
     min_confidence_threshold: float = 60.0
     max_spread_pct: float = 2.0
+
+
+@dataclass
+class PositionRiskAssessment:
+    """
+    BUG-DV-025 FIX: Structured dataclass for position risk assessment results.
+
+    Provides a clean interface for risk assessment outputs instead of
+    returning untyped dictionaries.
+    """
+    is_allowed: bool
+    position_size: float
+    risk_per_unit: float
+    max_risk_amount: float
+    side: str  # "LONG" or "SHORT"
+    reason: Optional[str] = None
+    warnings: Optional[List[str]] = None
+
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for API responses"""
+        return {
+            "is_allowed": self.is_allowed,
+            "position_size": self.position_size,
+            "risk_per_unit": self.risk_per_unit,
+            "max_risk_amount": self.max_risk_amount,
+            "side": self.side,
+            "reason": self.reason,
+            "warnings": self.warnings or []
+        }
+
+
+@dataclass
+class AdvancedEntryConditions:
+    """Advanced entry conditions configuration"""
     min_liquidity_usdt: float = 1000.0
     rsi_max: float = 70.0
 
@@ -393,29 +427,50 @@ class RiskAssessmentService:
         return self.safety_metrics
     
     def calculate_position_size(self, account_balance: float, risk_pct: float,
-                              entry_price: float, stop_loss: float) -> float:
+                              entry_price: float, stop_loss: float,
+                              side: str = "LONG") -> float:
         """
         Calculate position size based on risk management rules.
-        
+
+        BUG-DV-026 FIX: Added side parameter to handle LONG and SHORT positions correctly.
+        For LONG: stop_loss < entry_price (risk = entry - stop_loss)
+        For SHORT: stop_loss > entry_price (risk = stop_loss - entry)
+
         Args:
             account_balance: Total account balance
             risk_pct: Risk percentage per trade (e.g., 2.0 for 2%)
             entry_price: Planned entry price
             stop_loss: Stop loss price
-            
+            side: Position side - "LONG" or "SHORT" (default: "LONG")
+
         Returns:
             Position size in base currency
         """
-        if entry_price <= 0 or stop_loss <= 0 or entry_price <= stop_loss:
+        if entry_price <= 0 or stop_loss <= 0:
             return 0.0
-        
-        # Calculate risk per unit
-        risk_per_unit = entry_price - stop_loss
-        
+
+        # BUG-DV-026 FIX: Calculate risk per unit based on position side
+        side_upper = side.upper()
+        if side_upper == "LONG":
+            # LONG: stop_loss should be below entry
+            if stop_loss >= entry_price:
+                return 0.0
+            risk_per_unit = entry_price - stop_loss
+        elif side_upper == "SHORT":
+            # SHORT: stop_loss should be above entry
+            if stop_loss <= entry_price:
+                return 0.0
+            risk_per_unit = stop_loss - entry_price
+        else:
+            # Invalid side, fallback to LONG logic
+            if stop_loss >= entry_price:
+                return 0.0
+            risk_per_unit = entry_price - stop_loss
+
         # Calculate maximum risk amount
         max_risk_amount = account_balance * (risk_pct / 100)
-        
+
         # Calculate position size
         position_size = max_risk_amount / risk_per_unit
-        
+
         return max(0.0, position_size)

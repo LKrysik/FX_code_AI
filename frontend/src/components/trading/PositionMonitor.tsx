@@ -20,8 +20,8 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useSocketSubscription, WSMessage } from '@/hooks/useSocketSubscription';
 import { Position, tradingAPI } from '@/services/TradingAPI';
 import { Logger } from '@/services/frontendLogService';
 
@@ -57,8 +57,26 @@ export default function PositionMonitor({
     takeProfit: string;
   } | null>(null);
 
-  const { lastMessage, isConnected } = useWebSocket({
-    onMessage: (message: WebSocketMessage) => {
+  // BUG-DV-031 FIX: Use unified WebSocket subscription instead of duplicate hook
+  // Handle position update from WebSocket
+  const handlePositionUpdate = useCallback((data: any) => {
+    setPositions(prev => {
+      const index = prev.findIndex(p => p.symbol === data.symbol && p.session_id === data.session_id);
+      if (index >= 0) {
+        // Update existing position
+        const updated = [...prev];
+        updated[index] = { ...updated[index], ...data };
+        return updated;
+      } else {
+        // Add new position
+        return [...prev, data as Position];
+      }
+    });
+  }, []);
+
+  // Subscribe to WebSocket messages using the unified service
+  const { isConnected } = useSocketSubscription(
+    (message: WSMessage) => {
       try {
         // Listen for position updates from live_trading stream
         if (message.type === 'data' && message.stream === 'live_trading') {
@@ -77,8 +95,9 @@ export default function PositionMonitor({
       } catch (err) {
         Logger.error('PositionMonitor.onMessage', { message: 'Error handling WebSocket message', error: err });
       }
-    }
-  });
+    },
+    'PositionMonitor'
+  );
 
   // Fetch initial positions
   useEffect(() => {
@@ -102,22 +121,6 @@ export default function PositionMonitor({
     } finally {
       setLoading(false);
     }
-  };
-
-  // Handle position update from WebSocket
-  const handlePositionUpdate = (data: any) => {
-    setPositions(prev => {
-      const index = prev.findIndex(p => p.symbol === data.symbol && p.session_id === data.session_id);
-      if (index >= 0) {
-        // Update existing position
-        const updated = [...prev];
-        updated[index] = { ...updated[index], ...data };
-        return updated;
-      } else {
-        // Add new position
-        return [...prev, data as Position];
-      }
-    });
   };
 
   // Close position (100%)

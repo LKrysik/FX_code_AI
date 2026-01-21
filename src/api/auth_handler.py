@@ -937,7 +937,41 @@ class AuthHandler:
         PREMIUM_PASSWORD = os.getenv("PREMIUM_PASSWORD") or "premium123"
         ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD") or "admin123"
 
-        # Log warnings for development defaults
+        # BUG-DV-027/028 FIX: Validate credential configuration
+        # Block authentication if using weak/default passwords
+        WEAK_DEFAULTS = {"demo123", "trader123", "premium123", "admin123"}
+        configuration_errors = []
+
+        # Check for weak default passwords
+        credentials_to_check = [
+            ("DEMO_PASSWORD", DEMO_PASSWORD),
+            ("TRADER_PASSWORD", TRADER_PASSWORD),
+            ("PREMIUM_PASSWORD", PREMIUM_PASSWORD),
+            ("ADMIN_PASSWORD", ADMIN_PASSWORD),
+        ]
+
+        for env_var, value in credentials_to_check:
+            if not os.getenv(env_var):
+                configuration_errors.append(f"{env_var} must be set via environment variable")
+            elif value in WEAK_DEFAULTS:
+                configuration_errors.append(f"{env_var} uses weak default value")
+            elif "CHANGE_ME" in value:
+                configuration_errors.append(f"{env_var} contains CHANGE_ME placeholder")
+
+        # If any configuration errors, block authentication
+        if configuration_errors:
+            if self.logger:
+                self.logger.error("auth_handler.configuration_error", {
+                    "errors": configuration_errors,
+                    "security_warning": "Authentication blocked due to insecure configuration"
+                })
+            return AuthResult(
+                success=False,
+                error_code="configuration_error",
+                error_message="; ".join(configuration_errors)
+            )
+
+        # Log warnings for development defaults (kept for backwards compatibility)
         using_defaults = []
         if not os.getenv("DEMO_PASSWORD"):
             using_defaults.append("DEMO_PASSWORD")

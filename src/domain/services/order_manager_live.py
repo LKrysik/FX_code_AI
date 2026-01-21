@@ -665,32 +665,39 @@ class LiveOrderManager:
                 "failed": sum(1 for o in self.orders.values() if o.status == OrderStatus.FAILED),
             }
 
-    async def close_position(self, position_id: str, symbol: str, quantity: float, current_price: float) -> bool:
+    async def close_position(
+        self,
+        session_id: str,
+        symbol: str,
+        quantity: float,
+        side: str,
+        reason: str = "manual_close"
+    ) -> dict:
         """
         Close an existing position by creating a market exit order.
 
+        BUG-DV-001/002 FIX: Updated signature to match caller and accept side parameter.
+
         Args:
-            position_id: Position identifier
+            session_id: Trading session identifier
             symbol: Trading symbol (e.g., "BTC_USDT")
             quantity: Position size to close
-            current_price: Current market price (for logging)
+            side: Exit order side ("BUY" or "SELL") - opposite of position side
+            reason: Reason for closing position (for logging)
 
         Returns:
-            True if close order submitted successfully, False otherwise
+            dict with order_id and success status
         """
-        logger.info(f"Closing position {position_id}: {symbol} qty={quantity} @ {current_price}")
+        logger.info(f"Closing position: session={session_id} {symbol} qty={quantity} side={side} reason={reason}")
 
-        # Determine exit side (opposite of position side)
-        # If we have a long position, we need to sell; if short, we need to buy
-        # TODO: Implement position side detection from Position object (see GitHub issue)
-        # Requires: Position tracking system to determine if position is LONG or SHORT
-        # Current implementation: assumes LONG positions (exit_side="sell")
-        # Update when position management is fully implemented
-        exit_side = "sell"
+        # BUG-DV-002 FIX: Use the passed side parameter instead of hardcoding
+        # LONG position → passed side="SELL"
+        # SHORT position → passed side="BUY"
+        exit_side = side.lower()
 
         # Create market exit order
         order = Order(
-            order_id=f"close_{position_id}_{int(time.time() * 1000)}",
+            order_id=f"close_{session_id}_{symbol}_{int(time.time() * 1000)}",
             symbol=symbol,
             side=exit_side,
             quantity=quantity,
@@ -705,8 +712,16 @@ class LiveOrderManager:
         success = await self.submit_order(order, current_positions=None)
 
         if success:
-            logger.info(f"Position close order submitted: {position_id} → {order.order_id}")
+            logger.info(f"Position close order submitted: session={session_id} {symbol} → {order.order_id}")
         else:
-            logger.error(f"Failed to submit position close order: {position_id}")
+            logger.error(f"Failed to submit position close order: session={session_id} {symbol}")
 
-        return success
+        # BUG-DV-001 FIX: Return dict to match caller expectations
+        return {
+            "order_id": order.order_id if success else None,
+            "success": success,
+            "symbol": symbol,
+            "side": side,
+            "quantity": quantity,
+            "reason": reason
+        }

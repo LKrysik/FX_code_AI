@@ -158,6 +158,10 @@ export const SessionConfigDialog: React.FC<SessionConfigDialogProps> = ({
   const [backtestSessionId, setBacktestSessionId] = useState<string>('');
   const [accelerationFactor, setAccelerationFactor] = useState<number>(10);
 
+  // BUG-DV-005 FIX: Backtest realism options
+  const [slippageModel, setSlippageModel] = useState<'none' | 'fixed' | 'realistic'>('realistic');
+  const [feesModel, setFeesModel] = useState<'none' | 'standard'>('standard');
+
   // UI State
   const [activeTab, setActiveTab] = useState<number>(0);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
@@ -522,6 +526,9 @@ export const SessionConfigDialog: React.FC<SessionConfigDialogProps> = ({
         ...(mode === 'backtest' && {
           session_id: backtestSessionId,
           acceleration_factor: accelerationFactor,
+          // BUG-DV-005 FIX: Include realism options in config
+          slippage_model: slippageModel,
+          fees_model: feesModel,
         }),
       },
       idempotent: true,
@@ -543,6 +550,9 @@ export const SessionConfigDialog: React.FC<SessionConfigDialogProps> = ({
     setTakeProfit(10.0);
     setBacktestSessionId('');
     setAccelerationFactor(10);
+    // BUG-DV-005 FIX: Reset realism options
+    setSlippageModel('realistic');
+    setFeesModel('standard');
     setActiveTab(0);
     onClose();
   };
@@ -931,6 +941,53 @@ export const SessionConfigDialog: React.FC<SessionConfigDialogProps> = ({
               Higher acceleration = faster replay (1x = real-time, 100x = 100× faster)
             </Typography>
           </Box>
+
+          {/* BUG-DV-005 FIX: Backtest realism options */}
+          <Divider sx={{ my: 3 }} />
+
+          <Typography variant="subtitle1" gutterBottom>
+            Realism Options
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+            Configure how closely the backtest simulates real trading conditions.
+          </Typography>
+
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+            <FormControl fullWidth>
+              <InputLabel id="slippage-model-label">Slippage Model</InputLabel>
+              <Select
+                labelId="slippage-model-label"
+                value={slippageModel}
+                label="Slippage Model"
+                onChange={(e) => setSlippageModel(e.target.value as 'none' | 'fixed' | 'realistic')}
+              >
+                <MenuItem value="none">None (Ideal)</MenuItem>
+                <MenuItem value="fixed">Fixed (0.1%)</MenuItem>
+                <MenuItem value="realistic">Realistic (Recommended)</MenuItem>
+              </Select>
+            </FormControl>
+
+            <FormControl fullWidth>
+              <InputLabel id="fees-model-label">Fees Model</InputLabel>
+              <Select
+                labelId="fees-model-label"
+                value={feesModel}
+                label="Fees Model"
+                onChange={(e) => setFeesModel(e.target.value as 'none' | 'standard')}
+              >
+                <MenuItem value="none">None</MenuItem>
+                <MenuItem value="standard">Standard (0.1%)</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
+
+          <Alert severity="info" sx={{ mt: 2 }} icon={<InfoIcon />}>
+            <Typography variant="caption">
+              <strong>Realistic slippage:</strong> Simulates price impact based on order size and market liquidity.
+              <br />
+              <strong>Standard fees:</strong> Applies typical exchange trading fees (maker/taker).
+            </Typography>
+          </Alert>
         </>
       )}
 

@@ -14,7 +14,7 @@ import json
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from ...core.event_bus import EventBus
@@ -183,16 +183,23 @@ class Strategy:
         Returns:
             OrderType.BUY for LONG strategies
             OrderType.SHORT for SHORT strategies
+            OrderType.BUY for BOTH strategies (BUG-DV-014 FIX: default to LONG)
 
-        Raises:
-            ValueError: If direction is "BOTH" (not yet supported)
+        Note:
+            "BOTH" direction defaults to LONG. Full bi-directional support
+            would require separate signal evaluation for each direction.
         """
         if self.direction == "LONG":
             return OrderType.BUY
         elif self.direction == "SHORT":
             return OrderType.SHORT
+        elif self.direction == "BOTH":
+            # BUG-DV-014 FIX: Default BOTH to LONG instead of raising error
+            # Full bi-directional support would require evaluating signals
+            # for both directions separately in signal_generator.py
+            return OrderType.BUY
         else:
-            raise ValueError(f"Unsupported direction for single entry: {self.direction}. Use 'LONG' or 'SHORT'.")
+            raise ValueError(f"Invalid direction: {self.direction}. Must be 'LONG', 'SHORT', or 'BOTH'.")
 
     def evaluate_signal_detection(self, indicator_values: Dict[str, Any]) -> ConditionResult:
         """Evaluate signal detection conditions"""
@@ -218,21 +225,25 @@ class Strategy:
         """Check if strategy is currently in cooldown period"""
         if self.cooldown_until is None:
             return False
-        return datetime.now() < self.cooldown_until
+        # BUG-DV-024 FIX: Use timezone-aware datetime for comparison
+        return datetime.now(timezone.utc) < self.cooldown_until
 
     def start_cooldown(self, cooldown_minutes: int, reason: str = "general") -> None:
         """Start a cooldown period for the strategy"""
-        self.cooldown_until = datetime.now() + timedelta(minutes=cooldown_minutes)
+        # BUG-DV-024 FIX: Use timezone-aware datetime
+        now = datetime.now(timezone.utc)
+        self.cooldown_until = now + timedelta(minutes=cooldown_minutes)
 
         # Track cooldown reason
         if reason == "signal_cancelled":
-            self.last_signal_cancelled = datetime.now()
+            self.last_signal_cancelled = now
         elif reason == "emergency_exit":
-            self.last_emergency_exit = datetime.now()
+            self.last_emergency_exit = now
 
     def get_cooldown_status(self) -> Dict[str, Any]:
         """Get current cooldown status"""
-        now = datetime.now()
+        # BUG-DV-024 FIX: Use timezone-aware datetime
+        now = datetime.now(timezone.utc)
         return {
             "in_cooldown": self.is_in_cooldown(),
             "cooldown_until": self.cooldown_until.isoformat() if self.cooldown_until else None,

@@ -301,13 +301,15 @@ export const useAuthStore = create<AuthState>()(
     {
       name: 'auth-storage',
       storage: createJSONStorage(() => localStorage),
-      // Only persist these fields
+      // BUG-DV-030 FIX: Do NOT persist tokens in localStorage - they are in HttpOnly cookies
+      // Only persist non-sensitive state for UX purposes (remember username, auth status)
+      // Tokens are transmitted via HttpOnly cookies which are immune to XSS attacks
       partialize: (state) => ({
         user: state.user,
-        accessToken: state.accessToken,
-        refreshToken: state.refreshToken,
+        // SECURITY: accessToken and refreshToken REMOVED from localStorage
+        // They are stored in HttpOnly cookies set by the backend
         isAuthenticated: state.isAuthenticated,
-        tokenExpiry: state.tokenExpiry,
+        // tokenExpiry removed - rely on backend cookie expiry
       }),
     }
   )

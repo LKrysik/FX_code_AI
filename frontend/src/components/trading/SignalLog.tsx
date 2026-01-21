@@ -17,8 +17,8 @@
 
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useSocketSubscription, WSMessage } from '@/hooks/useSocketSubscription';
 // Import centralized vocabulary (Story 1A-4: Human Vocabulary Labels - AC2)
 import { getSignalLabel, getSignalColor } from '@/utils/stateVocabulary';
 
@@ -76,30 +76,9 @@ export default function SignalLog({
 
   const signalsEndRef = useRef<HTMLDivElement>(null);
 
-  const { lastMessage, isConnected } = useWebSocket({
-    onMessage: (message: WebSocketMessage) => {
-      // Listen for signal events from live_trading stream
-      if (message.type === 'data' && message.stream === 'live_trading') {
-        const data = message.data;
-        if (data.signal_type) {
-          handleSignalUpdate(data);
-        }
-      }
-      // Also listen for direct signal_generated events
-      else if (message.type === 'signal_generated' || message.stream === 'signal_generated') {
-        handleSignalUpdate(message.data);
-      }
-    }
-  });
-
-  // Apply filters
-  useEffect(() => {
-    applyFilters();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signals, signalTypeFilter, symbolFilter, confidenceMin]);
-
-  // Handle signal update from WebSocket
-  const handleSignalUpdate = (data: any) => {
+  // BUG-DV-031 FIX: Use unified WebSocket subscription instead of duplicate hook
+  // Handle signal update from WebSocket (moved to useCallback for proper hook ordering)
+  const handleSignalUpdate = useCallback((data: any) => {
     const signal: Signal = {
       signal_id: data.signal_id || `signal_${Date.now()}`,
       session_id: data.session_id || session_id || 'unknown',
@@ -141,7 +120,31 @@ export default function SignalLog({
     setTimeout(() => {
       signalsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, 100);
-  };
+  }, [session_id]);
+
+  // Subscribe to WebSocket messages using the unified service
+  const { isConnected } = useSocketSubscription(
+    (message: WSMessage) => {
+      // Listen for signal events from live_trading stream
+      if (message.type === 'data' && message.stream === 'live_trading') {
+        const data = message.data;
+        if (data?.signal_type) {
+          handleSignalUpdate(data);
+        }
+      }
+      // Also listen for direct signal_generated events
+      else if (message.type === 'signal_generated' || message.stream === 'signal_generated') {
+        handleSignalUpdate(message.data);
+      }
+    },
+    'SignalLog'
+  );
+
+  // Apply filters
+  useEffect(() => {
+    applyFilters();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signals, signalTypeFilter, symbolFilter, confidenceMin]);
 
   // Apply filters to signals
   const applyFilters = () => {

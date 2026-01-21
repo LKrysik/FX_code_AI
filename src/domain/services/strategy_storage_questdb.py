@@ -359,6 +359,61 @@ class QuestDBStrategyStorage:
             if conn:
                 await self._release_connection(conn)
 
+    async def get_strategy_by_name(self, strategy_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get strategy by name (for upsert operations).
+
+        BUG-DV-004/013 FIX: Added to support WebSocket strategy upsert.
+
+        Args:
+            strategy_name: Strategy name to find
+
+        Returns:
+            Strategy data dict or None if not found
+
+        Raises:
+            StrategyStorageError: If database operation fails
+        """
+        conn = None
+        try:
+            conn = await self._get_connection()
+
+            query = """
+                SELECT id, strategy_name, description, direction, enabled,
+                       strategy_json, author, category, tags, template_id,
+                       created_at, updated_at, last_activated_at
+                FROM strategies
+                WHERE strategy_name = $1 AND is_deleted = false
+            """
+
+            row = await conn.fetchrow(query, strategy_name)
+
+            if not row:
+                return None
+
+            # Deserialize JSON config
+            strategy_data = json.loads(row['strategy_json'])
+
+            # Add metadata fields
+            strategy_data['id'] = row['id']
+            strategy_data['created_at'] = row['created_at'].isoformat() if row['created_at'] else None
+            strategy_data['updated_at'] = row['updated_at'].isoformat() if row['updated_at'] else None
+            strategy_data['last_activated_at'] = row['last_activated_at'].isoformat() if row['last_activated_at'] else None
+
+            return strategy_data
+
+        except Exception as e:
+            error_details = {
+                "strategy_name": strategy_name,
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "traceback": traceback.format_exc()
+            }
+            raise StrategyStorageError(f"Failed to get strategy by name '{strategy_name}': {e}")
+        finally:
+            if conn:
+                await self._release_connection(conn)
+
     async def list_strategies(self) -> List[Dict[str, Any]]:
         """
         List all active (not deleted) strategies with basic metadata.

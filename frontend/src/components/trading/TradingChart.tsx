@@ -17,8 +17,8 @@
 
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useSocketSubscription, WSMessage } from '@/hooks/useSocketSubscription';
 import { createChart, IChartApi, ISeriesApi, CandlestickData, Time, CandlestickSeriesPartialOptions, CandlestickSeries, HistogramSeries } from 'lightweight-charts';
 import { Logger } from '@/services/frontendLogService';
 
@@ -50,6 +50,33 @@ interface Signal {
 }
 
 // ========================================
+// Utility Functions (hoisted for useCallback)
+// ========================================
+
+// Get signal marker position
+const getSignalPosition = (signalType: string): 'aboveBar' | 'belowBar' => {
+  return ['S1', 'Z1'].includes(signalType) ? 'belowBar' : 'aboveBar';
+};
+
+// Get signal marker color
+const getSignalColor = (signalType: string): string => {
+  switch (signalType) {
+    case 'S1': return '#fbbf24'; // Yellow
+    case 'Z1': return '#10b981'; // Green
+    case 'ZE1': return '#3b82f6'; // Blue
+    case 'E1': return '#ef4444'; // Red
+    default: return '#6b7280'; // Gray
+  }
+};
+
+// Get signal marker shape
+const getSignalShape = (signalType: string): 'arrowUp' | 'arrowDown' | 'circle' => {
+  if (['S1', 'Z1'].includes(signalType)) return 'arrowUp';
+  if (['ZE1', 'E1'].includes(signalType)) return 'arrowDown';
+  return 'circle';
+};
+
+// ========================================
 // Component
 // ========================================
 
@@ -70,8 +97,62 @@ export default function TradingChart({
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
 
-  const { lastMessage, isConnected } = useWebSocket({
-    onMessage: (message: WebSocketMessage) => {
+  // BUG-DV-031 FIX: Use unified WebSocket subscription instead of duplicate hook
+  // Handle market data update from WebSocket (moved to useCallback for proper hook ordering)
+  const handleMarketDataUpdate = useCallback((data: any) => {
+    if (data.symbol !== symbol) return;
+
+    // Update last candle or add new candle
+    const newPrice = data.price;
+    const timestamp = data.timestamp || new Date().toISOString();
+
+    if (candlestickSeriesRef.current) {
+      const time = (new Date(timestamp).getTime() / 1000) as Time;
+
+      candlestickSeriesRef.current.update({
+        time,
+        open: newPrice,
+        high: newPrice,
+        low: newPrice,
+        close: newPrice,
+      });
+    }
+  }, [symbol]);
+
+  // Handle signal update from WebSocket (moved to useCallback for proper hook ordering)
+  const handleSignalUpdate = useCallback((data: any) => {
+    if (data.symbol !== symbol) return;
+
+    const signal: Signal = {
+      timestamp: data.timestamp || new Date().toISOString(),
+      signal_type: data.signal_type,
+      symbol: data.symbol,
+      price: data.price || 0,
+      confidence: data.confidence || 0,
+    };
+
+    setSignals(prev => [...prev, signal]);
+
+    // Add marker to chart
+    if (candlestickSeriesRef.current) {
+      const time = (new Date(signal.timestamp).getTime() / 1000) as Time;
+      const marker = {
+        time,
+        position: getSignalPosition(signal.signal_type),
+        color: getSignalColor(signal.signal_type),
+        shape: getSignalShape(signal.signal_type),
+        text: signal.signal_type,
+      };
+
+      // Add marker (note: setMarkers replaces all markers, so we need to add to existing)
+      const existingMarkers = (candlestickSeriesRef.current as any).markers?.() || [];
+      (candlestickSeriesRef.current as any).setMarkers([...existingMarkers, marker] as any);
+    }
+  }, [symbol]);
+
+  // Subscribe to WebSocket messages using the unified service
+  const { isConnected } = useSocketSubscription(
+    (message: WSMessage) => {
       // Listen for market data updates
       if (message.type === 'data' && message.stream === 'market_data') {
         handleMarketDataUpdate(message.data);
@@ -80,8 +161,9 @@ export default function TradingChart({
       else if (message.type === 'signal_generated' || message.stream === 'signal_generated') {
         handleSignalUpdate(message.data);
       }
-    }
-  });
+    },
+    'TradingChart'
+  );
 
   // Initialize chart
   useEffect(() => {
@@ -249,62 +331,6 @@ export default function TradingChart({
     }
   };
 
-  // Handle market data update from WebSocket
-  const handleMarketDataUpdate = (data: any) => {
-    if (data.symbol !== symbol) return;
-
-    // Update last candle or add new candle
-    // This is a simplified approach - in production, you'd aggregate ticks into candles
-    const newPrice = data.price;
-    const timestamp = data.timestamp || new Date().toISOString();
-
-    // For now, just update the chart by adding a new tick
-    // In a real implementation, you'd aggregate ticks into OHLCV candles based on timeframe
-    if (candlestickSeriesRef.current) {
-      const time = (new Date(timestamp).getTime() / 1000) as Time;
-
-      // Update last candle (simplified - assumes same timeframe bucket)
-      candlestickSeriesRef.current.update({
-        time,
-        open: newPrice,
-        high: newPrice,
-        low: newPrice,
-        close: newPrice,
-      });
-    }
-  };
-
-  // Handle signal update from WebSocket
-  const handleSignalUpdate = (data: any) => {
-    if (data.symbol !== symbol) return;
-
-    const signal: Signal = {
-      timestamp: data.timestamp || new Date().toISOString(),
-      signal_type: data.signal_type,
-      symbol: data.symbol,
-      price: data.price || 0,
-      confidence: data.confidence || 0,
-    };
-
-    setSignals(prev => [...prev, signal]);
-
-    // Add marker to chart
-    if (candlestickSeriesRef.current) {
-      const time = (new Date(signal.timestamp).getTime() / 1000) as Time;
-      const marker = {
-        time,
-        position: getSignalPosition(signal.signal_type),
-        color: getSignalColor(signal.signal_type),
-        shape: getSignalShape(signal.signal_type),
-        text: signal.signal_type,
-      };
-
-      // Add marker (note: setMarkers replaces all markers, so we need to add to existing)
-      const existingMarkers = (candlestickSeriesRef.current as any).markers?.() || [];
-      (candlestickSeriesRef.current as any).setMarkers([...existingMarkers, marker] as any);
-    }
-  };
-
   // Parse timeframe string to minutes
   const parseTimeframe = (tf: string): number => {
     const match = tf.match(/^(\d+)([mhd])$/);
@@ -319,29 +345,6 @@ export default function TradingChart({
       case 'd': return value * 60 * 24;
       default: return 5;
     }
-  };
-
-  // Get signal marker position
-  const getSignalPosition = (signalType: string): 'aboveBar' | 'belowBar' => {
-    return ['S1', 'Z1'].includes(signalType) ? 'belowBar' : 'aboveBar';
-  };
-
-  // Get signal marker color
-  const getSignalColor = (signalType: string): string => {
-    switch (signalType) {
-      case 'S1': return '#fbbf24'; // Yellow
-      case 'Z1': return '#10b981'; // Green
-      case 'ZE1': return '#3b82f6'; // Blue
-      case 'E1': return '#ef4444'; // Red
-      default: return '#6b7280'; // Gray
-    }
-  };
-
-  // Get signal marker shape
-  const getSignalShape = (signalType: string): 'arrowUp' | 'arrowDown' | 'circle' => {
-    if (['S1', 'Z1'].includes(signalType)) return 'arrowUp';
-    if (['ZE1', 'E1'].includes(signalType)) return 'arrowDown';
-    return 'circle';
   };
 
   // Available symbols

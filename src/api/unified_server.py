@@ -1578,6 +1578,98 @@ def create_unified_app():
         except Exception as e:
             return _json_error("login_error", f"Login failed: {str(e)}", status=500)
 
+    @app.post("/api/v1/auth/demo-login")
+    @limiter.limit("10/minute")
+    async def demo_login(request: Request):
+        """
+        BUG-DV-029 FIX: Server-side demo login - no credentials exposed in frontend.
+
+        This endpoint allows demo logins WITHOUT exposing passwords to the frontend.
+        - Only available when ENABLE_DEMO_MODE=true in environment
+        - Admin demo login is NOT available for security reasons
+        - Credentials are stored server-side only
+        """
+        try:
+            # Check if demo mode is enabled
+            demo_mode_enabled = os.getenv("ENABLE_DEMO_MODE", "false").lower() == "true"
+            if not demo_mode_enabled:
+                return _json_error(
+                    "demo_disabled",
+                    "Demo login is not available. Set ENABLE_DEMO_MODE=true to enable.",
+                    status=403
+                )
+
+            body = await request.json()
+            account_type = body.get("account_type", "").lower()
+
+            # Validate account type - admin NOT allowed for demo login
+            allowed_types = {"demo", "trader", "premium"}
+            if account_type not in allowed_types:
+                return _json_error(
+                    "invalid_account_type",
+                    f"Invalid account type. Allowed: {', '.join(allowed_types)}. Admin demo login not available.",
+                    status=400
+                )
+
+            # Map account type to username (passwords are stored server-side)
+            username_map = {
+                "demo": "demo",
+                "trader": "trader",
+                "premium": "premium",
+            }
+            username = username_map[account_type]
+
+            # Get password from environment (server-side only)
+            password_env_map = {
+                "demo": "DEMO_PASSWORD",
+                "trader": "TRADER_PASSWORD",
+                "premium": "PREMIUM_PASSWORD",
+            }
+            password = os.getenv(password_env_map[account_type])
+            if not password:
+                return _json_error(
+                    "configuration_error",
+                    f"{password_env_map[account_type]} not configured",
+                    status=500
+                )
+
+            # Get client IP
+            client_ip = request.client.host if request.client else "127.0.0.1"
+
+            # Authenticate using existing auth handler
+            auth_handler = app.state.websocket_api_server.auth_handler
+            auth_result = await auth_handler.authenticate_credentials(username, password, client_ip)
+
+            if not auth_result.success or not auth_result.user_session:
+                return _json_error("authentication_failed", auth_result.error_message or "Demo login failed", status=401)
+
+            user_session = auth_result.user_session
+            access_token = auth_result.access_token
+            refresh_token = auth_result.refresh_token
+
+            if not access_token or not refresh_token:
+                return _json_error("token_creation_failed", "Failed to create authentication tokens", status=500)
+
+            response = _json_ok({
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "token_type": "bearer",
+                "expires_in": auth_handler.token_expiry_hours * 3600,
+                "user": {
+                    "user_id": user_session.user_id,
+                    "username": user_session.username,
+                    "permissions": user_session.permissions
+                },
+                "demo_mode": True
+            })
+
+            _set_auth_cookies(response, request, access_token, refresh_token, auth_handler)
+
+            return response
+
+        except Exception as e:
+            return _json_error("demo_login_error", f"Demo login failed: {str(e)}", status=500)
+
     @app.post("/api/v1/auth/refresh")
     async def refresh_token(request: Request):
         """Refresh access token using refresh token from HttpOnly cookie"""

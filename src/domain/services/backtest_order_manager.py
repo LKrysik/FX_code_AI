@@ -31,11 +31,13 @@ class OrderType(Enum):
     SELL: Close long position (spot/margin)
     SHORT: Open short position (margin/futures)
     COVER: Close short position (margin/futures)
+
+    BUG-DV-003 FIX: Values normalized to UPPERCASE for consistency with MEXC API.
     """
-    BUY = "buy"
-    SELL = "sell"
-    SHORT = "short"
-    COVER = "cover"
+    BUY = "BUY"
+    SELL = "SELL"
+    SHORT = "SHORT"
+    COVER = "COVER"
 
     def is_opening_order(self) -> bool:
         """Check if order opens a position"""

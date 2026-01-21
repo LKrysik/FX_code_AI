@@ -29,6 +29,7 @@ from .event_bridge import EventBridge
 from .broadcast_provider import BroadcastProvider
 from .websocket.broadcasters import StateMachineBroadcaster
 from ..domain.services.strategy_manager import StrategyManager
+from ..domain.services.strategy_storage_questdb import QuestDBStrategyStorage, StrategyStorageError
 from .response_envelope import ensure_envelope
 from ..core.input_sanitizer import sanitizer
 
@@ -1611,6 +1612,16 @@ class WebSocketAPIServer:
 
     async def _handle_get_strategies(self, client_id: str, message: Dict[str, Any]) -> Dict[str, Any]:
         """Handle get strategies request"""
+        # BUG-DV-017 FIX: Check authentication before exposing strategy configurations
+        connection = await self.connection_manager.get_connection(client_id)
+        if not getattr(connection, 'authenticated', False):
+            return {
+                "type": MessageType.ERROR,
+                "error_code": "authentication_required",
+                "error_message": "Authentication required for strategy operations",
+                "timestamp": datetime.now().isoformat()
+            }
+
         if not self.strategy_manager:
             sess = None
             try:
@@ -1682,6 +1693,16 @@ class WebSocketAPIServer:
 
     async def _handle_activate_strategy(self, client_id: str, message: Dict[str, Any]) -> Dict[str, Any]:
         """Handle activate strategy request"""
+        # BUG-DV-015 FIX: Check authentication before allowing strategy activation
+        connection = await self.connection_manager.get_connection(client_id)
+        if not getattr(connection, 'authenticated', False):
+            return {
+                "type": MessageType.ERROR,
+                "error_code": "authentication_required",
+                "error_message": "Authentication required for strategy operations",
+                "timestamp": datetime.now().isoformat()
+            }
+
         sess = None
         try:
             sess = self.controller.get_execution_status() if self.controller else None
@@ -1758,6 +1779,16 @@ class WebSocketAPIServer:
 
     async def _handle_deactivate_strategy(self, client_id: str, message: Dict[str, Any]) -> Dict[str, Any]:
         """Handle deactivate strategy request"""
+        # BUG-DV-015 FIX: Check authentication before allowing strategy deactivation
+        connection = await self.connection_manager.get_connection(client_id)
+        if not getattr(connection, 'authenticated', False):
+            return {
+                "type": MessageType.ERROR,
+                "error_code": "authentication_required",
+                "error_message": "Authentication required for strategy operations",
+                "timestamp": datetime.now().isoformat()
+            }
+
         sess = None
         try:
             sess = self.controller.get_execution_status() if self.controller else None
@@ -1815,6 +1846,16 @@ class WebSocketAPIServer:
 
     async def _handle_get_strategy_status(self, client_id: str, message: Dict[str, Any]) -> Dict[str, Any]:
         """Handle get strategy status request"""
+        # BUG-DV-017 FIX: Check authentication before exposing strategy status
+        connection = await self.connection_manager.get_connection(client_id)
+        if not getattr(connection, 'authenticated', False):
+            return {
+                "type": MessageType.ERROR,
+                "error_code": "authentication_required",
+                "error_message": "Authentication required for strategy operations",
+                "timestamp": datetime.now().isoformat()
+            }
+
         if not self.strategy_manager:
             return {
                 "type": MessageType.ERROR,
@@ -1918,6 +1959,16 @@ class WebSocketAPIServer:
 
     async def _handle_upsert_strategy(self, client_id: str, message: Dict[str, Any]) -> Dict[str, Any]:
         """Create or update a strategy config on disk and in StrategyManager"""
+        # BUG-DV-015 FIX: Check authentication before allowing strategy creation/update
+        connection = await self.connection_manager.get_connection(client_id)
+        if not getattr(connection, 'authenticated', False):
+            return {
+                "type": MessageType.ERROR,
+                "error_code": "authentication_required",
+                "error_message": "Authentication required for strategy operations",
+                "timestamp": datetime.now().isoformat()
+            }
+
         if not self.strategy_manager:
             return {
                 "type": MessageType.ERROR,
@@ -1943,13 +1994,40 @@ class WebSocketAPIServer:
                 "error_message": f"Invalid strategy_config: {result.get('errors')}",
                 "timestamp": datetime.now().isoformat()
             }
-        # Persist to config/strategies
+        # BUG-DV-004/013 FIX: Persist to QuestDB instead of file system
+        # This ensures strategies survive server restart and are consistent with REST API
         try:
-            import json, os
-            os.makedirs(os.path.join("config", "strategies"), exist_ok=True)
-            path = os.path.join("config", "strategies", f"{cfg['strategy_name']}.json")
-            with open(path, 'w', encoding='utf-8') as f:
-                json.dump(cfg, f, indent=2, ensure_ascii=False)
+            strategy_storage = QuestDBStrategyStorage(
+                host=os.getenv("QUESTDB_HOST", "127.0.0.1"),
+                port=int(os.getenv("QUESTDB_PG_PORT", "8812")),
+                user=os.getenv("QUESTDB_USER", "admin"),
+                password=os.getenv("QUESTDB_PASSWORD", "quest"),
+                database=os.getenv("QUESTDB_DATABASE", "qdb")
+            )
+            await strategy_storage.initialize()
+
+            try:
+                # Check if strategy exists by name (for update vs create)
+                existing = await strategy_storage.get_strategy_by_name(cfg["strategy_name"])
+                if existing:
+                    # Update existing strategy
+                    await strategy_storage.update_strategy(existing["id"], cfg)
+                    strategy_id = existing["id"]
+                else:
+                    # Create new strategy
+                    strategy_id = await strategy_storage.create_strategy(cfg)
+
+                cfg["id"] = strategy_id  # Add ID to config for in-memory use
+            finally:
+                await strategy_storage.close()
+
+        except StrategyStorageError as e:
+            return {
+                "type": MessageType.ERROR,
+                "error_code": "storage_error",
+                "error_message": f"Failed to persist strategy to database: {str(e)}",
+                "timestamp": datetime.now().isoformat()
+            }
         except Exception as e:
             return {
                 "type": MessageType.ERROR,
@@ -2427,6 +2505,16 @@ class WebSocketAPIServer:
 
     async def _handle_session_stop(self, client_id: str, message: Dict[str, Any]) -> Dict[str, Any]:
         """Handle session stop request"""
+        # BUG-DV-016 FIX: Check authentication before allowing session stop
+        connection = await self.connection_manager.get_connection(client_id)
+        if not getattr(connection, 'authenticated', False):
+            return {
+                "type": MessageType.ERROR,
+                "error_code": "authentication_required",
+                "error_message": "Authentication required for session commands",
+                "timestamp": datetime.now().isoformat()
+            }
+
         # ✅ CRITICAL FIX: Minimize session lock holding time to prevent deadlocks
 
         if not self.controller:
@@ -2491,6 +2579,16 @@ class WebSocketAPIServer:
 
     async def _handle_session_status(self, client_id: str, message: Dict[str, Any]) -> Dict[str, Any]:
         """Handle session status request"""
+        # BUG-DV-017 FIX: Check authentication before exposing session status
+        connection = await self.connection_manager.get_connection(client_id)
+        if not getattr(connection, 'authenticated', False):
+            return {
+                "type": MessageType.ERROR,
+                "error_code": "authentication_required",
+                "error_message": "Authentication required for session commands",
+                "timestamp": datetime.now().isoformat()
+            }
+
         if not self.controller:
             if self.logger:
                 self.logger.error("websocket_server.results_request_failed", {

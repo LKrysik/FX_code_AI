@@ -15,8 +15,8 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useSocketSubscription, WSMessage } from '@/hooks/useSocketSubscription';
 import { Order, tradingAPI } from '@/services/TradingAPI';
 import { Logger } from '@/services/frontendLogService';
 
@@ -53,12 +53,30 @@ export default function OrderHistory({
   const [currentPage, setCurrentPage] = useState(1);
   const ordersPerPage = 20;
 
-  const { lastMessage, isConnected } = useWebSocket({
-    onMessage: (message: WebSocketMessage) => {
+  // BUG-DV-031 FIX: Use unified WebSocket subscription instead of duplicate hook
+  // Handle order update from WebSocket
+  const handleOrderUpdate = useCallback((data: any) => {
+    setOrders(prev => {
+      const index = prev.findIndex(o => o.order_id === data.order_id);
+      if (index >= 0) {
+        // Update existing order
+        const updated = [...prev];
+        updated[index] = { ...updated[index], ...data };
+        return updated;
+      } else {
+        // Add new order (prepend to show newest first)
+        return [data as Order, ...prev];
+      }
+    });
+  }, []);
+
+  // Subscribe to WebSocket messages using the unified service
+  const { isConnected } = useSocketSubscription(
+    (message: WSMessage) => {
       // Listen for order events from live_trading stream
       if (message.type === 'data' && message.stream === 'live_trading') {
         const data = message.data;
-        if (data.order_id) {
+        if (data?.order_id) {
           handleOrderUpdate(data);
         }
       }
@@ -73,8 +91,9 @@ export default function OrderHistory({
       ) {
         handleOrderUpdate(message.data);
       }
-    }
-  });
+    },
+    'OrderHistory'
+  );
 
   // Fetch initial orders
   useEffect(() => {
@@ -109,22 +128,6 @@ export default function OrderHistory({
     } finally {
       setLoading(false);
     }
-  };
-
-  // Handle order update from WebSocket
-  const handleOrderUpdate = (data: any) => {
-    setOrders(prev => {
-      const index = prev.findIndex(o => o.order_id === data.order_id);
-      if (index >= 0) {
-        // Update existing order
-        const updated = [...prev];
-        updated[index] = { ...updated[index], ...data };
-        return updated;
-      } else {
-        // Add new order (prepend to show newest first)
-        return [data as Order, ...prev];
-      }
-    });
   };
 
   // Apply filters to orders

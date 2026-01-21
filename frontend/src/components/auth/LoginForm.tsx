@@ -69,28 +69,43 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSuccess }) => {
   };
 
   const handleDemoLogin = async (userType: 'demo' | 'trader' | 'premium' | 'admin') => {
-    // ✅ SECURITY FIX: Match credentials with backend .env configuration
-    // Previously: admin password was 'admin123' (hardcoded, wrong)
-    // Backend .env has: ADMIN_PASSWORD=supersecret
-    // This mismatch caused 401 authentication failures
-    // Related: docs/bugfixes/STRATEGY_BUILDER_AUTH_ISSUE.md
-    const credentials = {
-      demo: { username: 'demo', password: 'demo123' },
-      trader: { username: 'trader', password: 'trader123' },
-      premium: { username: 'premium', password: 'premium123' },
-      admin: { username: 'admin', password: 'supersecret' },  // ✅ Fixed: matches backend .env
-    };
+    // BUG-DV-029 FIX: No hardcoded credentials - use server-side demo-login endpoint
+    // Admin demo login is NOT available for security reasons
 
-    const { username: demoUsername, password: demoPassword } = credentials[userType];
-    setUsername(demoUsername);
-    setPassword(demoPassword);
+    if (userType === 'admin') {
+      // Admin cannot use demo login - must use real credentials
+      alert('Admin demo login is not available for security reasons. Please use real credentials.');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
-      const success = await login(demoUsername, demoPassword);
-      if (success && onSuccess) {
-        onSuccess();
+      // Call server-side demo-login endpoint (no credentials exposed in frontend)
+      const response = await fetch('/api/v1/auth/demo-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_type: userType }),
+        credentials: 'include', // Include cookies
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.data) {
+        // Update auth store with the response
+        const { access_token, user } = data.data;
+        // Use the login function to properly set state
+        // Note: We need to pass through the auth store for proper state management
+        setUsername(user.username);
+        // The tokens are set via HttpOnly cookies by the backend
+        // Just trigger a re-check of auth state
+        window.location.reload();
+      } else {
+        const errorMsg = data.error?.message || data.message || 'Demo login failed';
+        alert(`Demo login failed: ${errorMsg}`);
       }
+    } catch (error) {
+      console.error('Demo login error:', error);
+      alert('Demo login failed. Please try again or use manual login.');
     } finally {
       setIsSubmitting(false);
     }
@@ -233,17 +248,18 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSuccess }) => {
                 fullWidth
                 variant="outlined"
                 size="small"
-                onClick={() => handleDemoLogin('admin')}
-                disabled={isLoading || isSubmitting}
+                disabled={true}
+                title="Admin login requires real credentials"
+                sx={{ opacity: 0.5 }}
               >
-                Admin
+                Admin (N/A)
               </Button>
             </Grid>
           </Grid>
 
           <Box sx={{ mt: 3, textAlign: 'center' }}>
             <Typography variant="body2" color="text.secondary">
-              Demo credentials are available for testing purposes
+              Demo accounts available for testing. Admin requires real credentials.
             </Typography>
           </Box>
         </CardContent>

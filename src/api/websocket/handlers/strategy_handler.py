@@ -19,6 +19,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional, Set
 import re
 from src.api.websocket.utils import ErrorHandler
+from src.domain.services.strategy_storage_questdb import QuestDBStrategyStorage, StrategyStorageError
 
 
 class StrategyMessageHandler:
@@ -570,14 +571,40 @@ class StrategyMessageHandler:
                 "timestamp": datetime.now().isoformat()
             }
 
-        # Persist to config/strategies
+        # BUG-DV-004/013 FIX: Persist to QuestDB instead of file system
+        # This ensures strategies survive server restart and are consistent with REST API
         try:
-            os.makedirs(os.path.join("config", "strategies"), exist_ok=True)
-            path = os.path.join("config", "strategies", f"{cfg['strategy_name']}.json")
+            strategy_storage = QuestDBStrategyStorage(
+                host=os.getenv("QUESTDB_HOST", "127.0.0.1"),
+                port=int(os.getenv("QUESTDB_PG_PORT", "8812")),
+                user=os.getenv("QUESTDB_USER", "admin"),
+                password=os.getenv("QUESTDB_PASSWORD", "quest"),
+                database=os.getenv("QUESTDB_DATABASE", "qdb")
+            )
+            await strategy_storage.initialize()
 
-            with open(path, 'w', encoding='utf-8') as f:
-                json.dump(cfg, f, indent=2, ensure_ascii=False)
+            try:
+                # Check if strategy exists by name (for update vs create)
+                existing = await strategy_storage.get_strategy_by_name(cfg["strategy_name"])
+                if existing:
+                    # Update existing strategy
+                    await strategy_storage.update_strategy(existing["id"], cfg)
+                    strategy_id = existing["id"]
+                else:
+                    # Create new strategy
+                    strategy_id = await strategy_storage.create_strategy(cfg)
 
+                cfg["id"] = strategy_id  # Add ID to config for in-memory use
+            finally:
+                await strategy_storage.close()
+
+        except StrategyStorageError as e:
+            return {
+                "type": "error",
+                "error_code": "storage_error",
+                "error_message": f"Failed to persist strategy to database: {str(e)}",
+                "timestamp": datetime.now().isoformat()
+            }
         except Exception as e:
             return {
                 "type": "error",

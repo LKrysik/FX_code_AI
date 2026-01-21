@@ -530,10 +530,11 @@ async def _aggregate_session_positions(session_data: Dict[str, Any], symbol_filt
             continue
 
         # Mock position data - would come from actual position manager
+        # BUG-DV-003 FIX: Use UPPERCASE for consistency with MEXC API
         position = {
             "session_id": session_data["session_id"],
             "symbol": symbol,
-            "side": "long",  # Would come from actual position
+            "side": "LONG",  # Would come from actual position
             "quantity": 100.0,  # Mock
             "entry_price": 50000.0,  # Mock
             "current_price": 51000.0,  # Would get from market data

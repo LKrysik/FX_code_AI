@@ -63,7 +63,32 @@ class IndicatorParameters:
         """Get float parameter with validation."""
         value = self.params.get(key, default)
         return float(value) if value is not None else default
-    
+
+    def get_int(self, key: str, default: int) -> int:
+        """
+        BUG-DV-019 FIX: Get integer parameter with validation.
+
+        Handles various input types:
+        - int: returned as-is
+        - float: converted to int (e.g., 14.0 -> 14)
+        - str: parsed as float then converted to int (e.g., "14.0" -> 14)
+
+        Args:
+            key: Parameter key to look up
+            default: Default value if key not found or value is None
+
+        Returns:
+            Integer parameter value
+        """
+        value = self.params.get(key, default)
+        if value is None:
+            return default
+        try:
+            # Convert through float to handle "14.0" string case
+            return int(float(value))
+        except (ValueError, TypeError):
+            return default
+
     def get_refresh_override(self) -> Optional[float]:
         """Get refresh interval override from multiple possible parameter names."""
         return (

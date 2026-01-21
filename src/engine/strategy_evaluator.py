@@ -277,13 +277,17 @@ class StrategyEvaluator:
             return RiskLevel.LOW
 
     def _generate_signal_reason(self, signal_type: SignalType, pump_score: float, confidence: float) -> str:
-        """Generate human-readable reason for the signal."""
+        """
+        Generate human-readable reason for the signal.
+
+        BUG-DV-022 FIX: Return properly formatted f-strings instead of literal ".2f"
+        """
         if signal_type == SignalType.BUY:
-            return ".2f"
+            return f"Pump detected: score={pump_score:.2f}, confidence={confidence:.2f}"
         elif signal_type == SignalType.SELL:
-            return ".2f"
+            return f"Take profit/stop loss: score={pump_score:.2f}, confidence={confidence:.2f}"
         else:
-            return ".2f"
+            return f"Hold position: score={pump_score:.2f}, confidence={confidence:.2f}"
 
     async def _publish_signal(self, signal: PumpSignal) -> None:
         """Publish trading signal via EventBus."""
