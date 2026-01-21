@@ -15,6 +15,9 @@ Sequential verification workflow with early exit capability. Designed for maximu
 6. **Bias Awareness** — Actively counteract confirmation bias (NEW in V12.2)
 
 ---
+**Methods source:** `src/core/methods/methods.csv`
+If we are dealing with # and a number, for example #42, this is the method that can be found in methods.csv
+---
 
 ## Evidence Score System
 
