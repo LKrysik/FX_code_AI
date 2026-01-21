@@ -3,17 +3,23 @@
 from .indicator_types import (
     IndicatorMode,
     IndicatorCategory,
-    MarketDataPoint, 
+    IndicatorType,
+    VariantType,
+    MarketDataPoint,
     IndicatorValue,
     TimeWindow,
-    IndicatorConfig
+    IndicatorConfig,
+    VariantParameter
 )
 
 __all__ = [
     'IndicatorMode',
     'IndicatorCategory',
+    'IndicatorType',
+    'VariantType',
     'MarketDataPoint',
-    'IndicatorValue', 
+    'IndicatorValue',
     'TimeWindow',
-    'IndicatorConfig'
+    'IndicatorConfig',
+    'VariantParameter'
 ]

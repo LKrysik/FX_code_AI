@@ -5,7 +5,7 @@ Pure data models for risk management and safety limits.
 """
 
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, List
 from decimal import Decimal
 from enum import Enum
@@ -125,7 +125,8 @@ class RiskAssessment(BaseModel):
     # Basic info
     symbol: str = Field(..., description="Trading symbol")
     exchange: str = Field(..., description="Exchange name")
-    assessment_time: datetime = Field(default_factory=datetime.utcnow)
+    # FIX F3 (Deep Verify): Replace deprecated datetime.utcnow() with timezone-aware datetime
+    assessment_time: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     # Market risk factors
     spread_pct: Decimal = Field(..., description="Current spread percentage")

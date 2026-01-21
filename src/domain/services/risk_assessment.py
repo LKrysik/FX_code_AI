@@ -12,7 +12,10 @@ from dataclasses import dataclass
 from enum import Enum
 from ..models.market_data import MarketData
 from ..models.signals import FlashPumpSignal
-from ..models.risk import RiskLevel, RiskAssessment
+# FIX F7 (Deep Verify): Removed unused RiskAssessment import
+# The assess_position_risk() method that used it was dead code with schema mismatch
+# and has been removed. Only RiskLevel is actually used in this service.
+from ..models.risk import RiskLevel
 
 
 @dataclass
@@ -356,54 +359,22 @@ class RiskAssessmentService:
         
         limits_ok = len(violations) == 0
         return limits_ok, violations
-    
-    def assess_position_risk(self, current_price: float, entry_price: float,
-                           stop_loss: float, unrealized_pnl: float) -> RiskAssessment:
-        """
-        Assess risk level for an open position.
-        
-        Returns:
-            RiskAssessment with risk level and recommendations
-        """
-        # Calculate drawdown from entry
-        drawdown_pct = 0.0
-        if entry_price > 0:
-            drawdown_pct = ((entry_price - current_price) / entry_price) * 100
-        
-        # Calculate distance to stop loss
-        stop_distance_pct = 0.0
-        if current_price > 0 and stop_loss > 0:
-            stop_distance_pct = ((current_price - stop_loss) / current_price) * 100
-        
-        # Determine risk level
-        risk_level = RiskLevel.LOW
-        recommendations = []
-        
-        if drawdown_pct > self.risk_limits.max_drawdown_pct:
-            risk_level = RiskLevel.HIGH
-            recommendations.append("Consider emergency exit - max drawdown exceeded")
-        elif drawdown_pct > self.risk_limits.max_drawdown_pct * 0.7:
-            risk_level = RiskLevel.MEDIUM
-            recommendations.append("Monitor closely - approaching max drawdown")
-        
-        if stop_distance_pct < 1.0:  # Very close to stop loss
-            if risk_level == RiskLevel.LOW:
-                risk_level = RiskLevel.MEDIUM
-            recommendations.append("Very close to stop loss")
-        
-        if unrealized_pnl < -100:  # Significant unrealized loss
-            if risk_level == RiskLevel.LOW:
-                risk_level = RiskLevel.MEDIUM
-            recommendations.append("Significant unrealized loss")
-        
-        return RiskAssessment(
-            risk_level=risk_level,
-            drawdown_pct=drawdown_pct,
-            stop_distance_pct=stop_distance_pct,
-            unrealized_pnl=unrealized_pnl,
-            recommendations=recommendations
-        )
-    
+
+    # FIX F7 (Deep Verify): REMOVED assess_position_risk() method
+    # Reason: Dead code with schema mismatch - was creating RiskAssessment with
+    # fields (risk_level, drawdown_pct, stop_distance_pct, unrealized_pnl, recommendations)
+    # but domain model RiskAssessment requires 18+ different fields.
+    # Method was never called anywhere in codebase (verified via grep).
+    #
+    # Risk Mitigation:
+    # - #115 Negative Space Cartography: Identified as dead code (never used)
+    # - #40 Technical Debt Assessment: Removes maintenance burden of mismatched schemas
+    # - #154 Definitional Contradiction Detector: Eliminates schema contradiction
+    #
+    # If position risk assessment is needed, use PositionRiskAssessment dataclass
+    # already defined in this file (line 64-89) or RiskManager.assess_position_risk()
+    # in risk_manager.py which returns Dict[str, Any].
+
     def update_trade_result(self, pnl: float) -> None:
         """Update safety metrics with trade result"""
         self.safety_metrics.daily_trades_count += 1

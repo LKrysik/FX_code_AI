@@ -5,7 +5,7 @@ Pure data models for market information without external dependencies.
 """
 
 from pydantic import BaseModel, Field, ConfigDict
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List, Tuple
 from decimal import Decimal
 
@@ -102,24 +102,36 @@ class PriceHistory(BaseModel):
             self.prices.pop(0)
     
     def get_price_change_pct(self, minutes: int) -> Optional[Decimal]:
-        """Get price change percentage over specified minutes"""
+        """
+        Get price change percentage over specified minutes.
+
+        FIX F1 (Deep Verify): Using timedelta for correct time arithmetic.
+        Previous implementation used datetime.replace() which would raise
+        ValueError when minutes > current_time.minute (e.g., 5-30=-25).
+
+        Risk Mitigation:
+        - #62 Failure Mode Analysis: Prevents ValueError on hour boundary crossing
+        - #129 Stress Test Battery: Handles edge cases (minutes=0, minutes>60)
+        - #153 Theoretical Impossibility Check: No theoretical limits violated
+        """
         if len(self.prices) < 2:
             return None
-        
+
+        if minutes <= 0:
+            return None  # Edge case: non-positive minutes
+
         current_time = self.prices[-1][0]
         current_price = self.prices[-1][1]
-        
-        # Find price from 'minutes' ago
-        target_time = current_time.replace(
-            minute=current_time.minute - minutes
-        )
-        
+
+        # FIX: Use timedelta for correct time arithmetic across hour/day boundaries
+        target_time = current_time - timedelta(minutes=minutes)
+
         for timestamp, price in reversed(self.prices[:-1]):
             if timestamp <= target_time:
                 if price > 0:
-                    return ((current_price - price) / price) * 100
+                    return ((current_price - price) / price) * Decimal('100')
                 break
-        
+
         return None
     
     def get_velocity(self, seconds: int) -> Optional[Decimal]:

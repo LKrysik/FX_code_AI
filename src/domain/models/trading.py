@@ -12,9 +12,20 @@ from enum import Enum
 
 
 class OrderSide(str, Enum):
-    """Order side"""
+    """
+    Order side.
+
+    FIX F4 (Deep Verify): Added UNKNOWN for compatibility with MarketData.side
+    which can have values "buy", "sell", or "unknown".
+
+    Risk Mitigation:
+    - #100 Vocabulary Consistency: Aligns OrderSide with MarketData.side vocabulary
+    - #157 Vocabulary Normalization: Eliminates synonym/homonym confusion
+    - #91 Camouflage Test: New element integrates naturally with existing types
+    """
     BUY = "buy"
     SELL = "sell"
+    UNKNOWN = "unknown"  # For market data where side cannot be determined
 
 
 class OrderType(str, Enum):
@@ -56,8 +67,12 @@ class Order(BaseModel):
     price: Optional[Decimal] = Field(None, description="Order price (None for market orders)")
     
     # Status and timing
+    # FIX F3 (Deep Verify): Replace deprecated datetime.utcnow() with timezone-aware datetime
+    # Risk Mitigation:
+    # - #96 Temporal Consistency: Ensures consistent timezone handling across all timestamps
+    # - #84 Coherence Check: Aligns with Position.duration_seconds which uses timezone.utc
     status: OrderStatus = Field(default=OrderStatus.PENDING)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     filled_at: Optional[datetime] = Field(None)
     cancelled_at: Optional[datetime] = Field(None)
     
@@ -108,8 +123,14 @@ class Position(BaseModel):
     leverage: Decimal = Field(default=Decimal('1'), description="Position leverage")
     
     # Status and timing
+    # FIX F2/F3 (Deep Verify): Replace deprecated datetime.utcnow() with timezone-aware datetime
+    # This fixes TypeError in duration_seconds which uses datetime.now(timezone.utc)
+    # Risk Mitigation:
+    # - #62 Failure Mode Analysis: Prevents TypeError on timezone subtraction
+    # - #96 Temporal Consistency: Ensures consistent timezone handling
+    # - #159 Transitive Dependency: Fixes dependency chain opened_at → duration_seconds
     status: PositionStatus = Field(default=PositionStatus.OPEN)
-    opened_at: datetime = Field(default_factory=datetime.utcnow)
+    opened_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     closed_at: Optional[datetime] = Field(None)
     
     # Exit details
@@ -160,9 +181,21 @@ class Position(BaseModel):
     
     @property
     def duration_seconds(self) -> Optional[Decimal]:
-        """Get position duration in seconds"""
+        """
+        Get position duration in seconds.
+
+        FIX F2 (Deep Verify): Now uses consistent timezone-aware datetimes.
+        opened_at is now timezone-aware (via default_factory fix), so
+        subtraction with datetime.now(timezone.utc) works correctly.
+
+        Risk Mitigation:
+        - #62 Failure Mode Analysis: No TypeError on timezone subtraction
+        - #130 Assumption Torture: Works with both open and closed positions
+        - #84 Coherence Check: Consistent with Order.created_at timezone handling
+        """
         if self.closed_at:
             return Decimal((self.closed_at - self.opened_at).total_seconds())
+        # Both opened_at and datetime.now(timezone.utc) are timezone-aware
         return Decimal((datetime.now(timezone.utc) - self.opened_at).total_seconds())
     
     @property
@@ -266,7 +299,8 @@ class Portfolio(BaseModel):
     # Basic info
     account_id: str = Field(..., description="Account identifier")
     exchange: str = Field(..., description="Exchange name")
-    last_updated: datetime = Field(default_factory=datetime.utcnow)
+    # FIX F3 (Deep Verify): Replace deprecated datetime.utcnow() with timezone-aware datetime
+    last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     # Balances
     total_balance_usdt: Decimal = Field(..., description="Total balance in USDT")

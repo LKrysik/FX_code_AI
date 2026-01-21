@@ -7,7 +7,6 @@ Abstract interfaces for data storage and retrieval.
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Any, AsyncIterator
 from datetime import datetime
-import json
 
 
 class IDataStorage(ABC):
@@ -19,30 +18,30 @@ class IDataStorage(ABC):
     @abstractmethod
     async def connect(self) -> None:
         """Initialize connection to storage"""
-        raise NotImplementedError
-    
+        pass
+
     @abstractmethod
     async def disconnect(self) -> None:
         """Close connection to storage"""
-        raise NotImplementedError
-    
+        pass
+
     @abstractmethod
     async def store(self, key: str, data: Any, metadata: Optional[Dict[str, Any]] = None) -> bool:
         """
         Store data with a key.
         Returns True if stored successfully.
         """
-        raise NotImplementedError
-    
+        pass
+
     @abstractmethod
     async def retrieve(self, key: str) -> Optional[Any]:
         """Retrieve data by key"""
-        raise NotImplementedError
-    
+        pass
+
     @abstractmethod
     async def exists(self, key: str) -> bool:
         """Check if key exists in storage"""
-        raise NotImplementedError
+        pass
     
     @abstractmethod
     async def delete(self, key: str) -> bool:

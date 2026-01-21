@@ -29,7 +29,6 @@ from src.domain.services.streaming_indicator_engine import StreamingIndicatorEng
 from src.api.response_envelope import ensure_envelope
 from src.domain.services.indicator_persistence_service import IndicatorPersistenceService
 from src.domain.services.offline_indicator_engine import OfflineIndicatorEngine
-from src.domain.calculators.indicator_calculator import IndicatorCalculator
 from src.domain.services.streaming_indicator_engine import IndicatorType
 from src.domain.types.indicator_types import IndicatorValue
 
@@ -365,8 +364,8 @@ async def _compute_indicator_series(
     timestamps. This ensures TWPA and other time-driven indicators are calculated
     at regular intervals (e.g., every 1 second) as specified in USER_REC_14.
 
-    OLD BEHAVIOR (INCORRECT):
-        - Used IndicatorCalculator.calculate_indicator()
+    OLD BEHAVIOR (REMOVED):
+        - Used legacy IndicatorCalculator methods (now removed)
         - Calculated indicator for EVERY price timestamp
         - If prices arrived irregularly (e.g., 15s gap, 54s gap), indicators also irregular
 

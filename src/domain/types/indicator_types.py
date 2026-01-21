@@ -28,6 +28,149 @@ class IndicatorCategory(Enum):
     CLOSE_ORDER = "close_order"  # Main chart (price values)
 
 
+class IndicatorType(Enum):
+    """
+    Supported indicator types.
+
+    Canonical location: domain/types/indicator_types.py
+    This enum defines all indicator types available in the system.
+    Moved here from streaming_indicator_engine to enable proper dependency inversion.
+    """
+
+    # Basic Market Data
+    PRICE = "PRICE"
+    VOLUME = "VOLUME"
+    BEST_BID = "BEST_BID"
+    BEST_ASK = "BEST_ASK"
+    BID_QTY = "BID_QTY"
+    ASK_QTY = "ASK_QTY"
+
+    # Derived Market Metrics
+    SPREAD_PCT = "SPREAD_PCT"
+    VOLUME_24H = "VOLUME_24H"
+    LIQUIDITY_SCORE = "LIQUIDITY_SCORE"
+
+    # Technical Indicators
+    SMA = "SMA"
+    EMA = "EMA"
+    RSI = "RSI"
+    MACD = "MACD"
+    BOLLINGER_BANDS = "BOLLINGER_BANDS"
+
+    # Strategy-Specific Indicators
+    PUMP_MAGNITUDE_PCT = "PUMP_MAGNITUDE_PCT"
+    VOLUME_SURGE_RATIO = "VOLUME_SURGE_RATIO"
+    PRICE_VELOCITY = "PRICE_VELOCITY"
+    PRICE_MOMENTUM = "PRICE_MOMENTUM"
+    BASELINE_PRICE = "BASELINE_PRICE"
+    PUMP_PROBABILITY = "PUMP_PROBABILITY"
+
+    # Signal Timing Indicators
+    SIGNAL_AGE_SECONDS = "SIGNAL_AGE_SECONDS"
+
+    # Risk Assessment Metrics
+    CONFIDENCE_SCORE = "CONFIDENCE_SCORE"
+    RISK_LEVEL = "RISK_LEVEL"
+    VOLATILITY = "VOLATILITY"
+    MARKET_STRESS_INDICATOR = "MARKET_STRESS_INDICATOR"
+
+    # Position-Related Metrics
+    POSITION_RISK_SCORE = "POSITION_RISK_SCORE"
+    PORTFOLIO_EXPOSURE_PCT = "PORTFOLIO_EXPOSURE_PCT"
+    UNREALIZED_PNL_PCT = "UNREALIZED_PNL_PCT"
+
+    # Close Order Price Indicators
+    CLOSE_ORDER_PRICE = "CLOSE_ORDER_PRICE"
+
+    # Parametric, Windowed Measures
+    TWPA = "TWPA"
+    TWPA_RATIO = "TWPA_RATIO"
+    LAST_PRICE = "LAST_PRICE"
+    FIRST_PRICE = "FIRST_PRICE"
+    MAX_PRICE = "MAX_PRICE"
+    MIN_PRICE = "MIN_PRICE"
+    VELOCITY = "VELOCITY"
+    VOLUME_SURGE = "VOLUME_SURGE"
+
+    # Orderbook Time-Weighted Measures
+    AVG_BEST_BID = "AVG_BEST_BID"
+    AVG_BEST_ASK = "AVG_BEST_ASK"
+    AVG_BID_QTY = "AVG_BID_QTY"
+    AVG_ASK_QTY = "AVG_ASK_QTY"
+    TW_MIDPRICE = "TW_MIDPRICE"
+
+    # Volume/Deals Based Measures
+    SUM_VOLUME = "SUM_VOLUME"
+    AVG_VOLUME = "AVG_VOLUME"
+    COUNT_DEALS = "COUNT_DEALS"
+    VWAP = "VWAP"
+    VOLUME_CONCENTRATION = "VOLUME_CONCENTRATION"
+    VOLUME_ACCELERATION = "VOLUME_ACCELERATION"
+    TRADE_FREQUENCY = "TRADE_FREQUENCY"
+    AVERAGE_TRADE_SIZE = "AVERAGE_TRADE_SIZE"
+    BID_ASK_IMBALANCE = "BID_ASK_IMBALANCE"
+    SPREAD_PERCENTAGE = "SPREAD_PERCENTAGE"
+    SPREAD_VOLATILITY = "SPREAD_VOLATILITY"
+    VOLUME_PRICE_CORRELATION = "VOLUME_PRICE_CORRELATION"
+
+    # Phase 2: Priority 1 Foundation Indicators
+    MAX_TWPA = "MAX_TWPA"
+    MIN_TWPA = "MIN_TWPA"
+    VTWPA = "VTWPA"
+    VELOCITY_CASCADE = "VELOCITY_CASCADE"
+    VELOCITY_ACCELERATION = "VELOCITY_ACCELERATION"
+    MOMENTUM_REVERSAL_INDEX = "MOMENTUM_REVERSAL_INDEX"
+    DUMP_EXHAUSTION_SCORE = "DUMP_EXHAUSTION_SCORE"
+    SUPPORT_LEVEL_PROXIMITY = "SUPPORT_LEVEL_PROXIMITY"
+    VELOCITY_STABILIZATION_INDEX = "VELOCITY_STABILIZATION_INDEX"
+    MOMENTUM_STREAK = "MOMENTUM_STREAK"
+    DIRECTION_CONSISTENCY = "DIRECTION_CONSISTENCY"
+
+    # Phase 3: Priority 2 Core Features Indicators
+    TRADE_SIZE_MOMENTUM = "TRADE_SIZE_MOMENTUM"
+    MID_PRICE_VELOCITY = "MID_PRICE_VELOCITY"
+    TOTAL_LIQUIDITY = "TOTAL_LIQUIDITY"
+    LIQUIDITY_RATIO = "LIQUIDITY_RATIO"
+    LIQUIDITY_DRAIN_INDEX = "LIQUIDITY_DRAIN_INDEX"
+    DEAL_VS_MID_DEVIATION = "DEAL_VS_MID_DEVIATION"
+    INTER_DEAL_INTERVALS = "INTER_DEAL_INTERVALS"
+    DECISION_DENSITY_ACCELERATION = "DECISION_DENSITY_ACCELERATION"
+    TRADE_CLUSTERING_COEFFICIENT = "TRADE_CLUSTERING_COEFFICIENT"
+    PRICE_VOLATILITY = "PRICE_VOLATILITY"
+    DEAL_SIZE_VOLATILITY = "DEAL_SIZE_VOLATILITY"
+
+
+class VariantType(Enum):
+    """
+    Supported variant types for indicator categorization and UI grouping.
+
+    Canonical location: domain/types/indicator_types.py
+    Moved here from streaming_indicator_engine to enable proper dependency inversion.
+    """
+
+    GENERAL = "general"
+    RISK = "risk"
+    PRICE = "price"
+    STOP_LOSS = "stop_loss"
+    TAKE_PROFIT = "take_profit"
+    CLOSE_ORDER = "close_order"
+
+    @classmethod
+    def get_valid_types(cls) -> List[str]:
+        """Get list of valid variant type strings for validation"""
+        return [variant.value for variant in cls]
+
+    @classmethod
+    def get_main_chart_types(cls) -> List[str]:
+        """Get variant types that should be displayed on main chart"""
+        return [cls.PRICE.value, cls.STOP_LOSS.value, cls.TAKE_PROFIT.value, cls.CLOSE_ORDER.value]
+
+    @classmethod
+    def get_secondary_chart_types(cls) -> List[str]:
+        """Get variant types that should be displayed on secondary chart"""
+        return [cls.GENERAL.value, cls.RISK.value]
+
+
 @dataclass
 class MarketDataPoint:
     """Single market data point"""
@@ -69,7 +212,7 @@ class IndicatorConfig:
     variant_id: str
     symbol: str
     base_indicator_type: str
-    variant_type: str  # See VariantType enum in streaming_indicator_engine
+    variant_type: str  # See VariantType enum in this module
     parameters: Dict[str, Any]
     time_dependent: bool = False
     update_frequency: float = 1.0  # seconds
@@ -134,6 +277,8 @@ class VariantParameter:
 __all__ = [
     'IndicatorMode',
     'IndicatorCategory',
+    'IndicatorType',
+    'VariantType',
     'MarketDataPoint',
     'IndicatorValue',
     'TimeWindow',

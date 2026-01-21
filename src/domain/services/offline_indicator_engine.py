@@ -41,16 +41,18 @@ class OfflineIndicatorEngine(IIndicatorEngine):
 
     def __init__(
         self,
-        questdb_data_provider: Optional[QuestDBDataProvider] = None
+        questdb_data_provider: Optional[QuestDBDataProvider] = None,
+        algorithm_registry: Optional['IndicatorAlgorithmRegistry'] = None
     ):
         """
         Initialize offline indicator engine with QuestDB support.
 
         🔄 MIGRATED: Now uses QuestDB as primary data source instead of CSV files.
-        ✅ REMOVED: data_path parameter (backward compatibility removed per CLAUDE.md)
+        ✅ DI FIX: Now accepts injected algorithm_registry for shared registry pattern.
 
         Args:
             questdb_data_provider: QuestDB data provider (auto-initialized if None)
+            algorithm_registry: Shared algorithm registry (recommended via Container.data.create_offline_indicator_engine())
         """
         self.logger = get_logger("offline_indicator_engine")
 
@@ -71,27 +73,39 @@ class OfflineIndicatorEngine(IIndicatorEngine):
         self._calculated_values: Dict[str, List[IndicatorValue]] = {}
         self._data_cache: Dict[str, List[MarketDataPoint]] = {}
 
-        # Initialize algorithm registry for new pure function interface
-        try:
-            from .indicators.algorithm_registry import IndicatorAlgorithmRegistry
-            self._algorithm_registry = IndicatorAlgorithmRegistry(self.logger)
-            discovered_count = self._algorithm_registry.auto_discover_algorithms()
-            self.logger.info(
-                "offline_indicator_engine.algorithm_registry_initialized",
-                {"discovered_algorithms": discovered_count}
-            )
-        except Exception as e:
-            import traceback
-            self.logger.error(
-                "offline_indicator_engine.algorithm_registry_init_failed",
-                {
-                    "error": str(e),
-                    "traceback": traceback.format_exc(),
-                    "impact": "CRITICAL - will fallback to legacy calculation method for all indicators",
-                    "action": "Check algorithm registry module imports and initialization"
-                }
-            )
-            self._algorithm_registry = None
+        # Initialize algorithm registry - prefer injected registry
+        if algorithm_registry is not None:
+            self._algorithm_registry = algorithm_registry
+            self.logger.info("offline_indicator_engine.algorithm_registry_injected", {
+                "algorithms_count": len(algorithm_registry.list_algorithms()),
+                "shared_with_streaming_engine": True
+            })
+        else:
+            # Backward compatibility with WARNING
+            self.logger.warning("offline_indicator_engine.creating_own_registry", {
+                "impact": "DEGRADED - not sharing with StreamingIndicatorEngine",
+                "recommendation": "Use Container.data.create_offline_indicator_engine()"
+            })
+            try:
+                from .indicators.algorithm_registry import IndicatorAlgorithmRegistry
+                self._algorithm_registry = IndicatorAlgorithmRegistry(self.logger)
+                discovered_count = self._algorithm_registry.auto_discover_algorithms()
+                self.logger.info(
+                    "offline_indicator_engine.algorithm_registry_initialized",
+                    {"discovered_algorithms": discovered_count}
+                )
+            except Exception as e:
+                import traceback
+                self.logger.error(
+                    "offline_indicator_engine.algorithm_registry_init_failed",
+                    {
+                        "error": str(e),
+                        "traceback": traceback.format_exc(),
+                        "impact": "CRITICAL - algorithm registry not available",
+                        "action": "Check algorithm registry module imports and initialization"
+                    }
+                )
+                self._algorithm_registry = None
     
     @property
     def mode(self) -> EngineMode:
@@ -416,18 +430,31 @@ class OfflineIndicatorEngine(IIndicatorEngine):
         """
         Convert raw market data into a timestamp-aligned indicator series.
 
-        NEW: Uses algorithm registry with pure function interface when available.
-        Falls back to legacy calculate_indicator_unified for unmigrated indicators.
+        Uses algorithm registry with pure function interface (MANDATORY).
+        Algorithm Registry is the TRUE single source of truth for all calculations.
+
+        Args:
+            symbol: Symbol identifier
+            indicator_type: Type of indicator
+            timeframe: Timeframe
+            period: Period (for compatibility)
+            params: Calculation parameters
+            data_points: Historical data points
+
+        Returns:
+            List of IndicatorValue objects
+
+        Raises:
+            RuntimeError: If algorithm registry is not initialized
+            ValueError: If algorithm is not found for the indicator type
         """
-        # ✅ OBSERVABILITY: Log entry to this method
         self.logger.info("offline_indicator_engine.calculate_series_start", {
             "symbol": symbol,
             "indicator_type": indicator_type.value,
             "timeframe": timeframe,
             "period": period,
             "data_points_count": len(data_points),
-            "params": params,
-            "has_algorithm_registry": self._algorithm_registry is not None
+            "params": params
         })
 
         if not data_points:
@@ -437,190 +464,37 @@ class OfflineIndicatorEngine(IIndicatorEngine):
             })
             return []
 
-        # Try new algorithm registry method first
-        if self._algorithm_registry:
-            self.logger.info("offline_indicator_engine.checking_algorithm_registry", {
-                "indicator_type": indicator_type.value
-            })
-
-            algorithm = self._algorithm_registry.get_algorithm(indicator_type.value)
-
-            self.logger.info("offline_indicator_engine.algorithm_retrieved", {
-                "indicator_type": indicator_type.value,
-                "algorithm_found": algorithm is not None,
-                "has_calculate_from_windows": hasattr(algorithm, 'calculate_from_windows') if algorithm else False
-            })
-
-            if algorithm and hasattr(algorithm, 'calculate_from_windows'):
-                try:
-                    self.logger.info("offline_indicator_engine.using_new_method", {
-                        "indicator_type": indicator_type.value
-                    })
-                    result = self._calculate_indicator_series_new(
-                        symbol, indicator_type, timeframe, period, params, data_points
-                    )
-                    self.logger.info("offline_indicator_engine.new_method_success", {
-                        "indicator_type": indicator_type.value,
-                        "result_count": len(result)
-                    })
-                    return result
-                except Exception as e:
-                    import traceback
-                    self.logger.error(
-                        "offline_indicator_engine.new_method_failed_fallback_to_old",
-                        {
-                            "indicator_type": indicator_type.value,
-                            "error": str(e),
-                            "traceback": traceback.format_exc(),
-                            "fallback_action": "using legacy calculation method",
-                            "impact": "CRITICAL - new algorithm failed, performance degraded"
-                        }
-                    )
-                    # Fall through to old method
-            else:
-                self.logger.error("offline_indicator_engine.algorithm_not_ready_fallback", {
-                    "indicator_type": indicator_type.value,
-                    "reason": "algorithm not found or missing calculate_from_windows",
-                    "algorithm_found": algorithm is not None,
-                    "has_method": hasattr(algorithm, 'calculate_from_windows') if algorithm else False,
-                    "fallback_action": "using legacy calculation method",
-                    "impact": "CRITICAL - algorithm not properly registered"
-                })
-        else:
+        # Algorithm registry is MANDATORY
+        if not self._algorithm_registry:
             self.logger.error("offline_indicator_engine.no_algorithm_registry", {
                 "indicator_type": indicator_type.value,
-                "fallback_action": "using legacy calculation method",
-                "impact": "CRITICAL - algorithm registry not initialized",
-                "check": "Verify OfflineIndicatorEngine initialization"
+                "action": "Use Container.data.create_offline_indicator_engine()"
             })
-
-        # Fallback to legacy method for unmigrated indicators
-        self.logger.warning("offline_indicator_engine.using_old_method", {
-            "indicator_type": indicator_type.value,
-            "reason": "fallback from new method or algorithm not available"
-        })
-        result = self._calculate_indicator_series_old(
-            symbol, indicator_type, timeframe, period, params, data_points
-        )
-        self.logger.info("offline_indicator_engine.old_method_complete", {
-            "indicator_type": indicator_type.value,
-            "result_count": len(result)
-        })
-        return result
-
-    def _calculate_indicator_series_old(
-        self,
-        symbol: str,
-        indicator_type: IndicatorType,
-        timeframe: str,
-        period: int,
-        params: Dict[str, Any],
-        data_points: List[MarketDataPoint],
-    ) -> List[IndicatorValue]:
-        """
-        LEGACY: Old implementation using calculate_indicator_unified.
-
-        Kept for backward compatibility with unmigrated algorithms.
-        Will be removed in Phase 3 after all algorithms are migrated.
-
-        ✅ OBSERVABILITY: Enhanced logging for legacy method.
-        """
-        # ✅ OBSERVABILITY: Log entry to old method
-        self.logger.info("offline_indicator_engine.old_method_start", {
-            "indicator_type": indicator_type.value,
-            "data_points_count": len(data_points),
-            "params": params
-        })
-
-        if not data_points:
-            self.logger.warning("offline_indicator_engine.old_method_no_data", {
-                "indicator_type": indicator_type.value
-            })
-            return []
-
-        sorted_points = sorted(data_points, key=lambda p: p.timestamp)
-        start_ts = sorted_points[0].timestamp
-        end_ts = sorted_points[-1].timestamp
-
-        params_copy = dict(params or {})
-        refresh_interval = float(
-            params_copy.get("refresh_interval_seconds")
-            or params_copy.get("refresh_interval_override")
-            or 1.0
-        )
-
-        bounds = TimeAxisBounds(start=start_ts, end=end_ts, interval=refresh_interval)
-        time_axis = list(TimeAxisGenerator.generate(bounds))
-
-        self.logger.info("offline_indicator_engine.old_method_time_axis", {
-            "indicator_type": indicator_type.value,
-            "time_points_count": len(time_axis),
-            "refresh_interval": refresh_interval,
-            "start_ts": start_ts,
-            "end_ts": end_ts
-        })
-
-        series: List[IndicatorValue] = []
-        active_points: List[MarketDataPoint] = []
-        point_index = 0
-        calculation_errors = 0
-
-        for idx, target_ts in enumerate(time_axis):
-            # Log progress every 100 points
-            if idx % 100 == 0 and idx > 0:
-                self.logger.debug("offline_indicator_engine.old_method_progress", {
-                    "indicator_type": indicator_type.value,
-                    "progress": f"{idx}/{len(time_axis)}",
-                    "errors_so_far": calculation_errors
-                })
-
-            while point_index < len(sorted_points) and sorted_points[point_index].timestamp <= target_ts:
-                active_points.append(sorted_points[point_index])
-                point_index += 1
-
-            try:
-                value = IndicatorCalculator.calculate_indicator_unified(
-                    indicator_type.value,
-                    active_points,
-                    target_ts,
-                    params_copy,
-                )
-            except Exception as e:
-                calculation_errors += 1
-                # Only log first 5 errors to avoid spam
-                if calculation_errors <= 5:
-                    self.logger.error(
-                        "offline_indicator_engine.old_method_calculation_error",
-                        {
-                            "indicator_type": indicator_type.value,
-                            "timestamp": target_ts,
-                            "active_points_count": len(active_points),
-                            "error": str(e)
-                        }
-                    )
-                value = None
-
-            series.append(
-                IndicatorValue(
-                    timestamp=target_ts,
-                    symbol=symbol,
-                    indicator_id=f"{indicator_type.value}_{period}_{timeframe}",
-                    value=value,
-                    metadata={
-                        "timeframe": timeframe,
-                        "params": dict(params_copy),
-                    },
-                )
+            raise RuntimeError(
+                "Algorithm registry not initialized. Use Container.data.create_offline_indicator_engine()"
             )
 
-        self.logger.info("offline_indicator_engine.old_method_calculation_complete", {
-            "indicator_type": indicator_type.value,
-            "total_points": len(series),
-            "calculation_errors": calculation_errors,
-            "valid_values": sum(1 for v in series if v.value is not None)
-        })
+        algorithm = self._algorithm_registry.get_algorithm(indicator_type.value)
+        if not algorithm:
+            self.logger.error("offline_indicator_engine.algorithm_not_found", {
+                "indicator_type": indicator_type.value,
+                "available_algorithms": self._algorithm_registry.list_algorithms()
+            })
+            raise ValueError(f"Algorithm not found: {indicator_type.value}")
 
-        return series
+        if not hasattr(algorithm, 'calculate_from_windows'):
+            self.logger.error("offline_indicator_engine.algorithm_missing_method", {
+                "indicator_type": indicator_type.value,
+                "algorithm_class": type(algorithm).__name__
+            })
+            raise ValueError(
+                f"Algorithm {indicator_type.value} missing calculate_from_windows method"
+            )
+
+        # Use new pure function interface
+        return self._calculate_indicator_series_new(
+            symbol, indicator_type, timeframe, period, params, data_points
+        )
 
     def _extract_windows_at_timestamp(
         self,
@@ -805,9 +679,20 @@ class OfflineIndicatorEngine(IIndicatorEngine):
             try:
                 value = algorithm.calculate_from_windows(windows, wrapped_params)
             except Exception as e:
+                import traceback as tb
                 calculation_errors += 1
-                # Only log first 5 errors to avoid spam
-                if calculation_errors <= 5:
+                # Log first error with full traceback, subsequent errors with brief info
+                if calculation_errors == 1:
+                    self.logger.error(
+                        "offline_indicator_engine.calculate_failed",
+                        {
+                            "indicator_type": indicator_type.value,
+                            "timestamp": target_ts,
+                            "error": str(e),
+                            "traceback": tb.format_exc()
+                        }
+                    )
+                elif calculation_errors <= 5:
                     self.logger.error(
                         "offline_indicator_engine.calculate_failed",
                         {

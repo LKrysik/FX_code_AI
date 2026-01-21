@@ -116,11 +116,8 @@ class ApiModule(ContainerModule):
                     logger=self.logger
                 )
 
-                # Start listening to events
-                await bridge.start()
-
                 self.logger.info("api_module.event_bridge_created", {
-                    "status": "started"
+                    "status": "created"
                 })
                 return bridge
 

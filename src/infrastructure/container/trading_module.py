@@ -158,12 +158,8 @@ class TradingModule(ContainerModule):
                 from ...domain.services.risk_manager import RiskManager
 
                 risk_config = getattr(self.settings, 'risk', None)
-                if risk_config is None:
-                    risk_config = {
-                        'max_position_size_pct': 0.1,
-                        'max_daily_loss_pct': 0.05,
-                        'max_drawdown_pct': 0.15
-                    }
+                if not risk_config:
+                    raise ValueError("Risk management configuration ('risk') is missing from settings.")
 
                 risk_manager = RiskManager(
                     initial_capital=initial_capital,
@@ -292,10 +288,8 @@ class TradingModule(ContainerModule):
                     default_decision_timeout=5.0
                 )
 
-                await coordinator.start()
-
                 self.logger.info("trading_module.trading_coordinator_created", {
-                    "status": "started",
+                    "status": "created",
                     "pattern": "mediator"
                 })
                 return coordinator

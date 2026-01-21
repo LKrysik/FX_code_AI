@@ -218,9 +218,50 @@ class DataModule(ContainerModule):
 
         return await self._get_or_create_singleton_async("indicator_algorithm_registry", _create)
 
+    async def create_offline_indicator_engine(self) -> 'OfflineIndicatorEngine':
+        """
+        Create offline indicator engine with SHARED algorithm registry.
+
+        This ensures OfflineIndicatorEngine uses the same algorithm registry
+        as StreamingIndicatorEngine for consistent calculations.
+
+        Returns:
+            Configured OfflineIndicatorEngine singleton
+        """
+        async def _create():
+            try:
+                from ...domain.services.offline_indicator_engine import OfflineIndicatorEngine
+                from ...data.questdb_data_provider import QuestDBDataProvider
+
+                questdb = await self.create_questdb_provider()
+                questdb_data_provider = QuestDBDataProvider(questdb, self.logger)
+                algorithm_registry = await self.create_indicator_algorithm_registry()
+
+                engine = OfflineIndicatorEngine(
+                    questdb_data_provider=questdb_data_provider,
+                    algorithm_registry=algorithm_registry  # SHARED registry
+                )
+
+                self.logger.info("data_module.offline_indicator_engine_created", {
+                    "algorithm_registry_shared": True,
+                    "algorithms_count": len(algorithm_registry.list_algorithms())
+                })
+                return engine
+
+            except Exception as e:
+                self.logger.error("data_module.offline_indicator_engine_creation_failed", {
+                    "error": str(e)
+                })
+                raise RuntimeError(f"Failed to create offline indicator engine: {str(e)}") from e
+
+        return await self._get_or_create_singleton_async("offline_indicator_engine", _create)
+
     async def create_indicator_variant_repository(self) -> 'IndicatorVariantRepository':
         """
-        Create indicator variant repository.
+        Create indicator variant repository with SHARED algorithm registry.
+
+        The repository stores the algorithm registry so that StreamingIndicatorEngine
+        can access algorithms via variant_repository.algorithms (single source of truth).
 
         Returns:
             Configured IndicatorVariantRepository singleton
@@ -230,13 +271,18 @@ class DataModule(ContainerModule):
                 from ...domain.repositories.indicator_variant_repository import IndicatorVariantRepository
 
                 questdb = await self.create_questdb_provider()
+                algorithm_registry = await self.create_indicator_algorithm_registry()
 
                 repository = IndicatorVariantRepository(
                     questdb_provider=questdb,
+                    algorithm_registry=algorithm_registry,
                     logger=self.logger
                 )
 
-                self.logger.info("data_module.indicator_variant_repository_created")
+                self.logger.info("data_module.indicator_variant_repository_created", {
+                    "algorithm_registry_shared": True,
+                    "algorithms_count": len(algorithm_registry.get_all_algorithms())
+                })
                 return repository
 
             except Exception as e:
@@ -251,6 +297,9 @@ class DataModule(ContainerModule):
         """
         Create streaming indicator engine for real-time calculations.
 
+        ARCHITECTURE: Engine gets algorithm_registry from variant_repository.algorithms
+        (single source of truth pattern). Do NOT pass algorithm_registry directly.
+
         Returns:
             Configured StreamingIndicatorEngine singleton
         """
@@ -258,17 +307,20 @@ class DataModule(ContainerModule):
             try:
                 from ...domain.services.streaming_indicator_engine import StreamingIndicatorEngine
 
-                algorithm_registry = await self.create_indicator_algorithm_registry()
+                # variant_repository contains algorithm_registry as .algorithms attribute
+                # Engine will access it via variant_repository.algorithms (single source of truth)
                 variant_repository = await self.create_indicator_variant_repository()
 
                 engine = StreamingIndicatorEngine(
-                    algorithm_registry=algorithm_registry,
-                    variant_repository=variant_repository,
                     event_bus=self.event_bus,
-                    logger=self.logger
+                    logger=self.logger,
+                    variant_repository=variant_repository
                 )
 
-                self.logger.info("data_module.streaming_indicator_engine_created")
+                self.logger.info("data_module.streaming_indicator_engine_created", {
+                    "algorithms_source": "variant_repository.algorithms",
+                    "algorithms_count": len(variant_repository.algorithms.get_all_algorithms())
+                })
                 return engine
 
             except Exception as e:

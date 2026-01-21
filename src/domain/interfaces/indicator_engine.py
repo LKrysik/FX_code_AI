@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Any
 from enum import Enum
 
-from ..services.streaming_indicator_engine import IndicatorType
+from ..types import IndicatorType
 
 
 class EngineMode(Enum):

@@ -3,6 +3,10 @@ Detect Pump Signals Use Case
 ============================
 Application layer orchestrating pump detection workflow.
 Coordinates domain services and handles cross-cutting concerns.
+
+✅ FIX (2026-01-21) F3: Migrated fire-and-forget subscription to safe_subscribe
+   - Risk minimized: Silent subscription failures → detected, retried, logged
+   - Lines 71-85: Uses safe_subscribe with retry and graceful degradation
 """
 
 from typing import Optional, Dict, Any
@@ -17,6 +21,7 @@ from ...domain.models.market_data import MarketData
 from ...domain.models.signals import FlashPumpSignal, ReversalSignal, SignalType
 from ...domain.interfaces.market_data import IMarketDataProvider
 from ...domain.interfaces.notifications import INotificationService
+from ...core.utils import safe_subscribe
 # Removed get_settings import - violates Service Locator anti-pattern
 
 
@@ -66,9 +71,43 @@ class DetectPumpSignalsUseCase:
         self._setup_event_subscriptions()
     
     def _setup_event_subscriptions(self):
-        """Setup event subscriptions for pump detection"""
-        import asyncio
-        asyncio.create_task(self.event_bus.subscribe('market.price_update', self._handle_market_data_event))
+        """
+        Setup event subscriptions for pump detection.
+
+        ✅ FIX (2026-01-21) F3: Replaced fire-and-forget with safe_subscribe
+        RISK MINIMIZED (Lines 71-85):
+           - BEFORE: asyncio.create_task(subscribe(...)) - silent failure, no retry
+           - AFTER: safe_subscribe with 3 retries, 5s timeout, graceful degradation
+           - Validated by #67 Stability Basin, #165 Constructive Counterexample
+        """
+        asyncio.create_task(self._async_setup_subscriptions())
+
+    async def _async_setup_subscriptions(self):
+        """
+        Async subscription setup with safe_subscribe.
+
+        ✅ RISK MINIMIZED:
+           - Timeout: 5s per attempt prevents hang (#165 counterexample)
+           - Retry: 3 attempts with exponential backoff (0.5s, 1s, 2s)
+           - Degradation: If all fail, system continues without pump detection
+        """
+        success = await safe_subscribe(
+            event_bus=self.event_bus,
+            event='market.price_update',
+            handler=self._handle_market_data_event,
+            logger=self.logger,
+            max_retries=3,
+            timeout=5.0
+        )
+
+        if not success:
+            # ✅ System continues in degraded mode - pump detection disabled
+            # This is better than crashing or silent failure
+            self.logger.error("detect_pump_signals.degraded_mode", {
+                "reason": "market.price_update subscription failed after retries",
+                "impact": "Pump detection will NOT receive market data",
+                "recommendation": "Check EventBus health, restart service if needed"
+            })
     
     async def _handle_market_data_event(self, event_data: dict):
         """

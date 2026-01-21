@@ -1933,6 +1933,44 @@ class Container:
         })
         
         return health_status
+
+    async def start_background_services(self):
+        """
+        Start essential background services after creation.
+        This centralizes lifecycle management, separating creation from activation.
+        """
+        self.logger.info("container.starting_background_services")
+        
+        services_to_start = {
+            "event_bridge": self.api.create_event_bridge,
+            "trading_coordinator": self.trading.create_trading_coordinator,
+        }
+        
+        for name, factory in services_to_start.items():
+            if name in self._started_services:
+                self.logger.debug(f"Service '{name}' already started, skipping.")
+                continue
+            
+            try:
+                self.logger.debug(f"Starting service: {name}")
+                service = await factory()
+                
+                if hasattr(service, 'start') and callable(getattr(service, 'start')):
+                    await service.start()
+                    self._started_services.add(name)
+                    self.logger.info(f"Service '{name}' started successfully.")
+                else:
+                    self.logger.warning(f"Service '{name}' does not have a start() method.")
+            
+            except Exception as e:
+                self.logger.error(f"Failed to start service '{name}': {e}", exc_info=True)
+                # Depending on the service, you might want to raise the exception
+                # to halt application startup if a critical service fails.
+                raise RuntimeError(f"Critical service '{name}' failed to start.") from e
+
+        self.logger.info("container.background_services_started", {
+            "started_services": list(self._started_services)
+        })
     
     def get_service_status(self) -> Dict[str, Any]:
         """

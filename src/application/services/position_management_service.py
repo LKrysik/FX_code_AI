@@ -2,11 +2,18 @@
 Position Management Service
 ===========================
 Manages the lifecycle of trading positions based on detected signals.
+
+✅ FIX (2026-01-21) F3: Migrated 3 fire-and-forget subscriptions to safe_subscribe_multiple
+   - Risk minimized: Silent subscription failures → detected, retried, logged
+   - Lines 22-54: Uses safe_subscribe_multiple with consolidated error handling
 """
 
+import asyncio
 from ...core.event_bus import EventBus
 from ...core.logger import StructuredLogger
+from ...core.utils import safe_subscribe_multiple
 from ...infrastructure.config.settings import AppSettings
+
 
 class PositionManagementService:
     def __init__(self, settings: AppSettings, event_bus: EventBus, logger: StructuredLogger):
@@ -17,12 +24,51 @@ class PositionManagementService:
         self._setup_event_subscriptions()
 
     def _setup_event_subscriptions(self):
-        """Subscribe to relevant events for position management."""
-        import asyncio
-        asyncio.create_task(self.event_bus.subscribe('pump.signal.generated', self.handle_new_signal))
-        asyncio.create_task(self.event_bus.subscribe('trade.executed', self.handle_trade_execution))
-        asyncio.create_task(self.event_bus.subscribe('market.price_update', self.handle_price_update))
-        self.logger.info("position_management_service.subscribed_to_events")
+        """
+        Subscribe to relevant events for position management.
+
+        ✅ FIX (2026-01-21) F3: Replaced 3 fire-and-forget subscriptions with safe_subscribe_multiple
+        RISK MINIMIZED (Lines 35-54):
+           - BEFORE: 3x asyncio.create_task(subscribe(...)) - silent failure, no retry
+           - AFTER: safe_subscribe_multiple with 3 retries each, consolidated logging
+           - Validated by #67 Stability Basin, #84 Coherence Check (single pattern)
+        """
+        asyncio.create_task(self._async_setup_subscriptions())
+
+    async def _async_setup_subscriptions(self):
+        """
+        Async subscription setup with safe_subscribe_multiple.
+
+        ✅ RISK MINIMIZED:
+           - All 3 subscriptions use same retry/timeout/degradation logic
+           - Consolidated logging shows which subscriptions failed
+           - System continues in degraded mode for failed subscriptions
+        """
+        results = await safe_subscribe_multiple(
+            event_bus=self.event_bus,
+            subscriptions=[
+                ('pump.signal.generated', self.handle_new_signal),
+                ('trade.executed', self.handle_trade_execution),
+                ('market.price_update', self.handle_price_update),
+            ],
+            logger=self.logger,
+            max_retries=3,
+            timeout=5.0
+        )
+
+        # Log degraded subscriptions for monitoring
+        failed = [event for event, success in results.items() if not success]
+        if failed:
+            self.logger.error("position_management_service.degraded_mode", {
+                "failed_subscriptions": failed,
+                "impact": "Position management will NOT receive these events",
+                "recommendation": "Check EventBus health, restart service if needed"
+            })
+        else:
+            self.logger.info("position_management_service.subscribed_to_events", {
+                "subscriptions": list(results.keys()),
+                "all_succeeded": True
+            })
 
     async def handle_new_signal(self, event: dict):
         """Handle a new trading signal and decide whether to open a position."""
