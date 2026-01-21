@@ -58,6 +58,7 @@ class ExecutionPlan:
     """Complete execution plan for a strategy graph."""
     id: str
     name: str
+    symbol: str = "BTCUSDT"  # FIX F5: Primary trading symbol for signal generation
     nodes: Dict[str, ExecutionNode] = field(default_factory=dict)
     execution_order: List[str] = field(default_factory=list)
     state_machine_nodes: Dict[str, Any] = field(default_factory=dict)  # For temporal conditions
@@ -127,9 +128,11 @@ class GraphAdapter:
             data_flow = self._create_data_flow_mapping(execution_nodes, graph)
 
             # Create execution plan
+            # FIX F5 + #159 Transitive Dependency: Pass symbol to ExecutionPlan
             plan = ExecutionPlan(
                 id=str(uuid.uuid4()),
                 name=graph.name,
+                symbol=symbol,  # FIX F5: Propagate symbol through execution plan
                 nodes=execution_nodes,
                 execution_order=execution_order,
                 state_machine_nodes=state_machines,
@@ -403,7 +406,7 @@ class GraphAdapter:
         elif node.node_type == ExecutionNodeType.CONDITION:
             return await self._execute_condition(node, inputs, plan)
         elif node.node_type == ExecutionNodeType.ACTION:
-            return await self._execute_action(node, inputs)
+            return await self._execute_action(node, inputs, plan)  # FIX F5: Pass plan for symbol access
         else:
             raise GraphAdapterError(f"Unsupported node type: {node.node_type}")
 
@@ -576,8 +579,13 @@ class GraphAdapter:
 
         return False
 
-    async def _execute_action(self, node: ExecutionNode, inputs: Dict[str, Any]) -> Optional[PumpSignal]:
-        """Execute an action node."""
+    async def _execute_action(self, node: ExecutionNode, inputs: Dict[str, Any],
+                              plan: ExecutionPlan) -> Optional[PumpSignal]:
+        """Execute an action node.
+
+        FIX F5 + #71 First Principles: Symbol now flows from plan, not hardcoded.
+        Risk mitigation: #61 Pre-mortem - prevents wrong-symbol signal generation.
+        """
         action_type = node.graph_node.node_type
         parameters = node.graph_node.parameters
 
@@ -586,28 +594,32 @@ class GraphAdapter:
         if not input_values or not all(input_values):
             return None
 
+        # FIX F5: Use symbol from execution plan instead of hardcoded value
+        # #79 Operational Definition: Symbol is operationally defined as plan.symbol
+        symbol = plan.symbol
+
         # Create signal based on action type
         if action_type == "buy_signal":
             return PumpSignal(
-                symbol="BTC_USDT",  # Would come from context
+                symbol=symbol,  # FIX F5: Use plan.symbol
                 signal_type=SignalType.BUY,
                 confidence=0.8,
                 position_size=parameters.get("position_size", 100.0),
                 risk_level=RiskLevel.MEDIUM,
                 indicators={},
                 timestamp=int(asyncio.get_event_loop().time() * 1000),
-                reason="Graph-based buy signal"
+                reason=f"Graph-based buy signal for {symbol}"
             )
         elif action_type == "sell_signal":
             return PumpSignal(
-                symbol="BTC_USDT",
+                symbol=symbol,  # FIX F5: Use plan.symbol
                 signal_type=SignalType.SELL,
                 confidence=0.7,
                 position_size=parameters.get("position_size", 100.0),
                 risk_level=RiskLevel.LOW,
                 indicators={},
                 timestamp=int(asyncio.get_event_loop().time() * 1000),
-                reason="Graph-based sell signal"
+                reason=f"Graph-based sell signal for {symbol}"
             )
 
         return None
@@ -766,7 +778,8 @@ class LiveGraphExecutor:
                     "quantity": signal.position_size,
                     "price": signal.indicators.get("price", 0.0),
                     # TradingPersistenceService fields
-                    "signal_id": f"signal_{session.strategy_name}_{signal.symbol}_{int(signal.timestamp * 1000)}",
+                    # FIX F4: signal.timestamp is already in ms, no need to multiply
+                    "signal_id": f"signal_{session.strategy_name}_{signal.symbol}_{int(signal.timestamp)}",
                     "strategy_id": session.strategy_name,
                     "action": signal.signal_type.value,
                     "triggered": True,

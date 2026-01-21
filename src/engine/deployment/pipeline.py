@@ -74,6 +74,7 @@ class Deployment:
     created_by: str = ""
     approved_by: Optional[str] = None
     deployed_session_id: Optional[str] = None
+    symbol: str = "BTCUSDT"  # FIX F1: Primary trading symbol for this deployment
     rollback_data: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -101,7 +102,8 @@ class DeploymentPipeline:
         self.approval_callbacks: List[Callable] = []
 
     def create_deployment(self, blueprint_id: str, blueprint_name: str,
-                         graph: StrategyGraph, created_by: str) -> str:
+                         graph: StrategyGraph, created_by: str,
+                         symbol: str = "BTCUSDT") -> str:
         """
         Create a new deployment for a strategy blueprint.
 
@@ -110,18 +112,25 @@ class DeploymentPipeline:
             blueprint_name: Name of the blueprint
             graph: The strategy graph to deploy
             created_by: User creating the deployment
+            symbol: Primary trading symbol for this deployment (default: BTCUSDT)
+                    FIX F1: Explicit symbol parameter ensures symbol is always defined.
+                    Risk mitigation: #66 Dependency Risk - eliminates SPOF
 
         Returns:
             Deployment ID
         """
         deployment_id = str(uuid.uuid4())
 
+        # FIX F1 + #165 Constructive Counterexample: Handle empty string case
+        effective_symbol = symbol if symbol and symbol.strip() else "BTCUSDT"
+
         deployment = Deployment(
             id=deployment_id,
             blueprint_id=blueprint_id,
             blueprint_name=blueprint_name,
             graph=graph,
-            created_by=created_by
+            created_by=created_by,
+            symbol=effective_symbol
         )
 
         # Add initial step
